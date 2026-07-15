@@ -126,6 +126,7 @@ fn apply_late_multi_bibliography_noise(root: &Utf8Path, noise: LateMultiNoise) {
 
 struct LateMultiBibliographySemanticChangeRun {
     _tempdir: tempfile::TempDir,
+    root: Utf8PathBuf,
     build_root: Utf8PathBuf,
     second: CompileOutcome,
 }
@@ -158,6 +159,7 @@ async fn compile_late_multi_bibliography_semantic_change_with_root_noise(
 
     LateMultiBibliographySemanticChangeRun {
         _tempdir: tempdir,
+        root,
         build_root,
         second,
     }
@@ -307,12 +309,14 @@ async fn compile_late_multi_bibliography_semantic_change_with_included_body_nois
 
     LateMultiBibliographySemanticChangeRun {
         _tempdir: tempdir,
+        root,
         build_root,
         second,
     }
 }
 
 fn assert_late_multi_bibliography_semantic_change_with_included_body_rebuild(
+    root: &Utf8Path,
     build_root: &Utf8Path,
     second: &CompileOutcome,
     dirty_files: Vec<Utf8PathBuf>,
@@ -335,10 +339,17 @@ fn assert_late_multi_bibliography_semantic_change_with_included_body_rebuild(
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        replace_indexes,
-        vec![second.page_metadata.len().saturating_sub(1)]
+    let body_source =
+        fs::read_to_string(root.join("sections/body.tex")).expect("read included body source");
+    let late_citation_offset = body_source
+        .find(r"\citeyear{beta}")
+        .expect("late citation source offset");
+    let changed_page_index = renderer_page_index_covering_source_offset(
+        second,
+        Utf8Path::new("sections/body.tex"),
+        late_citation_offset,
     );
+    assert_eq!(replace_indexes, vec![changed_page_index]);
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
     )
@@ -369,6 +380,7 @@ async fn run_late_multi_included_body_rebuild(
     )
     .await;
     assert_late_multi_bibliography_semantic_change_with_included_body_rebuild(
+        &run.root,
         &run.build_root,
         &run.second,
         dirty_files,

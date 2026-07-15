@@ -26,13 +26,13 @@ toplevel:
     )
     .expect("write manifest");
     fs::write(root.join("article.cls"), "").expect("write class");
-    fs::write(
-        root.join("main.tex"),
-        format!(
-            "\\documentclass{{article}}\\begin{{document}}Early cite \\cite{{alpha}}. {filler} Late year \\citeyear{{beta}}.\\bibliography{{refs}}\\end{{document}}"
-        ),
-    )
-    .expect("write main");
+    let main_source = format!(
+        "\\documentclass{{article}}\\begin{{document}}Early cite \\cite{{alpha}}. {filler} Late year \\citeyear{{beta}}.\\bibliography{{refs}}\\end{{document}}"
+    );
+    let late_citation_offset = main_source
+        .find(r"\citeyear{beta}")
+        .expect("late citation source offset");
+    fs::write(root.join("main.tex"), &main_source).expect("write main");
     fs::write(
         root.join("refs.bbl"),
         "\\begin{thebibliography}{2}\n\\bibitem[Alpha 2024]{alpha} Alpha entry.\n\\bibitem[Beta 2024]{beta} Beta entry.\n\\end{thebibliography}\n",
@@ -135,10 +135,12 @@ toplevel:
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        replace_indexes,
-        vec![second.page_metadata.len().saturating_sub(1)]
+    let changed_page_index = renderer_page_index_covering_source_offset(
+        &second,
+        Utf8Path::new("main.tex"),
+        late_citation_offset,
     );
+    assert_eq!(replace_indexes, vec![changed_page_index]);
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
     )

@@ -153,6 +153,7 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
                     .map(|page| page.page_id.clone())
                     .collect::<Vec<_>>(),
             );
+            assert_renderer_page_artifact_reuse(&run.first, &run.second, 1, 2);
             assert_eq!(run.first.page_metadata.len(), 4);
             let tail = run.second.unchanged_tail.expect("unchanged tail");
             assert_eq!(tail.previous_rev, 1);
@@ -160,9 +161,6 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
             assert_eq!(tail.current_page_start, 2);
             assert_eq!(tail.page_count, 3);
             assert!(!run.second.page_patches.is_empty());
-            assert!(run.second.page_artifacts.iter().any(|page| {
-                page.pdf_url.starts_with("/artifacts/rev/1/pages/")
-            }));
             assert!(run.second.page_artifacts.iter().any(|page| {
                 page.pdf_url.starts_with("/artifacts/rev/2/pages/")
             }));

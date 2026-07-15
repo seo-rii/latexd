@@ -48,11 +48,12 @@ toplevel:
         "\\documentclass{article}\\begin{document}\\input{sections/body}\\bibliography{refs}\\end{document}"
     };
     fs::write(root.join("main.tex"), main_source).expect("write main");
-    fs::write(
-        root.join("sections/body.tex"),
-        format!("Early cite \\cite{{alpha}}. {body_filler} Late year \\citeyear{{beta}}."),
-    )
-    .expect("write body");
+    let body_source =
+        format!("Early cite \\cite{{alpha}}. {body_filler} Late year \\citeyear{{beta}}.");
+    let late_citation_offset = body_source
+        .find(r"\citeyear{beta}")
+        .expect("late citation source offset");
+    fs::write(root.join("sections/body.tex"), &body_source).expect("write body");
     if include_appendix {
         fs::write(
             root.join("sections/appendix.tex"),
@@ -228,10 +229,12 @@ toplevel:
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(
-            replace_indexes,
-            vec![second.page_metadata.len().saturating_sub(1)]
+        let changed_page_index = renderer_page_index_covering_source_offset(
+            &second,
+            Utf8Path::new("sections/body.tex"),
+            late_citation_offset,
         );
+        assert_eq!(replace_indexes, vec![changed_page_index]);
     }
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),

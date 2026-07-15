@@ -59,6 +59,66 @@ fn assert_page_patches_transform(
     assert_eq!(actual_page_ids, expected_page_ids);
 }
 
+fn assert_renderer_page_artifact_reuse(
+    previous: &CompileOutcome,
+    current: &CompileOutcome,
+    previous_rev: u64,
+    current_rev: u64,
+) {
+    assert_eq!(
+        current.page_artifacts.len(),
+        current.renderer_page_metadata.len()
+    );
+    for (artifact, page) in current
+        .page_artifacts
+        .iter()
+        .zip(&current.renderer_page_metadata)
+    {
+        assert_eq!(artifact.page_id, page.page_id);
+        let rev = if previous
+            .renderer_page_metadata
+            .iter()
+            .any(|previous_page| previous_page.page_id == page.page_id)
+        {
+            previous_rev
+        } else {
+            current_rev
+        };
+        assert!(
+            artifact
+                .pdf_url
+                .starts_with(&format!("/artifacts/rev/{rev}/pages/")),
+            "renderer page {} should use revision {rev}, got {}",
+            page.page_id,
+            artifact.pdf_url
+        );
+    }
+}
+
+fn renderer_page_index_covering_source_offset(
+    outcome: &CompileOutcome,
+    source_path: &Utf8Path,
+    source_offset: usize,
+) -> usize {
+    outcome
+        .renderer_page_metadata
+        .iter()
+        .find(|page| {
+            page.source_spans.iter().any(|span| {
+                span.file == source_path
+                    && span.start_utf8 as usize <= source_offset
+                    && source_offset < span.end_utf8 as usize
+            })
+        })
+        .map(|page| page.index)
+        .unwrap_or_else(|| {
+            panic!(
+                "no page covers source offset {source_offset} in {source_path}; pages={:?}",
+                outcome.renderer_page_metadata
+            )
+        })
+}
+
 static PATH_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 struct PathOverrideGuard {

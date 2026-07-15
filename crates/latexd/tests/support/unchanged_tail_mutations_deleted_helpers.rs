@@ -90,6 +90,12 @@ async fn run_deleted_unchanged_tail_mutation(case: DeletedUnchangedTailMutationC
                     .map(|page| page.page_id.clone())
                     .collect::<Vec<_>>(),
             );
+            assert_renderer_page_artifact_reuse(
+                &run.fixture.first,
+                &run.second,
+                1,
+                2,
+            );
             assert_eq!(tail.previous_rev, 1);
             assert_eq!(tail.previous_page_start, run.fixture.first_tail_page);
             assert_eq!(
@@ -110,9 +116,6 @@ async fn run_deleted_unchanged_tail_mutation(case: DeletedUnchangedTailMutationC
                     run.fixture.first.page_metadata[run.fixture.first_tail_page + offset].page_id
                 );
             }
-            assert!(run.second.page_artifacts.iter().any(|page| {
-                page.pdf_url.starts_with("/artifacts/rev/1/pages/")
-            }));
         }
         DeletedUnchangedTailMutationCase::BuildMeta => {
             assert!(!run.build_meta.aux_sensitive);
