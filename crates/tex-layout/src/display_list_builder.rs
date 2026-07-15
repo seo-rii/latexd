@@ -513,6 +513,7 @@ struct LogicalContainer {
 
 enum LogicalItem {
     Text(LogicalTextRun),
+    VerticalGap(f32),
     Image(LogicalImage),
     FullPageImage(LogicalImage),
     PageBreak,
@@ -524,6 +525,15 @@ pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
 ) -> Vec<PageDisplayList> {
+    let uses_standard_article_heading_metrics = document_ir
+        .document_class
+        .as_ref()
+        .is_some_and(|class| class.name.trim().eq_ignore_ascii_case("article"))
+        && document_ir
+            .layout
+            .as_ref()
+            .and_then(|layout| layout.profile.as_ref())
+            .is_none();
     let column_count = options.column_count.max(1);
     let column_gap_pt = if options.column_gap_pt.is_finite() {
         options.column_gap_pt.max(0.0)
@@ -1053,6 +1063,59 @@ pub fn build_page_display_lists(
                 }));
             }
             IrBlock::Heading(block) => {
+                let legacy_metrics = (
+                    options.heading_font_size_pt,
+                    options.line_height_pt,
+                    0.0,
+                    options.block_gap_pt,
+                    " ",
+                );
+                let (font_size_pt, line_height_pt, gap_before_pt, gap_after_pt, number_separator) =
+                    if uses_standard_article_heading_metrics {
+                        let scale = options.body_font_size_pt / 10.0;
+                        match block.level {
+                            1 => (
+                                options.heading_font_size_pt,
+                                if options.heading_font_size_pt > 15.0 {
+                                    22.0
+                                } else {
+                                    18.0
+                                },
+                                0.0,
+                                3.0 * scale,
+                                "     ",
+                            ),
+                            2 => (
+                                if options.body_font_size_pt >= 11.5 {
+                                    14.4
+                                } else {
+                                    12.0
+                                },
+                                if options.body_font_size_pt >= 11.5 {
+                                    18.0
+                                } else {
+                                    14.0
+                                },
+                                16.0 * scale,
+                                4.5 * scale,
+                                "     ",
+                            ),
+                            3 => (
+                                options.body_font_size_pt,
+                                options.line_height_pt,
+                                14.0 * scale,
+                                6.5 * scale,
+                                "     ",
+                            ),
+                            _ => legacy_metrics,
+                        }
+                    } else {
+                        legacy_metrics
+                    };
+                let font = FontRequest {
+                    size_pt: font_size_pt,
+                    ..heading_font.clone()
+                };
                 let mut segments = Vec::new();
                 if let Some(number) = &block.number {
                     segments.push(LogicalTextSegment {
@@ -1065,7 +1128,7 @@ pub fn build_page_display_lists(
                         table_vertical_rule_offsets: Vec::new(),
                     });
                     segments.push(LogicalTextSegment {
-                        text: " ".to_string(),
+                        text: number_separator.to_string(),
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
@@ -1075,13 +1138,16 @@ pub fn build_page_display_lists(
                     });
                 }
                 segments.extend(inline_segments(&block.content));
+                if gap_before_pt > 0.0 {
+                    logical_items.push(LogicalItem::VerticalGap(gap_before_pt));
+                }
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments,
                     source: block.source.clone(),
-                    font: heading_font.clone(),
-                    size_pt: options.heading_font_size_pt,
-                    line_height_pt: options.line_height_pt,
-                    gap_after_pt: options.block_gap_pt,
+                    font,
+                    size_pt: font_size_pt,
+                    line_height_pt,
+                    gap_after_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     right_indent_pt: 0.0,
@@ -2498,6 +2564,14 @@ pub fn build_page_display_lists(
 
     for logical in logical_items {
         match logical {
+            LogicalItem::VerticalGap(gap_pt) => {
+                if let Some(row) = pending_image_row.take() {
+                    y = row.y + row.height_pt + row.gap_after_pt;
+                }
+                if y > column_start_y + 0.01 {
+                    y += gap_pt.max(0.0);
+                }
+            }
             LogicalItem::Text(logical) => {
                 let full_width = logical.full_width;
                 if let Some(row) = pending_image_row.take() {
@@ -6932,6 +7006,82 @@ mod tests {
             .collect::<String>();
 
         assert_eq!(text, "1 Intro");
+    }
+
+    #[test]
+    fn standard_article_heading_levels_use_distinct_metrics() {
+        let source = SourceProvenance::file("main.tex", 0, 180);
+        let heading = |level, number: &str, text: &str| {
+            IrBlock::Heading(HeadingBlock {
+                level,
+                number: Some(number.to_string()),
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::with_document_class_and_labels(
+            vec![
+                heading(1, "1", "Primary Heading"),
+                paragraph("Primary body."),
+                heading(2, "1.1", "Secondary Heading"),
+                paragraph("Secondary body."),
+                heading(3, "1.1.1", "Tertiary Heading"),
+                paragraph("Tertiary body."),
+            ],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "letterpaper".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+        let display_lists = build_page_display_lists(
+            &document,
+            PageDisplayListOptions::for_document_ir(&document),
+        );
+        let runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let find_run = |text: &str| {
+            runs.iter()
+                .copied()
+                .find(|run| run.text == text)
+                .unwrap_or_else(|| panic!("missing text run {text:?}"))
+        };
+        let primary = find_run("1");
+        let primary_title = find_run("Primary Heading");
+        let primary_body = find_run("Primary body.");
+        let secondary = find_run("1.1");
+        let secondary_body = find_run("Secondary body.");
+        let tertiary = find_run("1.1.1");
+        let tertiary_body = find_run("Tertiary body.");
+
+        assert_eq!(primary.size_pt, 14.4);
+        assert_eq!(secondary.size_pt, 12.0);
+        assert_eq!(tertiary.size_pt, 10.0);
+        assert!((primary_body.origin.y - primary.origin.y - 21.0).abs() < 0.01);
+        assert!((secondary.origin.y - primary_body.origin.y - 28.0).abs() < 0.01);
+        assert!((secondary_body.origin.y - secondary.origin.y - 18.5).abs() < 0.01);
+        assert!((tertiary.origin.y - secondary_body.origin.y - 26.0).abs() < 0.01);
+        assert!((tertiary_body.origin.y - tertiary.origin.y - 18.5).abs() < 0.01);
+        assert!(primary_title.origin.x - primary.origin.x - primary.approximate_advance_pt > 12.0);
     }
 
     #[test]
