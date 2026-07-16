@@ -5753,7 +5753,40 @@ impl<'i> Vm<'i> {
                         index = argument_index;
                     }
                 }
-                "pagebreak" | "nopagebreak" | "linebreak" | "nolinebreak" if in_document => {
+                "linebreak" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    let linebreak_end = if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    {
+                        after_option
+                    } else {
+                        index
+                    };
+                    self.emit_render_event(
+                        RenderEvent::LineBreak(LineBreakEvent {
+                            reason: LineBreakReason::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            linebreak_end as u32,
+                        ),
+                    );
+                    index = linebreak_end;
+                }
+                "newline" if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::LineBreak(LineBreakEvent {
+                            reason: LineBreakReason::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                "pagebreak" | "nopagebreak" | "nolinebreak" if in_document => {
                     let argument_index = skip_ascii_whitespace(source, index);
                     if let Some((_, _, _, after_option)) =
                         read_bracket_source_argument(source, argument_index)
@@ -7690,12 +7723,16 @@ impl<'i> Vm<'i> {
                                             ),
                                         );
                                     }
-                                    "\\" => {
-                                        let linebreak_end = if let Some((_, _, _, command_after)) =
-                                            read_bracket_source_argument(source, inner_index)
-                                            && command_after <= content_end
-                                        {
-                                            command_after
+                                    "\\" | "newline" | "linebreak" => {
+                                        let linebreak_end = if inner_command != "newline" {
+                                            if let Some((_, _, _, command_after)) =
+                                                read_bracket_source_argument(source, inner_index)
+                                                && command_after <= content_end
+                                            {
+                                                command_after
+                                            } else {
+                                                inner_index
+                                            }
                                         } else {
                                             inner_index
                                         };
@@ -8590,8 +8627,10 @@ impl<'i> Vm<'i> {
                                                                 ),
                                                             );
                                                         }
-                                                        "\\" => {
-                                                            let linebreak_end =
+                                                        "\\" | "newline" | "linebreak" => {
+                                                            let linebreak_end = if argument_command
+                                                                != "newline"
+                                                            {
                                                                 if let Some((
                                                                     _,
                                                                     _,
@@ -8605,7 +8644,10 @@ impl<'i> Vm<'i> {
                                                                     command_after
                                                                 } else {
                                                                     argument_inner_index
-                                                                };
+                                                                }
+                                                            } else {
+                                                                argument_inner_index
+                                                            };
                                                             self.emit_render_event(
                                                                 RenderEvent::LineBreak(
                                                                     LineBreakEvent {
@@ -42681,19 +42723,34 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_explicit_line_breaks() {
-        let source = r"\begin{document}First line\\Second line.\end{document}";
+        let source = r"\begin{document}First line\\Second line.\newline Third line.\linebreak[4]Fourth line.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        let line_break = outcome
+        let line_breaks = outcome
             .render_events
             .iter()
-            .find(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
-            .expect("line break event");
-        assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
+            .filter(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(line_breaks.len(), 3);
+        assert!(
+            line_breaks
+                .iter()
+                .all(|event| event.meta.mode_hint == ModeHint::Horizontal)
+        );
+        let break_sources = line_breaks
+            .iter()
+            .map(|event| match &event.meta.source.primary {
+                ProvenanceSpan::File(span) => {
+                    &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                }
+                ProvenanceSpan::Generated(_) => panic!("expected source-backed line break"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(break_sources, vec![r"\\", r"\newline", r"\linebreak[4]"]);
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text == "First"
@@ -42702,6 +42759,44 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text == "Second"
         )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Third"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Fourth"
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_line_breaks_inside_text_wrappers() {
+        let source = r"\begin{document}\textbf{Outer\newline Next}\emph{Nested \unknowntext{Inner\linebreak[2] Tail}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let break_sources = outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
+            .map(|event| match &event.meta.source.primary {
+                ProvenanceSpan::File(span) => {
+                    &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                }
+                ProvenanceSpan::Generated(_) => panic!("expected source-backed line break"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(break_sources, vec![r"\newline", r"\linebreak[2]"]);
+        for expected in ["Outer", "Next", "Nested", "Inner", "Tail"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text == expected
+            )));
+        }
     }
 
     #[test]

@@ -21799,18 +21799,20 @@ fn linebreak_capture_survives_ir_and_display_list() {
         })
         .expect("paragraph");
 
-    assert!(
+    assert_eq!(
         paragraph
             .content
             .iter()
-            .any(|node| matches!(node, InlineNode::LineBreak { .. })),
-        "missing explicit line break IR node"
+            .filter(|node| matches!(node, InlineNode::LineBreak { .. }))
+            .count(),
+        3,
+        "missing explicit line break IR nodes"
     );
     assert!(
         capture
             .document_ir
             .extracted_text()
-            .contains("First line\nSecond line.")
+            .contains("First line\nSecond line.\nThird line.\nFourth line.")
     );
 
     let text_runs = capture.page_display_lists[0]
@@ -21833,7 +21835,19 @@ fn linebreak_capture_survives_ir_and_display_list() {
         .expect("second line run")
         .origin
         .y;
-    assert!(second_y > first_y);
+    let third_y = text_runs
+        .iter()
+        .find(|run| run.text == "Third")
+        .expect("third line run")
+        .origin
+        .y;
+    let fourth_y = text_runs
+        .iter()
+        .find(|run| run.text == "Fourth")
+        .expect("fourth line run")
+        .origin
+        .y;
+    assert!(first_y < second_y && second_y < third_y && third_y < fourth_y);
 }
 
 #[test]
@@ -29988,7 +30002,7 @@ const ESCAPED_VISIBLE_SOURCE: &str =
 const NONBREAKING_TILDE_SOURCE: &str =
     r"\begin{document}Figure~1 references Related~Work.\section{Related~Work}\end{document}";
 
-const LINEBREAK_SOURCE: &str = r"\begin{document}First line\\Second line.\end{document}";
+const LINEBREAK_SOURCE: &str = r"\begin{document}First line\\Second line.\newline Third line.\linebreak[4]Fourth line.\end{document}";
 const LINEBREAK_OPTIONAL_SOURCE: &str =
     r"\begin{document}First line\\[0.5em]Second line.\end{document}";
 

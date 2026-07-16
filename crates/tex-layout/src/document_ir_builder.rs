@@ -848,7 +848,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
         if let Some((content, _)) = &mut self.abstract_content {
             if matches!(node, InlineNode::Space { .. })
-                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+                && (content.is_empty()
+                    || matches!(
+                        content.last(),
+                        Some(InlineNode::Space { .. } | InlineNode::LineBreak { .. })
+                    ))
             {
                 return;
             }
@@ -857,7 +861,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         }
         if let Some((content, _, _)) = &mut self.list_item {
             if matches!(node, InlineNode::Space { .. })
-                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+                && (content.is_empty()
+                    || matches!(
+                        content.last(),
+                        Some(InlineNode::Space { .. } | InlineNode::LineBreak { .. })
+                    ))
             {
                 return;
             }
@@ -866,7 +874,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         }
         if let Some((_, content, _)) = &mut self.environment_content {
             if matches!(node, InlineNode::Space { .. })
-                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+                && (content.is_empty()
+                    || matches!(
+                        content.last(),
+                        Some(InlineNode::Space { .. } | InlineNode::LineBreak { .. })
+                    ))
             {
                 return;
             }
@@ -875,7 +887,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         }
         if matches!(node, InlineNode::Space { .. })
             && (self.paragraph.is_empty()
-                || matches!(self.paragraph.last(), Some(InlineNode::Space { .. })))
+                || matches!(
+                    self.paragraph.last(),
+                    Some(InlineNode::Space { .. } | InlineNode::LineBreak { .. })
+                ))
         {
             return;
         }
