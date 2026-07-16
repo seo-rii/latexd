@@ -1,6 +1,11 @@
 use tex_render_model::{FontFamilyRequest, FontRequest, FontSeries, TextCluster};
 
 pub(crate) fn text_advance_pt(text: &str, font: &FontRequest, size_pt: f32) -> f32 {
+    if let Some(face) = tex_fonts::face_for_request(font, size_pt)
+        && let Some(advance_em) = tex_fonts::text_advance_em(face, text)
+    {
+        return advance_em * size_pt;
+    }
     text.chars()
         .map(|ch| {
             let em_width = match font.family {

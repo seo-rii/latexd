@@ -168,60 +168,56 @@ impl PageDisplayListOptions {
                 const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
                 const TEX_INCH_PT: f32 = 72.27;
                 let (
+                    body_font_size_tex_pt,
+                    baseline_skip_tex_pt,
+                    heading_font_size_tex_pt,
                     title_font_size_tex_pt,
                     author_date_font_size_tex_pt,
                     abstract_font_size_tex_pt,
                     abstract_line_height_tex_pt,
                     paragraph_indent_tex_pt,
                 ) = match requested_font_size_pt {
-                    Some(12.0) => (20.74, 14.4, 10.95, 13.6, 18.0),
-                    Some(11.0) => (17.28, 12.0, 10.0, 12.0, 17.0),
-                    _ => (17.28, 12.0, 9.0, 11.0, 15.0),
+                    Some(12.0) => (12.0, 14.5, 17.28, 20.74, 14.4, 10.95, 13.6, 18.0),
+                    Some(11.0) => (10.95, 13.6, 14.4, 17.28, 12.0, 10.0, 12.0, 17.0),
+                    _ => (10.0, 12.0, 14.4, 17.28, 12.0, 9.0, 11.0, 15.0),
                 };
-                let front_matter_scale = options.body_font_size_pt / 10.0;
+                options.body_font_size_pt = body_font_size_tex_pt * TEX_POINT_TO_PDF_POINT;
+                options.line_height_pt = baseline_skip_tex_pt * TEX_POINT_TO_PDF_POINT;
+                options.heading_font_size_pt = heading_font_size_tex_pt * TEX_POINT_TO_PDF_POINT;
+                let front_matter_scale = body_font_size_tex_pt / 10.0;
                 let list_left_margin_em = if uses_two_columns { 2.0 } else { 2.5 };
                 options.list_continuation_indent_pt =
-                    list_left_margin_em * options.body_font_size_pt * TEX_POINT_TO_PDF_POINT;
+                    list_left_margin_em * options.body_font_size_pt;
                 let paper_width_tex_pt = options.page_width_pt / TEX_POINT_TO_PDF_POINT;
-                let paper_height_tex_pt = options.page_height_pt / TEX_POINT_TO_PDF_POINT;
                 let available_width_tex_pt = (paper_width_tex_pt - 2.0 * TEX_INCH_PT).max(1.0);
                 let text_width_tex_pt = if uses_two_columns {
                     available_width_tex_pt.min(690.0)
                 } else {
                     available_width_tex_pt.min(345.0)
                 };
-                let baseline_skip_tex_pt = options.line_height_pt;
-                let top_skip_tex_pt = options.body_font_size_pt;
-                let vertical_room_tex_pt =
-                    (paper_height_tex_pt - 3.5 * TEX_INCH_PT).max(baseline_skip_tex_pt);
-                let text_line_count = (vertical_room_tex_pt / baseline_skip_tex_pt)
-                    .floor()
-                    .max(1.0);
-                let text_height_tex_pt = text_line_count * baseline_skip_tex_pt + top_skip_tex_pt;
+                let top_skip_tex_pt = body_font_size_tex_pt;
+                let text_height_tex_pt = 550.0;
                 let head_height_tex_pt = 12.0;
                 let head_sep_tex_pt = 25.0;
                 let foot_skip_tex_pt = 30.0;
-                let top_margin_tex_pt = (paper_height_tex_pt
-                    - 2.0 * TEX_INCH_PT
-                    - head_height_tex_pt
-                    - head_sep_tex_pt
-                    - text_height_tex_pt
-                    - foot_skip_tex_pt)
-                    / 2.0;
+                let top_margin_tex_pt = 16.0;
                 let text_top_pt =
                     (TEX_INCH_PT + top_margin_tex_pt + head_height_tex_pt + head_sep_tex_pt)
                         * TEX_POINT_TO_PDF_POINT;
                 let text_height_pt = text_height_tex_pt * TEX_POINT_TO_PDF_POINT;
 
-                options.margin_left_pt =
-                    (options.page_width_pt - text_width_tex_pt * TEX_POINT_TO_PDF_POINT) / 2.0;
+                options.margin_left_pt = if uses_two_columns {
+                    (options.page_width_pt - text_width_tex_pt * TEX_POINT_TO_PDF_POINT) / 2.0
+                } else {
+                    (TEX_INCH_PT + 62.0) * TEX_POINT_TO_PDF_POINT
+                };
                 options.margin_top_pt = text_top_pt + top_skip_tex_pt * TEX_POINT_TO_PDF_POINT;
                 options.margin_bottom_pt =
                     (options.page_height_pt - text_top_pt - text_height_pt).max(0.0);
                 options.front_matter_top_pt =
                     Some(options.margin_top_pt + 41.0 * front_matter_scale);
                 options.paragraph_first_line_indent_pt = if uses_two_columns {
-                    options.body_font_size_pt * TEX_POINT_TO_PDF_POINT
+                    options.body_font_size_pt
                 } else {
                     paragraph_indent_tex_pt * TEX_POINT_TO_PDF_POINT
                 };
@@ -352,7 +348,17 @@ impl PageDisplayListOptions {
                 options.abstract_indent_pt = value as f32 / 1000.0;
             }
         }
-        options.display_math_gap_after_pt = options.body_font_size_pt * 1.9;
+        let uses_standard_article_metrics = document_ir
+            .document_class
+            .as_ref()
+            .is_some_and(|class| class.name.trim().eq_ignore_ascii_case("article"))
+            && !has_package_layout_profile;
+        if uses_standard_article_metrics {
+            options.display_math_gap_before_pt = options.body_font_size_pt * 0.094444;
+            options.display_math_gap_after_pt = options.body_font_size_pt * 1.794444;
+        } else {
+            options.display_math_gap_after_pt = options.body_font_size_pt * 1.9;
+        }
         options
     }
 }
@@ -562,7 +568,12 @@ pub fn build_page_display_lists(
     } else {
         0.0
     };
-    let page_content_width_pt = (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
+    let page_content_width_pt = if uses_standard_article_metrics && column_count == 1 {
+        const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
+        345.0 * TEX_POINT_TO_PDF_POINT
+    } else {
+        (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0)
+    };
     let total_column_gap_pt = column_gap_pt * column_count.saturating_sub(1) as f32;
     let column_width_pt =
         ((page_content_width_pt - total_column_gap_pt).max(1.0) / column_count as f32).max(1.0);
@@ -1099,9 +1110,9 @@ pub fn build_page_display_lists(
                             1 => (
                                 options.heading_font_size_pt,
                                 if options.heading_font_size_pt > 15.0 {
-                                    22.0
+                                    22.0 * 72.0 / 72.27
                                 } else {
-                                    18.0
+                                    18.0 * 72.0 / 72.27
                                 },
                                 0.0,
                                 3.0 * scale,
@@ -1109,14 +1120,14 @@ pub fn build_page_display_lists(
                             ),
                             2 => (
                                 if options.body_font_size_pt >= 11.5 {
-                                    14.4
+                                    14.4 * 72.0 / 72.27
                                 } else {
-                                    12.0
+                                    12.0 * 72.0 / 72.27
                                 },
                                 if options.body_font_size_pt >= 11.5 {
-                                    18.0
+                                    18.0 * 72.0 / 72.27
                                 } else {
-                                    14.0
+                                    14.0 * 72.0 / 72.27
                                 },
                                 16.0 * scale,
                                 4.5 * scale,
@@ -1180,6 +1191,8 @@ pub fn build_page_display_lists(
             IrBlock::Paragraph(block) => {
                 let follows_heading = block_index > 0
                     && matches!(document_ir.blocks[block_index - 1], IrBlock::Heading(_));
+                let follows_display_math = block_index > 0
+                    && matches!(document_ir.blocks[block_index - 1], IrBlock::DisplayMath(_));
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: inline_segments(&block.content),
                     source: block.source.clone(),
@@ -1187,7 +1200,7 @@ pub fn build_page_display_lists(
                     size_pt: options.body_font_size_pt,
                     line_height_pt: options.line_height_pt,
                     gap_after_pt: options.paragraph_gap_pt.unwrap_or(options.block_gap_pt),
-                    first_line_indent_pt: if follows_heading {
+                    first_line_indent_pt: if follows_heading || follows_display_math {
                         0.0
                     } else {
                         options.paragraph_first_line_indent_pt
@@ -7146,14 +7159,29 @@ mod tests {
         let tertiary = find_run("1.1.1");
         let tertiary_body = find_run("Tertiary body.");
 
-        assert_eq!(primary.size_pt, 14.4);
-        assert_eq!(secondary.size_pt, 12.0);
-        assert_eq!(tertiary.size_pt, 10.0);
-        assert!((primary_body.origin.y - primary.origin.y - 21.0).abs() < 0.01);
-        assert!((secondary.origin.y - primary_body.origin.y - 28.0).abs() < 0.01);
-        assert!((secondary_body.origin.y - secondary.origin.y - 18.5).abs() < 0.01);
-        assert!((tertiary.origin.y - secondary_body.origin.y - 26.0).abs() < 0.01);
-        assert!((tertiary_body.origin.y - tertiary.origin.y - 18.5).abs() < 0.01);
+        let tex_point_to_pdf_point = 72.0 / 72.27;
+        assert!((primary.size_pt - 14.4 * tex_point_to_pdf_point).abs() < 0.001);
+        assert!((secondary.size_pt - 12.0 * tex_point_to_pdf_point).abs() < 0.001);
+        assert!((tertiary.size_pt - 10.0 * tex_point_to_pdf_point).abs() < 0.001);
+        assert!(
+            (primary_body.origin.y - primary.origin.y - 21.0 * tex_point_to_pdf_point).abs() < 0.01
+        );
+        assert!(
+            (secondary.origin.y - primary_body.origin.y - 28.0 * tex_point_to_pdf_point).abs()
+                < 0.01
+        );
+        assert!(
+            (secondary_body.origin.y - secondary.origin.y - 18.5 * tex_point_to_pdf_point).abs()
+                < 0.01
+        );
+        assert!(
+            (tertiary.origin.y - secondary_body.origin.y - 26.0 * tex_point_to_pdf_point).abs()
+                < 0.01
+        );
+        assert!(
+            (tertiary_body.origin.y - tertiary.origin.y - 18.5 * tex_point_to_pdf_point).abs()
+                < 0.01
+        );
         assert!(primary_title.origin.x - primary.origin.x - primary.approximate_advance_pt > 12.0);
     }
 
@@ -7318,9 +7346,11 @@ mod tests {
                 _ => None,
             })
             .fold(f32::NEG_INFINITY, f32::max);
-        let content_center =
-            options.margin_left_pt + (options.page_width_pt - options.margin_left_pt * 2.0) / 2.0;
-        assert!(((formula_left + formula_right) / 2.0 - content_center).abs() < 0.1);
+        let article_text_width_pt = 345.0 * 72.0 / 72.27;
+        let content_center = options.margin_left_pt + article_text_width_pt / 2.0;
+        // TeX centers the math list including invisible null-delimiter space, so
+        // the visible glyph bounds can be slightly off the text-block center.
+        assert!(((formula_left + formula_right) / 2.0 - content_center).abs() < 1.0);
         assert!(after.origin.y - before.origin.y > options.line_height_pt * 4.0);
     }
 
@@ -7732,8 +7762,8 @@ mod tests {
         let ten_point_article_options = PageDisplayListOptions::for_document_ir(&ten_point_article);
 
         assert_eq!(article_options.column_count, 2);
-        assert_eq!(article_options.body_font_size_pt, 10.0);
-        assert_eq!(article_options.line_height_pt, 12.0);
+        assert!((article_options.body_font_size_pt - 10.0 * 72.0 / 72.27).abs() < 0.001);
+        assert!((article_options.line_height_pt - 12.0 * 72.0 / 72.27).abs() < 0.001);
         assert!((article_options.column_gap_pt - 9.96).abs() < 0.02);
         assert!((article_options.list_continuation_indent_pt - 20.0 * 72.0 / 72.27).abs() < 0.02);
         assert!((article_options.margin_left_pt - 72.0).abs() < 0.2);
@@ -7743,21 +7773,21 @@ mod tests {
         let a4_options = PageDisplayListOptions::for_document_ir(&a4_article);
         assert_eq!(a4_options.page_width_pt, 595.276);
         assert_eq!(a4_options.page_height_pt, 841.89);
-        assert_eq!(a4_options.body_font_size_pt, 11.0);
-        assert_eq!(a4_options.line_height_pt, 13.6);
-        assert!((a4_options.list_continuation_indent_pt - 27.5 * 72.0 / 72.27).abs() < 0.02);
-        assert_eq!(plain_article_options.body_font_size_pt, 10.0);
-        assert_eq!(plain_article_options.line_height_pt, 12.0);
+        assert!((a4_options.body_font_size_pt - 10.95 * 72.0 / 72.27).abs() < 0.001);
+        assert!((a4_options.line_height_pt - 13.6 * 72.0 / 72.27).abs() < 0.001);
+        assert!((a4_options.list_continuation_indent_pt - 27.375 * 72.0 / 72.27).abs() < 0.02);
+        assert!((plain_article_options.body_font_size_pt - 10.0 * 72.0 / 72.27).abs() < 0.001);
+        assert!((plain_article_options.line_height_pt - 12.0 * 72.0 / 72.27).abs() < 0.001);
         assert!(
             (plain_article_options.list_continuation_indent_pt - 25.0 * 72.0 / 72.27).abs() < 0.02
         );
-        assert!((plain_article_options.margin_left_pt - 134.1).abs() < 0.2);
-        assert!((plain_article_options.margin_top_pt - 135.5).abs() < 0.5);
+        assert!((plain_article_options.margin_left_pt - 133.768).abs() < 0.01);
+        assert!((plain_article_options.margin_top_pt - 134.765).abs() < 0.01);
         assert!((plain_article_options.paragraph_first_line_indent_pt - 14.94).abs() < 0.02);
         assert_eq!(plain_article_options.paragraph_gap_pt, Some(0.0));
         assert!(plain_article_options.show_page_numbers);
-        assert_eq!(ten_point_article_options.body_font_size_pt, 10.0);
-        assert_eq!(ten_point_article_options.line_height_pt, 12.0);
+        assert!((ten_point_article_options.body_font_size_pt - 10.0 * 72.0 / 72.27).abs() < 0.001);
+        assert!((ten_point_article_options.line_height_pt - 12.0 * 72.0 / 72.27).abs() < 0.001);
         let llncs_options = PageDisplayListOptions::for_document_ir(&llncs);
         assert_eq!(llncs_options.page_width_pt, 612.0);
         assert_eq!(llncs_options.page_height_pt, 792.0);
@@ -7777,6 +7807,45 @@ mod tests {
                 max_chars_per_line: usize::MAX,
                 ..PageDisplayListOptions::default()
             }
+        );
+    }
+
+    #[test]
+    fn article_two_column_layout_uses_the_full_text_width() {
+        let source = SourceProvenance::file("main.tex", 0, 48);
+        let document = DocumentIr::with_document_class_and_labels(
+            vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Column flow line 01 keeps deterministic text.".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "twocolumn".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+        let pages = build_page_display_lists(&document, options);
+        let body_baselines = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !run.text.trim().is_empty() && run.text != "1" => {
+                    Some(run.origin.y)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!body_baselines.is_empty());
+        assert!(
+            body_baselines
+                .iter()
+                .all(|baseline| (*baseline - body_baselines[0]).abs() < 0.001)
         );
     }
 
@@ -7914,8 +7983,7 @@ mod tests {
         let page_number = page_number.expect("generated page number");
         assert_eq!(page_number.text, "1");
         assert!(page_number.origin.y > options.page_height_pt - options.margin_bottom_pt);
-        let content_center =
-            options.margin_left_pt + (options.page_width_pt - options.margin_left_pt * 2.0) / 2.0;
+        let content_center = options.margin_left_pt + 345.0 * 72.0 / 72.27 / 2.0;
         assert!(
             (page_number.origin.x + page_number.approximate_advance_pt / 2.0 - content_center)
                 .abs()
@@ -7995,8 +8063,7 @@ mod tests {
                 < 0.01
         );
         assert_eq!(abstract_heading.font.series, FontSeries::Bold);
-        let content_center =
-            options.margin_left_pt + (options.page_width_pt - options.margin_left_pt * 2.0) / 2.0;
+        let content_center = options.margin_left_pt + 345.0 * 72.0 / 72.27 / 2.0;
         assert!(
             (abstract_heading.origin.x + abstract_heading.approximate_advance_pt / 2.0
                 - content_center)

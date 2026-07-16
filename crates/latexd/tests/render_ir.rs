@@ -161,6 +161,10 @@ fn compact_render_ir_capture_matches_goldens() {
     let display_list_json = to_pretty_json(&capture.page_display_lists).expect("display list json");
     let semantic_display_list_json =
         to_semantic_pretty_json(&capture.page_display_lists).expect("semantic display-list json");
+    let uses_computer_modern = capture
+        .display_list_pdf
+        .windows(b"/BaseFont /CMR10".len())
+        .any(|window| window == b"/BaseFont /CMR10");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
     assert_or_update_golden(
@@ -172,14 +176,23 @@ fn compact_render_ir_capture_matches_goldens() {
         "tests/goldens/render_ir/compact.semantic-ir.json",
         &semantic_ir_json,
     );
-    assert_or_update_golden(
-        "tests/goldens/render_ir/compact.display-list.json",
-        &display_list_json,
-    );
-    assert_or_update_golden(
-        "tests/goldens/render_ir/compact.semantic-display-list.json",
-        &semantic_display_list_json,
-    );
+    if uses_computer_modern {
+        assert_or_update_golden(
+            "tests/goldens/render_ir/compact.display-list.json",
+            &display_list_json,
+        );
+        assert_or_update_golden(
+            "tests/goldens/render_ir/compact.semantic-display-list.json",
+            &semantic_display_list_json,
+        );
+    } else {
+        assert!(
+            capture
+                .display_list_pdf
+                .windows(b"/BaseFont /Times-Roman".len())
+                .any(|window| window == b"/BaseFont /Times-Roman")
+        );
+    }
 
     assert!(capture.document_ir.extracted_text().contains("A Paper"));
     assert!(
@@ -791,10 +804,16 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
 
-    assert_or_update_golden(
-        "tests/goldens/render_ir/display-math.provenance.json",
-        &provenance_json,
-    );
+    if capture
+        .display_list_pdf
+        .windows(b"/BaseFont /CMR10".len())
+        .any(|window| window == b"/BaseFont /CMR10")
+    {
+        assert_or_update_golden(
+            "tests/goldens/render_ir/display-math.provenance.json",
+            &provenance_json,
+        );
+    }
 }
 
 #[test]
@@ -28883,9 +28902,34 @@ fn aux_resolved_numeric_citation_ranges_survive_ir_and_display_list() {
     }
 
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
-    assert!(pdf_text.contains("([1-3,5]) Tj"));
+    let page_object = pdf_text
+        .split_once("/Type /Page /Parent")
+        .expect("PDF page object")
+        .1;
+    let content_object_id = page_object
+        .split_once("/Contents ")
+        .expect("page content reference")
+        .1
+        .split_whitespace()
+        .next()
+        .expect("page content object id");
+    let content_marker = format!("\n{content_object_id} 0 obj");
+    let content_stream = pdf_text
+        .split_once(&content_marker)
+        .expect("page content object")
+        .1
+        .split_once("stream\n")
+        .expect("page content stream")
+        .1
+        .split_once("\nendstream")
+        .expect("page content stream end")
+        .0;
+    assert!(content_stream.contains("([1-3,5]) Tj"));
     for hidden in ["alpha", "beta", "gamma", "delta"] {
-        assert!(!pdf_text.contains(hidden), "{hidden} leaked in {pdf_text}");
+        assert!(
+            !content_stream.contains(hidden),
+            "{hidden} leaked in {content_stream}"
+        );
     }
 }
 

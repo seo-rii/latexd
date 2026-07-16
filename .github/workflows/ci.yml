@@ -24,6 +24,13 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Computer Modern test fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y texlive-fonts-recommended
+          test -n "$(kpsewhich cmr10.tfm)"
+          test -n "$(kpsewhich cmr10.pfb)"
+
       - name: Run Rust test suite
         run: cargo test -q
 

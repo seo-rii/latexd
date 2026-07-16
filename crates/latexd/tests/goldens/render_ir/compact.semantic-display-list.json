@@ -23,7 +23,7 @@
         "text": "A Paper"
       },
       {
-        "approximate_advance_pt": 64.79000091552734,
+        "approximate_advance_pt": 60.80573272705078,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -34,7 +34,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 273.60498046875,
+          "x": 275.5971374511719,
           "y": 100.0
         },
         "size_pt": 11.0,
@@ -42,7 +42,7 @@
         "text": "Ada Lovelace"
       },
       {
-        "approximate_advance_pt": 44.77000045776367,
+        "approximate_advance_pt": 46.75015640258789,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -53,7 +53,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 283.614990234375,
+          "x": 282.62493896484375,
           "y": 114.0
         },
         "size_pt": 11.0,
@@ -61,7 +61,7 @@
         "text": "May 1843"
       },
       {
-        "approximate_advance_pt": 45.97999954223633,
+        "approximate_advance_pt": 41.952911376953125,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -80,7 +80,7 @@
         "text": "Abstract"
       },
       {
-        "approximate_advance_pt": 29.479999542236328,
+        "approximate_advance_pt": 26.308425903320312,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -99,7 +99,7 @@
         "text": "Short"
       },
       {
-        "approximate_advance_pt": 2.75,
+        "approximate_advance_pt": 3.6666736602783203,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -110,7 +110,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 119.47999572753906,
+          "x": 116.30842590332031,
           "y": 156.0
         },
         "size_pt": 11.0,
@@ -118,7 +118,7 @@
         "text": " "
       },
       {
-        "approximate_advance_pt": 47.630001068115234,
+        "approximate_advance_pt": 42.25847625732422,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -129,7 +129,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 122.22999572753906,
+          "x": 119.97509765625,
           "y": 156.0
         },
         "size_pt": 11.0,
@@ -194,7 +194,7 @@
         "text": "Intro"
       },
       {
-        "approximate_advance_pt": 24.639999389648438,
+        "approximate_advance_pt": 24.750072479248047,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -213,7 +213,7 @@
         "text": "Hello"
       },
       {
-        "approximate_advance_pt": 2.75,
+        "approximate_advance_pt": 3.6666736602783203,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -224,7 +224,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 96.63999938964844,
+          "x": 96.75007629394531,
           "y": 198.0
         },
         "size_pt": 11.0,
@@ -232,7 +232,7 @@
         "text": " "
       },
       {
-        "approximate_advance_pt": 13.860000610351562,
+        "approximate_advance_pt": 11.305596351623535,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -243,7 +243,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 99.38999938964844,
+          "x": 100.416748046875,
           "y": 198.0
         },
         "size_pt": 11.0,
@@ -251,7 +251,7 @@
         "text": "[?]"
       },
       {
-        "approximate_advance_pt": 3.630000114440918,
+        "approximate_advance_pt": 3.0555648803710938,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -262,7 +262,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 113.25,
+          "x": 111.72234344482422,
           "y": 198.0
         },
         "size_pt": 11.0,
@@ -270,7 +270,7 @@
         "text": "."
       },
       {
-        "approximate_advance_pt": 6.820000171661377,
+        "approximate_advance_pt": 6.286812782287598,
         "clusters": "<present>",
         "font": {
           "family": "math",
@@ -281,7 +281,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 300.3900146484375,
+          "x": 300.38922119140625,
           "y": 230.8249969482422
         },
         "size_pt": 11.0,
@@ -289,7 +289,7 @@
         "text": "x"
       },
       {
-        "approximate_advance_pt": 3.8499999046325684,
+        "approximate_advance_pt": 4.3847455978393555,
         "clusters": "<present>",
         "font": {
           "family": "math",
@@ -300,7 +300,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 307.760009765625,
+          "x": 307.2260437011719,
           "y": 224.77499389648438
         },
         "size_pt": 7.699999809265137,
@@ -308,7 +308,7 @@
         "text": "2"
       },
       {
-        "approximate_advance_pt": 69.62999725341797,
+        "approximate_advance_pt": 67.55854034423828,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -327,7 +327,7 @@
         "text": "Author. Title."
       },
       {
-        "approximate_advance_pt": 69.5199966430664,
+        "approximate_advance_pt": 65.84745025634766,
         "clusters": "<present>",
         "font": {
           "family": "serif",

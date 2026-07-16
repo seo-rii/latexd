@@ -27,7 +27,7 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    render_display_list_pdf_with_materialized_assets,
+    render_display_list_pdf_with_materialized_assets_and_tex_fonts,
     render_display_list_svg_with_materialized_assets,
 };
 use tex_render_assets::{
@@ -488,10 +488,10 @@ fn capture_internal_render_ir_with_options(
             materialized_assets.insert(request, materialized);
         }
     }
-    let display_list_pdf =
-        render_display_list_pdf_with_materialized_assets(&page_display_lists, |request| {
-            materialized_assets.get(request).cloned()
-        });
+    let display_list_pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(
+        &page_display_lists,
+        |request| materialized_assets.get(request).cloned(),
+    );
     let mut source_files = BTreeMap::new();
     source_files.insert(source_path.clone(), source.to_string());
     for (path, source) in mounted_files {
@@ -1863,7 +1863,7 @@ impl CompilerDriver {
 
                 renderer_rebuilt_page_count += 1;
                 let page_path = page_dir.join(format!("{}.pdf", page.page_id));
-                let page_pdf = render_display_list_pdf_with_materialized_assets(
+                let page_pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(
                     std::slice::from_ref(page),
                     |asset_request| {
                         render_ir_capture

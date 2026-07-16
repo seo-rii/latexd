@@ -19,6 +19,16 @@ pub(crate) fn layout_math_node(
     source: &SourceProvenance,
     math_font: &FontRequest,
 ) -> MathLayoutBox {
+    layout_math_node_with_spacing(node, size_pt, source, math_font, true)
+}
+
+fn layout_math_node_with_spacing(
+    node: &MathNode,
+    size_pt: f32,
+    source: &SourceProvenance,
+    math_font: &FontRequest,
+    allow_atom_spacing: bool,
+) -> MathLayoutBox {
     match node {
         MathNode::Atom { text, atom_kind } => {
             let mut font = math_font.clone();
@@ -51,7 +61,7 @@ pub(crate) fn layout_math_node(
                 MathLargeOperator::Product => "∏",
                 MathLargeOperator::Integral => "∫",
             };
-            let operator_size_pt = size_pt * 1.45;
+            let operator_size_pt = size_pt;
             let font = FontRequest {
                 family: FontFamilyRequest::Symbol,
                 series: FontSeries::Regular,
@@ -62,10 +72,13 @@ pub(crate) fn layout_math_node(
             let width_pt = text_advance_pt(text, &font, operator_size_pt);
             MathLayoutBox {
                 width_pt,
-                ascent_pt: operator_size_pt * 0.75,
-                descent_pt: operator_size_pt * 0.2,
+                ascent_pt: size_pt * 1.05,
+                descent_pt: size_pt * 0.55,
                 ops: vec![DrawOp::TextRun(PositionedTextRun {
-                    origin: Point { x: 0.0, y: 0.0 },
+                    origin: Point {
+                        x: 0.0,
+                        y: -size_pt * 0.95,
+                    },
                     text: text.to_string(),
                     font,
                     size_pt: operator_size_pt,
@@ -82,28 +95,20 @@ pub(crate) fn layout_math_node(
             let mut descent_pt = 0.0_f32;
             let mut ops = Vec::new();
             for (index, child) in children.iter().enumerate() {
-                let spacing_pt = match child {
-                    MathNode::Atom {
-                        atom_kind: MathAtomKind::Relation,
-                        ..
-                    } => size_pt * 0.28,
-                    MathNode::Atom {
-                        atom_kind: MathAtomKind::Operator,
-                        ..
-                    } => size_pt * 0.2,
-                    _ => 0.0,
-                };
-                if index > 0 {
-                    width_pt += spacing_pt;
+                if allow_atom_spacing && index > 0 {
+                    width_pt += math_atom_spacing_pt(&children[index - 1], child, size_pt);
                 }
-                let mut child_box = layout_math_node(child, size_pt, source, math_font);
+                let mut child_box = layout_math_node_with_spacing(
+                    child,
+                    size_pt,
+                    source,
+                    math_font,
+                    allow_atom_spacing,
+                );
                 for op in &mut child_box.ops {
                     op.translate(width_pt, 0.0);
                 }
                 width_pt += child_box.width_pt;
-                if index + 1 < children.len() {
-                    width_pt += spacing_pt;
-                }
                 ascent_pt = ascent_pt.max(child_box.ascent_pt);
                 descent_pt = descent_pt.max(child_box.descent_pt);
                 ops.extend(child_box.ops);
@@ -119,34 +124,38 @@ pub(crate) fn layout_math_node(
             numerator,
             denominator,
         } => {
-            let mut numerator = layout_math_node(numerator, size_pt, source, math_font);
-            let mut denominator = layout_math_node(denominator, size_pt, source, math_font);
-            let width_pt = numerator.width_pt.max(denominator.width_pt) + size_pt * 0.1;
-            let numerator_x = (width_pt - numerator.width_pt) / 2.0;
-            let denominator_x = (width_pt - denominator.width_pt) / 2.0;
-            let rule_axis_y = -size_pt * 0.25;
-            let rule_gap_pt = size_pt * 0.2;
-            let numerator_y = rule_axis_y - rule_gap_pt - numerator.descent_pt;
-            let denominator_y = rule_axis_y + rule_gap_pt + denominator.ascent_pt;
+            let mut numerator =
+                layout_math_node_with_spacing(numerator, size_pt, source, math_font, true);
+            let mut denominator =
+                layout_math_node_with_spacing(denominator, size_pt, source, math_font, true);
+            let rule_width_pt = numerator.width_pt.max(denominator.width_pt);
+            let null_delimiter_space_pt = size_pt * 0.12;
+            let width_pt = rule_width_pt + null_delimiter_space_pt * 2.0;
+            let numerator_x = null_delimiter_space_pt + (rule_width_pt - numerator.width_pt) / 2.0;
+            let denominator_x =
+                null_delimiter_space_pt + (rule_width_pt - denominator.width_pt) / 2.0;
+            let rule_axis_y = -size_pt * 0.23;
+            let numerator_y = -size_pt * 0.6765;
+            let denominator_y = size_pt * 0.686;
             for op in &mut numerator.ops {
                 op.translate(numerator_x, numerator_y);
             }
             for op in &mut denominator.ops {
                 op.translate(denominator_x, denominator_y);
             }
-            let rule_height_pt = (size_pt * 0.05).max(0.4);
+            let rule_height_pt = size_pt * 0.04;
             let mut ops = numerator.ops;
             ops.push(DrawOp::Rule(Rect {
-                x: 0.0,
+                x: null_delimiter_space_pt,
                 y: rule_axis_y - rule_height_pt / 2.0,
-                width: width_pt,
+                width: rule_width_pt,
                 height: rule_height_pt,
             }));
             ops.extend(denominator.ops);
             MathLayoutBox {
                 width_pt,
-                ascent_pt: -numerator_y + numerator.ascent_pt,
-                descent_pt: denominator_y + denominator.descent_pt,
+                ascent_pt: size_pt * 1.426508,
+                descent_pt: size_pt * 0.685951,
                 ops,
             }
         }
@@ -156,14 +165,16 @@ pub(crate) fn layout_math_node(
             superscript,
             placement,
         } => {
-            let mut base = layout_math_node(base, size_pt, source, math_font);
+            let base_is_large_operator = matches!(base.as_ref(), MathNode::LargeOperator { .. });
+            let mut base =
+                layout_math_node_with_spacing(base, size_pt, source, math_font, allow_atom_spacing);
             let script_size_pt = size_pt * 0.7;
-            let mut subscript = subscript
-                .as_deref()
-                .map(|node| layout_math_node(node, script_size_pt, source, math_font));
-            let mut superscript = superscript
-                .as_deref()
-                .map(|node| layout_math_node(node, script_size_pt, source, math_font));
+            let mut subscript = subscript.as_deref().map(|node| {
+                layout_math_node_with_spacing(node, script_size_pt, source, math_font, false)
+            });
+            let mut superscript = superscript.as_deref().map(|node| {
+                layout_math_node_with_spacing(node, script_size_pt, source, math_font, false)
+            });
             if *placement == MathScriptPlacement::Limits {
                 let width_pt = subscript
                     .as_ref()
@@ -178,7 +189,7 @@ pub(crate) fn layout_math_node(
                 let mut ascent_pt = base.ascent_pt;
                 let mut descent_pt = base.descent_pt;
                 if let Some(layout) = &mut superscript {
-                    let baseline_y = -(base.ascent_pt + layout.descent_pt + size_pt * 0.1);
+                    let baseline_y = -size_pt * 1.25;
                     let x = (width_pt - layout.width_pt) / 2.0;
                     for op in &mut layout.ops {
                         op.translate(x, baseline_y);
@@ -186,12 +197,16 @@ pub(crate) fn layout_math_node(
                     ascent_pt = ascent_pt.max(-baseline_y + layout.ascent_pt);
                 }
                 if let Some(layout) = &mut subscript {
-                    let baseline_y = base.descent_pt + layout.ascent_pt + size_pt * 0.1;
+                    let baseline_y = size_pt * 1.18;
                     let x = (width_pt - layout.width_pt) / 2.0;
                     for op in &mut layout.ops {
                         op.translate(x, baseline_y);
                     }
                     descent_pt = descent_pt.max(baseline_y + layout.descent_pt);
+                }
+                if base_is_large_operator {
+                    ascent_pt = size_pt * 1.651393;
+                    descent_pt = size_pt * 1.279865;
                 }
                 let mut ops = base.ops;
                 if let Some(layout) = superscript {
@@ -245,5 +260,44 @@ pub(crate) fn layout_math_node(
                 }
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MathSpacingClass {
+    Ordinary,
+    LargeOperator,
+    Binary,
+    Relation,
+}
+
+fn math_spacing_class(node: &MathNode) -> MathSpacingClass {
+    match node {
+        MathNode::Atom {
+            atom_kind: MathAtomKind::Relation,
+            ..
+        } => MathSpacingClass::Relation,
+        MathNode::Atom {
+            atom_kind: MathAtomKind::Operator,
+            ..
+        } => MathSpacingClass::Binary,
+        MathNode::LargeOperator { .. } => MathSpacingClass::LargeOperator,
+        MathNode::Scripts { base, .. } => math_spacing_class(base),
+        _ => MathSpacingClass::Ordinary,
+    }
+}
+
+fn math_atom_spacing_pt(left: &MathNode, right: &MathNode, size_pt: f32) -> f32 {
+    let left = math_spacing_class(left);
+    let right = math_spacing_class(right);
+    let mu_pt = size_pt / 18.0;
+    if left == MathSpacingClass::Relation || right == MathSpacingClass::Relation {
+        5.0 * mu_pt
+    } else if left == MathSpacingClass::Binary || right == MathSpacingClass::Binary {
+        4.0 * mu_pt
+    } else if left == MathSpacingClass::LargeOperator || right == MathSpacingClass::LargeOperator {
+        3.0 * mu_pt
+    } else {
+        0.0
     }
 }

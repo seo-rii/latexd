@@ -11,6 +11,7 @@ members = [
     "crates/tex-vm",
     "crates/tex-bootstrap",
     "crates/tex-layout",
+    "crates/tex-fonts",
     "crates/tex-pdf",
     "crates/tex-checkpoint",
     "crates/tex-render-gs",

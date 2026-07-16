@@ -857,8 +857,12 @@ tex-vm
 tex-aux
   -> tex-render-model        // implements/provides AuxView adapters
 
+tex-fonts
+  -> tex-render-model        // resolves TeX faces and exposes TFM/Type1 data
+
 tex-layout
   -> tex-render-model        // first DocumentIrBuilder can live here initially
+  -> tex-fonts               // shared TeX metrics for measuring runs
 
 tex-render-assets
   -> tex-render-model        // parses/sanitizes assets into shared scene data
@@ -866,6 +870,7 @@ tex-render-assets
 tex-pdf
   -> tex-render-assets       // compatibility adapters prepare raw SVG
   -> tex-render-model        // canonical backend consumes PageDisplayList/scenes
+  -> tex-fonts               // embeds the same resolved faces used by layout
 
 latexd
   -> all orchestration crates
@@ -1702,14 +1707,16 @@ approximate.
   Unsupported-environment fallbacks are block-level events and therefore carry
   `mode_hint = vertical`; generic fallback constructors remain `unknown` until
   their emitter supplies context.
-- `PageDisplayList` text runs now expose approximate clusters and basic
-  metric-derived advances. ASCII runs stay whole-run, while non-ASCII runs are
-  split by UTF-8 scalar value. `tex-layout` uses family/series-aware width
-  estimates instead of a fixed `0.5em` character advance, and page content
-  hashes include the basic font-metrics version plus text-run geometry. A real
-  renderer-neutral font resolver, shaper, glyph ids, and shaped cluster mapping
-  are still required before Skia or PDF fidelity work should be treated as
-  serious.
+- `tex-fonts` is now the renderer-neutral first font slice. It resolves the
+  Computer Modern Roman, math italic, script-size, and extension faces through
+  `kpsewhich`, parses TFM widths/space/kerns for layout, and exposes stripped
+  Type1 programs for PDF embedding. `tex-layout` and the preferred `tex-pdf`
+  path therefore share advances, while PDF output carries TFM widths, kern
+  adjustments, and `/ToUnicode` maps. Missing system faces still fall back per
+  face to the previous approximate metrics and standard PDF fonts. This is not
+  the final shaping contract: glyph ids, ligature execution, bidirectional and
+  complex-script shaping, precise font descriptors, and shaped cluster mapping
+  remain required before a serious Skia rollout.
 - The simple SVG vector subset can now reuse literal `<text>` definitions,
   simple `tspan` children, text-use aliases, group-contained text,
   group-contained text-use aliases, symbol-contained text, and

@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "659dc5ca070742efbba7349315942ce5815b00d1bfed06b54ac580d68c6634e2",
+    "page_id": "f0ff718898f62315fdacac5c3f5bb3cbb77fefd9e324bb10df5c82030a3fbc41",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -54,7 +54,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 273.60498,
+          "x": 275.59714,
           "y": 100.0
         },
         "text": "Ada Lovelace",
@@ -66,7 +66,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 64.79,
+        "approximate_advance_pt": 60.805733,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -101,7 +101,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 283.615,
+          "x": 282.62494,
           "y": 114.0
         },
         "text": "May 1843",
@@ -113,7 +113,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 44.77,
+        "approximate_advance_pt": 46.750156,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -160,7 +160,7 @@
           "role": "heading"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 45.98,
+        "approximate_advance_pt": 41.95291,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -197,7 +197,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 29.48,
+        "approximate_advance_pt": 26.308426,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -222,7 +222,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 119.479996,
+          "x": 116.308426,
           "y": 156.0
         },
         "text": " ",
@@ -234,7 +234,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 2.75,
+        "approximate_advance_pt": 3.6666737,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -259,7 +259,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 122.229996,
+          "x": 119.9751,
           "y": 156.0
         },
         "text": "abstract.",
@@ -271,7 +271,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 47.63,
+        "approximate_advance_pt": 42.258476,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -449,7 +449,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 24.64,
+        "approximate_advance_pt": 24.750072,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -474,7 +474,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 96.64,
+          "x": 96.75008,
           "y": 198.0
         },
         "text": " ",
@@ -486,7 +486,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 2.75,
+        "approximate_advance_pt": 3.6666737,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -511,7 +511,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 99.39,
+          "x": 100.41675,
           "y": 198.0
         },
         "text": "[?]",
@@ -523,7 +523,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 13.860001,
+        "approximate_advance_pt": 11.305596,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -558,7 +558,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 113.25,
+          "x": 111.72234,
           "y": 198.0
         },
         "text": ".",
@@ -570,7 +570,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 3.63,
+        "approximate_advance_pt": 3.0555649,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -595,7 +595,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 300.39,
+          "x": 300.38922,
           "y": 230.825
         },
         "text": "x",
@@ -607,7 +607,7 @@
           "role": "math"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 6.82,
+        "approximate_advance_pt": 6.286813,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -642,7 +642,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 307.76,
+          "x": 307.22604,
           "y": 224.775
         },
         "text": "2",
@@ -654,7 +654,7 @@
           "role": "math"
         },
         "size_pt": 7.7,
-        "approximate_advance_pt": 3.85,
+        "approximate_advance_pt": 4.3847456,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -701,7 +701,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 69.63,
+        "approximate_advance_pt": 67.55854,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -738,7 +738,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 69.52,
+        "approximate_advance_pt": 65.84745,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -843,6 +843,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "93166092684e9896403a2a9a34e8a7f49f944e6b60f31937b119680ccc54be7b"
+    "content_hash": "206273dc43885aebf67a441df18129ef424990ddcb262ddacb28b4f2aa85a6ac"
   }
 ]

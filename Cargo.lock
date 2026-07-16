@@ -1547,10 +1547,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-fonts"
+version = "0.1.0"
+dependencies = [
+ "tex-render-model",
+]
+
+[[package]]
 name = "tex-layout"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "tex-fonts",
  "tex-render-model",
 ]
 
@@ -1567,6 +1575,7 @@ name = "tex-pdf"
 version = "0.1.0"
 dependencies = [
  "image",
+ "tex-fonts",
  "tex-layout",
  "tex-render-assets",
  "tex-render-model",

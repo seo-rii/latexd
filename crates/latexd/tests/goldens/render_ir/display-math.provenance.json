@@ -2,7 +2,7 @@
   "display_list": {
     "runs": [
       {
-        "approximate_advance_pt": 6.820000171661377,
+        "approximate_advance_pt": 6.286812782287598,
         "clusters": [
           {
             "glyph_end": 1,
@@ -19,7 +19,7 @@
           "size_pt": 11.0
         },
         "origin": {
-          "x": 300.3900146484375,
+          "x": 300.38922119140625,
           "y": 230.8249969482422
         },
         "size_pt": 11.0,
@@ -48,7 +48,7 @@
         "text": "x"
       },
       {
-        "approximate_advance_pt": 3.8499999046325684,
+        "approximate_advance_pt": 4.3847455978393555,
         "clusters": [
           {
             "glyph_end": 1,
@@ -65,7 +65,7 @@
           "size_pt": 7.699999809265137
         },
         "origin": {
-          "x": 307.760009765625,
+          "x": 307.2260437011719,
           "y": 224.77499389648438
         },
         "size_pt": 7.699999809265137,

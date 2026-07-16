@@ -82,6 +82,16 @@ color-coded page diffs because these fixtures are owned and redistributable.
 The external licensed-paper workflow remains push-only and follows the stricter
 artifact policy below.
 
+The display-math fixture is a high-fidelity raster contract rather than a gross
+smoke check: both its per-page minimum and mean ink IoU must be at least `0.90`.
+The current Computer Modern TFM/Type1 path scores `0.963` while retaining page
+parity and its extracted-text gates. This case pins article page geometry,
+display skips, TeX math spacing, large-operator limits, fraction rules, script
+metrics, embedded Type1 programs, and `/ToUnicode` mappings together. Other
+component thresholds remain case-specific until their corresponding layout and
+font contracts are implemented; raising one fixture does not imply full-paper
+raster equivalence.
+
 ## External Licensed Corpus
 
 The separately maintained

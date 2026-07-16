@@ -13,7 +13,11 @@ rendering work.
 `latexd` is usable as a development prototype, not yet as a drop-in LaTeX
 engine. The external-compiler preview path is the most practical path today.
 The internal compiler can process a growing subset of arXiv-like projects, but
-its PDF output is still a text scaffold rather than full TeX-quality rendering.
+it remains a structured compatibility renderer rather than a complete TeX
+typesetter. Its production path now lowers RenderEvents through Document IR and
+PageDisplayList into PDF, with class-aware page geometry, structured text and
+math layout, graphics, links, tables, and source provenance for the supported
+subset.
 
 Current focus:
 
@@ -21,8 +25,8 @@ Current focus:
 - arXiv-style project resolution and fixture coverage;
 - semantic aux data for labels, citations, bibliography, and source sync;
 - internal compiler smoke coverage against local oracle corpora;
-- the next rendering architecture: event stream, Document IR, page layout, and
-  renderer backends.
+- TeX-compatible font, math, line-breaking, and page-layout fidelity;
+- renderer-neutral display lists and independently testable PDF/SVG backends.
 
 See [`PROGRESS.md`](./PROGRESS.md), [`PLAN.md`](./PLAN.md), and
 [`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md) for the current
@@ -34,7 +38,7 @@ engineering plan.
 - Browser preview shell with WebSocket updates and source-preview bridge flows.
 - External compiler support for realistic `pdflatex`-style workflows.
 - Internal TeX lexer, token model, VM, mini LaTeX bootstrap, semantic aux scan,
-  simple layout, and PDF text output.
+  Document IR, page layout, and structured PDF/SVG output.
 - Checkpoint and page-reuse infrastructure for incremental rebuild work.
 - Fixture suites for small documents, synthetic arXiv-style projects, and local
   arXiv oracle smoke tests.
@@ -46,8 +50,14 @@ engineering plan.
 - [`crates/tex-vm`](./crates/tex-vm): macro expansion and execution core.
 - [`crates/tex-bootstrap`](./crates/tex-bootstrap): mini LaTeX bootstrap layer.
 - [`crates/tex-aux`](./crates/tex-aux): semantic aux and bibliography scanning.
-- [`crates/tex-layout`](./crates/tex-layout): current text-layout scaffold.
-- [`crates/tex-pdf`](./crates/tex-pdf): current minimal PDF writer.
+- [`crates/tex-render-model`](./crates/tex-render-model): shared events,
+  Document IR, provenance, and PageDisplayList data types.
+- [`crates/tex-fonts`](./crates/tex-fonts): TeX font resolution and TFM/Type1
+  metrics for renderer-neutral layout.
+- [`crates/tex-layout`](./crates/tex-layout): Document IR and page/display-list
+  layout.
+- [`crates/tex-pdf`](./crates/tex-pdf): PDF backend for display lists and
+  prepared vector/raster assets.
 - [`crates/tex-render-gs`](./crates/tex-render-gs): Ghostscript-backed raster
   renderer integration.
 - [`web/`](./web): frontend `pnpm` workspace.
@@ -58,6 +68,9 @@ engineering plan.
 
 - Rust toolchain with Cargo.
 - Node.js and `pnpm` for the web preview workspace.
+- TeX Live with `kpsewhich` and Computer Modern TFM/PFB files for TeX-compatible
+  internal text and math metrics. The renderer falls back to standard PDF fonts
+  when those files are unavailable, with lower visual fidelity.
 - Ghostscript if you want the real raster/tile renderer path.
 - Optional: `pdftotext`, `pdfinfo`, and `pdftoppm` for PDF text, page-count,
   and first-page raster oracle checks.

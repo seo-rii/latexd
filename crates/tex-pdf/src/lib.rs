@@ -3,6 +3,7 @@ mod pdf_form;
 use std::collections::BTreeMap;
 
 use pdf_form::build_pdf_form_objects;
+use tex_fonts::{ResolvedTexFont, TexFontFace, encode_text, face_for_request, resolve_font};
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_assets::prepare_svg_materialization;
 #[cfg(test)]
@@ -148,13 +149,30 @@ pub fn render_display_list_pdf_with_converted_assets(
 
 pub fn render_display_list_pdf_with_materialized_assets(
     pages: &[PageDisplayList],
+    materialize_asset: impl FnMut(&GraphicAssetRequest) -> Option<MaterializedGraphicAsset>,
+) -> Vec<u8> {
+    render_display_list_pdf_with_font_mode(pages, materialize_asset, false)
+}
+
+pub fn render_display_list_pdf_with_materialized_assets_and_tex_fonts(
+    pages: &[PageDisplayList],
+    materialize_asset: impl FnMut(&GraphicAssetRequest) -> Option<MaterializedGraphicAsset>,
+) -> Vec<u8> {
+    render_display_list_pdf_with_font_mode(pages, materialize_asset, true)
+}
+
+fn render_display_list_pdf_with_font_mode(
+    pages: &[PageDisplayList],
     mut materialize_asset: impl FnMut(&GraphicAssetRequest) -> Option<MaterializedGraphicAsset>,
+    prefer_tex_fonts: bool,
 ) -> Vec<u8> {
     let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
-    let content_object_id = |index: usize| 16 + index * 2;
-    let page_object_id = |index: usize| 17 + index * 2;
-    let font_resources = (1..=13)
+    let font_resource_count = if prefer_tex_fonts { 16 } else { 13 };
+    let first_content_object_id = 3 + font_resource_count;
+    let content_object_id = |index: usize| first_content_object_id + index * 2;
+    let page_object_id = |index: usize| first_content_object_id + 1 + index * 2;
+    let font_resources = (1..=font_resource_count)
         .map(|slot| format!("/F{slot} {} 0 R", slot + 2))
         .collect::<Vec<_>>()
         .join(" ");
@@ -327,30 +345,69 @@ pub fn render_display_list_pdf_with_materialized_assets(
         )
         .into_bytes(),
     );
-    for (object_id, base_font) in [
-        (3, "Times-Roman"),
-        (4, "Times-Bold"),
-        (5, "Times-Italic"),
-        (6, "Times-BoldItalic"),
-        (7, "Helvetica"),
-        (8, "Helvetica-Bold"),
-        (9, "Helvetica-Oblique"),
-        (10, "Helvetica-BoldOblique"),
-        (11, "Courier"),
-        (12, "Courier-Bold"),
-        (13, "Courier-Oblique"),
-        (14, "Courier-BoldOblique"),
-        (15, "Symbol"),
-    ] {
-        objects.push(format!(
-            "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
-        )
-        .into_bytes());
+    let mut extra_objects = Vec::new();
+    let mut next_extra_object_id = first_content_object_id + pages.len() * 2;
+    let base_fonts = [
+        "Times-Roman",
+        "Times-Bold",
+        "Times-Italic",
+        "Times-BoldItalic",
+        "Helvetica",
+        "Helvetica-Bold",
+        "Helvetica-Oblique",
+        "Helvetica-BoldOblique",
+        "Courier",
+        "Courier-Bold",
+        "Courier-Oblique",
+        "Courier-BoldOblique",
+        "Symbol",
+        "Times-Italic",
+        "Times-Italic",
+        "Times-Roman",
+    ];
+    for slot in 1..=font_resource_count {
+        let object_id = slot + 2;
+        let tex_font_face = if prefer_tex_fonts {
+            match slot {
+                1 => Some(TexFontFace::Roman10),
+                13 => Some(TexFontFace::MathExtension10),
+                14 => Some(TexFontFace::MathItalic10),
+                15 => Some(TexFontFace::MathItalic7),
+                16 => Some(TexFontFace::Roman7),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let tex_font = tex_font_face.and_then(resolve_font);
+        if let Some(font) = tex_font {
+            let descriptor_id = next_extra_object_id;
+            let font_file_id = descriptor_id + 1;
+            let to_unicode_id = descriptor_id + 2;
+            next_extra_object_id += 3;
+            objects.push(build_embedded_type1_font_object(
+                object_id,
+                descriptor_id,
+                to_unicode_id,
+                font,
+            ));
+            extra_objects.push(build_type1_font_descriptor(
+                descriptor_id,
+                font_file_id,
+                font,
+            ));
+            extra_objects.push(build_type1_font_file(font_file_id, font));
+            extra_objects.push(build_to_unicode_cmap(to_unicode_id, font.face));
+        } else {
+            let base_font = base_fonts[slot - 1];
+            objects.push(format!(
+                "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
+            )
+            .into_bytes());
+        }
     }
 
-    let mut extra_objects = Vec::new();
     let mut imported_pdf_forms = BTreeMap::<String, (usize, f32, f32)>::new();
-    let mut next_extra_object_id = 16 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
@@ -377,52 +434,72 @@ pub fn render_display_list_pdf_with_materialized_assets(
                     ));
                 }
                 DrawOp::TextRun(run) => {
-                    let font_resource = match (&run.font.family, run.font.series, run.font.shape) {
-                        (
-                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
-                            FontSeries::Regular,
-                            FontShape::Upright,
-                        ) => "F1",
-                        (
-                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
-                            FontSeries::Bold,
-                            FontShape::Upright,
-                        ) => "F2",
-                        (
-                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
-                            FontSeries::Regular,
-                            FontShape::Italic,
-                        ) => "F3",
-                        (
-                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
-                            FontSeries::Bold,
-                            FontShape::Italic,
-                        ) => "F4",
-                        (
-                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
-                            FontSeries::Regular,
-                            FontShape::Upright,
-                        ) => "F5",
-                        (
-                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
-                            FontSeries::Bold,
-                            FontShape::Upright,
-                        ) => "F6",
-                        (
-                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
-                            FontSeries::Regular,
-                            FontShape::Italic,
-                        ) => "F7",
-                        (
-                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
-                            FontSeries::Bold,
-                            FontShape::Italic,
-                        ) => "F8",
-                        (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Upright) => "F9",
-                        (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Upright) => "F10",
-                        (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Italic) => "F11",
-                        (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Italic) => "F12",
-                        (FontFamilyRequest::Symbol, _, _) => "F13",
+                    let resolved_tex_face = prefer_tex_fonts
+                        .then(|| face_for_request(&run.font, run.size_pt))
+                        .flatten()
+                        .filter(|face| resolve_font(*face).is_some());
+                    let font_resource = if let Some(face) = resolved_tex_face {
+                        match face {
+                            TexFontFace::Roman10 => "F1",
+                            TexFontFace::MathExtension10 => "F13",
+                            TexFontFace::MathItalic10 => "F14",
+                            TexFontFace::MathItalic7 => "F15",
+                            TexFontFace::Roman7 => "F16",
+                        }
+                    } else {
+                        match (&run.font.family, run.font.series, run.font.shape) {
+                            (
+                                FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                                FontSeries::Regular,
+                                FontShape::Upright,
+                            ) => "F1",
+                            (
+                                FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                                FontSeries::Bold,
+                                FontShape::Upright,
+                            ) => "F2",
+                            (
+                                FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                                FontSeries::Regular,
+                                FontShape::Italic,
+                            ) => "F3",
+                            (
+                                FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                                FontSeries::Bold,
+                                FontShape::Italic,
+                            ) => "F4",
+                            (
+                                FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                                FontSeries::Regular,
+                                FontShape::Upright,
+                            ) => "F5",
+                            (
+                                FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                                FontSeries::Bold,
+                                FontShape::Upright,
+                            ) => "F6",
+                            (
+                                FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                                FontSeries::Regular,
+                                FontShape::Italic,
+                            ) => "F7",
+                            (
+                                FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                                FontSeries::Bold,
+                                FontShape::Italic,
+                            ) => "F8",
+                            (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Upright) => {
+                                "F9"
+                            }
+                            (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Upright) => {
+                                "F10"
+                            }
+                            (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Italic) => {
+                                "F11"
+                            }
+                            (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Italic) => "F12",
+                            (FontFamilyRequest::Symbol, _, _) => "F13",
+                        }
                     };
                     stream.push_str("BT ");
                     stream.push_str(&format!("/{font_resource} {} Tf ", run.size_pt));
@@ -431,13 +508,18 @@ pub fn render_display_list_pdf_with_materialized_assets(
                         run.origin.x,
                         page.height_pt - run.origin.y
                     ));
-                    stream.push('(');
-                    if run.font.family == FontFamilyRequest::Symbol {
-                        stream.push_str(&escape_pdf_symbol_text(&run.text));
+                    if let Some(face) = resolved_tex_face {
+                        stream.push_str(&tex_font_text_operator(face, &run.text));
                     } else {
-                        stream.push_str(&escape_pdf_visible_text(&run.text));
+                        stream.push('(');
+                        if run.font.family == FontFamilyRequest::Symbol {
+                            stream.push_str(&escape_pdf_symbol_text(&run.text));
+                        } else {
+                            stream.push_str(&escape_pdf_visible_text(&run.text));
+                        }
+                        stream.push_str(") Tj");
                     }
-                    stream.push_str(") Tj ET ");
+                    stream.push_str(" ET ");
                 }
                 DrawOp::Rule(rect) => {
                     stream.push_str(&format!(
@@ -2734,6 +2816,10 @@ fn escape_pdf_text(text: &str) -> String {
 }
 
 fn escape_pdf_visible_text(text: &str) -> String {
+    escape_pdf_text(&pdf_visible_text(text))
+}
+
+fn pdf_visible_text(text: &str) -> String {
     let mut visible = String::new();
     for ch in text.chars() {
         let replacement = match ch {
@@ -2856,7 +2942,122 @@ fn escape_pdf_visible_text(text: &str) -> String {
         };
         visible.push_str(replacement);
     }
-    escape_pdf_text(&visible)
+    visible
+}
+
+fn build_embedded_type1_font_object(
+    object_id: usize,
+    descriptor_id: usize,
+    to_unicode_id: usize,
+    font: &ResolvedTexFont,
+) -> Vec<u8> {
+    let widths = font
+        .metrics
+        .pdf_widths()
+        .into_iter()
+        .map(|width| format!("{width:.3}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{} /FontDescriptor {descriptor_id} 0 R /FirstChar {} /LastChar {} /Widths [{widths}] /ToUnicode {to_unicode_id} 0 R >> endobj\n",
+        font.face.postscript_name(),
+        font.metrics.first_char(),
+        font.metrics.last_char()
+    )
+    .into_bytes()
+}
+
+fn build_type1_font_descriptor(
+    object_id: usize,
+    font_file_id: usize,
+    font: &ResolvedTexFont,
+) -> Vec<u8> {
+    let italic_angle = if matches!(
+        font.face,
+        TexFontFace::MathItalic10 | TexFontFace::MathItalic7
+    ) {
+        -14
+    } else {
+        0
+    };
+    format!(
+        "{object_id} 0 obj << /Type /FontDescriptor /FontName /{} /Flags 4 /FontBBox [-50 -2250 1500 1000] /ItalicAngle {italic_angle} /Ascent 750 /Descent -250 /CapHeight 683 /StemV 70 /FontFile {font_file_id} 0 R >> endobj\n",
+        font.face.postscript_name()
+    )
+    .into_bytes()
+}
+
+fn build_type1_font_file(object_id: usize, font: &ResolvedTexFont) -> Vec<u8> {
+    let mut object = format!(
+        "{object_id} 0 obj << /Length {} /Length1 {} /Length2 {} /Length3 {} >> stream\n",
+        font.type1.bytes.len(),
+        font.type1.length1,
+        font.type1.length2,
+        font.type1.length3
+    )
+    .into_bytes();
+    object.extend_from_slice(&font.type1.bytes);
+    object.extend_from_slice(b"\nendstream\nendobj\n");
+    object
+}
+
+fn build_to_unicode_cmap(object_id: usize, face: TexFontFace) -> Vec<u8> {
+    let mappings = if face == TexFontFace::MathExtension10 {
+        "3 beginbfchar\n<58> <2211>\n<59> <220F>\n<5A> <222B>\nendbfchar"
+    } else {
+        "1 beginbfrange\n<20> <7E> <0020>\nendbfrange"
+    };
+    let stream = format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /{}-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n{mappings}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend",
+        face.postscript_name()
+    );
+    format!(
+        "{object_id} 0 obj << /Length {} >> stream\n{stream}\nendstream\nendobj\n",
+        stream.len()
+    )
+    .into_bytes()
+}
+
+fn tex_font_text_operator(face: TexFontFace, text: &str) -> String {
+    if text.chars().all(char::is_whitespace) {
+        return "() Tj".to_string();
+    }
+    let visible_text = pdf_visible_text(text);
+    let Some(bytes) = encode_text(face, &visible_text) else {
+        return "(?) Tj".to_string();
+    };
+    let Some(font) = resolve_font(face) else {
+        return format!("({}) Tj", escape_pdf_bytes(&bytes));
+    };
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+    for index in 0..bytes.len().saturating_sub(1) {
+        let Some(kern) = font.metrics.kern_em(bytes[index], bytes[index + 1]) else {
+            continue;
+        };
+        chunks.push(format!("({})", escape_pdf_bytes(&bytes[start..=index])));
+        chunks.push(format!("{:.3}", -kern * 1000.0));
+        start = index + 1;
+    }
+    if chunks.is_empty() {
+        return format!("({}) Tj", escape_pdf_bytes(&bytes));
+    }
+    chunks.push(format!("({})", escape_pdf_bytes(&bytes[start..])));
+    format!("[{}] TJ", chunks.join(" "))
+}
+
+fn escape_pdf_bytes(bytes: &[u8]) -> String {
+    let mut escaped = String::new();
+    for byte in bytes {
+        match byte {
+            b'(' => escaped.push_str("\\("),
+            b')' => escaped.push_str("\\)"),
+            b'\\' => escaped.push_str("\\\\"),
+            0x20..=0x7e => escaped.push(*byte as char),
+            _ => escaped.push_str(&format!("\\{byte:03o}")),
+        }
+    }
+    escaped
 }
 
 fn escape_pdf_symbol_text(text: &str) -> String {
@@ -2899,6 +3100,7 @@ fn page_object_id(index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use tex_fonts::{TexFontFace, resolve_font};
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_assets::prepare_pdf_form;
     use tex_render_model::{
@@ -2912,7 +3114,8 @@ mod tests {
     use super::{
         ConvertedImageAsset, render_display_list_pdf, render_display_list_pdf_with_assets,
         render_display_list_pdf_with_converted_assets,
-        render_display_list_pdf_with_materialized_assets, render_display_list_svg,
+        render_display_list_pdf_with_materialized_assets,
+        render_display_list_pdf_with_materialized_assets_and_tex_fonts, render_display_list_svg,
         render_display_list_svg_with_assets, render_display_list_svg_with_converted_assets,
         render_display_list_svg_with_materialized_assets, render_page_svg, render_pdf,
         render_single_page_pdf,
@@ -3009,6 +3212,68 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
 
         assert!(text.contains("/Count 3"));
+    }
+
+    #[test]
+    fn preferred_tex_fonts_embed_computer_modern_and_emit_tfm_kerns() {
+        let required_faces = [
+            TexFontFace::Roman10,
+            TexFontFace::Roman7,
+            TexFontFace::MathItalic10,
+            TexFontFace::MathItalic7,
+            TexFontFace::MathExtension10,
+        ];
+        if required_faces
+            .iter()
+            .any(|face| resolve_font(*face).is_none())
+        {
+            return;
+        }
+
+        let source = SourceProvenance::file("main.tex", 0, 9);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "following".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 10.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 10.0,
+                approximate_advance_pt: 38.9,
+                glyphs: None,
+                clusters: None,
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(&[page], |_| None);
+        let text = String::from_utf8_lossy(&pdf);
+
+        for font_name in ["CMR10", "CMR7", "CMMI10", "CMMI7", "CMEX10"] {
+            assert!(
+                text.contains(&format!("/BaseFont /{font_name}")),
+                "{font_name}"
+            );
+        }
+        assert_eq!(text.matches("/FontFile ").count(), 5);
+        assert_eq!(text.matches("/ToUnicode ").count(), 5);
+        assert!(text.contains("<58> <2211>"));
+        assert!(text.contains("[(follo) 27.779 (wing)] TJ"), "{text}");
+        let request = GraphicAssetRequest {
+            asset_ref: "output.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: None,
+        };
+        prepare_pdf_form(&request, &pdf).expect("embedded-font PDF remains parseable");
     }
 
     #[test]

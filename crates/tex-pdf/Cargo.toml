@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+tex-fonts = { path = "../tex-fonts" }
 image.workspace = true
 tex-layout = { path = "../tex-layout" }
 tex-render-assets = { path = "../tex-render-assets" }
