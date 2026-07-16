@@ -65,10 +65,10 @@ jobs:
 
   component-diff:
     name: External component PDF diff
-    uses: seo-rii/latexd-tests/.github/workflows/_component-diff.yml@8effb333b4b17b69b58497c5a29be662977d2d70
+    uses: seo-rii/latexd-tests/.github/workflows/_component-diff.yml@17cd99409d0a2022e9484001525316c15092aecb
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: 8effb333b4b17b69b58497c5a29be662977d2d70
+      suite_ref: 17cd99409d0a2022e9484001525316c15092aecb
       tier: smoke
     permissions:
       contents: read
@@ -76,10 +76,10 @@ jobs:
   licensed-corpus:
     name: External licensed corpus
     if: github.event_name == 'push'
-    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@8effb333b4b17b69b58497c5a29be662977d2d70
+    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@17cd99409d0a2022e9484001525316c15092aecb
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: 8effb333b4b17b69b58497c5a29be662977d2d70
+      suite_ref: 17cd99409d0a2022e9484001525316c15092aecb
       tier: smoke
     permissions:
       contents: read
@@ -87,10 +87,10 @@ jobs:
   renderer-benchmark:
     name: External renderer benchmark
     if: github.event_name == 'push'
-    uses: seo-rii/latexd-tests/.github/workflows/_benchmark-latexd.yml@8effb333b4b17b69b58497c5a29be662977d2d70
+    uses: seo-rii/latexd-tests/.github/workflows/_benchmark-latexd.yml@17cd99409d0a2022e9484001525316c15092aecb
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: 8effb333b4b17b69b58497c5a29be662977d2d70
+      suite_ref: 17cd99409d0a2022e9484001525316c15092aecb
       iterations: 3
     permissions:
       contents: read
