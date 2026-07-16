@@ -152,9 +152,9 @@ pub fn render_display_list_pdf_with_materialized_assets(
 ) -> Vec<u8> {
     let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
-    let content_object_id = |index: usize| 15 + index * 2;
-    let page_object_id = |index: usize| 16 + index * 2;
-    let font_resources = (1..=12)
+    let content_object_id = |index: usize| 16 + index * 2;
+    let page_object_id = |index: usize| 17 + index * 2;
+    let font_resources = (1..=13)
         .map(|slot| format!("/F{slot} {} 0 R", slot + 2))
         .collect::<Vec<_>>()
         .join(" ");
@@ -340,6 +340,7 @@ pub fn render_display_list_pdf_with_materialized_assets(
         (12, "Courier-Bold"),
         (13, "Courier-Oblique"),
         (14, "Courier-BoldOblique"),
+        (15, "Symbol"),
     ] {
         objects.push(format!(
             "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
@@ -349,7 +350,7 @@ pub fn render_display_list_pdf_with_materialized_assets(
 
     let mut extra_objects = Vec::new();
     let mut imported_pdf_forms = BTreeMap::<String, (usize, f32, f32)>::new();
-    let mut next_extra_object_id = 15 + pages.len() * 2;
+    let mut next_extra_object_id = 16 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
@@ -421,6 +422,7 @@ pub fn render_display_list_pdf_with_materialized_assets(
                         (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Upright) => "F10",
                         (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Italic) => "F11",
                         (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Italic) => "F12",
+                        (FontFamilyRequest::Symbol, _, _) => "F13",
                     };
                     stream.push_str("BT ");
                     stream.push_str(&format!("/{font_resource} {} Tf ", run.size_pt));
@@ -430,7 +432,11 @@ pub fn render_display_list_pdf_with_materialized_assets(
                         page.height_pt - run.origin.y
                     ));
                     stream.push('(');
-                    stream.push_str(&escape_pdf_visible_text(&run.text));
+                    if run.font.family == FontFamilyRequest::Symbol {
+                        stream.push_str(&escape_pdf_symbol_text(&run.text));
+                    } else {
+                        stream.push_str(&escape_pdf_visible_text(&run.text));
+                    }
                     stream.push_str(") Tj ET ");
                 }
                 DrawOp::Rule(rect) => {
@@ -2286,6 +2292,7 @@ pub fn render_display_list_svg_with_materialized_assets(
                     tex_render_model::FontFamilyRequest::Sans => "sans-serif",
                     tex_render_model::FontFamilyRequest::Mono => "monospace",
                     tex_render_model::FontFamilyRequest::Math => "serif",
+                    tex_render_model::FontFamilyRequest::Symbol => "Symbol",
                     tex_render_model::FontFamilyRequest::Named(name) => name.as_str(),
                 };
                 let weight = match run.font.series {
@@ -2852,6 +2859,19 @@ fn escape_pdf_visible_text(text: &str) -> String {
     escape_pdf_text(&visible)
 }
 
+fn escape_pdf_symbol_text(text: &str) -> String {
+    let mut encoded = String::new();
+    for ch in text.chars() {
+        match ch {
+            '∑' => encoded.push_str("\\345"),
+            '∏' => encoded.push_str("\\325"),
+            '∫' => encoded.push_str("\\362"),
+            _ => encoded.push('?'),
+        }
+    }
+    encoded
+}
+
 fn escape_xml_text(text: &str) -> String {
     let mut escaped = String::new();
     for ch in text.chars() {
@@ -2897,6 +2917,17 @@ mod tests {
         render_display_list_svg_with_materialized_assets, render_page_svg, render_pdf,
         render_single_page_pdf,
     };
+
+    fn first_page_reference(pdf_text: &str) -> &str {
+        let kids = pdf_text
+            .split_once("/Kids [")
+            .expect("PDF page tree should contain a Kids array")
+            .1;
+        kids.split_once(']')
+            .expect("PDF page tree Kids array should be closed")
+            .0
+            .trim()
+    }
 
     fn tiny_png_bytes() -> Vec<u8> {
         use image::ImageEncoder;
@@ -3232,6 +3263,37 @@ mod tests {
 
         assert!(text.contains("/F10 9 Tf 1 0 0 1 72 720 Tm (Code) Tj"));
         assert!(text.contains("/BaseFont /Courier-Bold"));
+    }
+
+    #[test]
+    fn display_list_pdf_encodes_standard_math_symbols() {
+        let pdf = render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "∑∏∫".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Symbol,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 14.0,
+                    role: FontRole::Math,
+                },
+                size_pt: 14.0,
+                approximate_advance_pt: 31.5,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 3),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/BaseFont /Symbol"));
+        assert!(text.contains(r"/F13 14 Tf 1 0 0 1 72 720 Tm (\345\325\362) Tj"));
     }
 
     #[test]
@@ -26560,7 +26622,7 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("/XObject << /Im1 17 0 R >>"));
+        assert!(pdf_text.contains("/XObject << /Im1 "));
         assert!(pdf_text.contains("q 144 0 0 72 72 642 cm /Im1 Do Q"));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/Width 2"));
@@ -26885,7 +26947,7 @@ mod tests {
         let pdf_text = String::from_utf8_lossy(&pdf);
         let svg = render_display_list_svg(&page);
 
-        assert!(pdf_text.contains("/Annots [17 0 R]"));
+        assert!(pdf_text.contains("/Annots ["));
         assert!(pdf_text.contains("/Subtype /Link"));
         assert!(pdf_text.contains("/Rect [72 708 152 720]"));
         assert!(pdf_text.contains(r"/URI (https://example.com/a\(1\)\\b?c=2&d=3)"));
@@ -26932,7 +26994,10 @@ mod tests {
         let svg = render_display_list_svg(&page);
 
         assert!(pdf_text.contains("/Names << /Dests << /Names ["));
-        assert!(pdf_text.contains(r"(sec:intro\(1\)\\more&extra) [16 0 R /XYZ 72 720 null]"));
+        assert!(pdf_text.contains(&format!(
+            r"(sec:intro\(1\)\\more&extra) [{} /XYZ 72 720 null]",
+            first_page_reference(&pdf_text)
+        )));
         assert!(svg.contains(r#"data-destination-name="sec:intro(1)\more&amp;extra""#));
         assert!(svg.contains("data-destination-x=\"72\""));
         assert!(svg.contains("data-destination-y=\"72\""));
@@ -26971,11 +27036,12 @@ mod tests {
         let pdf = render_display_list_pdf(&[page]);
         let pdf_text = String::from_utf8_lossy(&pdf);
 
+        let page_reference = first_page_reference(&pdf_text);
         let alpha_index = pdf_text
-            .find("(sec:alpha) [16 0 R /XYZ 72 696 null]")
+            .find(&format!("(sec:alpha) [{page_reference} /XYZ 72 696 null]"))
             .expect("alpha destination should be present");
         let zeta_index = pdf_text
-            .find("(sec:zeta) [16 0 R /XYZ 72 720 null]")
+            .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
     }

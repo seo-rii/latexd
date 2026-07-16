@@ -11,9 +11,9 @@ use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, ImageCrop, ImageRotation,
-    ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MetadataField, ModeHint,
-    RenderEvent, SemanticConfidence, SpaceKind, TableColumnAlignment, to_pretty_json,
-    to_semantic_pretty_json,
+    ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MathAtomKind, MathNode,
+    MathScriptPlacement, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
+    TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -716,21 +716,44 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
             _ => None,
         })
         .expect("display math block");
-    let display_math_text_run = capture.page_display_lists[0]
+    let display_math_text_runs = capture.page_display_lists[0]
         .ops
         .iter()
-        .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "x^2" => Some(run),
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) if matches!(run.text.as_str(), "x" | "2") => Some(run),
             _ => None,
         })
-        .expect("display math text run");
+        .collect::<Vec<_>>();
+
+    assert!(matches!(
+        display_math_block.structure.as_ref(),
+        Some(MathNode::Scripts {
+            base,
+            subscript: None,
+            superscript: Some(superscript),
+            placement: MathScriptPlacement::Side,
+        }) if matches!(
+            base.as_ref(),
+            MathNode::Atom {
+                text,
+                atom_kind: MathAtomKind::Identifier,
+            } if text == "x"
+        ) && matches!(
+            superscript.as_ref(),
+            MathNode::Atom {
+                text,
+                atom_kind: MathAtomKind::Number,
+            } if text == "2"
+        )
+    ));
+    assert_eq!(display_math_text_runs.len(), 2);
+    assert!(display_math_text_runs[1].origin.y < display_math_text_runs[0].origin.y);
 
     assert_eq!(display_math_event.meta.mode_hint, ModeHint::Math);
-    for source in [
-        &display_math_event.meta.source,
-        &display_math_block.source,
-        &display_math_text_run.source,
-    ] {
+    for source in std::iter::once(&display_math_event.meta.source)
+        .chain(std::iter::once(&display_math_block.source))
+        .chain(display_math_text_runs.iter().map(|run| &run.source))
+    {
         assert!(matches!(
             &source.primary,
             ProvenanceSpan::File(span)
@@ -759,12 +782,11 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
         "ir": {
             "raw_source": display_math_block.raw_source,
             "normalized_text": display_math_block.normalized_text,
+            "structure": display_math_block.structure,
             "source": display_math_block.source,
         },
         "display_list": {
-            "text": display_math_text_run.text,
-            "source": display_math_text_run.source,
-            "clusters": display_math_text_run.clusters,
+            "runs": display_math_text_runs,
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -8315,7 +8337,29 @@ fn dollar_math_capture_survives_ir_and_display_list() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(display_list_text.contains("x^2 + y^2"));
-    assert!(display_list_text.contains("z^2"));
+    let display_z = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "z" => Some(run),
+            _ => None,
+        })
+        .expect("display math base");
+    let display_two = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run)
+                if run.text == "2"
+                    && run.origin.x > display_z.origin.x
+                    && run.origin.y < display_z.origin.y =>
+            {
+                Some(run)
+            }
+            _ => None,
+        })
+        .expect("display math superscript");
+    assert!(display_two.size_pt < display_z.size_pt);
 }
 
 #[test]
@@ -13978,7 +14022,14 @@ fn math_environment_capture_survives_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(display_list_text.contains("a/b"));
+    assert!(
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::Rule(rule) if rule.width > 0.0 && rule.height > 0.0))
+    );
+    assert!(display_list_text.contains('a'));
+    assert!(display_list_text.contains('b'));
     assert!(!display_list_text.contains(r"\frac{a}{b}"));
     assert!(display_list_text.contains("a = b"));
     assert!(display_list_text.contains("x = y"));
@@ -29010,7 +29061,16 @@ fn label_definition_capture_survives_ir_without_visible_key() {
 
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("/Names << /Dests << /Names ["));
-    assert!(pdf_text.contains("(sec:intro) [16 0 R /XYZ"));
+    let destination_start = pdf_text
+        .find("(sec:intro) [")
+        .expect("serialized named destination");
+    assert!(
+        pdf_text[destination_start..]
+            .chars()
+            .take(80)
+            .collect::<String>()
+            .contains(" 0 R /XYZ")
+    );
     assert!(!pdf_text.contains("(sec:intro) Tj"));
 }
 

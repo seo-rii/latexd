@@ -1,36 +1,99 @@
 {
   "display_list": {
-    "clusters": [
+    "runs": [
       {
-        "glyph_end": 3,
-        "glyph_start": 0,
-        "text_end_utf8": 3,
-        "text_start_utf8": 0
-      }
-    ],
-    "source": {
-      "expansion_stack": [],
-      "expansion_stack_truncated": false,
-      "generated_by": "source",
-      "primary": {
-        "end_utf8": 159,
-        "kind": "file",
-        "path": "main.tex",
-        "start_utf8": 156
-      },
-      "related": [
-        {
-          "role": "invocation",
-          "span": {
-            "end_utf8": 161,
+        "approximate_advance_pt": 6.820000171661377,
+        "clusters": [
+          {
+            "glyph_end": 1,
+            "glyph_start": 0,
+            "text_end_utf8": 1,
+            "text_start_utf8": 0
+          }
+        ],
+        "font": {
+          "family": "math",
+          "role": "math",
+          "series": "regular",
+          "shape": "italic",
+          "size_pt": 11.0
+        },
+        "origin": {
+          "x": 300.3900146484375,
+          "y": 230.8249969482422
+        },
+        "size_pt": 11.0,
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 159,
             "kind": "file",
             "path": "main.tex",
-            "start_utf8": 154
+            "start_utf8": 156
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 161,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 154
+              }
+            }
+          ]
+        },
+        "text": "x"
+      },
+      {
+        "approximate_advance_pt": 3.8499999046325684,
+        "clusters": [
+          {
+            "glyph_end": 1,
+            "glyph_start": 0,
+            "text_end_utf8": 1,
+            "text_start_utf8": 0
           }
-        }
-      ]
-    },
-    "text": "x^2"
+        ],
+        "font": {
+          "family": "math",
+          "role": "math",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 7.699999809265137
+        },
+        "origin": {
+          "x": 307.760009765625,
+          "y": 224.77499389648438
+        },
+        "size_pt": 7.699999809265137,
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 159,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 156
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 161,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 154
+              }
+            }
+          ]
+        },
+        "text": "2"
+      }
+    ]
   },
   "event": {
     "event": {
@@ -90,6 +153,20 @@
           }
         }
       ]
+    },
+    "structure": {
+      "base": {
+        "atom_kind": "identifier",
+        "kind": "atom",
+        "text": "x"
+      },
+      "kind": "scripts",
+      "placement": "side",
+      "superscript": {
+        "atom_kind": "number",
+        "kind": "atom",
+        "text": "2"
+      }
     }
   },
   "source": "\\title{A Paper}\\author{Ada Lovelace}\\date{May 1843}\\begin{document}\\maketitle\\begin{abstract}Short abstract.\\end{abstract}\\section{Intro}Hello \\cite{key}.\\[x^2\\]\\begin{thebibliography}{1}\\bibitem{key} Author. Title.\\end{thebibliography}\\begin{unknownenv}Fallback text.\\end{unknownenv}\\end{document}"

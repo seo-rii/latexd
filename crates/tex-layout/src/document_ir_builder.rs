@@ -7,6 +7,8 @@ use tex_render_model::{
     SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
+use crate::math_ir::parse_display_math_structure;
+
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
     DocumentIrBuilder::new(aux).build(stream)
 }
@@ -529,6 +531,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         .push(IrBlock::DisplayMath(tex_render_model::DisplayMathBlock {
                             raw_source: event.raw_source.clone(),
                             normalized_text: event.normalized_text.clone(),
+                            structure: parse_display_math_structure(&event.raw_source),
                             source: envelope.meta.source.clone(),
                         }));
                 }

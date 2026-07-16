@@ -333,6 +333,20 @@
     {
       "kind": "display_math",
       "raw_source": "x^2",
+      "structure": {
+        "kind": "scripts",
+        "base": {
+          "kind": "atom",
+          "text": "x",
+          "atom_kind": "identifier"
+        },
+        "superscript": {
+          "kind": "atom",
+          "text": "2",
+          "atom_kind": "number"
+        },
+        "placement": "side"
+      },
       "source": {
         "primary": {
           "kind": "file",

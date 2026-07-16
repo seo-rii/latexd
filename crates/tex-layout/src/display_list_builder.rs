@@ -2,9 +2,12 @@ use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
     ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind,
-    PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
-    SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan, TextCluster,
+    MathNode, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
+    SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan,
 };
+
+use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
+use crate::math_layout::{MathLayoutBox, layout_math_node};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageDisplayListOptions {
@@ -24,6 +27,8 @@ pub struct PageDisplayListOptions {
     pub max_chars_per_line: usize,
     pub line_height_pt: f32,
     pub block_gap_pt: f32,
+    pub display_math_gap_before_pt: f32,
+    pub display_math_gap_after_pt: f32,
     pub paragraph_first_line_indent_pt: f32,
     pub paragraph_gap_pt: Option<f32>,
     pub body_font_size_pt: f32,
@@ -65,6 +70,8 @@ impl Default for PageDisplayListOptions {
             max_chars_per_line: 72,
             line_height_pt: 14.0,
             block_gap_pt: 7.0,
+            display_math_gap_before_pt: 0.0,
+            display_math_gap_after_pt: 20.9,
             paragraph_first_line_indent_pt: 0.0,
             paragraph_gap_pt: None,
             body_font_size_pt: 11.0,
@@ -345,6 +352,7 @@ impl PageDisplayListOptions {
                 options.abstract_indent_pt = value as f32 / 1000.0;
             }
         }
+        options.display_math_gap_after_pt = options.body_font_size_pt * 1.9;
         options
     }
 }
@@ -489,6 +497,16 @@ struct LogicalTextRun {
     full_width: bool,
 }
 
+struct LogicalDisplayMath {
+    structure: Option<MathNode>,
+    fallback_text: String,
+    source: SourceProvenance,
+    font: FontRequest,
+    size_pt: f32,
+    gap_before_pt: f32,
+    gap_after_pt: f32,
+}
+
 struct LogicalImage {
     path: String,
     options: Option<String>,
@@ -516,6 +534,7 @@ struct LogicalContainer {
 
 enum LogicalItem {
     Text(LogicalTextRun),
+    DisplayMath(LogicalDisplayMath),
     VerticalGap(f32),
     Image(LogicalImage),
     FullPageImage(LogicalImage),
@@ -1394,29 +1413,17 @@ pub fn build_page_display_lists(
                 }
             }
             IrBlock::DisplayMath(block) => {
-                logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    segments: vec![LogicalTextSegment {
-                        text: block
-                            .normalized_text
-                            .clone()
-                            .unwrap_or_else(|| block.raw_source.clone()),
-                        source: block.source.clone(),
-                        link_target: None,
-                        table_rule: false,
-                        table_rule_trim_start_pt: None,
-                        table_rule_trim_end_pt: None,
-                        table_vertical_rule_offsets: Vec::new(),
-                    }],
+                logical_items.push(LogicalItem::DisplayMath(LogicalDisplayMath {
+                    structure: block.structure.clone(),
+                    fallback_text: block
+                        .normalized_text
+                        .clone()
+                        .unwrap_or_else(|| block.raw_source.clone()),
                     source: block.source.clone(),
                     font: math_font.clone(),
                     size_pt: options.body_font_size_pt,
-                    line_height_pt: options.line_height_pt,
-                    gap_after_pt: options.block_gap_pt,
-                    first_line_indent_pt: 0.0,
-                    continuation_indent_pt: 0.0,
-                    right_indent_pt: 0.0,
-                    preserve_leading_whitespace: false,
-                    full_width: false,
+                    gap_before_pt: options.display_math_gap_before_pt,
+                    gap_after_pt: options.display_math_gap_after_pt,
                 }));
             }
             IrBlock::Bibliography(block) => {
@@ -2634,6 +2641,81 @@ pub fn build_page_display_lists(
                 if y > column_start_y + 0.01 {
                     y += gap_pt.max(0.0);
                 }
+            }
+            LogicalItem::DisplayMath(logical) => {
+                if let Some(row) = pending_image_row.take() {
+                    y = row.y + row.height_pt + row.gap_after_pt;
+                }
+                let mut layout = logical
+                    .structure
+                    .as_ref()
+                    .map(|structure| {
+                        layout_math_node(structure, logical.size_pt, &logical.source, &logical.font)
+                    })
+                    .unwrap_or_else(|| {
+                        let advance =
+                            text_advance_pt(&logical.fallback_text, &logical.font, logical.size_pt);
+                        MathLayoutBox {
+                            width_pt: advance,
+                            ascent_pt: logical.size_pt * 0.75,
+                            descent_pt: logical.size_pt * 0.2,
+                            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                                origin: Point { x: 0.0, y: 0.0 },
+                                text: logical.fallback_text.clone(),
+                                font: logical.font.clone(),
+                                size_pt: logical.size_pt,
+                                approximate_advance_pt: advance,
+                                glyphs: None,
+                                clusters: approximate_text_clusters(&logical.fallback_text),
+                                source: logical.source.clone(),
+                            })],
+                        }
+                    });
+                let required_height_pt = logical.gap_before_pt
+                    + layout.ascent_pt
+                    + layout.descent_pt
+                    + logical.gap_after_pt;
+                if y + required_height_pt > options.page_height_pt - options.margin_bottom_pt
+                    && !pending.ops.is_empty()
+                {
+                    if column_index + 1 < column_count {
+                        column_index += 1;
+                    } else {
+                        finish_page(&mut pages, pending);
+                        pending = new_pending_page();
+                        column_index = 0;
+                        column_start_y = options.margin_top_pt;
+                    }
+                    y = column_start_y;
+                }
+                let column_left_pt = options.margin_left_pt
+                    + column_index as f32 * (column_width_pt + column_gap_pt);
+                let formula_x =
+                    column_left_pt + ((column_width_pt - layout.width_pt) / 2.0).max(0.0);
+                let formula_baseline_y = y + logical.gap_before_pt + layout.ascent_pt;
+                emit_due_destinations(
+                    &logical.source,
+                    Point {
+                        x: formula_x,
+                        y: formula_baseline_y,
+                    },
+                    &mut pending,
+                );
+                record_source_spans(&logical.source, &mut pending.source_spans);
+                if !pending.text.is_empty() {
+                    pending.text.push('\n');
+                }
+                pending.text.push_str(&logical.fallback_text);
+                pending.hash_input.push_str(&format!(
+                    "\u{1e}display_math:{formula_x:.3}:{formula_baseline_y:.3}:{:.3}:{:.3}\u{1f}{}",
+                    layout.width_pt, required_height_pt, logical.fallback_text
+                ));
+                for op in &mut layout.ops {
+                    op.translate(formula_x, formula_baseline_y);
+                    pending.hash_input.push_str(&format!("\u{1f}{op:?}"));
+                }
+                pending.ops.extend(layout.ops);
+                y += required_height_pt;
             }
             LogicalItem::Text(logical) => {
                 let full_width = logical.full_width;
@@ -3937,79 +4019,6 @@ pub fn build_page_display_lists(
     pages
 }
 
-fn text_advance_pt(text: &str, font: &FontRequest, size_pt: f32) -> f32 {
-    text.chars()
-        .map(|ch| {
-            let em_width = match font.family {
-                FontFamilyRequest::Mono => 0.6,
-                FontFamilyRequest::Math => {
-                    if ch.is_whitespace() {
-                        0.25
-                    } else if ch.is_ascii_digit() {
-                        0.5
-                    } else {
-                        0.62
-                    }
-                }
-                FontFamilyRequest::Serif
-                | FontFamilyRequest::Sans
-                | FontFamilyRequest::Named(_) => {
-                    if ch.is_whitespace() {
-                        0.25
-                    } else if matches!(ch, 'i' | 'j' | 'l' | 'I' | '!' | '|' | '\'' | '`') {
-                        0.28
-                    } else if matches!(ch, '.' | ',' | ';' | ':' | '-' | '/' | '\\') {
-                        0.33
-                    } else if matches!(ch, '(' | ')' | '[' | ']' | '{' | '}') {
-                        0.38
-                    } else if matches!(ch, 'm' | 'w' | 'M' | 'W') {
-                        0.82
-                    } else if ch.is_ascii_uppercase() {
-                        0.68
-                    } else if ch.is_ascii_digit() {
-                        0.5
-                    } else if ch.is_ascii() {
-                        0.5
-                    } else {
-                        0.8
-                    }
-                }
-            };
-            let series_adjust = if font.series == FontSeries::Bold && !ch.is_whitespace() {
-                1.04
-            } else {
-                1.0
-            };
-            em_width * series_adjust * size_pt
-        })
-        .sum()
-}
-
-fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
-    if text.is_empty() {
-        return None;
-    }
-    let glyph_count = text.chars().count() as u32;
-    if text.len() == glyph_count as usize {
-        return Some(vec![TextCluster {
-            text_start_utf8: 0,
-            text_end_utf8: text.len() as u32,
-            glyph_start: 0,
-            glyph_end: glyph_count,
-        }]);
-    }
-    let mut clusters = Vec::new();
-    for (glyph_index, (start, ch)) in text.char_indices().enumerate() {
-        clusters.push(TextCluster {
-            text_start_utf8: start as u32,
-            text_end_utf8: (start + ch.len_utf8()) as u32,
-            glyph_start: glyph_index as u32,
-            glyph_end: glyph_index as u32 + 1,
-        });
-    }
-    Some(clusters)
-}
-
 #[cfg(test)]
 mod tests {
     use tex_render_model::{
@@ -4018,10 +4027,11 @@ mod tests {
         GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
         GraphicBlock, GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale,
         ImageTrim, ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
-        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, PageBreakBlock,
-        PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance,
-        SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow,
-        TableRuleSpan, TextCluster, TitleBlock,
+        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MathAtomKind,
+        MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, PageBreakKind,
+        ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan,
+        TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan,
+        TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -7163,6 +7173,7 @@ mod tests {
                 IrBlock::DisplayMath(DisplayMathBlock {
                     raw_source: "\\beta".to_string(),
                     normalized_text: Some("beta".to_string()),
+                    structure: None,
                     source,
                 }),
             ]),
@@ -7183,6 +7194,134 @@ mod tests {
         assert!(text.contains("beta"));
         assert!(!text.contains("\\alpha"));
         assert!(!text.contains("\\beta"));
+    }
+
+    #[test]
+    fn structured_display_math_centers_and_stacks_common_constructs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let document = DocumentIr::with_document_class_and_labels(
+            vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Before".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::DisplayMath(DisplayMathBlock {
+                    raw_source: r"\sum_{lower}^{upper} q = \frac{numerator}{denominator}"
+                        .to_string(),
+                    normalized_text: Some(
+                        "sum_{lower}^{upper} q = numerator/denominator".to_string(),
+                    ),
+                    structure: Some(MathNode::Row {
+                        children: vec![
+                            MathNode::Scripts {
+                                base: Box::new(MathNode::LargeOperator {
+                                    operator: MathLargeOperator::Sum,
+                                }),
+                                subscript: Some(Box::new(MathNode::Atom {
+                                    text: "lower".to_string(),
+                                    atom_kind: MathAtomKind::Identifier,
+                                })),
+                                superscript: Some(Box::new(MathNode::Atom {
+                                    text: "upper".to_string(),
+                                    atom_kind: MathAtomKind::Identifier,
+                                })),
+                                placement: MathScriptPlacement::Limits,
+                            },
+                            MathNode::Atom {
+                                text: "q".to_string(),
+                                atom_kind: MathAtomKind::Identifier,
+                            },
+                            MathNode::Atom {
+                                text: "=".to_string(),
+                                atom_kind: MathAtomKind::Relation,
+                            },
+                            MathNode::Fraction {
+                                numerator: Box::new(MathNode::Atom {
+                                    text: "numerator".to_string(),
+                                    atom_kind: MathAtomKind::Identifier,
+                                }),
+                                denominator: Box::new(MathNode::Atom {
+                                    text: "denominator".to_string(),
+                                    atom_kind: MathAtomKind::Identifier,
+                                }),
+                            },
+                        ],
+                    }),
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "After".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+            ],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["letterpaper".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+        let pages = build_page_display_lists(&document, options.clone());
+        let text_run = |text: &str| {
+            pages[0].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run),
+                _ => None,
+            })
+        };
+
+        let before = text_run("Before").expect("leading paragraph");
+        let sum = text_run("∑").expect("sum operator");
+        let lower = text_run("lower").expect("sum lower limit");
+        let upper = text_run("upper").expect("sum upper limit");
+        let numerator = text_run("numerator").expect("fraction numerator");
+        let denominator = text_run("denominator").expect("fraction denominator");
+        let after = text_run("After").expect("following paragraph");
+        let rule = pages[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Rule(rule) => Some(rule),
+                _ => None,
+            })
+            .expect("fraction rule");
+
+        assert!(upper.origin.y < sum.origin.y);
+        assert!(lower.origin.y > sum.origin.y);
+        assert!(numerator.origin.y < rule.y);
+        assert!(denominator.origin.y > rule.y + rule.height);
+        let formula_left = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !matches!(run.text.as_str(), "Before" | "After" | "1") => {
+                    Some(run.origin.x)
+                }
+                DrawOp::Rule(rule) => Some(rule.x),
+                _ => None,
+            })
+            .fold(f32::INFINITY, f32::min);
+        let formula_right = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !matches!(run.text.as_str(), "Before" | "After" | "1") => {
+                    Some(run.origin.x + run.approximate_advance_pt)
+                }
+                DrawOp::Rule(rule) => Some(rule.x + rule.width),
+                _ => None,
+            })
+            .fold(f32::NEG_INFINITY, f32::max);
+        let content_center =
+            options.margin_left_pt + (options.page_width_pt - options.margin_left_pt * 2.0) / 2.0;
+        assert!(((formula_left + formula_right) / 2.0 - content_center).abs() < 0.1);
+        assert!(after.origin.y - before.origin.y > options.line_height_pt * 4.0);
     }
 
     #[test]

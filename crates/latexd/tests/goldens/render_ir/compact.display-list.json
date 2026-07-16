@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "b0e135c1600ca43e1fed017af203298d38e5465683ea16605b9cbbe1bc12d4d6",
+    "page_id": "659dc5ca070742efbba7349315942ce5815b00d1bfed06b54ac580d68c6634e2",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -595,25 +595,72 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 72.0,
-          "y": 219.0
+          "x": 300.39,
+          "y": 230.825
         },
-        "text": "x^2",
+        "text": "x",
         "font": {
           "family": "math",
           "series": "regular",
-          "shape": "upright",
+          "shape": "italic",
           "size_pt": 11.0,
           "role": "math"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 19.14,
+        "approximate_advance_pt": 6.82,
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 3,
+            "text_end_utf8": 1,
             "glyph_start": 0,
-            "glyph_end": 3
+            "glyph_end": 1
+          }
+        ],
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 156,
+            "end_utf8": 159
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 154,
+                "end_utf8": 161
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 307.76,
+          "y": 224.775
+        },
+        "text": "2",
+        "font": {
+          "family": "math",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 7.7,
+          "role": "math"
+        },
+        "size_pt": 7.7,
+        "approximate_advance_pt": 3.85,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
           }
         ],
         "source": {
@@ -643,7 +690,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 240.0
+          "y": 253.925
         },
         "text": "Author. Title.",
         "font": {
@@ -680,7 +727,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 261.0
+          "y": 274.925
         },
         "text": "Fallback text.",
         "font": {
@@ -796,6 +843,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "a4cd9c808b387dcd6a272e1493dfb5cd47ae7a766baa853cecfbbfa833bb1356"
+    "content_hash": "93166092684e9896403a2a9a34e8a7f49f944e6b60f31937b119680ccc54be7b"
   }
 ]

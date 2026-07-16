@@ -270,23 +270,42 @@
         "text": "."
       },
       {
-        "approximate_advance_pt": 19.139999389648438,
+        "approximate_advance_pt": 6.820000171661377,
+        "clusters": "<present>",
+        "font": {
+          "family": "math",
+          "role": "math",
+          "series": "regular",
+          "shape": "italic",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 300.3900146484375,
+          "y": 230.8249969482422
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "x"
+      },
+      {
+        "approximate_advance_pt": 3.8499999046325684,
         "clusters": "<present>",
         "font": {
           "family": "math",
           "role": "math",
           "series": "regular",
           "shape": "upright",
-          "size_pt": 11.0
+          "size_pt": 7.699999809265137
         },
         "kind": "text_run",
         "origin": {
-          "x": 72.0,
-          "y": 219.0
+          "x": 307.760009765625,
+          "y": 224.77499389648438
         },
-        "size_pt": 11.0,
+        "size_pt": 7.699999809265137,
         "source": "<present>",
-        "text": "x^2"
+        "text": "2"
       },
       {
         "approximate_advance_pt": 69.62999725341797,
@@ -301,7 +320,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 240.0
+          "y": 253.9250030517578
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -320,7 +339,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 261.0
+          "y": 274.92498779296875
         },
         "size_pt": 11.0,
         "source": "<present>",

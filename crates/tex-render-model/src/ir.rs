@@ -414,7 +414,62 @@ pub struct DisplayMathBlock {
     pub raw_source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalized_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structure: Option<MathNode>,
     pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MathNode {
+    Row {
+        children: Vec<MathNode>,
+    },
+    Atom {
+        text: String,
+        atom_kind: MathAtomKind,
+    },
+    LargeOperator {
+        operator: MathLargeOperator,
+    },
+    Fraction {
+        numerator: Box<MathNode>,
+        denominator: Box<MathNode>,
+    },
+    Scripts {
+        base: Box<MathNode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subscript: Option<Box<MathNode>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        superscript: Option<Box<MathNode>>,
+        placement: MathScriptPlacement,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathAtomKind {
+    Identifier,
+    Number,
+    Operator,
+    Relation,
+    Delimiter,
+    Punctuation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathLargeOperator {
+    Sum,
+    Product,
+    Integral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathScriptPlacement {
+    Side,
+    Limits,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -664,6 +719,7 @@ mod tests {
             IrBlock::DisplayMath(DisplayMathBlock {
                 raw_source: "\\beta".to_string(),
                 normalized_text: Some("beta".to_string()),
+                structure: None,
                 source,
             }),
         ]);

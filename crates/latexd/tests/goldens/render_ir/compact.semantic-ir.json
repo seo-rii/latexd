@@ -77,7 +77,21 @@
     {
       "kind": "display_math",
       "raw_source": "x^2",
-      "source": "<present>"
+      "source": "<present>",
+      "structure": {
+        "base": {
+          "atom_kind": "identifier",
+          "kind": "atom",
+          "text": "x"
+        },
+        "kind": "scripts",
+        "placement": "side",
+        "superscript": {
+          "atom_kind": "number",
+          "kind": "atom",
+          "text": "2"
+        }
+      }
     },
     {
       "items": [

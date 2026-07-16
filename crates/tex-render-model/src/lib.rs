@@ -34,8 +34,9 @@ pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
     DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
-    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, PageBreakBlock,
-    ParagraphBlock, RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
+    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, MathAtomKind,
+    MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, ParagraphBlock,
+    RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
 };
 pub use pdf_asset::{
     PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,
