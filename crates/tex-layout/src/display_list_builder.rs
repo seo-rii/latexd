@@ -1,7 +1,7 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
-    ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation,
+    ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind,
     PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
     SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan, TextCluster,
 };
@@ -172,6 +172,9 @@ impl PageDisplayListOptions {
                     _ => (17.28, 12.0, 9.0, 11.0, 15.0),
                 };
                 let front_matter_scale = options.body_font_size_pt / 10.0;
+                let list_left_margin_em = if uses_two_columns { 2.0 } else { 2.5 };
+                options.list_continuation_indent_pt =
+                    list_left_margin_em * options.body_font_size_pt * TEX_POINT_TO_PDF_POINT;
                 let paper_width_tex_pt = options.page_width_pt / TEX_POINT_TO_PDF_POINT;
                 let paper_height_tex_pt = options.page_height_pt / TEX_POINT_TO_PDF_POINT;
                 let available_width_tex_pt = (paper_width_tex_pt - 2.0 * TEX_INCH_PT).max(1.0);
@@ -525,7 +528,7 @@ pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
 ) -> Vec<PageDisplayList> {
-    let uses_standard_article_heading_metrics = document_ir
+    let uses_standard_article_metrics = document_ir
         .document_class
         .as_ref()
         .is_some_and(|class| class.name.trim().eq_ignore_ascii_case("article"))
@@ -1071,7 +1074,7 @@ pub fn build_page_display_lists(
                     " ",
                 );
                 let (font_size_pt, line_height_pt, gap_before_pt, gap_after_pt, number_separator) =
-                    if uses_standard_article_heading_metrics {
+                    if uses_standard_article_metrics {
                         let scale = options.body_font_size_pt / 10.0;
                         match block.level {
                             1 => (
@@ -1285,9 +1288,52 @@ pub fn build_page_display_lists(
                 }));
             }
             IrBlock::List(block) => {
+                let uses_standard_list_metrics = uses_standard_article_metrics
+                    && matches!(block.kind, ListKind::Unordered | ListKind::Ordered);
+                let (item_gap_after_pt, list_gap_before_pt, label_separator) =
+                    if uses_standard_list_metrics {
+                        const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
+                        let (top_sep_tex_pt, partop_sep_tex_pt) =
+                            if options.body_font_size_pt >= 11.5 {
+                                (10.0, 3.0)
+                            } else if options.body_font_size_pt >= 10.5 {
+                                (9.0, 3.0)
+                            } else {
+                                (8.0, 2.0)
+                            };
+                        let item_baseline_delta_pt =
+                            (options.line_height_pt + top_sep_tex_pt) * TEX_POINT_TO_PDF_POINT;
+                        let gap_before_tex_pt = if block_index > 0
+                            && matches!(document_ir.blocks[block_index - 1], IrBlock::List(_))
+                        {
+                            partop_sep_tex_pt
+                        } else {
+                            top_sep_tex_pt
+                        };
+                        (
+                            (item_baseline_delta_pt - options.line_height_pt).max(0.0),
+                            gap_before_tex_pt * TEX_POINT_TO_PDF_POINT,
+                            "  ",
+                        )
+                    } else {
+                        (0.0, 0.0, " ")
+                    };
+                if list_gap_before_pt > 0.0 {
+                    logical_items.push(LogicalItem::VerticalGap(list_gap_before_pt));
+                }
                 for (index, item) in block.items.iter().enumerate() {
+                    let marker_text = if uses_standard_list_metrics {
+                        item.marker.clone()
+                    } else {
+                        format!("{} ", item.marker)
+                    };
+                    let marker_advance_pt = text_advance_pt(
+                        &format!("{marker_text}{label_separator}"),
+                        &body_font,
+                        options.body_font_size_pt,
+                    );
                     let mut segments = vec![LogicalTextSegment {
-                        text: format!("{} ", item.marker),
+                        text: marker_text,
                         source: item.source.clone(),
                         link_target: None,
                         table_rule: false,
@@ -1295,6 +1341,17 @@ pub fn build_page_display_lists(
                         table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     }];
+                    if uses_standard_list_metrics {
+                        segments.push(LogicalTextSegment {
+                            text: label_separator.to_string(),
+                            source: item.source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        });
+                    }
                     segments.extend(inline_segments(&item.content));
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments,
@@ -1302,12 +1359,18 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         line_height_pt: options.line_height_pt,
-                        gap_after_pt: if index + 1 == block.items.len() {
+                        gap_after_pt: if uses_standard_list_metrics {
+                            item_gap_after_pt
+                        } else if index + 1 == block.items.len() {
                             options.block_gap_pt
                         } else {
                             0.0
                         },
-                        first_line_indent_pt: 0.0,
+                        first_line_indent_pt: if uses_standard_list_metrics {
+                            (options.list_continuation_indent_pt - marker_advance_pt).max(0.0)
+                        } else {
+                            0.0
+                        },
                         continuation_indent_pt: options.list_continuation_indent_pt,
                         right_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
@@ -7533,6 +7596,7 @@ mod tests {
         assert_eq!(article_options.body_font_size_pt, 10.0);
         assert_eq!(article_options.line_height_pt, 12.0);
         assert!((article_options.column_gap_pt - 9.96).abs() < 0.02);
+        assert!((article_options.list_continuation_indent_pt - 20.0 * 72.0 / 72.27).abs() < 0.02);
         assert!((article_options.margin_left_pt - 72.0).abs() < 0.2);
         assert_eq!(ieee_options.column_count, 2);
         assert_eq!(ieee_options.margin_left_pt, 49.5);
@@ -7542,8 +7606,12 @@ mod tests {
         assert_eq!(a4_options.page_height_pt, 841.89);
         assert_eq!(a4_options.body_font_size_pt, 11.0);
         assert_eq!(a4_options.line_height_pt, 13.6);
+        assert!((a4_options.list_continuation_indent_pt - 27.5 * 72.0 / 72.27).abs() < 0.02);
         assert_eq!(plain_article_options.body_font_size_pt, 10.0);
         assert_eq!(plain_article_options.line_height_pt, 12.0);
+        assert!(
+            (plain_article_options.list_continuation_indent_pt - 25.0 * 72.0 / 72.27).abs() < 0.02
+        );
         assert!((plain_article_options.margin_left_pt - 134.1).abs() < 0.2);
         assert!((plain_article_options.margin_top_pt - 135.5).abs() < 0.5);
         assert!((plain_article_options.paragraph_first_line_indent_pt - 14.94).abs() < 0.02);
@@ -9106,6 +9174,147 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(caption_runs, vec!["abcdef", "ghi"]);
+    }
+
+    #[test]
+    fn standard_article_lists_use_class_indentation_and_spacing() {
+        let source = SourceProvenance::file("main.tex", 0, 120);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let list = |kind, first_marker: &str, second_marker: &str| {
+            IrBlock::List(ListBlock {
+                kind,
+                items: vec![
+                    ListItemIr {
+                        marker: first_marker.to_string(),
+                        content: vec![InlineNode::Text {
+                            text: "First item".to_string(),
+                            source: source.clone(),
+                        }],
+                        source: source.clone(),
+                    },
+                    ListItemIr {
+                        marker: second_marker.to_string(),
+                        content: vec![InlineNode::Text {
+                            text: "Second item".to_string(),
+                            source: source.clone(),
+                        }],
+                        source: source.clone(),
+                    },
+                ],
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::with_document_class_and_labels(
+            vec![
+                paragraph("Before"),
+                list(ListKind::Unordered, "-", "-"),
+                list(ListKind::Ordered, "1.", "2."),
+                paragraph("After"),
+            ],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "letterpaper".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+        let display_lists = build_page_display_lists(&document, options.clone());
+        let runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let find_runs = |text: &str| {
+            runs.iter()
+                .copied()
+                .filter(|run| run.text == text)
+                .collect::<Vec<_>>()
+        };
+        let before = find_runs("Before")[0];
+        let first_items = find_runs("First item");
+        let second_items = find_runs("Second item");
+        let after = find_runs("After")[0];
+        let tex_point_to_pdf_point = 72.0 / 72.27;
+        let regular_baseline_delta = (options.line_height_pt + 8.0) * tex_point_to_pdf_point;
+        let adjacent_list_baseline_delta = regular_baseline_delta + 2.0 * tex_point_to_pdf_point;
+        let content_x = options.margin_left_pt + 25.0 * tex_point_to_pdf_point;
+
+        for item in first_items.iter().chain(&second_items) {
+            assert!((item.origin.x - content_x).abs() < 0.05);
+        }
+        assert!((first_items[0].origin.y - before.origin.y - regular_baseline_delta).abs() < 0.05);
+        assert!(
+            (second_items[0].origin.y - first_items[0].origin.y - regular_baseline_delta).abs()
+                < 0.05
+        );
+        assert!(
+            (first_items[1].origin.y - second_items[0].origin.y - adjacent_list_baseline_delta)
+                .abs()
+                < 0.05
+        );
+        assert!(
+            (second_items[1].origin.y - first_items[1].origin.y - regular_baseline_delta).abs()
+                < 0.05
+        );
+        assert!((after.origin.y - second_items[1].origin.y - regular_baseline_delta).abs() < 0.05);
+    }
+
+    #[test]
+    fn standard_article_list_continuations_align_with_item_content() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let document = DocumentIr::with_document_class_and_labels(
+            vec![IrBlock::List(ListBlock {
+                kind: ListKind::Unordered,
+                items: vec![ListItemIr {
+                    marker: "-".to_string(),
+                    content: vec![InlineNode::Text {
+                        text: "abcdefghi".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "letterpaper".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+        let mut options = PageDisplayListOptions::for_document_ir(&document);
+        options.max_chars_per_line = 6;
+        let display_lists = build_page_display_lists(&document, options.clone());
+        let content_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.chars().any(char::is_alphabetic) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            content_runs.len(),
+            2,
+            "the fixture must wrap onto exactly two content lines"
+        );
+        let content_x = options.margin_left_pt + options.list_continuation_indent_pt;
+        for run in content_runs {
+            assert!((run.origin.x - content_x).abs() < 0.05);
+        }
     }
 
     #[test]
