@@ -13,7 +13,7 @@ use tex_render_model::{
     ProvenanceSpan, RawFallbackIr, SourceProvenance, SourceSpan, TableBlock, TableCell, TableRow,
     TitleBlock,
 };
-use tex_world::ProjectWorld;
+use tex_world::{ProjectWorld, read_tex_source_lossy};
 use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, serde::Deserialize)]
@@ -887,7 +887,7 @@ fn build_structure_slice_reports(
                 };
                 let contents = source_cache
                     .entry(path.clone())
-                    .or_insert_with(|| fs::read_to_string(path.as_std_path()).ok());
+                    .or_insert_with(|| read_tex_source_lossy(&path).ok());
                 let Some(contents) = contents.as_deref() else {
                     return;
                 };

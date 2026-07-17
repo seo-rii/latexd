@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tex_render_model::{
     AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
 };
-use tex_world::normalize_relative_path;
+use tex_world::{normalize_relative_path, read_tex_source_lossy};
 use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -899,7 +899,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         if !active.insert(path.to_path_buf()) {
             return Ok(());
         }
-        let source = fs::read_to_string(root.join(&path))
+        let source = read_tex_source_lossy(&root.join(&path))
             .with_context(|| format!("failed to read source {}", root.join(&path)))?;
         files
             .entry(path.to_path_buf())
@@ -1092,15 +1092,18 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                 CommandEvent::TableOfContents => *has_table_of_contents = true,
                 CommandEvent::Bibliography { stems } => {
                     for stem in stems {
-                        let mut path = normalize_relative_path(Utf8Path::new(&stem))
-                            .with_context(|| format!("invalid bibliography path {stem}"))?;
+                        let Ok(mut path) = normalize_relative_path(Utf8Path::new(&stem)) else {
+                            continue;
+                        };
                         if path.extension() == Some("bib") {
                             path = path.with_extension("bbl");
                         }
                         if path.extension().is_none() {
                             path = path.with_extension("bbl");
                         }
-                        if seen_bibliography_files.insert(path.clone()) {
+                        if root.join(&path).is_file()
+                            && seen_bibliography_files.insert(path.clone())
+                        {
                             bibliography_files.push(path);
                         }
                     }
@@ -1121,8 +1124,11 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                     {
                         continue;
                     }
+                    if !root.join(&input_path).is_file() {
+                        continue;
+                    }
                     files.entry(input_path.clone()).or_insert_with(|| {
-                        fs::read_to_string(root.join(&input_path)).unwrap_or_default()
+                        read_tex_source_lossy(&root.join(&input_path)).unwrap_or_default()
                     });
                     if input_path.extension() == Some("bbl") {
                         if seen_bibliography_files.insert(input_path.clone()) {
@@ -1193,12 +1199,18 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         &mut order,
     )?;
 
+    let jobname_bibliography = toplevel.with_extension("bbl");
+    if root.join(&jobname_bibliography).is_file() {
+        bibliography_files.clear();
+        bibliography_files.push(jobname_bibliography);
+    }
+
     for path in &bibliography_files {
         let full_path = root.join(path);
         if full_path.exists() {
             files
                 .entry(path.clone())
-                .or_insert_with(|| fs::read_to_string(&full_path).unwrap_or_default());
+                .or_insert_with(|| read_tex_source_lossy(&full_path).unwrap_or_default());
         }
     }
 
@@ -8286,6 +8298,64 @@ mod tests {
         assert!(scan.labels.iter().any(|label| label.file
             == Utf8PathBuf::from("localHamiltonian.tex")
             && label.key == "sec:nested"));
+    }
+
+    #[test]
+    fn scan_project_accepts_legacy_non_utf8_source_bytes() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            b"\\section{Legacy}\nText before\xa0after.",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(scan.sections[0].body_title, "Legacy");
+        assert!(scan.files[&Utf8PathBuf::from("main.tex")].contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn scan_project_uses_jobname_bbl_and_ignores_escaped_database_paths() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\section{Body}\bibliography{../private,refs}",
+        )
+        .expect("write main");
+        fs::write(root.join("main.bbl"), r"\bibitem{key} Jobname entry").expect("write main bbl");
+        fs::write(root.join("refs.bbl"), r"\bibitem{wrong} Database entry")
+            .expect("write database bbl");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(scan.bibliography_files, vec![Utf8PathBuf::from("main.bbl")]);
+        assert!(scan.files[&Utf8PathBuf::from("main.bbl")].contains("Jobname entry"));
+        assert!(!scan.files.contains_key(&Utf8PathBuf::from("refs.bbl")));
+    }
+
+    #[test]
+    fn scan_project_continues_past_missing_runtime_support_inputs() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\section{Before}\input{epsf}\section{After}",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(
+            scan.sections
+                .iter()
+                .map(|section| section.body_title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Before", "After"]
+        );
+        assert!(!scan.files.contains_key(&Utf8PathBuf::from("epsf.tex")));
     }
 
     #[test]

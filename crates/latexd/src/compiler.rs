@@ -40,7 +40,7 @@ use tex_render_model::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame};
-use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
+use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path, read_tex_source_lossy};
 
 use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
 
@@ -328,7 +328,7 @@ pub fn capture_internal_render_ir_from_project_root_with_asset_cache(
 }
 
 fn read_render_ir_source(root: &Utf8Path, source_path: &Utf8Path) -> anyhow::Result<String> {
-    fs::read_to_string(root.join(source_path).as_std_path())
+    read_tex_source_lossy(&root.join(source_path))
         .with_context(|| format!("failed to read render IR source {}", root.join(source_path)))
 }
 
@@ -1179,24 +1179,22 @@ impl CompilerDriver {
                 root: request.root.clone(),
                 manifest: request.manifest.clone(),
             };
-            let toplevel_source = fs::read_to_string(
-                request.root.join(&request.toplevel).as_std_path(),
-            )
-            .map_err(|error| CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
+            let toplevel_source = read_tex_source_lossy(&request.root.join(&request.toplevel))
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!(
+                            "failed to read toplevel source {}: {error}",
+                            request.root.join(&request.toplevel)
+                        ),
+                    }],
                     message: format!(
                         "failed to read toplevel source {}: {error}",
                         request.root.join(&request.toplevel)
                     ),
-                }],
-                message: format!(
-                    "failed to read toplevel source {}: {error}",
-                    request.root.join(&request.toplevel)
-                ),
-            })?;
+                })?;
             let preamble_key = preamble_key_for_source(&toplevel_source);
             let previous_build =
                 load_latest_previous_internal_build(&request.build_root, request.rev).map_err(
@@ -1767,7 +1765,7 @@ impl CompilerDriver {
                     if !full_path.exists() {
                         continue;
                     }
-                    if let Ok(source) = fs::read_to_string(full_path.as_std_path()) {
+                    if let Ok(source) = read_tex_source_lossy(&full_path) {
                         executed_sources.insert(path.clone(), source);
                     }
                 }
@@ -1782,7 +1780,7 @@ impl CompilerDriver {
                     if !full_path.exists() {
                         continue;
                     }
-                    if let Ok(source) = fs::read_to_string(full_path.as_std_path()) {
+                    if let Ok(source) = read_tex_source_lossy(&full_path) {
                         current_sources.insert(path.clone(), source);
                     }
                 }
@@ -2903,16 +2901,18 @@ fn has_fatal_internal_diagnostics(diagnostics: &[VmDiagnostic]) -> bool {
 }
 
 fn is_nonfatal_internal_diagnostic(diagnostic: &VmDiagnostic) -> bool {
-    diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
-        || (diagnostic.kind == VmDiagnosticKind::ExplicitError
-            && [
-                "newcommand ",
-                "renewcommand ",
-                "newenvironment ",
-                "renewenvironment ",
-            ]
-            .iter()
-            .any(|prefix| diagnostic.detail.starts_with(prefix)))
+    matches!(
+        diagnostic.kind,
+        VmDiagnosticKind::UndefinedControlSequence | VmDiagnosticKind::MissingFile
+    ) || (diagnostic.kind == VmDiagnosticKind::ExplicitError
+        && [
+            "newcommand ",
+            "renewcommand ",
+            "newenvironment ",
+            "renewenvironment ",
+        ]
+        .iter()
+        .any(|prefix| diagnostic.detail.starts_with(prefix)))
 }
 
 fn map_internal_diagnostics(toplevel: &Utf8Path, diagnostics: &[VmDiagnostic]) -> Vec<Diagnostic> {
@@ -3054,7 +3054,7 @@ fn save_source_texts(
         if !full_path.exists() {
             continue;
         }
-        if let Ok(contents) = fs::read_to_string(full_path.as_std_path()) {
+        if let Ok(contents) = read_tex_source_lossy(&full_path) {
             files.insert(input.clone(), contents);
         }
     }
@@ -3394,7 +3394,7 @@ fn select_shipout_replay_plan_with_spans(
                 continue;
             }
         }
-        let current_contents = match fs::read_to_string(current_path.as_std_path()) {
+        let current_contents = match read_tex_source_lossy(&current_path) {
             Ok(contents) => contents,
             Err(_) => return Ok(None),
         };
@@ -4195,6 +4195,10 @@ mod tests {
                 kind: VmDiagnosticKind::ExplicitError,
                 detail: r"renewcommand \headrulewidth undefined".to_string(),
             },
+            VmDiagnostic {
+                kind: VmDiagnosticKind::MissingFile,
+                detail: "package legacy.sty".to_string(),
+            },
         ];
         assert!(!has_fatal_internal_diagnostics(&compatibility));
         assert!(
@@ -4208,6 +4212,16 @@ mod tests {
             detail: "TeX expansion resource limit exceeded".to_string(),
         }];
         assert!(has_fatal_internal_diagnostics(&resource_limit));
+
+        let package_error = [VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: "package legacy: unsupported option".to_string(),
+        }];
+        assert!(has_fatal_internal_diagnostics(&package_error));
+        assert_eq!(
+            map_internal_diagnostics(Utf8Path::new("main.tex"), &package_error)[0].level,
+            DiagnosticLevel::Error
+        );
     }
 
     #[test]

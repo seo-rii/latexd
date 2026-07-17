@@ -21,10 +21,11 @@ use tex_render_model::{
     TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
-use tex_world::normalize_relative_path;
+use tex_world::{normalize_relative_path, read_tex_source_lossy};
 
 const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
+const MAX_GROUP_DEPTH: usize = 1_000;
 
 fn lex_plain_at_letter(input: &str, interner: &mut ControlSequenceInterner) -> Vec<Token> {
     let mut catcodes = CatCodeTable::plain_tex();
@@ -33,16 +34,46 @@ fn lex_plain_at_letter(input: &str, interner: &mut ControlSequenceInterner) -> V
 }
 
 fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static str> {
-    match (label, path.as_str()) {
-        ("class", "article.cls") => Some(ARTICLE_CLASS_SHIM),
-        ("class", "llncs.cls") => Some(LLNCS_CLASS_SHIM),
-        ("class", "IEEEtran.cls") => Some(IEEE_TRAN_CLASS_SHIM),
-        ("class", "revtex4-2.cls") => Some(REVTEX_CLASS_SHIM),
-        ("package", "authblk.sty") => Some(AUTHBLK_PACKAGE_SHIM),
-        ("package", "braket.sty") => Some(BRAKET_PACKAGE_SHIM),
-        ("package", "neurips_2019.sty") => Some(COMMON_PACKAGE_SHIM),
-        ("package", "wacv.sty") => Some(WACV_PACKAGE_SHIM),
-        ("package", package) if BUILTIN_PACKAGE_SHIMS.contains(&package) => {
+    let file_name = path.file_name().unwrap_or(path.as_str());
+    match (label, file_name) {
+        ("class", class) if class.eq_ignore_ascii_case("article.cls") => Some(ARTICLE_CLASS_SHIM),
+        ("class", class) if class.eq_ignore_ascii_case("llncs.cls") => Some(LLNCS_CLASS_SHIM),
+        ("class", class) if class.eq_ignore_ascii_case("IEEEtran.cls") => {
+            Some(IEEE_TRAN_CLASS_SHIM)
+        }
+        ("class", class)
+            if ["revtex4.cls", "revtex4-1.cls", "revtex4-2.cls"]
+                .iter()
+                .any(|known| class.eq_ignore_ascii_case(known)) =>
+        {
+            Some(REVTEX_CLASS_SHIM)
+        }
+        ("class", class)
+            if BUILTIN_GENERIC_CLASS_SHIMS
+                .iter()
+                .any(|known| class.eq_ignore_ascii_case(known)) =>
+        {
+            Some(ARTICLE_CLASS_SHIM)
+        }
+        ("package", package) if package.eq_ignore_ascii_case("authblk.sty") => {
+            Some(AUTHBLK_PACKAGE_SHIM)
+        }
+        ("package", package) if package.eq_ignore_ascii_case("braket.sty") => {
+            Some(BRAKET_PACKAGE_SHIM)
+        }
+        ("package", package) if package.eq_ignore_ascii_case("wacv.sty") => Some(WACV_PACKAGE_SHIM),
+        ("input", input)
+            if ["epsf.tex", "epsf.def", "psfig.sty"]
+                .iter()
+                .any(|known| input.eq_ignore_ascii_case(known)) =>
+        {
+            Some(COMMON_PACKAGE_SHIM)
+        }
+        ("package", package)
+            if BUILTIN_PACKAGE_SHIMS
+                .iter()
+                .any(|known| package.eq_ignore_ascii_case(known)) =>
+        {
             Some(COMMON_PACKAGE_SHIM)
         }
         _ => None,
@@ -495,6 +526,13 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\qtyrange}[4][]{#2--#3 #4}
 \providecommand{\numrange}[3][]{#2--#3}
 \providecommand{\ang}[2][]{#2}
+\providecommand{\relsize}[1]{}
+\providecommand{\smaller}{}
+\providecommand{\larger}{}
+\providecommand{\textsmaller}[2][]{#2}
+\providecommand{\textlarger}[2][]{#2}
+\providecommand{\mathsmaller}[1]{#1}
+\providecommand{\mathlarger}[1]{#1}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -514,6 +552,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "amsthm.sty",
     "arydshln.sty",
     "array.sty",
+    "atlasphysics.sty",
     "authblk.sty",
     "babel.sty",
     "balance.sty",
@@ -536,6 +575,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "comment.sty",
     "color.sty",
     "csquotes.sty",
+    "cvpr.sty",
     "diagbox.sty",
     "dcolumn.sty",
     "dblfloatfix.sty",
@@ -558,6 +598,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "graphicx.sty",
     "hhline.sty",
     "ragged2e.sty",
+    "relsize.sty",
     "hyperref.sty",
     "inputenc.sty",
     "ifthen.sty",
@@ -575,6 +616,10 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "multicol.sty",
     "natbib.sty",
     "nicefrac.sty",
+    "neurips.sty",
+    "neurips_2019.sty",
+    "neurips_2020.sty",
+    "neurips_2021.sty",
     "optidef.sty",
     "overpic.sty",
     "paracol.sty",
@@ -589,6 +634,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "pstricks.sty",
     "rotfloat.sty",
     "rotating.sty",
+    "scicite.sty",
     "sidecap.sty",
     "siunitx.sty",
     "silence.sty",
@@ -616,9 +662,31 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "upgreek.sty",
     "url.sty",
     "wacv.sty",
+    "wrapfig.sty",
     "xcolor.sty",
     "xfrac.sty",
     "xspace.sty",
+];
+
+const BUILTIN_GENERIC_CLASS_SHIMS: &[&str] = &[
+    "aa.cls",
+    "aastex.cls",
+    "acmart.cls",
+    "amsart.cls",
+    "ar2e.cls",
+    "arxims.cls",
+    "arximspdf.cls",
+    "arxstspdf.cls",
+    "bioinfo.cls",
+    "elsart.cls",
+    "elsartmod.cls",
+    "elsarticle.cls",
+    "JHEP3.cls",
+    "report.cls",
+    "siamltex.cls",
+    "svjour.cls",
+    "svjour2.cls",
+    "svmult.cls",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1612,7 +1680,7 @@ impl<'i> Vm<'i> {
         let bbl_source = self.mounted_files.get(&path).cloned().or_else(|| {
             self.file_root
                 .as_ref()
-                .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok())
         });
         let Some(bbl_source) = bbl_source else {
             return false;
@@ -6088,7 +6156,7 @@ impl<'i> Vm<'i> {
                                     let package_source =
                                         self.mounted_files.get(&path).cloned().or_else(|| {
                                             self.file_root.as_ref().and_then(|root| {
-                                                fs::read_to_string(root.join(&path)).ok()
+                                                read_tex_source_lossy(&root.join(&path)).ok()
                                             })
                                         });
                                     if let Some(package_source) = package_source {
@@ -6248,7 +6316,7 @@ impl<'i> Vm<'i> {
                                 let class_source =
                                     self.mounted_files.get(&path).cloned().or_else(|| {
                                         self.file_root.as_ref().and_then(|root| {
-                                            fs::read_to_string(root.join(&path)).ok()
+                                            read_tex_source_lossy(&root.join(&path)).ok()
                                         })
                                     });
                                 if let Some(class_source) = class_source {
@@ -6386,7 +6454,7 @@ impl<'i> Vm<'i> {
                                 let included_source =
                                     self.mounted_files.get(path).cloned().or_else(|| {
                                         self.file_root.as_ref().and_then(|root| {
-                                            fs::read_to_string(root.join(path)).ok()
+                                            read_tex_source_lossy(&root.join(path)).ok()
                                         })
                                     });
                                 if let Some(included_source) = included_source {
@@ -6476,7 +6544,7 @@ impl<'i> Vm<'i> {
                                 let included_source =
                                     self.mounted_files.get(&path).cloned().or_else(|| {
                                         self.file_root.as_ref().and_then(|root| {
-                                            fs::read_to_string(root.join(&path)).ok()
+                                            read_tex_source_lossy(&root.join(&path)).ok()
                                         })
                                     });
                                 if let Some(included_source) = included_source {
@@ -14765,6 +14833,7 @@ impl<'i> Vm<'i> {
             .into_iter()
             .map(QueueItem::Token)
             .collect::<VecDeque<_>>();
+        let pending_queue_limit = queue.len().saturating_add(MAX_PENDING_QUEUE_ITEMS);
         let mut executed_tokens = 0usize;
         let pushed_root_source = self.entry_source_path.clone().map(|path| {
             self.source_stack.push(ActiveSourceFrame {
@@ -14779,7 +14848,7 @@ impl<'i> Vm<'i> {
         'execution: loop {
             while let Some(token) = self.pop_next_token(&mut queue) {
                 executed_tokens = executed_tokens.saturating_add(1);
-                if executed_tokens > MAX_EXECUTED_TOKENS || queue.len() > MAX_PENDING_QUEUE_ITEMS {
+                if executed_tokens > MAX_EXECUTED_TOKENS || queue.len() > pending_queue_limit {
                     self.diagnostics.push(VmDiagnostic {
                         kind: VmDiagnosticKind::ExplicitError,
                         detail: format!(
@@ -15108,13 +15177,26 @@ impl<'i> Vm<'i> {
         false
     }
 
+    fn begin_group(&mut self, queue: &mut VecDeque<QueueItem>) {
+        if self.scopes.len() >= MAX_GROUP_DEPTH {
+            self.diagnostics.push(VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: format!(
+                    "TeX grouping resource limit exceeded at {MAX_GROUP_DEPTH} nested groups"
+                ),
+            });
+            queue.clear();
+            self.at_end_document_hooks.clear();
+            return;
+        }
+        self.scopes.push(HashMap::new());
+        self.aftergroup_tokens.push(Vec::new());
+    }
+
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
         match token.kind {
             TokenKind::Character { ch, catcode } => match catcode {
-                CatCode::BeginGroup => {
-                    self.scopes.push(HashMap::new());
-                    self.aftergroup_tokens.push(Vec::new());
-                }
+                CatCode::BeginGroup => self.begin_group(queue),
                 CatCode::EndGroup => {
                     if self.scopes.len() > 1 {
                         self.scopes.pop();
@@ -15291,7 +15373,7 @@ impl<'i> Vm<'i> {
                 let source = self.mounted_files.get(&path).cloned().or_else(|| {
                     self.file_root
                         .as_ref()
-                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                        .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok())
                 });
                 let Some(source) = source else {
                     self.read_stream_lines.remove(&stream);
@@ -15473,10 +15555,7 @@ impl<'i> Vm<'i> {
                 };
                 let _ = self.fully_expand_tokens(body);
             }
-            Primitive::BeginGroupCommand => {
-                self.scopes.push(HashMap::new());
-                self.aftergroup_tokens.push(Vec::new());
-            }
+            Primitive::BeginGroupCommand => self.begin_group(queue),
             Primitive::EndGroupCommand => {
                 if self.scopes.len() > 1 {
                     self.scopes.pop();
@@ -19807,8 +19886,22 @@ impl<'i> Vm<'i> {
         for token in tokens {
             queue.push_back(QueueItem::Token(token));
         }
+        let materialized_item_limit = queue.len().saturating_add(MAX_PENDING_QUEUE_ITEMS);
+        let mut executed_tokens = 0usize;
         let mut expanded_tokens = Vec::new();
         while let Some(token) = self.pop_next_token(&mut queue) {
+            executed_tokens = executed_tokens.saturating_add(1);
+            let materialized_items = queue.len().saturating_add(expanded_tokens.len());
+            if executed_tokens > MAX_EXECUTED_TOKENS || materialized_items > materialized_item_limit
+            {
+                self.diagnostics.push(VmDiagnostic {
+                    kind: VmDiagnosticKind::ExplicitError,
+                    detail: format!(
+                        "TeX expansion resource limit exceeded during full expansion after {executed_tokens} tokens with {materialized_items} materialized items"
+                    ),
+                });
+                break;
+            }
             if let TokenKind::ControlSequence { name } = token.kind.clone() {
                 match self.interner.resolve(name).unwrap_or("") {
                     "expandafter" | "@xa" => {
@@ -21231,20 +21324,35 @@ impl<'i> Vm<'i> {
             return;
         }
 
-        let prefer_builtin_module = matches!(
-            (label, path.as_str()),
-            ("class", "llncs.cls" | "IEEEtran.cls")
-                | (
-                    "package",
-                    "algorithm.sty"
-                        | "eso-pic.sty"
-                        | "fancyhdr.sty"
-                        | "natbib.sty"
-                        | "neurips_2019.sty"
-                        | "wacv.sty"
-                )
-        );
         let builtin_source = builtin_latex_module_source(label, &path);
+        let file_name = path.file_name().unwrap_or(path.as_str());
+        let prefer_builtin_module = ((label == "input"
+            || (label == "class"
+                && (["llncs.cls", "IEEEtran.cls"]
+                    .iter()
+                    .chain(BUILTIN_GENERIC_CLASS_SHIMS)
+                    .any(|known| file_name.eq_ignore_ascii_case(known)))))
+            && builtin_source.is_some())
+            || (label == "package"
+                && [
+                    "algorithm.sty",
+                    "atlasphysics.sty",
+                    "cvpr.sty",
+                    "eso-pic.sty",
+                    "fancyhdr.sty",
+                    "multirow.sty",
+                    "natbib.sty",
+                    "neurips.sty",
+                    "neurips_2019.sty",
+                    "neurips_2020.sty",
+                    "neurips_2021.sty",
+                    "relsize.sty",
+                    "scicite.sty",
+                    "wacv.sty",
+                    "wrapfig.sty",
+                ]
+                .iter()
+                .any(|known| file_name.eq_ignore_ascii_case(known)));
         let source = prefer_builtin_module
             .then(|| builtin_source.map(ToOwned::to_owned))
             .flatten()
@@ -21252,7 +21360,7 @@ impl<'i> Vm<'i> {
             .or_else(|| {
                 self.file_root
                     .as_ref()
-                    .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                    .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok())
             })
             .or_else(|| builtin_source.map(ToOwned::to_owned));
         let Some(source) = source else {
@@ -28227,7 +28335,8 @@ mod tests {
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
-        Vm, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+        MAX_PENDING_QUEUE_ITEMS, Vm, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
+        compile_format_snapshot,
     };
 
     #[test]
@@ -28250,6 +28359,50 @@ mod tests {
                 && diagnostic
                     .detail
                     .starts_with("TeX expansion resource limit exceeded")
+        }));
+    }
+
+    #[test]
+    fn large_literal_source_is_not_counted_as_expansion_growth() {
+        let source = "a".repeat(MAX_PENDING_QUEUE_ITEMS + 1);
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+
+        let outcome = vm.run_plain(&source);
+
+        assert_eq!(outcome.output.len(), source.len());
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("resource limit")
+        }));
+    }
+
+    #[test]
+    fn expanded_definition_growth_stops_at_the_resource_limit() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{\foo\foo}\edef\bar{\foo}Visible text.");
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic
+                    .detail
+                    .starts_with("TeX expansion resource limit exceeded during full expansion")
+        }));
+    }
+
+    #[test]
+    fn nested_group_growth_stops_at_the_resource_limit() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{{\foo}}\foo");
+
+        assert!(outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic
+                    .detail
+                    .starts_with("TeX grouping resource limit exceeded")
         }));
     }
 
@@ -44474,6 +44627,109 @@ Fallback text.
                 RenderEvent::DocumentClass(document_class)
                     if document_class.options == vec!["10pt".to_string()]
             )
+        }));
+    }
+
+    #[test]
+    fn complex_classes_use_preview_shims_instead_of_recursive_local_implementations() {
+        for class in ["svjour", "arximspdf", "JHEP3"] {
+            let source = format!(
+                r"\documentclass{{{class}}}\begin{{document}}Visible text.\end{{document}}"
+            );
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.mount_file(
+                format!("{class}.cls"),
+                r"\def\normalsize{\normalsize}\normalsize",
+            );
+
+            let outcome = vm.run_plain(&source);
+
+            assert!(outcome.output.contains("Visible text."), "{class}");
+            assert!(
+                !outcome.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind == VmDiagnosticKind::ExplicitError
+                        && diagnostic.detail.contains("resource limit")
+                }),
+                "{class}: {:?}",
+                outcome.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn current_conference_packages_use_preview_shims() {
+        for package in [
+            "atlasphysics",
+            "cvpr",
+            "multirow",
+            "neurips",
+            "neurips_2020",
+            "neurips_2021",
+            "relsize",
+            "scicite",
+            "wrapfig",
+        ] {
+            let source = format!(
+                r"\documentclass{{article}}\usepackage{{{package}}}\begin{{document}}Visible text.\end{{document}}"
+            );
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.mount_file(
+                format!("{package}.sty"),
+                r"\def\normalsize{\normalsize}\normalsize",
+            );
+
+            let outcome = vm.run_plain(&source);
+
+            assert!(outcome.output.contains("Visible text."), "{package}");
+            assert!(
+                !outcome.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind == VmDiagnosticKind::ExplicitError
+                        && diagnostic.detail.contains("resource limit")
+                }),
+                "{package}: {:?}",
+                outcome.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn preferred_package_shims_ignore_resolved_file_name_case() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "NeurIPS_2020.sty",
+            r"\def\normalsize{\normalsize}\normalsize",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{neurips_2020}\begin{document}Visible text.\end{document}",
+        );
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("resource limit")
+        }));
+    }
+
+    #[test]
+    fn legacy_eps_inputs_use_preview_shims() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("legacy/epsf.tex", r"\def\parse{\parse}\parse");
+        vm.mount_file("legacy/epsf.def", r"\def\parse{\parse}\parse");
+        vm.mount_file("legacy/psfig.sty", r"\def\parse{\parse}\parse");
+
+        let outcome = vm.run_plain(
+            r"\input{legacy/epsf.tex}\input{legacy/epsf.def}\input{legacy/psfig.sty}Visible text.",
+        );
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("resource limit")
         }));
     }
 

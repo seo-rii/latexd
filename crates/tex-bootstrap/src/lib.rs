@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs};
+use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
@@ -9,7 +9,7 @@ use tex_vm::{
     Vm, VmDiagnostic, VmModuleCheckpoint, VmModuleCheckpointKind, VmModuleTrace, VmReplayFrame,
     VmSnapshot, compile_format_snapshot,
 };
-use tex_world::ProjectWorld;
+use tex_world::{ProjectWorld, read_tex_source_lossy};
 
 pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\par{ }
@@ -546,8 +546,8 @@ pub fn capture_page_checkpoints(
     page_metadata: &[ProjectPageMeta],
 ) -> Result<Vec<ProjectReplayCheckpoint>> {
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
-    let resume_source =
-        fs::read_to_string(world.root.join(&checkpoint.resume_path)).with_context(|| {
+    let resume_source = read_tex_source_lossy(&world.root.join(&checkpoint.resume_path))
+        .with_context(|| {
             format!(
                 "failed to read replay source {}",
                 world.root.join(&checkpoint.resume_path)
@@ -556,7 +556,7 @@ pub fn capture_page_checkpoints(
     let resume_offset = align_char_boundary(&resume_source, checkpoint.source_offset_utf8 as usize);
     replay_frames.push((checkpoint.resume_path.clone(), resume_source, resume_offset));
     for frame in &checkpoint.continuation_stack {
-        let source = fs::read_to_string(world.root.join(&frame.path)).with_context(|| {
+        let source = read_tex_source_lossy(&world.root.join(&frame.path)).with_context(|| {
             format!(
                 "failed to read replay source {}",
                 world.root.join(&frame.path)
@@ -793,7 +793,7 @@ pub fn run_project_from_checkpoint_with_mounts(
         let source = if let Some(source) = mounted_files.get(&frame.path) {
             source.clone()
         } else {
-            fs::read_to_string(source_path.as_std_path())
+            read_tex_source_lossy(&source_path)
                 .with_context(|| format!("failed to read replay source {source_path}"))?
         };
         let start_offset = align_char_boundary(&source, frame.source_offset_utf8 as usize);
@@ -1345,7 +1345,7 @@ fn read_toplevel_source(
     let source = if let Some(source) = mounted_files.get(&toplevel) {
         source.clone()
     } else {
-        fs::read_to_string(world.root.join(&toplevel))
+        read_tex_source_lossy(&world.root.join(&toplevel))
             .with_context(|| format!("failed to read toplevel {}", world.root.join(&toplevel)))?
     };
     Ok((toplevel, source))
@@ -1363,7 +1363,7 @@ fn collect_source_lengths(
     for module in loaded_modules {
         if let Some(text) = mounted_files.get(module) {
             source_lengths.insert(module.clone(), text.len());
-        } else if let Ok(text) = fs::read_to_string(world.root.join(module)) {
+        } else if let Ok(text) = read_tex_source_lossy(&world.root.join(module)) {
             source_lengths.insert(module.clone(), text.len());
         }
     }

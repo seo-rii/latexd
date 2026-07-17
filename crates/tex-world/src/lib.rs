@@ -4,6 +4,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
+/// Reads TeX for best-effort preview compilation without mutating the source bytes.
+pub fn read_tex_source_lossy(path: &Utf8Path) -> std::io::Result<String> {
+    let bytes = fs::read(path.as_std_path())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TexLiveVersion {
@@ -264,8 +270,20 @@ mod tests {
 
     use super::{
         CompilerMode, ProjectManifest, ProjectWorld, SourceUsage, TexLiveVersion,
-        normalize_relative_path,
+        normalize_relative_path, read_tex_source_lossy,
     };
+
+    #[test]
+    fn tex_source_reader_preserves_valid_text_and_replaces_invalid_utf8() {
+        let tempdir = tempdir().expect("tempdir");
+        let path =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("legacy.tex")).expect("utf8 temp path");
+        fs::write(&path, b"before\xa0after").expect("write legacy source");
+
+        let source = read_tex_source_lossy(&path).expect("read legacy source");
+
+        assert_eq!(source, "before\u{fffd}after");
+    }
 
     #[test]
     fn parses_yaml_manifest_and_collects_toplevels() {
