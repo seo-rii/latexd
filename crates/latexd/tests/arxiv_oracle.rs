@@ -1039,6 +1039,10 @@ fn collect_structure_slice_texts(
                 InlineNode::Citation(citation) => text.push_str(&citation.display_text),
                 InlineNode::Reference(reference) => text.push_str(&reference.display_text),
                 InlineNode::Link(link) => text.push_str(&link.display_text),
+                InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                    text.push_str(&anchor.marker)
+                }
+                InlineNode::FootnoteAnchor(_) => {}
                 InlineNode::InlineMath {
                     raw_source,
                     normalized_text,

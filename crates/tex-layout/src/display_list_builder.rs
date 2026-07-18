@@ -1,9 +1,9 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
-    FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
-    ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind,
-    MathNode, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
-    SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan,
+    FontSeries, FontShape, FootnoteId, GraphicAssetDensityUnit, ImageCrop, ImageRotation,
+    ImageScale, ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation,
+    ListKind, MathNode, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
+    Rect, SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan,
 };
 
 use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
@@ -553,6 +553,17 @@ struct PendingPage {
     source_spans: Vec<SourceSpan>,
     text: String,
     hash_input: String,
+    footnote_ids_by_column: Vec<Vec<FootnoteId>>,
+    footnote_reserved_height_by_column: Vec<f32>,
+}
+
+#[derive(Clone)]
+struct PreparedFootnote {
+    note_id: FootnoteId,
+    marker: String,
+    lines: Vec<String>,
+    source: SourceProvenance,
+    height_pt: f32,
 }
 
 struct PendingImageRow {
@@ -829,6 +840,21 @@ pub fn build_page_display_lists(
                         text: link.display_text.clone(),
                         source: link.source.clone(),
                         link_target: Some(link.target.clone()),
+                        table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
+                        table_vertical_rule_offsets: Vec::new(),
+                    });
+                }
+                InlineNode::FootnoteAnchor(anchor) => {
+                    segments.push(LogicalTextSegment {
+                        text: if anchor.draw_reference {
+                            anchor.marker.clone()
+                        } else {
+                            String::new()
+                        },
+                        source: anchor.source.clone(),
+                        link_target: Some(format!("latexd-footnote:{}", anchor.note_id)),
                         table_rule: false,
                         table_rule_trim_start_pt: None,
                         table_rule_trim_end_pt: None,
@@ -2567,6 +2593,91 @@ pub fn build_page_display_lists(
             _ => None,
         })
         .unwrap_or_default();
+    let footnote_font_size_pt = (options.body_font_size_pt * 0.8).max(6.0);
+    let footnote_line_height_pt = (options.line_height_pt * 0.86).max(footnote_font_size_pt * 1.15);
+    let mut footnote_font = body_font.clone();
+    footnote_font.size_pt = footnote_font_size_pt;
+    let footnote_body_indent_pt = if uses_nips_2014_metrics { 16.139 } else { 14.0 };
+    let footnote_text_width_pt = (column_width_pt - footnote_body_indent_pt).max(1.0);
+    let mut prepared_footnotes = std::collections::BTreeMap::new();
+    for footnote in &document_ir.footnotes {
+        let mut text = String::new();
+        for node in &footnote.content {
+            match node {
+                InlineNode::Text { text: value, .. } => text.push_str(value),
+                InlineNode::Space { .. } => text.push(' '),
+                InlineNode::LineBreak { .. } => text.push('\n'),
+                InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                InlineNode::Reference(reference) => text.push_str(&reference.display_text),
+                InlineNode::Link(link) => text.push_str(&link.display_text),
+                InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                    text.push_str(&anchor.marker)
+                }
+                InlineNode::FootnoteAnchor(_) => {}
+                InlineNode::InlineMath {
+                    raw_source,
+                    normalized_text,
+                    ..
+                } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
+                InlineNode::RawFallback(fallback) => text.push_str(
+                    fallback
+                        .normalized_visible_text
+                        .as_deref()
+                        .unwrap_or(&fallback.source_excerpt),
+                ),
+            }
+        }
+
+        let mut lines = Vec::new();
+        let mut current_line = String::new();
+        for word in text.split_whitespace() {
+            let candidate = if current_line.is_empty() {
+                word.to_string()
+            } else {
+                format!("{current_line} {word}")
+            };
+            if text_advance_pt(&candidate, &footnote_font, footnote_font_size_pt)
+                <= footnote_text_width_pt + 0.01
+            {
+                current_line = candidate;
+                continue;
+            }
+            if !current_line.is_empty() {
+                lines.push(std::mem::take(&mut current_line));
+            }
+            if text_advance_pt(word, &footnote_font, footnote_font_size_pt)
+                <= footnote_text_width_pt + 0.01
+            {
+                current_line.push_str(word);
+                continue;
+            }
+            for ch in word.chars() {
+                let mut candidate = current_line.clone();
+                candidate.push(ch);
+                if !current_line.is_empty()
+                    && text_advance_pt(&candidate, &footnote_font, footnote_font_size_pt)
+                        > footnote_text_width_pt + 0.01
+                {
+                    lines.push(std::mem::take(&mut current_line));
+                }
+                current_line.push(ch);
+            }
+        }
+        if !current_line.is_empty() || lines.is_empty() {
+            lines.push(current_line);
+        }
+        let height_pt = lines.len() as f32 * footnote_line_height_pt + 2.0;
+        prepared_footnotes.insert(
+            footnote.note_id,
+            PreparedFootnote {
+                note_id: footnote.note_id,
+                marker: footnote.marker.clone(),
+                lines,
+                source: footnote.source.clone(),
+                height_pt,
+            },
+        );
+    }
     let mut pages = Vec::new();
     let mut pending_labels = document_ir.labels.clone();
     pending_labels.sort_by(
@@ -2621,6 +2732,106 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                     }));
                 }
+            }
+        }
+        for (column_index, note_ids) in pending.footnote_ids_by_column.iter().enumerate() {
+            if note_ids.is_empty() {
+                continue;
+            }
+            let column_left_pt =
+                options.margin_left_pt + column_index as f32 * (column_width_pt + column_gap_pt);
+            let nips_first_page_after_author_notes =
+                uses_nips_2014_metrics && pages.is_empty() && !author_notes.is_empty();
+            let mut baseline_y = if nips_first_page_after_author_notes {
+                698.78 + author_notes.len() as f32 * 10.9589
+            } else {
+                let reserved_height = pending
+                    .footnote_reserved_height_by_column
+                    .get(column_index)
+                    .copied()
+                    .unwrap_or(0.0);
+                let top = options.page_height_pt - options.margin_bottom_pt - reserved_height;
+                let rule = Rect {
+                    x: column_left_pt,
+                    y: top,
+                    width: column_width_pt * 0.4,
+                    height: 0.4,
+                };
+                pending.hash_input.push('\u{1f}');
+                pending.hash_input.push_str(&format!(
+                    "footnote-rule:{column_index}:{:.3}:{:.3}:{:.3}:{:.3}",
+                    rule.x, rule.y, rule.width, rule.height
+                ));
+                pending.ops.push(DrawOp::Rule(rule));
+                top + 6.0 + footnote_font_size_pt
+            };
+            for note_id in note_ids {
+                let Some(footnote) = prepared_footnotes.get(note_id) else {
+                    continue;
+                };
+                if let ProvenanceSpan::File(span) = &footnote.source.primary
+                    && !pending.source_spans.contains(span)
+                {
+                    pending.source_spans.push(span.clone());
+                }
+                let marker_x = if nips_first_page_after_author_notes {
+                    118.8
+                } else {
+                    column_left_pt
+                };
+                let body_x = if nips_first_page_after_author_notes {
+                    124.139
+                } else {
+                    column_left_pt + footnote_body_indent_pt
+                };
+                for (line_index, line) in footnote.lines.iter().enumerate() {
+                    if line_index == 0 {
+                        let marker_advance = text_advance_pt(
+                            &footnote.marker,
+                            &footnote_font,
+                            footnote_font_size_pt,
+                        );
+                        pending.hash_input.push('\u{1f}');
+                        pending.hash_input.push_str(&format!(
+                            "footnote-marker:{}:{marker_x:.3}:{baseline_y:.3}:{marker_advance:.3}:{}",
+                            footnote.note_id, footnote.marker
+                        ));
+                        pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                            origin: Point {
+                                x: marker_x,
+                                y: baseline_y - footnote_font_size_pt * 0.25,
+                            },
+                            font: footnote_font.clone(),
+                            size_pt: footnote_font_size_pt,
+                            text: footnote.marker.clone(),
+                            approximate_advance_pt: marker_advance,
+                            glyphs: None,
+                            clusters: approximate_text_clusters(&footnote.marker),
+                            source: footnote.source.clone(),
+                        }));
+                    }
+                    let advance = text_advance_pt(line, &footnote_font, footnote_font_size_pt);
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!(
+                        "footnote-text:{}:{line_index}:{body_x:.3}:{baseline_y:.3}:{advance:.3}:{line}",
+                        footnote.note_id
+                    ));
+                    pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                        origin: Point {
+                            x: body_x,
+                            y: baseline_y,
+                        },
+                        font: footnote_font.clone(),
+                        size_pt: footnote_font_size_pt,
+                        text: line.clone(),
+                        approximate_advance_pt: advance,
+                        glyphs: None,
+                        clusters: approximate_text_clusters(line),
+                        source: footnote.source.clone(),
+                    }));
+                    baseline_y += footnote_line_height_pt;
+                }
+                baseline_y += 2.0;
             }
         }
         if options.show_page_numbers {
@@ -2682,12 +2893,19 @@ pub fn build_page_display_lists(
         source_spans: Vec::new(),
         text: String::new(),
         hash_input: format!("options:{options:?}:font-metrics:basic-v1"),
+        footnote_ids_by_column: vec![Vec::new(); column_count],
+        footnote_reserved_height_by_column: vec![0.0; column_count],
     };
-    let page_content_bottom_pt = |page_index: usize| {
+    let page_content_bottom_pt = |page_index: usize, pending: &PendingPage, column_index: usize| {
+        let reserved_height = pending
+            .footnote_reserved_height_by_column
+            .get(column_index)
+            .copied()
+            .unwrap_or(0.0);
         if uses_nips_2014_metrics && page_index == 0 && !author_notes.is_empty() {
-            680.952
+            680.952 - reserved_height
         } else {
-            options.page_height_pt - options.margin_bottom_pt
+            options.page_height_pt - options.margin_bottom_pt - reserved_height
         }
     };
     let content_height_pt =
@@ -2904,6 +3122,30 @@ pub fn build_page_display_lists(
                 }
             }
         };
+    let additional_footnote_reservation_pt =
+        |page_index: usize, pending: &PendingPage, column_index: usize, note_ids: &[FootnoteId]| {
+            if uses_nips_2014_metrics && page_index == 0 && !author_notes.is_empty() {
+                return 0.0;
+            }
+            let Some(existing_ids) = pending.footnote_ids_by_column.get(column_index) else {
+                return 0.0;
+            };
+            let mut additional_height = 0.0;
+            let mut has_new_note = false;
+            for note_id in note_ids {
+                if existing_ids.contains(note_id) {
+                    continue;
+                }
+                if let Some(footnote) = prepared_footnotes.get(note_id) {
+                    additional_height += footnote.height_pt;
+                    has_new_note = true;
+                }
+            }
+            if has_new_note && existing_ids.is_empty() {
+                additional_height += 6.0;
+            }
+            additional_height
+        };
 
     for logical in logical_items {
         match logical {
@@ -2948,7 +3190,8 @@ pub fn build_page_display_lists(
                     + layout.ascent_pt
                     + layout.descent_pt
                     + logical.gap_after_pt;
-                if y + required_height_pt > page_content_bottom_pt(pages.len())
+                if y + required_height_pt
+                    > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && !pending.ops.is_empty()
                 {
                     if column_index + 1 < column_count {
@@ -3187,6 +3430,15 @@ pub fn build_page_display_lists(
                     };
 
                 for segment in &logical.segments {
+                    if segment.text.is_empty()
+                        && segment
+                            .link_target
+                            .as_deref()
+                            .is_some_and(|target| target.starts_with("latexd-footnote:"))
+                    {
+                        current_line.push(segment.clone());
+                        continue;
+                    }
                     let mut remaining = segment.text.as_str();
                     let mut remaining_start_chars = 0usize;
                     while !remaining.is_empty() {
@@ -3262,6 +3514,11 @@ pub fn build_page_display_lists(
                         !segment.table_rule
                             && segment.table_vertical_rule_offsets.is_empty()
                             && !segment.text.contains(['\n', '\r'])
+                            && !(segment.text.is_empty()
+                                && segment
+                                    .link_target
+                                    .as_deref()
+                                    .is_some_and(|target| target.starts_with("latexd-footnote:")))
                     });
                 if can_set_as_paragraph {
                     let mut paragraph_text = String::new();
@@ -3399,7 +3656,29 @@ pub fn build_page_display_lists(
                     } else {
                         logical.line_height_pt
                     };
-                    if y + line_advance_pt > page_content_bottom_pt(pages.len())
+                    let mut line_footnote_ids = Vec::new();
+                    for segment in &line_segments {
+                        let Some(note_id) = segment
+                            .link_target
+                            .as_deref()
+                            .and_then(|target| target.strip_prefix("latexd-footnote:"))
+                            .and_then(|note_id| note_id.parse::<FootnoteId>().ok())
+                        else {
+                            continue;
+                        };
+                        if !line_footnote_ids.contains(&note_id) {
+                            line_footnote_ids.push(note_id);
+                        }
+                    }
+                    let prospective_footnote_height = additional_footnote_reservation_pt(
+                        pages.len(),
+                        &pending,
+                        column_index,
+                        &line_footnote_ids,
+                    );
+                    if y + line_advance_pt
+                        > page_content_bottom_pt(pages.len(), &pending, column_index)
+                            - prospective_footnote_height
                         && !pending.ops.is_empty()
                     {
                         if !full_width && column_index + 1 < column_count {
@@ -3411,6 +3690,27 @@ pub fn build_page_display_lists(
                             column_start_y = options.margin_top_pt;
                         }
                         y = column_start_y;
+                    }
+                    let additional_reserved_height = additional_footnote_reservation_pt(
+                        pages.len(),
+                        &pending,
+                        column_index,
+                        &line_footnote_ids,
+                    );
+                    if let Some(reserved_height) = pending
+                        .footnote_reserved_height_by_column
+                        .get_mut(column_index)
+                    {
+                        *reserved_height += additional_reserved_height;
+                    }
+                    if let Some(pending_note_ids) =
+                        pending.footnote_ids_by_column.get_mut(column_index)
+                    {
+                        for note_id in line_footnote_ids {
+                            if !pending_note_ids.contains(&note_id) {
+                                pending_note_ids.push(note_id);
+                            }
+                        }
                     }
                     let line_width_pt = line_segments
                         .iter()
@@ -3489,9 +3789,25 @@ pub fn build_page_display_lists(
                     for segment in line_segments {
                         let segment_is_whitespace = !segment.text.is_empty()
                             && segment.text.chars().all(char::is_whitespace);
+                        let is_footnote_reference = segment
+                            .link_target
+                            .as_deref()
+                            .is_some_and(|target| target.starts_with("latexd-footnote:"));
+                        let segment_size_pt = if is_footnote_reference {
+                            logical.size_pt * 0.7
+                        } else {
+                            logical.size_pt
+                        };
+                        let segment_y = if is_footnote_reference {
+                            y - logical.size_pt * 0.35
+                        } else {
+                            y
+                        };
+                        let mut segment_font = logical.font.clone();
+                        segment_font.size_pt = segment_size_pt;
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance =
-                            text_advance_pt(&segment.text, &logical.font, logical.size_pt);
+                            text_advance_pt(&segment.text, &segment_font, segment_size_pt);
                         let mut table_rule_rects = Vec::new();
                         let mut table_vertical_rule_rects = Vec::new();
                         if segment.table_rule {
@@ -3587,22 +3903,22 @@ pub fn build_page_display_lists(
                         if !segment.table_rule {
                             pending.hash_input.push('\u{1f}');
                             pending.hash_input.push_str(&format!(
-                                "text_segment:{x:.3}:{advance:.3}:{}",
-                                segment.text
+                                "text_segment:{x:.3}:{segment_y:.3}:{segment_size_pt:.3}:{advance:.3}:{}",
+                                segment.text,
                             ));
                             let clusters = approximate_text_clusters(&segment.text);
                             let source = segment.source;
                             pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                                origin: Point { x, y },
+                                origin: Point { x, y: segment_y },
                                 text: segment.text,
-                                font: logical.font.clone(),
-                                size_pt: logical.size_pt,
+                                font: segment_font,
+                                size_pt: segment_size_pt,
                                 approximate_advance_pt: advance,
                                 glyphs: None,
                                 clusters,
                                 source: source.clone(),
                             }));
-                            if let Some(target) = segment.link_target {
+                            if !is_footnote_reference && let Some(target) = segment.link_target {
                                 let rect = Rect {
                                     x,
                                     y: (y - logical.size_pt).max(0.0),
@@ -3677,7 +3993,7 @@ pub fn build_page_display_lists(
                     .iter()
                     .map(|container| container.height_pt)
                     .fold(options.line_height_pt, f32::max);
-                if y + row_height_pt > page_content_bottom_pt(pages.len())
+                if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && !pending.ops.is_empty()
                 {
                     if column_index + 1 < column_count {
@@ -4220,7 +4536,8 @@ pub fn build_page_display_lists(
                     row.packable
                         && image_is_packable
                         && row.used_width_pt + row_gap_pt + image_width <= column_width_pt + 0.01
-                        && row.y + required_height <= page_content_bottom_pt(pages.len())
+                        && row.y + required_height
+                            <= page_content_bottom_pt(pages.len(), &pending, column_index)
                 });
                 let (image_x, image_y) = if can_join_pending_row {
                     let row = pending_image_row.as_mut().expect("pending image row");
@@ -4245,7 +4562,8 @@ pub fn build_page_display_lists(
                         column_start_y = options.margin_top_pt;
                         y = column_start_y;
                     }
-                    if y + required_height > page_content_bottom_pt(pages.len())
+                    if y + required_height
+                        > page_content_bottom_pt(pages.len(), &pending, column_index)
                         && !pending.ops.is_empty()
                     {
                         if !full_width && column_index + 1 < column_count {
@@ -4447,15 +4765,15 @@ mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp,
-        FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, GraphicAssetDensity,
-        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
-        GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-        ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
-        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MathAtomKind,
-        MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, PageBreakKind,
-        ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan,
-        TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan,
-        TextCluster, TitleBlock,
+        FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, FootnoteAnchor,
+        FootnoteCommandKind, FootnoteIr, GraphicAssetDensity, GraphicAssetDensityUnit,
+        GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, GraphicPageSelection,
+        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
+        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
+        ListItemIr, ListKind, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
+        PageBreakBlock, PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
+        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
+        TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -7547,6 +7865,138 @@ mod tests {
             "missing source-preserving discretionary hyphen: {:?}",
             display_lists[0].ops
         );
+    }
+
+    #[test]
+    fn footnotes_render_below_body_text_with_a_superscript_reference() {
+        let source = SourceProvenance::file("main.tex", 0, 40);
+        let mut document = DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+            content: vec![
+                InlineNode::Text {
+                    text: "Before".to_string(),
+                    source: source.clone(),
+                },
+                InlineNode::FootnoteAnchor(FootnoteAnchor {
+                    note_id: 7,
+                    marker: "1".to_string(),
+                    draw_reference: true,
+                    source: source.clone(),
+                }),
+                InlineNode::Space {
+                    source: source.clone(),
+                },
+                InlineNode::Text {
+                    text: "after.".to_string(),
+                    source: source.clone(),
+                },
+            ],
+            source: source.clone(),
+        })]);
+        document.footnotes.push(FootnoteIr {
+            note_id: 7,
+            marker: "1".to_string(),
+            command: FootnoteCommandKind::Footnote,
+            content: vec![InlineNode::Text {
+                text: "Note body.".to_string(),
+                source: source.clone(),
+            }],
+            source,
+        });
+        let options = PageDisplayListOptions {
+            page_width_pt: 200.0,
+            page_height_pt: 120.0,
+            margin_left_pt: 10.0,
+            margin_top_pt: 10.0,
+            margin_bottom_pt: 10.0,
+            body_font_size_pt: 10.0,
+            line_height_pt: 14.0,
+            max_chars_per_line: usize::MAX,
+            ..PageDisplayListOptions::default()
+        };
+        let pages = build_page_display_lists(&document, options);
+        let marker = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "1" => Some(run),
+            _ => None,
+        });
+        let note = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Note body." => Some(run),
+            _ => None,
+        });
+
+        let marker = marker.expect("footnote reference marker");
+        let note = note.expect("footnote body");
+        assert!(marker.size_pt < 10.0);
+        assert!(marker.origin.y < 10.0);
+        assert!(note.origin.y > 70.0);
+        assert!(pages[0].ops.iter().any(|op| matches!(op, DrawOp::Rule(_))));
+    }
+
+    #[test]
+    fn footnote_reference_moves_with_its_note_when_footer_reservation_overflows() {
+        let source = SourceProvenance::file("main.tex", 0, 40);
+        let mut document = DocumentIr::new(vec![
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Leading line.".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            }),
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Text {
+                        text: "Anchored".to_string(),
+                        source: source.clone(),
+                    },
+                    InlineNode::FootnoteAnchor(FootnoteAnchor {
+                        note_id: 8,
+                        marker: "1".to_string(),
+                        draw_reference: true,
+                        source: source.clone(),
+                    }),
+                ],
+                source: source.clone(),
+            }),
+        ]);
+        document.footnotes.push(FootnoteIr {
+            note_id: 8,
+            marker: "1".to_string(),
+            command: FootnoteCommandKind::Footnote,
+            content: vec![InlineNode::Text {
+                text: "Reserved note.".to_string(),
+                source: source.clone(),
+            }],
+            source,
+        });
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 60.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 14.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: usize::MAX,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_eq!(pages.len(), 2);
+        assert!(!pages[0].ops.iter().any(|op| matches!(
+            op,
+            DrawOp::TextRun(run) if run.text == "1" || run.text == "Reserved note."
+        )));
+        assert!(pages[1].ops.iter().any(|op| matches!(
+            op,
+            DrawOp::TextRun(run) if run.text == "1"
+        )));
+        assert!(pages[1].ops.iter().any(|op| matches!(
+            op,
+            DrawOp::TextRun(run) if run.text == "Reserved note."
+        )));
     }
 
     #[test]

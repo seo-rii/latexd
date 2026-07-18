@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CitationStyleHint, DocumentLayoutIntent, GraphicAssetDimensions, GraphicAssetFormat,
-    GraphicPageSelection, LayoutAlignment, ListKind, PageBreakKind, RawFallbackEvent,
-    SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
+    CitationStyleHint, DocumentLayoutIntent, FootnoteCommandKind, FootnoteId,
+    GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, LayoutAlignment, ListKind,
+    PageBreakKind, RawFallbackEvent, SourceProvenance, TableColumnAlignment, TableColumnSpec,
+    TableRuleSpan,
 };
 
-pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
+pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentClassIr {
@@ -24,6 +25,8 @@ pub struct DocumentIr {
     pub layout: Option<DocumentLayoutIntent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<LabelDefinitionIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footnotes: Vec<FootnoteIr>,
     pub blocks: Vec<IrBlock>,
 }
 
@@ -55,6 +58,7 @@ impl DocumentIr {
             document_class,
             layout,
             labels,
+            footnotes: Vec::new(),
             blocks,
         }
     }
@@ -132,6 +136,10 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
+                            InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                                text.push_str(&anchor.marker)
+                            }
+                            InlineNode::FootnoteAnchor(_) => {}
                             InlineNode::InlineMath {
                                 raw_source,
                                 normalized_text,
@@ -162,6 +170,10 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
+                            InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                                text.push_str(&anchor.marker)
+                            }
+                            InlineNode::FootnoteAnchor(_) => {}
                             InlineNode::InlineMath {
                                 raw_source,
                                 normalized_text,
@@ -188,6 +200,10 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
+                            InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                                text.push_str(&anchor.marker)
+                            }
+                            InlineNode::FootnoteAnchor(_) => {}
                             InlineNode::InlineMath {
                                 raw_source,
                                 normalized_text,
@@ -214,6 +230,10 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
+                            InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                                text.push_str(&anchor.marker)
+                            }
+                            InlineNode::FootnoteAnchor(_) => {}
                             InlineNode::InlineMath {
                                 raw_source,
                                 normalized_text,
@@ -249,6 +269,10 @@ impl DocumentIr {
                                     text.push_str(&reference.display_text)
                                 }
                                 InlineNode::Link(link) => text.push_str(&link.display_text),
+                                InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                                    text.push_str(&anchor.marker)
+                                }
+                                InlineNode::FootnoteAnchor(_) => {}
                                 InlineNode::InlineMath {
                                     raw_source,
                                     normalized_text,
@@ -296,6 +320,39 @@ impl DocumentIr {
                         text.push_str(visible);
                     } else {
                         text.push_str(&block.source_excerpt);
+                    }
+                }
+            }
+        }
+        for footnote in &self.footnotes {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&footnote.marker);
+            text.push(' ');
+            for node in &footnote.content {
+                match node {
+                    InlineNode::Text { text: value, .. } => text.push_str(value),
+                    InlineNode::Space { .. } => text.push(' '),
+                    InlineNode::LineBreak { .. } => text.push('\n'),
+                    InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                    InlineNode::Reference(reference) => text.push_str(&reference.display_text),
+                    InlineNode::Link(link) => text.push_str(&link.display_text),
+                    InlineNode::FootnoteAnchor(anchor) if anchor.draw_reference => {
+                        text.push_str(&anchor.marker)
+                    }
+                    InlineNode::FootnoteAnchor(_) => {}
+                    InlineNode::InlineMath {
+                        raw_source,
+                        normalized_text,
+                        ..
+                    } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
+                    InlineNode::RawFallback(fallback) => {
+                        if let Some(visible) = &fallback.normalized_visible_text {
+                            text.push_str(visible);
+                        } else {
+                            text.push_str(&fallback.source_excerpt);
+                        }
                     }
                 }
             }
@@ -654,6 +711,7 @@ pub enum InlineNode {
     Citation(CitationInline),
     Reference(ReferenceInline),
     Link(LinkInline),
+    FootnoteAnchor(FootnoteAnchor),
     InlineMath {
         raw_source: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -661,6 +719,23 @@ pub enum InlineNode {
         source: SourceProvenance,
     },
     RawFallback(RawFallbackIr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FootnoteAnchor {
+    pub note_id: FootnoteId,
+    pub marker: String,
+    pub draw_reference: bool,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FootnoteIr {
+    pub note_id: FootnoteId,
+    pub marker: String,
+    pub command: FootnoteCommandKind,
+    pub content: Vec<InlineNode>,
+    pub source: SourceProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

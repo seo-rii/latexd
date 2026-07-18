@@ -7,9 +7,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
-    BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,
-    CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
-    EndLayoutContainerEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
+    BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
+    BlockKind, CaptionEvent, CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent,
+    EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent, EventId, ExpansionFrame,
+    FallbackReason, FlushTitleBlockEvent, FootnoteCommandKind, FootnoteMarkEvent,
     GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection,
     GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
     LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
@@ -1186,6 +1187,7 @@ struct RenderEventScanState {
     theorem_like_environments: HashSet<String>,
     hidden_environments: HashSet<String>,
     heading_counters: [u32; 6],
+    pending_footnote_mark: Option<(EventId, Option<String>)>,
 }
 
 impl RenderEventScanState {
@@ -7186,16 +7188,63 @@ impl<'i> Vm<'i> {
                 {
                     let detached_note =
                         matches!(command, "footnote" | "footnotetext" | "tablefootnote");
+                    let mut explicit_note_marker = None;
                     index = skip_ascii_whitespace(source, index);
                     if detached_note
-                        && let Some((_, _, _, after_option)) =
+                        && let Some((marker, _, _, after_option)) =
                             read_bracket_source_argument(source, index)
                     {
+                        let marker = normalize_latex_text_with_inline_placeholders(marker);
+                        explicit_note_marker = (!marker.is_empty()).then_some(marker);
                         index = skip_ascii_whitespace(source, after_option);
                     }
                     if let Some((text, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
+                        let note_id = if detached_note {
+                            let pending_mark = if command == "footnotetext" {
+                                scan_state.pending_footnote_mark.take()
+                            } else {
+                                None
+                            };
+                            let note_id = pending_mark
+                                .as_ref()
+                                .map(|(note_id, _)| *note_id)
+                                .unwrap_or(self.next_render_event_id);
+                            let marker = explicit_note_marker
+                                .clone()
+                                .or_else(|| pending_mark.and_then(|(_, marker)| marker));
+                            let command = match command {
+                                "footnote" => FootnoteCommandKind::Footnote,
+                                "footnotetext" => FootnoteCommandKind::FootnoteText,
+                                "tablefootnote" => FootnoteCommandKind::TableFootnote,
+                                _ => unreachable!("detached note command"),
+                            };
+                            self.emit_render_event(
+                                RenderEvent::BeginFootnote(BeginFootnoteEvent {
+                                    note_id,
+                                    marker,
+                                    command,
+                                    draw_reference: command != FootnoteCommandKind::FootnoteText,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    after as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::ArgumentContent,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: content_start as u32,
+                                        end_utf8: content_end as u32,
+                                    }),
+                                ),
+                            );
+                            Some(note_id)
+                        } else {
+                            None
+                        };
                         let leading_segment = &source[text_start..command_start];
                         if !detached_note
                             && !leading_segment.is_empty()
@@ -7215,18 +7264,6 @@ impl<'i> Vm<'i> {
                                     source_path.to_owned(),
                                     text_start as u32,
                                     command_start as u32,
-                                ),
-                            );
-                        }
-                        if detached_note {
-                            self.emit_render_event(
-                                RenderEvent::Space(SpaceEvent {
-                                    kind: SpaceKind::Interword,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    command_start as u32,
-                                    content_start as u32,
                                 ),
                             );
                         }
@@ -9687,6 +9724,16 @@ impl<'i> Vm<'i> {
                                 ),
                             );
                         }
+                        if let Some(note_id) = note_id {
+                            self.emit_render_event(
+                                RenderEvent::EndFootnote(EndFootnoteEvent { note_id }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    after as u32,
+                                ),
+                            );
+                        }
                         let mut after_space = after;
                         while after_space < source.len()
                             && source.as_bytes()[after_space].is_ascii_whitespace()
@@ -9742,11 +9789,27 @@ impl<'i> Vm<'i> {
                 }
                 "footnotemark" if in_document => {
                     index = skip_ascii_whitespace(source, index);
-                    if let Some((_, _, _, after_option)) =
+                    let mut marker = None;
+                    if let Some((value, _, _, after_option)) =
                         read_bracket_source_argument(source, index)
                     {
+                        let value = normalize_latex_text_with_inline_placeholders(value);
+                        marker = (!value.is_empty()).then_some(value);
                         index = after_option;
                     }
+                    let note_id = self.next_render_event_id;
+                    self.emit_render_event(
+                        RenderEvent::FootnoteMark(FootnoteMarkEvent {
+                            note_id,
+                            marker: marker.clone(),
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                    scan_state.pending_footnote_mark = Some((note_id, marker));
                 }
                 "%" | "&" | "$" | "#" | "_" | "{" | "}" if in_document => {
                     self.emit_render_event(
@@ -28471,11 +28534,12 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CitationStyleHint, EndBlockEvent,
-        EndLayoutContainerEvent, EventProducer, GeneratedBy, GraphicAssetDensity,
-        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent,
-        LayoutAlignment, ListKind, MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan,
-        RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
-        TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+        EndLayoutContainerEvent, EventProducer, FootnoteCommandKind, GeneratedBy,
+        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
+        HeadingEvent, LayoutAlignment, ListKind, MetadataField, ModeHint, ParagraphBreakReason,
+        ProvenanceSpan, RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind,
+        TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent,
+        TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -46915,23 +46979,53 @@ Difference Engine Lab
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        let visible_text = outcome
+        let boundaries = outcome
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => Some("[?]"),
+                RenderEvent::BeginFootnote(footnote) => Some((
+                    "begin",
+                    footnote.note_id,
+                    footnote.marker.as_deref(),
+                    footnote.command,
+                    footnote.draw_reference,
+                )),
+                RenderEvent::EndFootnote(footnote) => Some((
+                    "end",
+                    footnote.note_id,
+                    None,
+                    FootnoteCommandKind::Footnote,
+                    false,
+                )),
                 _ => None,
             })
-            .collect::<Vec<_>>()
-            .join("");
-        assert!(
-            visible_text.contains("Text Note [?] and [?]. after. Loose note."),
-            "{visible_text}"
-        );
+            .collect::<Vec<_>>();
+        assert_eq!(boundaries.len(), 4);
+        assert_eq!(boundaries[0].0, "begin");
+        assert_eq!(boundaries[0].1, boundaries[1].1);
+        assert_eq!(boundaries[0].2, None);
+        assert_eq!(boundaries[0].3, FootnoteCommandKind::Footnote);
+        assert!(boundaries[0].4);
+        assert_eq!(boundaries[2].0, "begin");
+        assert_eq!(boundaries[2].1, boundaries[3].1);
+        assert_eq!(boundaries[2].2, Some("1"));
+        assert_eq!(boundaries[2].3, FootnoteCommandKind::FootnoteText);
+        assert!(!boundaries[2].4);
+
+        let mut footnote_depth = 0usize;
+        let mut outer_text = String::new();
+        for event in &outcome.render_events {
+            match &event.event {
+                RenderEvent::BeginFootnote(_) => footnote_depth += 1,
+                RenderEvent::EndFootnote(_) => footnote_depth = footnote_depth.saturating_sub(1),
+                RenderEvent::Text(text) if footnote_depth == 0 => outer_text.push_str(&text.text),
+                RenderEvent::Space(_) if footnote_depth == 0 => outer_text.push(' '),
+                _ => {}
+            }
+        }
+        assert_eq!(outer_text, "Text after.");
         for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
-            assert!(!visible_text.contains(hidden), "{visible_text}");
+            assert!(!outer_text.contains(hidden), "{outer_text}");
         }
         assert!(outcome.render_events.iter().any(|event| {
             matches!(
@@ -46946,6 +47040,38 @@ Difference Engine Lab
                     if reference.keys == vec!["sec:intro".to_string()]
             )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_pairs_footnotemark_with_footnotetext() {
+        let source = r"\begin{document}A\footnotemark[7] B\footnotetext[7]{Note.}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let mark = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::FootnoteMark(mark) => Some(mark),
+                _ => None,
+            })
+            .expect("footnote mark event");
+        let body = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BeginFootnote(footnote) => Some(footnote),
+                _ => None,
+            })
+            .expect("footnote body event");
+
+        assert_eq!(mark.note_id, body.note_id);
+        assert_eq!(mark.marker.as_deref(), Some("7"));
+        assert_eq!(body.marker.as_deref(), Some("7"));
+        assert!(!body.draw_reference);
     }
 
     #[test]

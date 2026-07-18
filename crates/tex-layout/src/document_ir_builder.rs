@@ -1,11 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
     CitationLabelForm, CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent,
-    EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
-    LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
-    PageBreakBlock, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
-    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
-    TableRulePosition, TitleBlock,
+    EnvironmentBlock, FootnoteAnchor, FootnoteCommandKind, FootnoteId, FootnoteIr, GraphicBlock,
+    HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline,
+    ListBlock, ListItemIr, ListKind, MetadataField, PageBreakBlock, ParagraphBlock,
+    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
+    SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
 use crate::math_ir::parse_display_math_structure;
@@ -20,11 +22,24 @@ fn trim_trailing_spaces(content: &mut Vec<InlineNode>) {
     }
 }
 
+struct ActiveFootnote {
+    note_id: FootnoteId,
+    marker: String,
+    command: FootnoteCommandKind,
+    content: Vec<InlineNode>,
+    source: SourceProvenance,
+}
+
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
     layout_container_stack: Vec<LayoutContainerBlock>,
     labels: Vec<LabelDefinitionIr>,
+    footnotes: Vec<FootnoteIr>,
+    active_footnote: Option<ActiveFootnote>,
+    footnote_markers: BTreeMap<FootnoteId, String>,
+    footnote_anchor_ids: BTreeSet<FootnoteId>,
+    next_footnote_number: u32,
     paragraph: Vec<InlineNode>,
     paragraph_source: Option<SourceProvenance>,
     abstract_content: Option<(Vec<InlineNode>, SourceProvenance)>,
@@ -54,6 +69,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             blocks: Vec::new(),
             layout_container_stack: Vec::new(),
             labels: Vec::new(),
+            footnotes: Vec::new(),
+            active_footnote: None,
+            footnote_markers: BTreeMap::new(),
+            footnote_anchor_ids: BTreeSet::new(),
+            next_footnote_number: 1,
             paragraph: Vec::new(),
             paragraph_source: None,
             abstract_content: None,
@@ -453,6 +473,46 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         source: envelope.meta.source.clone(),
                     }));
                 }
+                RenderEvent::BeginFootnote(event) => {
+                    self.finish_active_footnote(None);
+                    let marker = self.resolve_footnote_marker(event.note_id, event.marker.as_ref());
+                    if event.draw_reference || !self.footnote_anchor_ids.contains(&event.note_id) {
+                        self.push_inline(
+                            InlineNode::FootnoteAnchor(FootnoteAnchor {
+                                note_id: event.note_id,
+                                marker: marker.clone(),
+                                draw_reference: event.draw_reference,
+                                source: envelope.meta.source.clone(),
+                            }),
+                            envelope,
+                        );
+                        self.footnote_anchor_ids.insert(event.note_id);
+                    }
+                    self.active_footnote = Some(ActiveFootnote {
+                        note_id: event.note_id,
+                        marker,
+                        command: event.command,
+                        content: Vec::new(),
+                        source: envelope.meta.source.clone(),
+                    });
+                }
+                RenderEvent::EndFootnote(event) => {
+                    self.finish_active_footnote(Some(event.note_id));
+                }
+                RenderEvent::FootnoteMark(event) => {
+                    let marker = self.resolve_footnote_marker(event.note_id, event.marker.as_ref());
+                    if self.footnote_anchor_ids.insert(event.note_id) {
+                        self.push_inline(
+                            InlineNode::FootnoteAnchor(FootnoteAnchor {
+                                note_id: event.note_id,
+                                marker,
+                                draw_reference: true,
+                                source: envelope.meta.source.clone(),
+                            }),
+                            envelope,
+                        );
+                    }
+                }
                 RenderEvent::Text(event) => {
                     self.push_inline(
                         InlineNode::Text {
@@ -639,6 +699,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             source: envelope.meta.source.clone(),
                         }));
                     }
+                }
+                RenderEvent::ParagraphBreak(_) if self.active_footnote.is_some() => {
+                    self.push_inline(
+                        InlineNode::LineBreak {
+                            source: envelope.meta.source.clone(),
+                        },
+                        envelope,
+                    );
                 }
                 RenderEvent::ParagraphBreak(_) if self.list_item.is_none() => {
                     self.flush_paragraph();
@@ -893,6 +961,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::Diagnostic(_) => {}
             }
         }
+        self.finish_active_footnote(None);
         self.flush_paragraph();
         if let Some((mut content, source)) = self.abstract_content.take() {
             trim_trailing_spaces(&mut content);
@@ -920,12 +989,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         while let Some(container) = self.layout_container_stack.pop() {
             self.push_block(IrBlock::LayoutContainer(container));
         }
-        DocumentIr::with_document_class_layout_and_labels(
+        let mut document = DocumentIr::with_document_class_layout_and_labels(
             self.blocks,
             self.document_class,
             self.layout,
             self.labels,
-        )
+        );
+        document.footnotes = self.footnotes;
+        document
     }
 
     fn push_block(&mut self, block: IrBlock) {
@@ -937,6 +1008,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
     }
 
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
+        if let Some(footnote) = &mut self.active_footnote {
+            if matches!(node, InlineNode::Space { .. })
+                && (footnote.content.is_empty()
+                    || matches!(footnote.content.last(), Some(InlineNode::Space { .. })))
+            {
+                return;
+            }
+            footnote.content.push(node);
+            return;
+        }
         if let Some((content, _)) = &mut self.abstract_content {
             if matches!(node, InlineNode::Space { .. })
                 && (content.is_empty()
@@ -991,6 +1072,41 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         self.paragraph.push(node);
     }
 
+    fn resolve_footnote_marker(
+        &mut self,
+        note_id: FootnoteId,
+        explicit_marker: Option<&String>,
+    ) -> String {
+        if let Some(marker) = self.footnote_markers.get(&note_id) {
+            return marker.clone();
+        }
+        let marker = explicit_marker.cloned().unwrap_or_else(|| {
+            let marker = self.next_footnote_number.to_string();
+            self.next_footnote_number += 1;
+            marker
+        });
+        self.footnote_markers.insert(note_id, marker.clone());
+        marker
+    }
+
+    fn finish_active_footnote(&mut self, expected_note_id: Option<FootnoteId>) {
+        let Some(mut footnote) = self.active_footnote.take() else {
+            return;
+        };
+        if expected_note_id.is_some_and(|note_id| note_id != footnote.note_id) {
+            self.active_footnote = Some(footnote);
+            return;
+        }
+        trim_trailing_spaces(&mut footnote.content);
+        self.footnotes.push(FootnoteIr {
+            note_id: footnote.note_id,
+            marker: footnote.marker,
+            command: footnote.command,
+            content: footnote.content,
+            source: footnote.source,
+        });
+    }
+
     fn flush_list_item(&mut self) {
         let Some((mut content, source, marker_hint)) = self.list_item.take() else {
             return;
@@ -1032,14 +1148,15 @@ mod tests {
     use std::collections::BTreeMap;
 
     use tex_render_model::{
-        BeginBlockEvent, BibliographyBlock, BibliographyItemEvent, BlockKind, CaptionEvent,
-        CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
-        DocumentLayoutIntent, EndBlockEvent, FlushTitleBlockEvent, GraphicAssetDimensions,
-        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineNode,
-        InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent,
-        MetadataField, PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason,
-        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        BeginBlockEvent, BeginFootnoteEvent, BibliographyBlock, BibliographyItemEvent, BlockKind,
+        CaptionEvent, CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
+        DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, FlushTitleBlockEvent,
+        FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
+        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
+        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -1127,6 +1244,112 @@ mod tests {
             vec!["10pt".to_string(), "twocolumn".to_string()]
         );
         assert_eq!(document_class.source, source);
+    }
+
+    #[test]
+    fn footnote_boundaries_separate_note_content_from_the_outer_paragraph() {
+        let source = SourceProvenance::file("main.tex", 0, 32);
+        let stream = RenderEventStream::new(
+            Some("footnote".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::Text(TextEvent {
+                        text: "Before".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::BeginFootnote(BeginFootnoteEvent {
+                        note_id: 2,
+                        marker: None,
+                        command: FootnoteCommandKind::Footnote,
+                        draw_reference: true,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::Text(TextEvent {
+                        text: "Note".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                        reason: ParagraphBreakReason::ParCommand,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    5,
+                    RenderEvent::Text(TextEvent {
+                        text: "continued".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    6,
+                    RenderEvent::EndFootnote(EndFootnoteEvent { note_id: 2 }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    7,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    8,
+                    RenderEvent::Text(TextEvent {
+                        text: "after.".to_string(),
+                    }),
+                    source,
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::new(),
+                targets: BTreeMap::new(),
+            },
+        );
+        let paragraph = ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Paragraph(paragraph) => Some(paragraph),
+                _ => None,
+            })
+            .expect("outer paragraph");
+
+        assert!(paragraph.content.iter().any(|node| matches!(
+            node,
+            InlineNode::FootnoteAnchor(anchor)
+                if anchor.note_id == 2 && anchor.marker == "1" && anchor.draw_reference
+        )));
+        assert!(
+            !paragraph
+                .content
+                .iter()
+                .any(|node| matches!(node, InlineNode::Text { text, .. } if text == "Note"))
+        );
+        assert_eq!(ir.footnotes.len(), 1);
+        assert_eq!(ir.footnotes[0].marker, "1");
+        assert!(matches!(
+            ir.footnotes[0].content.as_slice(),
+            [
+                InlineNode::Text { text, .. },
+                InlineNode::LineBreak { .. },
+                InlineNode::Text { text: continued, .. }
+            ] if text == "Note" && continued == "continued"
+        ));
+        assert_eq!(ir.extracted_text(), "Before1 after.\n1 Note\ncontinued");
     }
 
     #[test]

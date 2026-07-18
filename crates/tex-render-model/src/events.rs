@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 
 pub type EventId = u64;
+pub type FootnoteId = u64;
 
-pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 1;
+pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventStream {
@@ -119,6 +120,9 @@ pub enum RenderEvent {
     InlineCitation(InlineCitationEvent),
     InlineReference(InlineReferenceEvent),
     InlineLink(InlineLinkEvent),
+    BeginFootnote(BeginFootnoteEvent),
+    EndFootnote(EndFootnoteEvent),
+    FootnoteMark(FootnoteMarkEvent),
     LabelDefinition(LabelDefinitionEvent),
     ListItem(ListItemEvent),
     BibliographyItem(BibliographyItemEvent),
@@ -150,7 +154,11 @@ impl RenderEvent {
             Self::ListItem(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::BibliographyItem(_) => ModeHint::Vertical,
-            Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
+            Self::InlineReference(_)
+            | Self::InlineLink(_)
+            | Self::BeginFootnote(_)
+            | Self::EndFootnote(_)
+            | Self::FootnoteMark(_) => ModeHint::Horizontal,
             Self::GraphicRef(_) | Self::IncludePdf(_) | Self::Caption(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             Self::LabelDefinition(_) | Self::RawFallback(_) | Self::Diagnostic(_) => {
@@ -176,6 +184,35 @@ pub struct SpaceEvent {
 pub enum SpaceKind {
     Interword,
     Explicit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeginFootnoteEvent {
+    pub note_id: FootnoteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
+    pub command: FootnoteCommandKind,
+    pub draw_reference: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndFootnoteEvent {
+    pub note_id: FootnoteId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FootnoteMarkEvent {
+    pub note_id: FootnoteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FootnoteCommandKind {
+    Footnote,
+    FootnoteText,
+    TableFootnote,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -672,7 +709,7 @@ mod tests {
         );
         let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
 
-        assert!(encoded.contains("\"schema_version\": 1"));
+        assert!(encoded.contains(&format!("\"schema_version\": {}", stream.schema_version)));
         assert!(!encoded.contains("\"event_id\": 0"));
     }
 

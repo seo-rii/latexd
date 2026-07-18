@@ -3004,31 +3004,66 @@ fn frontmatter_metadata_comments_do_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
-fn footnote_bodies_survive_ir_and_display_list_without_raw_braces() {
+fn footnote_bodies_are_structured_and_rendered_in_the_page_footer() {
     let capture =
         capture_internal_render_ir("main.tex", FOOTNOTE_BODY_SOURCE, &SemanticAux::default());
     let extracted_text = capture.document_ir.extracted_text();
 
+    assert!(extracted_text.contains("Text1 after."), "{extracted_text}");
     assert!(
-        extracted_text.contains("Text Note [?] and [?]. after. Loose note."),
+        extracted_text.contains("1 Note [?] and [?]."),
         "{extracted_text}"
     );
+    assert!(extracted_text.contains("1 Loose note."), "{extracted_text}");
+    assert_eq!(capture.document_ir.footnotes.len(), 2);
+    let outer_paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("outer paragraph");
+    assert!(!outer_paragraph.content.iter().any(|node| matches!(
+        node,
+        InlineNode::Text { text, .. } if text.contains("Note") || text.contains("Loose")
+    )));
     for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
     }
 
-    let display_list_text = capture.page_display_lists[0]
+    let text_runs = capture.page_display_lists[0]
         .ops
         .iter()
         .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            DrawOp::TextRun(run) => Some(run),
             _ => None,
         })
+        .collect::<Vec<_>>();
+    let display_list_text = text_runs
+        .iter()
+        .map(|run| run.text.as_str())
         .collect::<Vec<_>>()
         .join("");
+    let body_baseline = text_runs
+        .iter()
+        .find(|run| run.text.contains("Text"))
+        .expect("body run")
+        .origin
+        .y;
+    for visible in ["Note [?] and [?].", "Loose note."] {
+        let run = text_runs
+            .iter()
+            .find(|run| run.text.contains(visible))
+            .unwrap_or_else(|| panic!("missing footer text {visible:?}: {display_list_text}"));
+        assert!(run.origin.y > body_baseline);
+    }
     assert!(
-        display_list_text.contains("Text Note [?] and [?]. after. Loose note."),
-        "{display_list_text}"
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::Rule(_)))
     );
     for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
@@ -29424,7 +29459,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(
         fs::read_to_string(paths.events)
             .expect("events json")
-            .contains("\"schema_version\": 1")
+            .contains("\"schema_version\": 2")
     );
     assert!(
         fs::read_to_string(paths.document_ir)

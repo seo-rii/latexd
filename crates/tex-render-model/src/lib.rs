@@ -19,9 +19,10 @@ pub use display_list::{
     TextCluster,
 };
 pub use events::{
-    BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,
-    DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent, EndLayoutContainerEvent, EventId,
-    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
+    BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
+    BlockKind, CaptionEvent, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
+    EndFootnoteEvent, EndLayoutContainerEvent, EventId, EventMeta, EventProducer, FallbackReason,
+    FlushTitleBlockEvent, FootnoteCommandKind, FootnoteId, FootnoteMarkEvent, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
     GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
     LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
@@ -34,10 +35,11 @@ pub use events::{
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
-    DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
-    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, MathAtomKind,
-    MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, ParagraphBlock,
-    RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
+    DocumentClassIr, DocumentIr, EnvironmentBlock, FootnoteAnchor, FootnoteIr, GraphicBlock,
+    HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline,
+    ListBlock, ListItemIr, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
+    PageBreakBlock, ParagraphBlock, RawFallbackIr, ReferenceInline, TableBlock, TableCell,
+    TableRow, TitleBlock,
 };
 pub use pdf_asset::{
     PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,
