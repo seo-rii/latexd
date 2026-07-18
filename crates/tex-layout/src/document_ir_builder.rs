@@ -339,8 +339,20 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     source,
                                 }));
                             }
-                            self.environment_content =
-                                Some((name.clone(), Vec::new(), envelope.meta.source.clone()));
+                            if matches!(name.as_str(), "algorithm" | "algorithm*") {
+                                self.layout_container_stack.push(LayoutContainerBlock {
+                                    name: name.clone(),
+                                    width_spec: "\\linewidth".to_string(),
+                                    alignment: Some(tex_render_model::LayoutAlignment::Top),
+                                    height_spec: None,
+                                    inner_alignment: Some(tex_render_model::LayoutAlignment::Top),
+                                    children: Vec::new(),
+                                    source: envelope.meta.source.clone(),
+                                });
+                            } else {
+                                self.environment_content =
+                                    Some((name.clone(), Vec::new(), envelope.meta.source.clone()));
+                            }
                         }
                     }
                 }
@@ -370,7 +382,31 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     }
                     tex_render_model::BlockKind::Environment { name } => {
-                        if let Some((open_name, mut content, source)) =
+                        if matches!(name.as_str(), "algorithm" | "algorithm*") {
+                            self.flush_paragraph();
+                            if let Some(position) = self
+                                .layout_container_stack
+                                .iter()
+                                .rposition(|container| container.name == *name)
+                            {
+                                while self.layout_container_stack.len() > position + 1 {
+                                    let child = self
+                                        .layout_container_stack
+                                        .pop()
+                                        .expect("nested algorithm container");
+                                    self.layout_container_stack
+                                        .last_mut()
+                                        .expect("parent algorithm container")
+                                        .children
+                                        .push(IrBlock::LayoutContainer(child));
+                                }
+                                let container = self
+                                    .layout_container_stack
+                                    .pop()
+                                    .expect("matching algorithm container");
+                                self.push_block(IrBlock::LayoutContainer(container));
+                            }
+                        } else if let Some((open_name, mut content, source)) =
                             self.environment_content.take()
                         {
                             trim_trailing_spaces(&mut content);
@@ -670,14 +706,26 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     );
                 }
                 RenderEvent::DisplayMath(event) => {
+                    if !self.layout_container_stack.is_empty()
+                        && let Some((name, mut content, source)) = self.environment_content.take()
+                    {
+                        trim_trailing_spaces(&mut content);
+                        if !content.is_empty() {
+                            self.push_block(IrBlock::Environment(EnvironmentBlock {
+                                name: name.clone(),
+                                content,
+                                source: source.clone(),
+                            }));
+                        }
+                        self.environment_content = Some((name, Vec::new(), source));
+                    }
                     self.flush_paragraph();
-                    self.blocks
-                        .push(IrBlock::DisplayMath(tex_render_model::DisplayMathBlock {
-                            raw_source: event.raw_source.clone(),
-                            normalized_text: event.normalized_text.clone(),
-                            structure: parse_display_math_structure(&event.raw_source),
-                            source: envelope.meta.source.clone(),
-                        }));
+                    self.push_block(IrBlock::DisplayMath(tex_render_model::DisplayMathBlock {
+                        raw_source: event.raw_source.clone(),
+                        normalized_text: event.normalized_text.clone(),
+                        structure: parse_display_math_structure(&event.raw_source),
+                        source: envelope.meta.source.clone(),
+                    }));
                 }
                 RenderEvent::BibliographyItem(event) => {
                     let item = BibliographyItemIr {
@@ -933,6 +981,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     if !table_float_open
                         && let Some(IrBlock::Graphic(block) | IrBlock::FullWidthGraphic(block)) =
                             target_blocks.last_mut()
+                        && block.caption.is_none()
                     {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
@@ -1987,6 +2036,131 @@ mod tests {
                     && table.rows.is_empty()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.\nTable caption.");
+    }
+
+    #[test]
+    fn detached_caption_does_not_overwrite_previous_graphic_caption() {
+        let stream = RenderEventStream::new(
+            Some("detached-caption".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::GraphicRef(GraphicRefEvent {
+                        path: "figures/plot.pdf".to_string(),
+                        options: None,
+                        page_selection: None,
+                        asset_format: None,
+                        asset_hash: None,
+                        asset_dimensions: None,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 30),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Plot caption.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 31, 52),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Algorithm caption.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 53, 80),
+                ),
+            ],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Graphic(graphic), IrBlock::Paragraph(paragraph)]
+                if graphic.caption.as_deref() == Some("Plot caption.")
+                    && matches!(
+                        paragraph.content.as_slice(),
+                        [InlineNode::Text { text, .. }] if text == "Algorithm caption."
+                    )
+        ));
+        assert_eq!(ir.extracted_text(), "Plot caption.\nAlgorithm caption.");
+    }
+
+    #[test]
+    fn algorithm_environment_groups_caption_text_and_display_math() {
+        let source = SourceProvenance::file("main.tex", 0, 100);
+        let mut next_id = 1;
+        let mut event = |event| {
+            let envelope = RenderEventEnvelope::new(next_id, event, source.clone());
+            next_id += 1;
+            envelope
+        };
+        let stream = RenderEventStream::new(
+            Some("algorithm".to_string()),
+            vec![
+                event(RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment {
+                        name: "algorithm".to_string(),
+                    },
+                })),
+                event(RenderEvent::Caption(CaptionEvent {
+                    text: "Algorithm caption.".to_string(),
+                })),
+                event(RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment {
+                        name: "algorithmic".to_string(),
+                    },
+                })),
+                event(RenderEvent::Text(TextEvent {
+                    text: "First step.".to_string(),
+                })),
+                event(RenderEvent::DisplayMath(MathSourceEvent {
+                    raw_source: "x = y".to_string(),
+                    normalized_text: None,
+                })),
+                event(RenderEvent::Text(TextEvent {
+                    text: "Second step.".to_string(),
+                })),
+                event(RenderEvent::EndBlock(EndBlockEvent {
+                    block: BlockKind::Environment {
+                        name: "algorithmic".to_string(),
+                    },
+                })),
+                event(RenderEvent::EndBlock(EndBlockEvent {
+                    block: BlockKind::Environment {
+                        name: "algorithm".to_string(),
+                    },
+                })),
+            ],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        let [IrBlock::LayoutContainer(algorithm)] = ir.blocks.as_slice() else {
+            panic!("expected one algorithm layout container: {:?}", ir.blocks);
+        };
+        assert_eq!(algorithm.name, "algorithm");
+        assert!(matches!(
+            algorithm.children.as_slice(),
+            [
+                IrBlock::Paragraph(caption),
+                IrBlock::Environment(first),
+                IrBlock::DisplayMath(math),
+                IrBlock::Environment(second),
+            ] if matches!(
+                    caption.content.as_slice(),
+                    [InlineNode::Text { text, .. }] if text == "Algorithm caption."
+                )
+                && first.name == "algorithmic"
+                && matches!(
+                    first.content.as_slice(),
+                    [InlineNode::Text { text, .. }] if text == "First step."
+                )
+                && math.raw_source == "x = y"
+                && second.name == "algorithmic"
+                && matches!(
+                    second.content.as_slice(),
+                    [InlineNode::Text { text, .. }] if text == "Second step."
+                )
+        ));
     }
 
     #[test]

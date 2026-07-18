@@ -636,6 +636,7 @@ struct LogicalContainer {
 
 enum LogicalItem {
     Text(LogicalTextRun),
+    KeepTogetherText(LogicalTextRun),
     DisplayMath(LogicalDisplayMath),
     VerticalGap(f32),
     Image(LogicalImage),
@@ -1453,6 +1454,8 @@ pub fn build_page_display_lists(
                     margin_bottom_pt: 0.0,
                     column_count: 1,
                     column_gap_pt: 0.0,
+                    show_page_numbers: false,
+                    first_page_rules: Vec::new(),
                     ..options.clone()
                 };
                 let nested_pages = build_page_display_lists(
@@ -1768,6 +1771,7 @@ pub fn build_page_display_lists(
                     IrBlock::FullWidthTable(block) => (block, true),
                     _ => unreachable!(),
                 };
+                #[derive(Clone)]
                 struct RenderedTableCell {
                     text: String,
                     column_span: usize,
@@ -1869,9 +1873,23 @@ pub fn build_page_display_lists(
                         while column_index + column_span > column_widths.len() {
                             column_widths.push(0usize);
                         }
+                        let is_fixed_body_cell = cell.alignment.is_none()
+                            && block
+                                .columns
+                                .get(column_index)
+                                .is_some_and(|column| column.width_pt_milli.is_some());
                         if column_span == 1 {
+                            let minimum_content_width = if is_fixed_body_cell {
+                                cell.text
+                                    .split_whitespace()
+                                    .map(|word| word.chars().count())
+                                    .max()
+                                    .unwrap_or(0)
+                            } else {
+                                cell.text.chars().count()
+                            };
                             column_widths[column_index] =
-                                column_widths[column_index].max(cell.text.chars().count());
+                                column_widths[column_index].max(minimum_content_width);
                         }
                     }
                 }
@@ -1971,27 +1989,7 @@ pub fn build_page_display_lists(
                             .map(|column| base_separator_width(column - 1, column))
                             .sum()
                     };
-                for row in &rendered_rows {
-                    for cell in row {
-                        let column_index = cell.column_index;
-                        let column_span = cell.column_span;
-                        let end_column = (column_index + column_span).min(column_widths.len());
-                        let mut spanned_width = column_widths[column_index..end_column]
-                            .iter()
-                            .sum::<usize>();
-                        spanned_width += base_spanned_separator_width(column_index, end_column);
-                        let text_width = cell.text.chars().count();
-                        if column_span > 1 && text_width > spanned_width && end_column > 0 {
-                            column_widths[end_column - 1] += text_width - spanned_width;
-                        }
-                    }
-                }
                 let table_glyph_width_pt = (options.body_font_size_pt * 0.6).max(1.0);
-                let table_area_width_pt = if full_width {
-                    page_content_width_pt
-                } else {
-                    column_width_pt
-                };
                 for (column_index, column) in block.columns.iter().enumerate() {
                     if let Some(width_pt_milli) = column.width_pt_milli {
                         while column_index >= column_widths.len() {
@@ -2004,6 +2002,29 @@ pub fn build_page_display_lists(
                         column_widths[column_index] = column_widths[column_index].max(min_chars);
                     }
                 }
+                for row in &rendered_rows {
+                    for cell in row {
+                        let column_index = cell.column_index;
+                        let column_span = cell.column_span;
+                        let end_column = (column_index + column_span).min(column_widths.len());
+                        let mut spanned_width = column_widths[column_index..end_column]
+                            .iter()
+                            .sum::<usize>();
+                        spanned_width += base_spanned_separator_width(column_index, end_column);
+                        let text_width = cell.text.chars().count();
+                        if (column_span > 1 || cell.alignment.is_some())
+                            && text_width > spanned_width
+                            && end_column > 0
+                        {
+                            column_widths[end_column - 1] += text_width - spanned_width;
+                        }
+                    }
+                }
+                let table_area_width_pt = if full_width {
+                    page_content_width_pt
+                } else {
+                    column_width_pt
+                };
                 let mut separator_extra_widths =
                     vec![0usize; column_widths.len().saturating_sub(1)];
                 let mut requested_table_width_pt = None;
@@ -2082,6 +2103,81 @@ pub fn build_page_display_lists(
                         .map(|column| separator_width(column - 1, column))
                         .sum()
                 };
+                struct RenderedTablePhysicalRow {
+                    source_row_index: usize,
+                    cells: Vec<RenderedTableCell>,
+                    first_line: bool,
+                    last_line: bool,
+                }
+                let wrap_table_cell_text = |text: &str, width_chars: usize| {
+                    let width_chars = width_chars.max(1);
+                    let mut lines = Vec::new();
+                    for source_line in text.split('\n') {
+                        let mut words = source_line.split_whitespace();
+                        let Some(first_word) = words.next() else {
+                            lines.push(String::new());
+                            continue;
+                        };
+                        let mut line = first_word.to_string();
+                        for word in words {
+                            if line.chars().count() + 1 + word.chars().count() <= width_chars {
+                                line.push(' ');
+                                line.push_str(word);
+                            } else {
+                                lines.push(line.to_string());
+                                line = word.to_string();
+                            }
+                        }
+                        lines.push(line);
+                    }
+                    if lines.is_empty() {
+                        lines.push(String::new());
+                    }
+                    lines
+                };
+                let mut physical_rows = Vec::new();
+                for (source_row_index, rendered_cells) in rendered_rows.iter().enumerate() {
+                    let wrapped_cells = rendered_cells
+                        .iter()
+                        .map(|cell| {
+                            let end_column =
+                                (cell.column_index + cell.column_span).min(column_widths.len());
+                            let mut cell_width = column_widths[cell.column_index..end_column]
+                                .iter()
+                                .sum::<usize>();
+                            cell_width += spanned_separator_width(cell.column_index, end_column);
+                            let should_wrap = cell.column_span == 1
+                                && cell.alignment.is_none()
+                                && block
+                                    .columns
+                                    .get(cell.column_index)
+                                    .is_some_and(|column| column.width_pt_milli.is_some());
+                            if should_wrap {
+                                wrap_table_cell_text(&cell.text, cell_width)
+                            } else {
+                                vec![cell.text.clone()]
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let line_count = wrapped_cells.iter().map(Vec::len).max().unwrap_or(1);
+                    for line_index in 0..line_count {
+                        let cells = rendered_cells
+                            .iter()
+                            .zip(&wrapped_cells)
+                            .map(|(cell, lines)| {
+                                let mut cell = cell.clone();
+                                cell.text = lines.get(line_index).cloned().unwrap_or_default();
+                                cell
+                            })
+                            .collect();
+                        physical_rows.push(RenderedTablePhysicalRow {
+                            source_row_index,
+                            cells,
+                            first_line: line_index == 0,
+                            last_line: line_index + 1 == line_count,
+                        });
+                    }
+                }
                 let rule_width = column_widths.iter().sum::<usize>()
                     + spanned_separator_width(0, column_widths.len());
                 let natural_table_width_pt = rule_width.max(1) as f32 * table_glyph_width_pt;
@@ -2204,23 +2300,37 @@ pub fn build_page_display_lists(
                             })
                             .collect::<Vec<_>>()
                     };
-                if let Some(caption) = &block.caption {
-                    let source = block
-                        .caption_source
-                        .clone()
-                        .unwrap_or_else(|| block.source.clone());
-                    segments.push(LogicalTextSegment {
+                let caption_precedes_table = match (
+                    block.caption_source.as_ref().map(|source| &source.primary),
+                    &block.source.primary,
+                ) {
+                    (Some(ProvenanceSpan::File(caption)), ProvenanceSpan::File(table))
+                        if caption.path == table.path =>
+                    {
+                        caption.start_utf8 <= table.start_utf8
+                    }
+                    _ => true,
+                };
+                let mut caption_segment =
+                    block.caption.as_ref().map(|caption| LogicalTextSegment {
                         text: caption.clone(),
-                        source,
+                        source: block
+                            .caption_source
+                            .clone()
+                            .unwrap_or_else(|| block.source.clone()),
                         link_target: None,
                         table_rule: false,
                         table_rule_trim_start_pt: None,
                         table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
+                if caption_precedes_table && let Some(caption) = caption_segment.take() {
+                    segments.push(caption);
                 }
-                for (row, rendered_cells) in block.rows.iter().zip(&rendered_rows) {
-                    if row.rule_above {
+                for physical_row in &physical_rows {
+                    let row = &block.rows[physical_row.source_row_index];
+                    let rendered_cells = &physical_row.cells;
+                    if physical_row.first_line && row.rule_above {
                         if !segments.is_empty() {
                             segments.push(LogicalTextSegment {
                                 text: "\n".to_string(),
@@ -2242,7 +2352,11 @@ pub fn build_page_display_lists(
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
-                    for rule in &row.partial_rules_above {
+                    for rule in row
+                        .partial_rules_above
+                        .iter()
+                        .filter(|_| physical_row.first_line)
+                    {
                         if !segments.is_empty() {
                             segments.push(LogicalTextSegment {
                                 text: "\n".to_string(),
@@ -2388,9 +2502,14 @@ pub fn build_page_display_lists(
                             row_text.push(' ');
                         }
                         row_text.push_str(&cell.text);
+                        let has_right_rule =
+                            column_rule_after_count((column_index + column_span).saturating_sub(1))
+                                .max(cell.rule_after_count)
+                                > 0;
                         if cell_index + 1 < rendered_cells.len()
                             || block.width_spec.is_some()
                             || matches!(alignment, TableColumnAlignment::Decimal)
+                            || has_right_rule
                         {
                             for _ in 0..right_padding {
                                 row_text.push(' ');
@@ -2430,7 +2549,7 @@ pub fn build_page_display_lists(
                         table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: deduped_vertical_rule_offsets,
                     });
-                    if row.rule_below {
+                    if physical_row.last_line && row.rule_below {
                         segments.push(LogicalTextSegment {
                             text: "\n".to_string(),
                             source: block.source.clone(),
@@ -2450,7 +2569,11 @@ pub fn build_page_display_lists(
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
-                    for rule in &row.partial_rules_below {
+                    for rule in row
+                        .partial_rules_below
+                        .iter()
+                        .filter(|_| physical_row.last_line)
+                    {
                         segments.push(LogicalTextSegment {
                             text: "\n".to_string(),
                             source: block.source.clone(),
@@ -2480,7 +2603,21 @@ pub fn build_page_display_lists(
                         });
                     }
                 }
-                logical_items.push(LogicalItem::Text(LogicalTextRun {
+                if let Some(caption) = caption_segment {
+                    if !segments.is_empty() {
+                        segments.push(LogicalTextSegment {
+                            text: "\n".to_string(),
+                            source: block.source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        });
+                    }
+                    segments.push(caption);
+                }
+                logical_items.push(LogicalItem::KeepTogetherText(LogicalTextRun {
                     segments,
                     source: block.source.clone(),
                     font: FontRequest {
@@ -3146,8 +3283,126 @@ pub fn build_page_display_lists(
             }
             additional_height
         };
+    let mut deferred_top_container_rows = Vec::<Vec<LogicalContainer>>::new();
+
+    macro_rules! place_container_row {
+        ($containers:expr) => {{
+            let containers = $containers;
+            let row_height_pt = containers
+                .iter()
+                .map(|container| container.height_pt)
+                .fold(options.line_height_pt, f32::max);
+            let mut container_x =
+                options.margin_left_pt + column_index as f32 * (column_width_pt + column_gap_pt);
+            for container in containers {
+                let alignment_offset_y = match container.alignment {
+                    Some(LayoutAlignment::Top | LayoutAlignment::Stretch) => 0.0,
+                    Some(LayoutAlignment::Bottom) => row_height_pt - container.height_pt,
+                    Some(LayoutAlignment::Center) | None => {
+                        (row_height_pt - container.height_pt) / 2.0
+                    }
+                };
+                let container_y = y + alignment_offset_y;
+                emit_due_destinations(
+                    &container.source,
+                    Point {
+                        x: container_x,
+                        y: container_y,
+                    },
+                    &mut pending,
+                );
+                if !pending.text.is_empty() {
+                    pending.text.push('\n');
+                }
+                pending.text.push_str("[layout container]");
+                pending.hash_input.push('\u{1f}');
+                pending.hash_input.push_str(&format!(
+                    "layout-container:{}:{:.3}:{:.3}:{:.3}:{:.3}:{}",
+                    container.name,
+                    container_x,
+                    container_y,
+                    container.width_pt,
+                    container.height_pt,
+                    container.content_hash
+                ));
+                record_source_spans(&container.source, &mut pending.source_spans);
+                for span in container.source_spans {
+                    if !pending.source_spans.contains(&span) {
+                        pending.source_spans.push(span);
+                    }
+                }
+                for mut op in container.ops {
+                    op.translate(container_x, container_y);
+                    let source_and_point = match &op {
+                        DrawOp::TextRun(run) => Some((&run.source, run.origin)),
+                        DrawOp::Image(image) => Some((
+                            &image.source,
+                            Point {
+                                x: image.rect.x,
+                                y: image.rect.y,
+                            },
+                        )),
+                        DrawOp::LinkAnnotation(link) => Some((
+                            &link.source,
+                            Point {
+                                x: link.rect.x,
+                                y: link.rect.y,
+                            },
+                        )),
+                        DrawOp::Save
+                        | DrawOp::Restore
+                        | DrawOp::ClipRect(_)
+                        | DrawOp::Rule(_)
+                        | DrawOp::NamedDestination(_) => None,
+                    };
+                    if let Some((source, point)) = source_and_point {
+                        emit_due_destinations(source, point, &mut pending);
+                    }
+                    pending.ops.push(op);
+                }
+                container_x += container.width_pt + container_gap_pt;
+            }
+            y += row_height_pt + options.block_gap_pt;
+        }};
+    }
+
+    macro_rules! place_deferred_top_container_rows {
+        () => {{
+            loop {
+                let Some(containers) = deferred_top_container_rows.first() else {
+                    break;
+                };
+                let row_height_pt = containers
+                    .iter()
+                    .map(|container| container.height_pt)
+                    .fold(options.line_height_pt, f32::max);
+                if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index)
+                    && !pending.ops.is_empty()
+                {
+                    break;
+                }
+                let containers = deferred_top_container_rows.remove(0);
+                place_container_row!(containers);
+            }
+        }};
+    }
+
+    macro_rules! start_next_page {
+        () => {{
+            finish_page(&mut pages, pending);
+            pending = new_pending_page();
+            column_index = 0;
+            column_start_y = options.margin_top_pt;
+            y = column_start_y;
+            place_deferred_top_container_rows!();
+        }};
+    }
 
     for logical in logical_items {
+        let (logical, keep_together) = match logical {
+            LogicalItem::KeepTogetherText(logical) => (LogicalItem::Text(logical), true),
+            logical => (logical, false),
+        };
         match logical {
             LogicalItem::VerticalGap(gap_pt) => {
                 if let Some(row) = pending_image_row.take() {
@@ -3196,13 +3451,10 @@ pub fn build_page_display_lists(
                 {
                     if column_index + 1 < column_count {
                         column_index += 1;
+                        y = column_start_y;
                     } else {
-                        finish_page(&mut pages, pending);
-                        pending = new_pending_page();
-                        column_index = 0;
-                        column_start_y = options.margin_top_pt;
+                        start_next_page!();
                     }
-                    y = column_start_y;
                 }
                 let column_left_pt = options.margin_left_pt
                     + column_index as f32 * (column_width_pt + column_gap_pt);
@@ -3240,12 +3492,13 @@ pub fn build_page_display_lists(
                 }
                 if full_width && column_index > 0 {
                     if !pending.ops.is_empty() {
-                        finish_page(&mut pages, pending);
-                        pending = new_pending_page();
+                        start_next_page!();
+                    } else {
+                        column_index = 0;
+                        column_start_y = options.margin_top_pt;
+                        y = column_start_y;
+                        place_deferred_top_container_rows!();
                     }
-                    column_index = 0;
-                    column_start_y = options.margin_top_pt;
-                    y = column_start_y;
                 }
                 let mut wrapped_lines = Vec::new();
                 let mut current_line = Vec::new();
@@ -3644,6 +3897,27 @@ pub fn build_page_display_lists(
                         line_space_adjustments_pt = paragraph_space_adjustments;
                     }
                 }
+                if keep_together {
+                    let required_height_pt = wrapped_lines
+                        .iter()
+                        .filter(|line| {
+                            line.is_empty() || !line.iter().all(|segment| segment.table_rule)
+                        })
+                        .count() as f32
+                        * logical.line_height_pt
+                        + logical.gap_after_pt;
+                    if y + required_height_pt
+                        > page_content_bottom_pt(pages.len(), &pending, column_index)
+                        && !pending.ops.is_empty()
+                    {
+                        if !full_width && column_index + 1 < column_count {
+                            column_index += 1;
+                            y = column_start_y;
+                        } else {
+                            start_next_page!();
+                        }
+                    }
+                }
                 for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
                     let line_space_adjustment_pt = line_space_adjustments_pt
                         .get(line_index)
@@ -3683,13 +3957,10 @@ pub fn build_page_display_lists(
                     {
                         if !full_width && column_index + 1 < column_count {
                             column_index += 1;
+                            y = column_start_y;
                         } else {
-                            finish_page(&mut pages, pending);
-                            pending = new_pending_page();
-                            column_index = 0;
-                            column_start_y = options.margin_top_pt;
+                            start_next_page!();
                         }
-                        y = column_start_y;
                     }
                     let additional_reserved_height = additional_footnote_reservation_pt(
                         pages.len(),
@@ -3993,106 +4264,67 @@ pub fn build_page_display_lists(
                     .iter()
                     .map(|container| container.height_pt)
                     .fold(options.line_height_pt, f32::max);
+                let is_deferred_top_float = containers.iter().any(|container| {
+                    container.name.eq_ignore_ascii_case("algorithm")
+                        || container.name.eq_ignore_ascii_case("algorithm*")
+                });
+                let overflows_last_column = y + row_height_pt
+                    > page_content_bottom_pt(pages.len(), &pending, column_index)
+                    && column_index + 1 >= column_count;
+                if is_deferred_top_float
+                    && (!deferred_top_container_rows.is_empty()
+                        || (overflows_last_column && !pending.ops.is_empty()))
+                {
+                    deferred_top_container_rows.push(containers);
+                    continue;
+                }
                 if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && !pending.ops.is_empty()
                 {
                     if column_index + 1 < column_count {
                         column_index += 1;
+                        y = column_start_y;
                     } else {
-                        finish_page(&mut pages, pending);
-                        pending = new_pending_page();
-                        column_index = 0;
-                        column_start_y = options.margin_top_pt;
+                        start_next_page!();
                     }
-                    y = column_start_y;
                 }
-                let mut container_x = options.margin_left_pt
-                    + column_index as f32 * (column_width_pt + column_gap_pt);
-                for container in containers {
-                    let alignment_offset_y = match container.alignment {
-                        Some(LayoutAlignment::Top | LayoutAlignment::Stretch) => 0.0,
-                        Some(LayoutAlignment::Bottom) => row_height_pt - container.height_pt,
-                        Some(LayoutAlignment::Center) | None => {
-                            (row_height_pt - container.height_pt) / 2.0
-                        }
-                    };
-                    let container_y = y + alignment_offset_y;
-                    emit_due_destinations(
-                        &container.source,
-                        Point {
-                            x: container_x,
-                            y: container_y,
-                        },
-                        &mut pending,
-                    );
-                    if !pending.text.is_empty() {
-                        pending.text.push('\n');
-                    }
-                    pending.text.push_str("[layout container]");
-                    pending.hash_input.push('\u{1f}');
-                    pending.hash_input.push_str(&format!(
-                        "layout-container:{}:{:.3}:{:.3}:{:.3}:{:.3}:{}",
-                        container.name,
-                        container_x,
-                        container_y,
-                        container.width_pt,
-                        container.height_pt,
-                        container.content_hash
-                    ));
-                    record_source_spans(&container.source, &mut pending.source_spans);
-                    for span in container.source_spans {
-                        if !pending.source_spans.contains(&span) {
-                            pending.source_spans.push(span);
-                        }
-                    }
-                    for mut op in container.ops {
-                        op.translate(container_x, container_y);
-                        let source_and_point = match &op {
-                            DrawOp::TextRun(run) => Some((&run.source, run.origin)),
-                            DrawOp::Image(image) => Some((
-                                &image.source,
-                                Point {
-                                    x: image.rect.x,
-                                    y: image.rect.y,
-                                },
-                            )),
-                            DrawOp::LinkAnnotation(link) => Some((
-                                &link.source,
-                                Point {
-                                    x: link.rect.x,
-                                    y: link.rect.y,
-                                },
-                            )),
-                            DrawOp::Save
-                            | DrawOp::Restore
-                            | DrawOp::ClipRect(_)
-                            | DrawOp::Rule(_)
-                            | DrawOp::NamedDestination(_) => None,
-                        };
-                        if let Some((source, point)) = source_and_point {
-                            emit_due_destinations(source, point, &mut pending);
-                        }
-                        pending.ops.push(op);
-                    }
-                    container_x += container.width_pt + container_gap_pt;
-                }
-                y += row_height_pt + options.block_gap_pt;
+                place_container_row!(containers);
             }
             LogicalItem::Container(_) => {
                 unreachable!("layout containers must be grouped before page placement")
             }
+            LogicalItem::KeepTogetherText(_) => {
+                unreachable!("keep-together text must be normalized before page placement")
+            }
             LogicalItem::PageBreak => {
                 pending_image_row = None;
                 if !pending.ops.is_empty() {
-                    finish_page(&mut pages, pending);
-                    pending = new_pending_page();
+                    start_next_page!();
+                } else {
+                    column_index = 0;
+                    column_start_y = options.margin_top_pt;
+                    y = column_start_y;
+                    place_deferred_top_container_rows!();
                 }
-                column_index = 0;
-                column_start_y = options.margin_top_pt;
-                y = column_start_y;
             }
             LogicalItem::FullPageImage(logical) => {
                 pending_image_row = None;
+                if !pending.ops.is_empty() {
+                    start_next_page!();
+                } else {
+                    column_index = 0;
+                    column_start_y = options.margin_top_pt;
+                    y = column_start_y;
+                    place_deferred_top_container_rows!();
+                }
+                while !deferred_top_container_rows.is_empty() {
+                    finish_page(&mut pages, pending);
+                    pending = new_pending_page();
+                    column_index = 0;
+                    column_start_y = options.margin_top_pt;
+                    y = column_start_y;
+                    place_deferred_top_container_rows!();
+                }
                 if !pending.ops.is_empty() {
                     finish_page(&mut pages, pending);
                     pending = new_pending_page();
@@ -4555,12 +4787,13 @@ pub fn build_page_display_lists(
                     }
                     if full_width && column_index > 0 {
                         if !pending.ops.is_empty() {
-                            finish_page(&mut pages, pending);
-                            pending = new_pending_page();
+                            start_next_page!();
+                        } else {
+                            column_index = 0;
+                            column_start_y = options.margin_top_pt;
+                            y = column_start_y;
+                            place_deferred_top_container_rows!();
                         }
-                        column_index = 0;
-                        column_start_y = options.margin_top_pt;
-                        y = column_start_y;
                     }
                     if y + required_height
                         > page_content_bottom_pt(pages.len(), &pending, column_index)
@@ -4568,13 +4801,10 @@ pub fn build_page_display_lists(
                     {
                         if !full_width && column_index + 1 < column_count {
                             column_index += 1;
+                            y = column_start_y;
                         } else {
-                            finish_page(&mut pages, pending);
-                            pending = new_pending_page();
-                            column_index = 0;
-                            column_start_y = options.margin_top_pt;
+                            start_next_page!();
                         }
-                        y = column_start_y;
                     }
                     let image_x = if full_width {
                         options.margin_left_pt
@@ -4730,6 +4960,23 @@ pub fn build_page_display_lists(
     }
     if let Some(row) = pending_image_row.take() {
         y = row.y + row.height_pt + row.gap_after_pt;
+    }
+    if !deferred_top_container_rows.is_empty() && !pending.ops.is_empty() {
+        finish_page(&mut pages, pending);
+        pending = new_pending_page();
+        column_index = 0;
+        column_start_y = options.margin_top_pt;
+        y = column_start_y;
+    }
+    while !deferred_top_container_rows.is_empty() {
+        place_deferred_top_container_rows!();
+        if !deferred_top_container_rows.is_empty() {
+            finish_page(&mut pages, pending);
+            pending = new_pending_page();
+            column_index = 0;
+            column_start_y = options.margin_top_pt;
+            y = column_start_y;
+        }
     }
     drop(emit_due_destinations);
     for label in pending_labels.drain(..) {
@@ -5452,6 +5699,334 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(lines.contains(&"A          | 1"), "{lines:?}");
+    }
+
+    #[test]
+    fn fixed_width_table_cells_wrap_without_collapsing_the_font() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let fixed_column = || TableColumnSpec {
+            alignment: TableColumnAlignment::Left,
+            rule_before: false,
+            rule_before_count: 0,
+            rule_after: false,
+            rule_after_count: 0,
+            separator_after: None,
+            width_pt_milli: Some(30_000),
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let cell = |text: &str| TableCell {
+            text: text.to_string(),
+            column_span: None,
+            row_span: None,
+            alignment: None,
+            rule_before_count: 0,
+            rule_after_count: 0,
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![fixed_column(), fixed_column()],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![cell("alpha beta gamma delta"), cell("right")],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let table_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.font.role == FontRole::Mono => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let distinct_baselines = table_runs
+            .iter()
+            .map(|run| run.origin.y)
+            .collect::<Vec<_>>();
+
+        assert!(
+            table_runs.iter().all(|run| run.size_pt >= 9.9),
+            "{table_runs:?}"
+        );
+        assert_eq!(distinct_baselines.len(), 4, "{table_runs:?}");
+        assert!(
+            distinct_baselines
+                .windows(2)
+                .all(|pair| ((pair[1] - pair[0]) - 12.0).abs() <= 0.01)
+        );
+        assert!(table_runs[0].text.contains("alpha"));
+        assert!(table_runs[0].text.contains("right"));
+        assert!(table_runs.iter().any(|run| run.text.contains("alpha")));
+        assert!(table_runs.iter().any(|run| run.text.contains("delta")));
+    }
+
+    #[test]
+    fn multicolumn_overrides_fixed_width_cell_wrapping() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let fixed_column = || TableColumnSpec {
+            alignment: TableColumnAlignment::Paragraph,
+            rule_before: false,
+            rule_before_count: 0,
+            rule_after: false,
+            rule_after_count: 0,
+            separator_after: None,
+            width_pt_milli: Some(30_000),
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let pages = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![fixed_column(), fixed_column()],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![TableCell {
+                        text: "long multicolumn heading".to_string(),
+                        column_span: Some(2),
+                        row_span: None,
+                        alignment: Some(TableColumnAlignment::Center),
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    }],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 240.0,
+                margin_left_pt: 10.0,
+                body_font_size_pt: 10.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let heading_runs = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.contains("multicolumn") => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(heading_runs.len(), 1, "{heading_runs:?}");
+        assert!(heading_runs[0].size_pt >= 9.9, "{heading_runs:?}");
+        assert!(heading_runs[0].text.contains("long multicolumn heading"));
+    }
+
+    #[test]
+    fn wrapped_fixed_width_cells_keep_the_right_border_aligned() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let pages = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![TableColumnSpec {
+                    alignment: TableColumnAlignment::Left,
+                    rule_before: true,
+                    rule_before_count: 1,
+                    rule_after: true,
+                    rule_after_count: 1,
+                    separator_after: None,
+                    width_pt_milli: Some(30_000),
+                    cell_prefix: None,
+                    cell_suffix: None,
+                }],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![TableCell {
+                        text: "alpha beta gamma delta".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    }],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let vertical_rule_xs = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => {
+                    Some((rect.x * 100.0).round() as i32)
+                }
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(vertical_rule_xs.len(), 2, "{vertical_rule_xs:?}");
+    }
+
+    #[test]
+    fn moves_a_table_as_a_unit_when_it_does_not_fit_the_page() {
+        let source = SourceProvenance::file("main.tex", 0, 96);
+        let document = DocumentIr::new(vec![
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "before-1\nbefore-2\nbefore-3\nbefore-4\nbefore-5".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            }),
+            IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![TableColumnSpec {
+                    alignment: TableColumnAlignment::Left,
+                    rule_before: false,
+                    rule_before_count: 0,
+                    rule_after: false,
+                    rule_after_count: 0,
+                    separator_after: None,
+                    width_pt_milli: Some(30_000),
+                    cell_prefix: None,
+                    cell_suffix: None,
+                }],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![TableCell {
+                        text: "alpha beta gamma delta".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    }],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            }),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 100.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let page_contains = |page_index: usize, needle: &str| {
+            pages[page_index]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::TextRun(run) if run.text.contains(needle)))
+        };
+
+        assert_eq!(pages.len(), 2);
+        assert!(!page_contains(0, "alpha"));
+        assert!(page_contains(1, "alpha"));
+        assert!(page_contains(1, "delta"));
+    }
+
+    #[test]
+    fn table_caption_follows_the_tabular_when_it_appears_later_in_source() {
+        let table_source = SourceProvenance::file("main.tex", 10, 30);
+        let caption_source = SourceProvenance::file("main.tex", 40, 60);
+        let pages = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![TableColumnSpec {
+                    alignment: TableColumnAlignment::Left,
+                    rule_before: false,
+                    rule_before_count: 0,
+                    rule_after: false,
+                    rule_after_count: 0,
+                    separator_after: None,
+                    width_pt_milli: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
+                }],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![TableCell {
+                        text: "cell".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    }],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: Some("Table caption".to_string()),
+                caption_source: Some(caption_source),
+                source: table_source,
+            })]),
+            PageDisplayListOptions {
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let baseline = |text: &str| {
+            pages[0].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.contains(text) => Some(run.origin.y),
+                _ => None,
+            })
+        };
+
+        assert!(baseline("cell").unwrap() < baseline("Table caption").unwrap());
     }
 
     #[test]
@@ -9616,6 +10191,122 @@ mod tests {
 
         assert_eq!(image.map(|rect| rect.x), Some(10.0));
         assert_eq!(image.map(|rect| rect.width), Some(45.0));
+    }
+
+    #[test]
+    fn nested_containers_do_not_inherit_parent_page_decorations() {
+        let source = SourceProvenance::file("main.tex", 0, 100);
+        let document = DocumentIr::new(vec![
+            IrBlock::LayoutContainer(LayoutContainerBlock {
+                name: "algorithm".to_string(),
+                width_spec: "\\linewidth".to_string(),
+                alignment: Some(LayoutAlignment::Top),
+                height_spec: None,
+                inner_alignment: Some(LayoutAlignment::Top),
+                children: vec![IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "inside".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                })],
+                source: source.clone(),
+            }),
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "after".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            }),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 200.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                show_page_numbers: true,
+                page_number_offset_pt: 10.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let text_runs = pages
+            .iter()
+            .flat_map(|page| page.ops.iter())
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some((run.text.as_str(), run.origin)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(pages.len(), 1);
+        assert_eq!(text_runs.iter().filter(|(text, _)| *text == "1").count(), 1);
+        assert!(
+            text_runs
+                .iter()
+                .any(|(text, point)| { *text == "after" && point.y < 100.0 })
+        );
+    }
+
+    #[test]
+    fn defers_overflowing_algorithms_to_the_next_page_top() {
+        let source = SourceProvenance::file("main.tex", 0, 100);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("before-1\nbefore-2\nbefore-3\nbefore-4\nbefore-5"),
+            IrBlock::LayoutContainer(LayoutContainerBlock {
+                name: "algorithm".to_string(),
+                width_spec: "\\linewidth".to_string(),
+                alignment: Some(LayoutAlignment::Top),
+                height_spec: None,
+                inner_alignment: Some(LayoutAlignment::Top),
+                children: vec![paragraph(
+                    "algorithm-1\nalgorithm-2\nalgorithm-3\nalgorithm-4",
+                )],
+                source: source.clone(),
+            }),
+            paragraph("after-1\nafter-2\nafter-3\nafter-4\nafter-5"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(pages.len(), 2);
+        assert!(find_run(0, "after-1").is_some());
+        assert!(find_run(0, "algorithm-1").is_none());
+        assert_eq!(find_run(1, "algorithm-1"), Some(Point { x: 10.0, y: 10.0 }));
+        assert!(find_run(1, "after-4").is_some_and(|point| point.y > 40.0));
     }
 
     #[test]

@@ -1720,10 +1720,20 @@ impl<'i> Vm<'i> {
         let mut text_start = 0usize;
         let mut in_document = initial_in_document;
         let mut transparent_bracket_end = None;
+        let mut transparent_group_suffix = None::<(usize, String, SourceProvenance)>;
         scan_state.active_input_paths.push(source_path.to_owned());
         while index < bytes.len() {
             if transparent_bracket_end == Some(index) {
                 self.capture_text_events(source_path, source, text_start, index, in_document);
+                if let Some((suffix_end, suffix, suffix_source)) = transparent_group_suffix.take()
+                    && suffix_end == index
+                    && !suffix.is_empty()
+                {
+                    self.emit_render_event(
+                        RenderEvent::Text(TextEvent { text: suffix }),
+                        suffix_source,
+                    );
+                }
                 index += 1;
                 text_start = index;
                 transparent_bracket_end = None;
@@ -2230,6 +2240,29 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, argument_index)
                     {
                         index = after_argument;
+                    }
+                }
+                "newcolumntype" | "renewcolumntype" if in_document => {
+                    let name_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_name)) =
+                        read_braced_source_argument(source, name_index)
+                    {
+                        let mut definition_index = skip_ascii_whitespace(source, after_name);
+                        for _ in 0..2 {
+                            let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, definition_index)
+                            else {
+                                break;
+                            };
+                            definition_index = skip_ascii_whitespace(source, after_option);
+                        }
+                        if let Some((_, _, _, after_definition)) =
+                            read_braced_source_argument(source, definition_index)
+                        {
+                            index = after_definition;
+                        } else {
+                            index = after_name;
+                        }
                     }
                 }
                 "setlength" | "addtolength" if in_document => {
@@ -4421,6 +4454,63 @@ impl<'i> Vm<'i> {
                                                             body_end,
                                                             nested_environment,
                                                         ) {
+                                                            let mut graphic_index =
+                                                                after_environment;
+                                                            let mut captured_graphic = false;
+                                                            while graphic_index < table_body_end {
+                                                                let Some(relative_start) = source
+                                                                    [graphic_index..table_body_end]
+                                                                    .find("\\includegraphics")
+                                                                else {
+                                                                    break;
+                                                                };
+                                                                let graphic_start =
+                                                                    graphic_index + relative_start;
+                                                                let command_end = graphic_start
+                                                                    + "\\includegraphics".len();
+                                                                if source
+                                                                    [command_end..table_body_end]
+                                                                    .chars()
+                                                                    .next()
+                                                                    .is_some_and(|ch| {
+                                                                        ch.is_ascii_alphabetic()
+                                                                            || ch == '@'
+                                                                    })
+                                                                    || is_commented_source_index(
+                                                                        source,
+                                                                        graphic_start,
+                                                                    )
+                                                                {
+                                                                    graphic_index = command_end;
+                                                                    continue;
+                                                                }
+                                                                if let Some(after) = self
+                                                                    .capture_graphic_event(
+                                                                        source_path,
+                                                                        source,
+                                                                        graphic_start,
+                                                                        command_end,
+                                                                        table_body_end,
+                                                                        &scan_state.graphic_paths,
+                                                                        &scan_state
+                                                                            .graphic_extensions,
+                                                                        scan_state
+                                                                            .graphic_default_options
+                                                                            .as_deref(),
+                                                                        None,
+                                                                        false,
+                                                                    )
+                                                                {
+                                                                    captured_graphic = true;
+                                                                    graphic_index = after;
+                                                                } else {
+                                                                    graphic_index = command_end;
+                                                                }
+                                                            }
+                                                            if captured_graphic {
+                                                                body_index = table_raw_end;
+                                                                continue;
+                                                            }
                                                             if let Some(after) = self
                                                                 .capture_table_fallback_event(
                                                                     source_path,
@@ -9890,12 +9980,99 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "State" | "Statex" | "For" | "ForAll" | "If" | "ElsIf" | "Else" | "While"
-                | "Repeat" | "Until" | "Loop" | "Function" | "Procedure" | "Require" | "Ensure"
-                | "Return" | "EndFor" | "EndIf" | "EndWhile" | "EndLoop" | "EndFunction"
-                | "EndProcedure"
+                "State" | "Statex" | "STATE" | "STATEX" | "For" | "FOR" | "ForAll" | "FORALL"
+                | "If" | "IF" | "ElsIf" | "ELSIF" | "While" | "WHILE" | "Until" | "UNTIL"
+                | "Require" | "REQUIRE" | "Ensure" | "ENSURE" | "Return" | "RETURN"
                     if in_document =>
                 {
+                    let (prefix, suffix) = match command {
+                        "For" | "FOR" => ("for ", " do"),
+                        "ForAll" | "FORALL" => ("for all ", " do"),
+                        "If" | "IF" => ("if ", " then"),
+                        "ElsIf" | "ELSIF" => ("else if ", " then"),
+                        "While" | "WHILE" => ("while ", " do"),
+                        "Until" | "UNTIL" => ("until ", ""),
+                        "Require" | "REQUIRE" => ("Require: ", ""),
+                        "Ensure" | "ENSURE" => ("Ensure: ", ""),
+                        "Return" | "RETURN" => ("return ", ""),
+                        _ => ("", ""),
+                    };
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, content_start, content_end, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let invocation_source = SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            after as u32,
+                        );
+                        self.emit_render_event(
+                            RenderEvent::LineBreak(LineBreakEvent {
+                                reason: LineBreakReason::Explicit,
+                            }),
+                            invocation_source.clone(),
+                        );
+                        if !prefix.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: prefix.to_string(),
+                                }),
+                                invocation_source.clone(),
+                            );
+                        }
+                        transparent_bracket_end = Some(content_end);
+                        transparent_group_suffix =
+                            Some((content_end, suffix.to_string(), invocation_source));
+                        index = content_start;
+                    } else {
+                        self.emit_render_event(
+                            RenderEvent::LineBreak(LineBreakEvent {
+                                reason: LineBreakReason::Explicit,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        );
+                    }
+                }
+                "Else" | "ELSE" | "Repeat" | "REPEAT" | "Loop" | "LOOP" | "EndFor" | "ENDFOR"
+                | "EndIf" | "ENDIF" | "EndWhile" | "ENDWHILE" | "EndLoop" | "ENDLOOP"
+                | "EndFunction" | "ENDFUNCTION" | "EndProcedure" | "ENDPROCEDURE"
+                    if in_document =>
+                {
+                    let text = match command {
+                        "Else" | "ELSE" => "else",
+                        "Repeat" | "REPEAT" => "repeat",
+                        "Loop" | "LOOP" => "loop",
+                        "EndFor" | "ENDFOR" => "end for",
+                        "EndIf" | "ENDIF" => "end if",
+                        "EndWhile" | "ENDWHILE" => "end while",
+                        "EndLoop" | "ENDLOOP" => "end loop",
+                        "EndFunction" | "ENDFUNCTION" => "end function",
+                        "EndProcedure" | "ENDPROCEDURE" => "end procedure",
+                        _ => unreachable!("matched algorithmic command"),
+                    };
+                    let source = SourceProvenance::file(
+                        source_path.to_owned(),
+                        command_start as u32,
+                        index as u32,
+                    );
+                    self.emit_render_event(
+                        RenderEvent::LineBreak(LineBreakEvent {
+                            reason: LineBreakReason::Explicit,
+                        }),
+                        source.clone(),
+                    );
+                    self.emit_render_event(
+                        RenderEvent::Text(TextEvent {
+                            text: text.to_string(),
+                        }),
+                        source,
+                    );
+                }
+                "Function" | "FUNCTION" | "Procedure" | "PROCEDURE" if in_document => {
                     self.emit_render_event(
                         RenderEvent::LineBreak(LineBreakEvent {
                             reason: LineBreakReason::Explicit,
@@ -34972,6 +35149,41 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_hides_newcolumntype_declared_in_document_body() {
+        let source = r"\begin{document}\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}\begin{tabular}{L{10pt}r}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let table = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            });
+
+        assert!(!visible_text.contains("raggedright"), "{visible_text}");
+        assert!(!visible_text.contains("arraybackslash"), "{visible_text}");
+        assert!(!visible_text.contains("{L}"), "{visible_text}");
+        assert_eq!(table.unwrap().table_columns[0].width_pt_milli, Some(10_000));
+    }
+
+    #[test]
     fn render_event_capture_interprets_newcolumntype_default_arguments() {
         let source = r"\newcolumntype{P}[1][2cm]{>{\centering\arraybackslash}p{#1}}\begin{document}\begin{tabular}{Pr}A & B\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -37189,6 +37401,47 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_graphics_nested_in_figure_tables() {
+        let source = r"\begin{document}\begin{figure}\begin{tabular}{cc}\includegraphics[width=2cm]{a.pdf} & \includegraphics[width=2cm]{b.pdf} \\\ (a) & (b)\end{tabular}\caption{Panels.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let graphics = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::GraphicRef(graphic) => {
+                    Some((graphic.path.as_str(), graphic.options.as_deref()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            graphics,
+            vec![("a.pdf", Some("width=2cm")), ("b.pdf", Some("width=2cm")),]
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Panels."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("a.pdf")
+                    || text.text.contains("b.pdf")
+                    || text.text.contains("width=2cm")
+        )));
     }
 
     #[test]
@@ -45389,6 +45642,46 @@ Fallback text.
                     Some("algorithmic" | "algorithmic*")
                 )
         )));
+    }
+
+    #[test]
+    fn render_event_capture_recovers_legacy_algorithmic_commands() {
+        let source = r"\begin{document}\begin{algorithmic}\FOR{training iterations}\STATE{$\bullet$ Update the model:\[x=y\]}\ENDFOR\end{algorithmic}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let normalized_visible_text = visible_text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let line_break_count = outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::LineBreak(_)))
+            .count();
+
+        assert!(normalized_visible_text.contains("for training iterations do"));
+        assert!(normalized_visible_text.contains("Update the model:"));
+        assert!(normalized_visible_text.contains("end for"));
+        assert!(!visible_text.contains(['{', '}']));
+        assert!(line_break_count >= 3);
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math) if math.raw_source.trim() == "x=y"
+            )
+        }));
     }
 
     #[test]

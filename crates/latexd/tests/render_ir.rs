@@ -28311,31 +28311,39 @@ fn algorithm_environment_capture_survives_ir_and_display_list() {
         ALGORITHM_ENVIRONMENT_SOURCE,
         &SemanticAux::default(),
     );
-    let environments = capture
+    let algorithms = capture
         .document_ir
         .blocks
         .iter()
         .filter_map(|block| match block {
-            IrBlock::Environment(environment) => Some(environment),
+            IrBlock::LayoutContainer(container)
+                if matches!(container.name.as_str(), "algorithm" | "algorithm*") =>
+            {
+                Some(container)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(environments.len(), 2);
-    assert_eq!(environments[0].name, "algorithm");
-    assert!(environments[0].content.iter().any(|node| {
-        matches!(
-            node,
-            InlineNode::Text { text, .. } if text == "Step"
-        )
-    }));
-    assert_eq!(environments[1].name, "algorithm*");
-    assert!(environments[1].content.iter().any(|node| {
-        matches!(
-            node,
-            InlineNode::Text { text, .. } if text == "Wide"
-        )
-    }));
+    assert_eq!(algorithms.len(), 2);
+    assert_eq!(algorithms[0].name, "algorithm");
+    assert!(algorithms[0].children.iter().any(|block| matches!(
+        block,
+        IrBlock::Paragraph(paragraph)
+            if paragraph.content.iter().any(|node| matches!(
+                node,
+                InlineNode::Text { text, .. } if text == "Step"
+            ))
+    )));
+    assert_eq!(algorithms[1].name, "algorithm*");
+    assert!(algorithms[1].children.iter().any(|block| matches!(
+        block,
+        IrBlock::Paragraph(paragraph)
+            if paragraph.content.iter().any(|node| matches!(
+                node,
+                InlineNode::Text { text, .. } if text == "Wide"
+            ))
+    )));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
