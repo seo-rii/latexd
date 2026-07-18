@@ -8,6 +8,7 @@ use tex_render_model::{
 
 use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
 use crate::math_layout::{MathLayoutBox, layout_math_node};
+use crate::paragraph_breaker::{ParagraphBreakRequest, select_paragraph_breaks};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageDisplayListOptions {
@@ -3250,7 +3251,136 @@ pub fn build_page_display_lists(
                 if !current_line.is_empty() || wrapped_lines.is_empty() {
                     wrapped_lines.push(current_line);
                 }
+                let mut line_space_adjustments_pt = vec![0.0; wrapped_lines.len()];
+                let can_set_as_paragraph = logical.font.role == FontRole::Body
+                    && !full_width
+                    && !logical.preserve_leading_whitespace
+                    && options.max_chars_per_line == usize::MAX
+                    && logical.segments.iter().all(|segment| {
+                        !segment.table_rule
+                            && segment.table_vertical_rule_offsets.is_empty()
+                            && !segment.text.contains(['\n', '\r'])
+                    });
+                if can_set_as_paragraph {
+                    let mut paragraph_text = String::new();
+                    let mut segment_ranges = Vec::with_capacity(logical.segments.len());
+                    for (segment_index, segment) in logical.segments.iter().enumerate() {
+                        let start_utf8 = paragraph_text.len();
+                        paragraph_text.push_str(&segment.text);
+                        segment_ranges.push((start_utf8, paragraph_text.len(), segment_index));
+                    }
+                    let first_line_width_pt = available_width_pt_for_line(0);
+                    let continuation_width_pt = available_width_pt_for_line(1);
+                    let paragraph_lines = select_paragraph_breaks(ParagraphBreakRequest {
+                        text: &paragraph_text,
+                        font: &logical.font,
+                        font_size_pt: logical.size_pt,
+                        first_line_width_pt,
+                        continuation_width_pt,
+                    });
+                    if let Some(paragraph_lines) = paragraph_lines
+                        && !paragraph_lines.is_empty()
+                    {
+                        let mut paragraph_wrapped_lines = Vec::with_capacity(paragraph_lines.len());
+                        let mut paragraph_space_adjustments =
+                            Vec::with_capacity(paragraph_lines.len());
+                        for (line_index, line) in paragraph_lines.into_iter().enumerate() {
+                            let target_width_pt = if line_index == 0 {
+                                first_line_width_pt
+                            } else {
+                                continuation_width_pt
+                            };
+                            let space_adjustment_pt = if !line.final_line
+                                && !line.forced_break
+                                && line.interword_spaces > 0
+                            {
+                                (target_width_pt - line.natural_width_pt)
+                                    / line.interword_spaces as f32
+                            } else {
+                                0.0
+                            };
+                            let mut line_segments = Vec::new();
+                            for (segment_start, segment_end, segment_index) in &segment_ranges {
+                                let intersection_start = line.start_utf8.max(*segment_start);
+                                let intersection_end = line.end_utf8.min(*segment_end);
+                                if intersection_start >= intersection_end {
+                                    continue;
+                                }
+                                let template = &logical.segments[*segment_index];
+                                let text = &paragraph_text[intersection_start..intersection_end];
+                                if space_adjustment_pt.abs() <= f32::EPSILON {
+                                    line_segments.push(LogicalTextSegment {
+                                        text: text.to_string(),
+                                        source: template.source.clone(),
+                                        link_target: template.link_target.clone(),
+                                        table_rule: false,
+                                        table_rule_trim_start_pt: None,
+                                        table_rule_trim_end_pt: None,
+                                        table_vertical_rule_offsets: Vec::new(),
+                                    });
+                                    continue;
+                                }
+                                let mut piece_start = 0usize;
+                                let mut piece_is_whitespace =
+                                    text.chars().next().is_some_and(char::is_whitespace);
+                                for (offset, ch) in text.char_indices().skip(1) {
+                                    let is_whitespace = ch.is_whitespace();
+                                    if is_whitespace == piece_is_whitespace {
+                                        continue;
+                                    }
+                                    line_segments.push(LogicalTextSegment {
+                                        text: text[piece_start..offset].to_string(),
+                                        source: template.source.clone(),
+                                        link_target: template.link_target.clone(),
+                                        table_rule: false,
+                                        table_rule_trim_start_pt: None,
+                                        table_rule_trim_end_pt: None,
+                                        table_vertical_rule_offsets: Vec::new(),
+                                    });
+                                    piece_start = offset;
+                                    piece_is_whitespace = is_whitespace;
+                                }
+                                if piece_start < text.len() {
+                                    line_segments.push(LogicalTextSegment {
+                                        text: text[piece_start..].to_string(),
+                                        source: template.source.clone(),
+                                        link_target: template.link_target.clone(),
+                                        table_rule: false,
+                                        table_rule_trim_start_pt: None,
+                                        table_rule_trim_end_pt: None,
+                                        table_vertical_rule_offsets: Vec::new(),
+                                    });
+                                }
+                            }
+                            if line.append_hyphen {
+                                let template = line_segments.last().cloned().unwrap_or_else(|| {
+                                    LogicalTextSegment {
+                                        text: String::new(),
+                                        source: logical.source.clone(),
+                                        link_target: None,
+                                        table_rule: false,
+                                        table_rule_trim_start_pt: None,
+                                        table_rule_trim_end_pt: None,
+                                        table_vertical_rule_offsets: Vec::new(),
+                                    }
+                                });
+                                line_segments.push(LogicalTextSegment {
+                                    text: "-".to_string(),
+                                    ..template
+                                });
+                            }
+                            paragraph_wrapped_lines.push(line_segments);
+                            paragraph_space_adjustments.push(space_adjustment_pt);
+                        }
+                        wrapped_lines = paragraph_wrapped_lines;
+                        line_space_adjustments_pt = paragraph_space_adjustments;
+                    }
+                }
                 for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
+                    let line_space_adjustment_pt = line_space_adjustments_pt
+                        .get(line_index)
+                        .copied()
+                        .unwrap_or(0.0);
                     let line_is_table_rule = !line_segments.is_empty()
                         && line_segments.iter().all(|segment| segment.table_rule);
                     let line_advance_pt = if line_is_table_rule {
@@ -3277,7 +3407,15 @@ pub fn build_page_display_lists(
                         .map(|segment| {
                             text_advance_pt(&segment.text, &logical.font, logical.size_pt)
                         })
-                        .sum::<f32>();
+                        .sum::<f32>()
+                        + line_space_adjustment_pt
+                            * line_segments
+                                .iter()
+                                .filter(|segment| {
+                                    !segment.text.is_empty()
+                                        && segment.text.chars().all(char::is_whitespace)
+                                })
+                                .count() as f32;
                     let column_left_pt = if full_width {
                         options.margin_left_pt
                     } else {
@@ -3338,6 +3476,8 @@ pub fn build_page_display_lists(
 
                     let mut x = line_x;
                     for segment in line_segments {
+                        let segment_is_whitespace = !segment.text.is_empty()
+                            && segment.text.chars().all(char::is_whitespace);
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance =
                             text_advance_pt(&segment.text, &logical.font, logical.size_pt);
@@ -3507,6 +3647,9 @@ pub fn build_page_display_lists(
                             }
                         }
                         x += advance;
+                        if segment_is_whitespace {
+                            x += line_space_adjustment_pt;
+                        }
                     }
                     y += line_advance_pt;
                 }
@@ -4293,17 +4436,19 @@ mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp,
-        FontFamilyRequest, FontSeries, GraphicAssetDensity, GraphicAssetDensityUnit,
-        GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, GraphicPageSelection,
-        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
-        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
-        ListItemIr, ListKind, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
-        PageBreakBlock, PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
-        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
-        TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, GraphicAssetDensity,
+        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
+        GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
+        ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
+        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MathAtomKind,
+        MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, PageBreakKind,
+        ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan,
+        TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan,
+        TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
+    use crate::font_metrics::text_advance_pt;
 
     #[test]
     fn builds_positioned_text_runs_from_document_ir() {
@@ -7286,6 +7431,110 @@ mod tests {
                 ("alpha ", options.margin_left_pt),
                 ("beta", options.margin_left_pt),
             ]
+        );
+    }
+
+    #[test]
+    fn paragraph_breaker_justifies_nonfinal_lines_and_keeps_the_last_line_ragged() {
+        let text = "alpha alpha alpha alpha alpha alpha alpha tail";
+        let source = SourceProvenance::file("main.tex", 0, text.len() as u32);
+        let font = FontRequest {
+            family: FontFamilyRequest::Serif,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 11.0,
+            role: FontRole::Body,
+        };
+        let line_width_pt = text_advance_pt("alpha alpha alpha", &font, 11.0) + 2.0;
+        let options = PageDisplayListOptions {
+            page_width_pt: line_width_pt + 20.0,
+            margin_left_pt: 10.0,
+            max_chars_per_line: usize::MAX,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let text_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !run.text.is_empty() => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let first_baseline = text_runs[0].origin.y;
+        let first_line_end = text_runs
+            .iter()
+            .take_while(|run| (run.origin.y - first_baseline).abs() < 0.01)
+            .map(|run| run.origin.x + run.approximate_advance_pt)
+            .fold(options.margin_left_pt, f32::max);
+        let last_baseline = text_runs.last().unwrap().origin.y;
+        let last_line_end = text_runs
+            .iter()
+            .filter(|run| (run.origin.y - last_baseline).abs() < 0.01)
+            .map(|run| run.origin.x + run.approximate_advance_pt)
+            .fold(options.margin_left_pt, f32::max);
+        let target_end = options.page_width_pt - options.margin_left_pt;
+
+        assert!(last_baseline > first_baseline);
+        assert!(
+            (first_line_end - target_end).abs() < 0.02,
+            "first line ended at {first_line_end}, expected {target_end}: {text_runs:?}"
+        );
+        assert!(last_line_end < target_end - 1.0);
+    }
+
+    #[test]
+    fn paragraph_breaker_preserves_source_on_discretionary_hyphens() {
+        let source = SourceProvenance::file("main.tex", 17, 26);
+        let font = FontRequest {
+            family: FontFamilyRequest::Serif,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 11.0,
+            role: FontRole::Body,
+        };
+        let line_width_pt =
+            text_advance_pt("exten", &font, 11.0) + text_advance_pt("-", &font, 11.0);
+        let options = PageDisplayListOptions {
+            page_width_pt: line_width_pt + 20.0,
+            margin_left_pt: 10.0,
+            max_chars_per_line: usize::MAX,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "extensive".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })]),
+            options,
+        );
+
+        let hyphen = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "-" => Some(run),
+            _ => None,
+        });
+
+        assert!(
+            matches!(
+                hyphen.map(|run| &run.source.primary),
+                Some(ProvenanceSpan::File(span))
+                    if span.start_utf8 == 17 && span.end_utf8 == 26
+            ),
+            "missing source-preserving discretionary hyphen: {:?}",
+            display_lists[0].ops
         );
     }
 
