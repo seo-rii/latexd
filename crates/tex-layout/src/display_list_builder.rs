@@ -8,7 +8,9 @@ use tex_render_model::{
 
 use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
 use crate::math_layout::{MathLayoutBox, layout_math_node};
-use crate::paragraph_breaker::{ParagraphBreakRequest, select_paragraph_breaks};
+use crate::paragraph_breaker::{
+    ParagraphBreakRequest, ParagraphBreakSettings, select_paragraph_breaks,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageDisplayListOptions {
@@ -3277,6 +3279,15 @@ pub fn build_page_display_lists(
                         font_size_pt: logical.size_pt,
                         first_line_width_pt,
                         continuation_width_pt,
+                        settings: if uses_nips_2014_metrics {
+                            ParagraphBreakSettings {
+                                tolerance: 9_999.0,
+                                emergency_stretch_pt: logical.size_pt * 3.0,
+                                ..ParagraphBreakSettings::default()
+                            }
+                        } else {
+                            ParagraphBreakSettings::default()
+                        },
                     });
                     if let Some(paragraph_lines) = paragraph_lines
                         && !paragraph_lines.is_empty()

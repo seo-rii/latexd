@@ -22,6 +22,24 @@ pub(crate) struct ParagraphBreakRequest<'a> {
     pub font_size_pt: f32,
     pub first_line_width_pt: f32,
     pub continuation_width_pt: f32,
+    pub settings: ParagraphBreakSettings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ParagraphBreakSettings {
+    pub pretolerance: f64,
+    pub tolerance: f64,
+    pub emergency_stretch_pt: f32,
+}
+
+impl Default for ParagraphBreakSettings {
+    fn default() -> Self {
+        Self {
+            pretolerance: PRETOLERANCE,
+            tolerance: TOLERANCE,
+            emergency_stretch_pt: 0.0,
+        }
+    }
 }
 
 /// One selected source range and the information needed to set its line.
@@ -48,6 +66,12 @@ pub(crate) fn select_paragraph_breaks(
         || request.first_line_width_pt <= 0.0
         || !request.continuation_width_pt.is_finite()
         || request.continuation_width_pt <= 0.0
+        || !request.settings.pretolerance.is_finite()
+        || request.settings.pretolerance < 0.0
+        || !request.settings.tolerance.is_finite()
+        || request.settings.tolerance < 0.0
+        || !request.settings.emergency_stretch_pt.is_finite()
+        || request.settings.emergency_stretch_pt < 0.0
     {
         return None;
     }
@@ -66,8 +90,38 @@ pub(crate) fn select_paragraph_breaks(
         .map(|(index, ch)| index + ch.len_utf8())
         .expect("non-whitespace paragraph has an end");
 
-    run_pass(request, paragraph_start, paragraph_end, false, PRETOLERANCE)
-        .or_else(|| run_pass(request, paragraph_start, paragraph_end, true, TOLERANCE))
+    run_pass(
+        request,
+        paragraph_start,
+        paragraph_end,
+        false,
+        request.settings.pretolerance,
+        0.0,
+    )
+    .or_else(|| {
+        run_pass(
+            request,
+            paragraph_start,
+            paragraph_end,
+            true,
+            request.settings.tolerance,
+            0.0,
+        )
+    })
+    .or_else(|| {
+        if request.settings.emergency_stretch_pt > 0.0 {
+            run_pass(
+                request,
+                paragraph_start,
+                paragraph_end,
+                true,
+                request.settings.tolerance,
+                request.settings.emergency_stretch_pt,
+            )
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +205,7 @@ fn run_pass(
     paragraph_end: usize,
     allow_hyphenation: bool,
     tolerance: f64,
+    emergency_stretch_pt: f32,
 ) -> Option<Vec<ParagraphLine>> {
     let mut candidates = vec![BreakCandidate {
         line_end_utf8: paragraph_start,
@@ -327,13 +382,25 @@ fn run_pass(
                 } else {
                     let difference_pt = target_width_pt - natural_width_pt;
                     if interword_spaces == 0 {
-                        if difference_pt.abs() > WIDTH_EPSILON_PT {
+                        if difference_pt < -WIDTH_EPSILON_PT
+                            || difference_pt > emergency_stretch_pt + WIDTH_EPSILON_PT
+                        {
                             continue;
                         }
-                        (0.0, FitnessClass::Decent)
+                        let ratio = if difference_pt > WIDTH_EPSILON_PT {
+                            difference_pt as f64 / emergency_stretch_pt as f64
+                        } else {
+                            0.0
+                        };
+                        let badness = (100.0 * ratio.abs().powi(3)).min(10_000.0);
+                        if badness > tolerance {
+                            continue;
+                        }
+                        (badness, FitnessClass::from_ratio(ratio))
                     } else {
                         let ratio = if difference_pt >= 0.0 {
-                            let stretch_pt = interword_spaces as f32 * space_width_pt * 0.5;
+                            let stretch_pt = interword_spaces as f32 * space_width_pt * 0.5
+                                + emergency_stretch_pt;
                             difference_pt as f64 / stretch_pt as f64
                         } else {
                             let shrink_pt = interword_spaces as f32 * space_width_pt / 3.0;
@@ -418,7 +485,9 @@ fn run_pass(
 mod tests {
     use tex_render_model::{FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape};
 
-    use super::{MAX_PARAGRAPH_BYTES, ParagraphBreakRequest, select_paragraph_breaks};
+    use super::{
+        MAX_PARAGRAPH_BYTES, ParagraphBreakRequest, ParagraphBreakSettings, select_paragraph_breaks,
+    };
     use crate::font_metrics::text_advance_pt;
 
     fn mono_font() -> FontRequest {
@@ -443,6 +512,7 @@ mod tests {
             font_size_pt: 10.0,
             first_line_width_pt,
             continuation_width_pt,
+            settings: ParagraphBreakSettings::default(),
         }
     }
 
@@ -521,6 +591,42 @@ mod tests {
 
         assert_eq!(&text[lines[0].start_utf8..lines[0].end_utf8], "aa bb");
         assert_eq!(&text[lines[1].start_utf8..lines[1].end_utf8], "cc dd ee");
+    }
+
+    #[test]
+    fn sloppy_tolerance_accepts_loose_unhyphenated_lines() {
+        let text = "aa1 bb2 cc3 dd4";
+        let font = mono_font();
+        let width = text_advance_pt("aa1 bb2", &font, 10.0) + 6.0;
+        assert!(select_paragraph_breaks(request(text, &font, width, width)).is_none());
+
+        let mut sloppy = request(text, &font, width, width);
+        sloppy.settings.tolerance = 9_999.0;
+        let lines = select_paragraph_breaks(sloppy).unwrap();
+
+        assert_eq!(lines.len(), 2);
+        assert!(!lines[0].append_hyphen);
+        assert_eq!(&text[lines[0].start_utf8..lines[0].end_utf8], "aa1 bb2");
+    }
+
+    #[test]
+    fn emergency_stretch_is_only_used_after_normal_passes_fail() {
+        let text = "aaaaaaaaa1 bbbbbbbbb2 ccccccccc3 ddddddddd4";
+        let font = mono_font();
+        let width = text_advance_pt("aaaaaaaaa1 bbbbbbbbb2", &font, 10.0) + 33.0;
+        let mut without_emergency = request(text, &font, width, width);
+        without_emergency.settings.tolerance = 9_999.0;
+        assert!(select_paragraph_breaks(without_emergency).is_none());
+
+        let mut with_emergency = without_emergency;
+        with_emergency.settings.emergency_stretch_pt = 40.0;
+        let lines = select_paragraph_breaks(with_emergency).unwrap();
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            &text[lines[0].start_utf8..lines[0].end_utf8],
+            "aaaaaaaaa1 bbbbbbbbb2"
+        );
     }
 
     #[test]
