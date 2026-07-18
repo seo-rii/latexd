@@ -84,6 +84,12 @@ impl DocumentIr {
                         }
                         text.push_str(author);
                     }
+                    for author_note in &block.author_notes {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(author_note);
+                    }
                     for affiliation in &block.affiliations {
                         if !text.is_empty() {
                             text.push('\n');
@@ -329,6 +335,10 @@ pub struct TitleBlock {
     pub authors: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub author_sources: Vec<SourceProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_notes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_note_sources: Vec<SourceProvenance>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub affiliations: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

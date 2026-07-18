@@ -168,7 +168,7 @@ fn render_display_list_pdf_with_font_mode(
 ) -> Vec<u8> {
     let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
-    let font_resource_count = if prefer_tex_fonts { 16 } else { 13 };
+    let font_resource_count = if prefer_tex_fonts { 20 } else { 13 };
     let first_content_object_id = 3 + font_resource_count;
     let content_object_id = |index: usize| first_content_object_id + index * 2;
     let page_object_id = |index: usize| first_content_object_id + 1 + index * 2;
@@ -364,6 +364,10 @@ fn render_display_list_pdf_with_font_mode(
         "Times-Italic",
         "Times-Italic",
         "Times-Roman",
+        "Times-Roman",
+        "Times-Bold",
+        "Times-Italic",
+        "Times-BoldItalic",
     ];
     for slot in 1..=font_resource_count {
         let object_id = slot + 2;
@@ -374,6 +378,10 @@ fn render_display_list_pdf_with_font_mode(
                 14 => Some(TexFontFace::MathItalic10),
                 15 => Some(TexFontFace::MathItalic7),
                 16 => Some(TexFontFace::Roman7),
+                17 => Some(TexFontFace::TimesRoman),
+                18 => Some(TexFontFace::TimesBold),
+                19 => Some(TexFontFace::TimesItalic),
+                20 => Some(TexFontFace::TimesBoldItalic),
                 _ => None,
             }
         } else {
@@ -434,17 +442,22 @@ fn render_display_list_pdf_with_font_mode(
                     ));
                 }
                 DrawOp::TextRun(run) => {
-                    let resolved_tex_face = prefer_tex_fonts
+                    let requested_tex_face = prefer_tex_fonts
                         .then(|| face_for_request(&run.font, run.size_pt))
-                        .flatten()
-                        .filter(|face| resolve_font(*face).is_some());
-                    let font_resource = if let Some(face) = resolved_tex_face {
+                        .flatten();
+                    let resolved_tex_face =
+                        requested_tex_face.filter(|face| resolve_font(*face).is_some());
+                    let font_resource = if let Some(face) = requested_tex_face {
                         match face {
                             TexFontFace::Roman10 => "F1",
                             TexFontFace::MathExtension10 => "F13",
                             TexFontFace::MathItalic10 => "F14",
                             TexFontFace::MathItalic7 => "F15",
                             TexFontFace::Roman7 => "F16",
+                            TexFontFace::TimesRoman => "F17",
+                            TexFontFace::TimesBold => "F18",
+                            TexFontFace::TimesItalic => "F19",
+                            TexFontFace::TimesBoldItalic => "F20",
                         }
                     } else {
                         match (&run.font.family, run.font.series, run.font.shape) {
@@ -2972,13 +2985,10 @@ fn build_type1_font_descriptor(
     font_file_id: usize,
     font: &ResolvedTexFont,
 ) -> Vec<u8> {
-    let italic_angle = if matches!(
-        font.face,
-        TexFontFace::MathItalic10 | TexFontFace::MathItalic7
-    ) {
-        -14
-    } else {
-        0
+    let italic_angle = match font.face {
+        TexFontFace::MathItalic10 | TexFontFace::MathItalic7 => -14,
+        TexFontFace::TimesItalic | TexFontFace::TimesBoldItalic => -15,
+        _ => 0,
     };
     format!(
         "{object_id} 0 obj << /Type /FontDescriptor /FontName /{} /Flags 4 /FontBBox [-50 -2250 1500 1000] /ItalicAngle {italic_angle} /Ascent 750 /Descent -250 /CapHeight 683 /StemV 70 /FontFile {font_file_id} 0 R >> endobj\n",
@@ -3262,9 +3272,15 @@ mod tests {
                 text.contains(&format!("/BaseFont /{font_name}")),
                 "{font_name}"
             );
+            assert!(
+                text.contains(&format!("/FontName /{font_name}")),
+                "{font_name}"
+            );
+            assert!(
+                text.contains(&format!("/CMapName /{font_name}-UCS")),
+                "{font_name}"
+            );
         }
-        assert_eq!(text.matches("/FontFile ").count(), 5);
-        assert_eq!(text.matches("/ToUnicode ").count(), 5);
         assert!(text.contains("<58> <2211>"));
         assert!(text.contains("[(follo) 27.779 (wing)] TJ"), "{text}");
         let request = GraphicAssetRequest {
@@ -3274,6 +3290,94 @@ mod tests {
             asset_hash: None,
         };
         prepare_pdf_form(&request, &pdf).expect("embedded-font PDF remains parseable");
+    }
+
+    #[test]
+    fn preferred_tex_fonts_embed_and_select_all_times_faces() {
+        let required_faces = [
+            TexFontFace::TimesRoman,
+            TexFontFace::TimesBold,
+            TexFontFace::TimesItalic,
+            TexFontFace::TimesBoldItalic,
+        ];
+        if required_faces
+            .iter()
+            .any(|face| resolve_font(*face).is_none())
+        {
+            return;
+        }
+
+        let source = SourceProvenance::file("main.tex", 0, 5);
+        let styles = [
+            (FontSeries::Regular, FontShape::Upright),
+            (FontSeries::Bold, FontShape::Upright),
+            (FontSeries::Regular, FontShape::Italic),
+            (FontSeries::Bold, FontShape::Italic),
+        ];
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: styles
+                .into_iter()
+                .enumerate()
+                .map(|(index, (series, shape))| {
+                    DrawOp::TextRun(PositionedTextRun {
+                        origin: Point {
+                            x: 72.0,
+                            y: 72.0 + index as f32 * 12.0,
+                        },
+                        text: "Times".to_string(),
+                        font: FontRequest {
+                            family: FontFamilyRequest::Named("times".to_string()),
+                            series,
+                            shape,
+                            size_pt: 10.0,
+                            role: FontRole::Body,
+                        },
+                        size_pt: 10.0,
+                        approximate_advance_pt: 25.0,
+                        glyphs: None,
+                        clusters: None,
+                        source: source.clone(),
+                    })
+                })
+                .collect(),
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(&[page], |_| None);
+        let text = String::from_utf8_lossy(&pdf);
+
+        for (font_name, resource) in [
+            ("NimbusRomNo9L-Regu", "F17"),
+            ("NimbusRomNo9L-Medi", "F18"),
+            ("NimbusRomNo9L-ReguItal", "F19"),
+            ("NimbusRomNo9L-MediItal", "F20"),
+        ] {
+            assert!(
+                text.contains(&format!("/BaseFont /{font_name}")),
+                "{font_name}"
+            );
+            assert!(
+                text.contains(&format!("/FontName /{font_name}")),
+                "{font_name}"
+            );
+            assert!(
+                text.contains(&format!("/CMapName /{font_name}-UCS")),
+                "{font_name}"
+            );
+            assert!(text.contains(&format!("/{resource} 10 Tf")), "{resource}");
+        }
+        assert_eq!(text.matches("/BaseFont /NimbusRomNo9L-").count(), 4);
+
+        let request = GraphicAssetRequest {
+            asset_ref: "output.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: None,
+        };
+        prepare_pdf_form(&request, &pdf).expect("Times-embedded PDF remains parseable");
     }
 
     #[test]

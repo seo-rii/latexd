@@ -8,7 +8,8 @@ pub mod provenance;
 pub mod vector;
 
 pub use aux_view::{
-    AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
+    AuxView, BibliographyRecordView, CitationLabel, CitationLabelForm, CitationStyleHint,
+    LabelTargetView,
 };
 pub use display_list::{
     Destination, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,

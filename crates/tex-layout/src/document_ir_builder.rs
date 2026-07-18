@@ -1,10 +1,11 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
-    CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent, EnvironmentBlock,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock,
-    LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, PageBreakBlock, ParagraphBlock,
-    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
-    SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
+    CitationLabelForm, CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent,
+    EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
+    LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
+    PageBreakBlock, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
+    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
+    TableRulePosition, TitleBlock,
 };
 
 use crate::math_ir::parse_display_math_structure;
@@ -37,6 +38,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     layout: Option<DocumentLayoutIntent>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
+    author_notes: Vec<(String, SourceProvenance)>,
     affiliations: Vec<(String, SourceProvenance)>,
     correspondence: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
@@ -65,6 +67,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             layout: None,
             title: None,
             authors: Vec::new(),
+            author_notes: Vec::new(),
             affiliations: Vec::new(),
             correspondence: Vec::new(),
             date: None,
@@ -85,7 +88,60 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     });
                 }
                 RenderEvent::SetDocumentLayout(event) => {
-                    self.layout = Some(event.clone());
+                    let layout = self
+                        .layout
+                        .get_or_insert_with(DocumentLayoutIntent::default);
+                    if event.profile.is_some() {
+                        layout.profile.clone_from(&event.profile);
+                    }
+                    if event.text_font_family.is_some() {
+                        layout.text_font_family.clone_from(&event.text_font_family);
+                    }
+                    if event.page_width_pt_milli.is_some() {
+                        layout.page_width_pt_milli = event.page_width_pt_milli;
+                    }
+                    if event.page_height_pt_milli.is_some() {
+                        layout.page_height_pt_milli = event.page_height_pt_milli;
+                    }
+                    if event.text_width_pt_milli.is_some() {
+                        layout.text_width_pt_milli = event.text_width_pt_milli;
+                    }
+                    if event.text_height_pt_milli.is_some() {
+                        layout.text_height_pt_milli = event.text_height_pt_milli;
+                    }
+                    if event.margin_left_pt_milli.is_some() {
+                        layout.margin_left_pt_milli = event.margin_left_pt_milli;
+                    }
+                    if event.margin_top_pt_milli.is_some() {
+                        layout.margin_top_pt_milli = event.margin_top_pt_milli;
+                    }
+                    if event.front_matter_top_pt_milli.is_some() {
+                        layout.front_matter_top_pt_milli = event.front_matter_top_pt_milli;
+                    }
+                    if event.column_count.is_some() {
+                        layout.column_count = event.column_count;
+                    }
+                    if event.column_gap_pt_milli.is_some() {
+                        layout.column_gap_pt_milli = event.column_gap_pt_milli;
+                    }
+                    if event.body_font_size_pt_milli.is_some() {
+                        layout.body_font_size_pt_milli = event.body_font_size_pt_milli;
+                    }
+                    if event.line_height_pt_milli.is_some() {
+                        layout.line_height_pt_milli = event.line_height_pt_milli;
+                    }
+                    if event.heading_font_size_pt_milli.is_some() {
+                        layout.heading_font_size_pt_milli = event.heading_font_size_pt_milli;
+                    }
+                    if event.title_font_size_pt_milli.is_some() {
+                        layout.title_font_size_pt_milli = event.title_font_size_pt_milli;
+                    }
+                    if event.block_gap_pt_milli.is_some() {
+                        layout.block_gap_pt_milli = event.block_gap_pt_milli;
+                    }
+                    if event.abstract_indent_pt_milli.is_some() {
+                        layout.abstract_indent_pt_milli = event.abstract_indent_pt_milli;
+                    }
                 }
                 RenderEvent::PageBreak(event) => {
                     self.flush_paragraph();
@@ -101,6 +157,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }
                     MetadataField::Author => {
                         self.authors
+                            .push((event.value.clone(), envelope.meta.source.clone()));
+                        self.metadata_sources.push(envelope.meta.source.clone());
+                    }
+                    MetadataField::AuthorNote => {
+                        self.author_notes
                             .push((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
@@ -147,6 +208,15 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     });
                     let authors = std::mem::take(&mut self.authors);
                     let author_sources = authors
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    let author_notes = std::mem::take(&mut self.author_notes);
+                    let author_note_sources = author_notes
                         .iter()
                         .map(|(_, source)| {
                             source
@@ -201,6 +271,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         title_source,
                         authors: authors.into_iter().map(|(value, _)| value).collect(),
                         author_sources,
+                        author_notes: author_notes.into_iter().map(|(value, _)| value).collect(),
+                        author_note_sources,
                         affiliations: affiliations.into_iter().map(|(value, _)| value).collect(),
                         affiliation_sources,
                         correspondence: correspondence
@@ -410,40 +482,52 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     let mut labels = Vec::new();
                     for key in &event.keys {
                         if let Some(label) = self.aux.citation_label(key, event.style_hint) {
-                            labels.push(label.text);
+                            labels.push(label);
                         }
                     }
                     let resolved_label = if labels.len() == event.keys.len() && !labels.is_empty() {
-                        let all_labels_numeric =
-                            labels.iter().all(|label| label.parse::<i64>().is_ok());
-                        let mut compacted_labels = Vec::new();
-                        let mut index = 0usize;
-                        while index < labels.len() {
-                            let Some(start) = labels[index].parse::<i64>().ok() else {
-                                compacted_labels.push(labels[index].clone());
-                                index += 1;
-                                continue;
-                            };
-                            let mut end_index = index;
-                            let mut end = start;
-                            while end_index + 1 < labels.len()
-                                && labels[end_index + 1].parse::<i64>().ok() == Some(end + 1)
-                            {
-                                end_index += 1;
-                                end += 1;
-                            }
-                            if end_index - index + 1 >= 3 {
-                                compacted_labels.push(format!("{start}-{end}"));
-                            } else {
-                                compacted_labels.extend(labels[index..=end_index].iter().cloned());
-                            }
-                            index = end_index + 1;
-                        }
-                        let joined = compacted_labels.join(",");
-                        if event.style_hint == CitationStyleHint::Textual && !all_labels_numeric {
-                            Some(joined)
+                        let form = labels[0].form;
+                        if labels.iter().any(|label| label.form != form) {
+                            None
                         } else {
-                            Some(format!("[{joined}]"))
+                            let texts = labels
+                                .iter()
+                                .map(|label| label.text.clone())
+                                .collect::<Vec<_>>();
+                            match form {
+                                CitationLabelForm::Numeric => {
+                                    let mut compacted_labels = Vec::new();
+                                    let mut index = 0usize;
+                                    while index < texts.len() {
+                                        let Some(start) = texts[index].parse::<i64>().ok() else {
+                                            compacted_labels.push(texts[index].clone());
+                                            index += 1;
+                                            continue;
+                                        };
+                                        let mut end_index = index;
+                                        let mut end = start;
+                                        while end_index + 1 < texts.len()
+                                            && texts[end_index + 1].parse::<i64>().ok()
+                                                == Some(end + 1)
+                                        {
+                                            end_index += 1;
+                                            end += 1;
+                                        }
+                                        if end_index - index + 1 >= 3 {
+                                            compacted_labels.push(format!("{start}-{end}"));
+                                        } else {
+                                            compacted_labels
+                                                .extend(texts[index..=end_index].iter().cloned());
+                                        }
+                                        index = end_index + 1;
+                                    }
+                                    Some(format!("[{}]", compacted_labels.join(",")))
+                                }
+                                CitationLabelForm::Textual => Some(texts.join("; ")),
+                                CitationLabelForm::Parenthetical => {
+                                    Some(format!("({})", texts.join("; ")))
+                                }
+                            }
                         }
                     } else {
                         None
@@ -538,7 +622,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::BibliographyItem(event) => {
                     let item = BibliographyItemIr {
                         key: event.key.clone(),
-                        label: event.label_hint.clone(),
+                        label: self
+                            .aux
+                            .citation_label(&event.key, CitationStyleHint::Numeric)
+                            .map(|label| label.text)
+                            .or_else(|| event.label_hint.clone()),
                         content: event.text.clone(),
                         source: envelope.meta.source.clone(),
                     };
@@ -944,14 +1032,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     use tex_render_model::{
-        BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
-        CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
-        FlushTitleBlockEvent, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
-        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
-        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        BeginBlockEvent, BibliographyBlock, BibliographyItemEvent, BlockKind, CaptionEvent,
+        CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
+        DocumentLayoutIntent, EndBlockEvent, FlushTitleBlockEvent, GraphicAssetDimensions,
+        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineNode,
+        InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent,
+        MetadataField, PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -963,9 +1051,10 @@ mod tests {
 
     impl tex_render_model::AuxView for Labels {
         fn citation_label(&self, key: &str, _style: CitationStyleHint) -> Option<CitationLabel> {
-            self.labels
-                .get(key)
-                .map(|text| CitationLabel { text: text.clone() })
+            self.labels.get(key).map(|text| CitationLabel {
+                text: text.clone(),
+                form: CitationLabelForm::Numeric,
+            })
         }
 
         fn bibliography_record(
@@ -981,6 +1070,30 @@ mod tests {
                 number: number.clone(),
                 page: None,
             })
+        }
+    }
+
+    struct FormattedLabels {
+        labels: BTreeMap<String, (String, CitationLabelForm)>,
+    }
+
+    impl tex_render_model::AuxView for FormattedLabels {
+        fn citation_label(&self, key: &str, _style: CitationStyleHint) -> Option<CitationLabel> {
+            self.labels.get(key).map(|(text, form)| CitationLabel {
+                text: text.clone(),
+                form: *form,
+            })
+        }
+
+        fn bibliography_record(
+            &self,
+            _key: &str,
+        ) -> Option<tex_render_model::BibliographyRecordView> {
+            None
+        }
+
+        fn label_target(&self, _key: &str) -> Option<LabelTargetView> {
+            None
         }
     }
 
@@ -1038,6 +1151,10 @@ mod tests {
                 push(RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
                     field: MetadataField::Author,
                     value: "Ada Lovelace".to_string(),
+                })),
+                push(RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                    field: MetadataField::AuthorNote,
+                    value: "Corresponding author".to_string(),
                 })),
                 push(RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
                     field: MetadataField::Affiliation,
@@ -1103,6 +1220,7 @@ mod tests {
         let text = ir.extracted_text();
         assert!(text.contains("A Paper"));
         assert!(text.contains("Ada Lovelace"));
+        assert!(text.contains("Corresponding author"));
         assert!(text.contains("Analytical Engine Institute"));
         assert!(text.contains("ada@example.test"));
         assert!(text.contains("Short abstract."));
@@ -1132,7 +1250,7 @@ mod tests {
                         && matches!(
                             &related.span,
                             tex_render_model::ProvenanceSpan::File(span)
-                                if span.start_utf8 == 5 && span.end_utf8 == 6
+                                if span.start_utf8 == 6 && span.end_utf8 == 7
                         )
                 }))
         );
@@ -1141,9 +1259,10 @@ mod tests {
             Some(tex_render_model::ProvenanceSpan::File(span))
                 if span.start_utf8 == 2 && span.end_utf8 == 3
         ));
+        assert_eq!(title_block.author_notes, ["Corresponding author"]);
         assert!(matches!(
             title_block
-                .affiliation_sources
+                .author_note_sources
                 .first()
                 .map(|source| &source.primary),
             Some(tex_render_model::ProvenanceSpan::File(span))
@@ -1151,16 +1270,24 @@ mod tests {
         ));
         assert!(matches!(
             title_block
-                .correspondence_sources
+                .affiliation_sources
                 .first()
                 .map(|source| &source.primary),
             Some(tex_render_model::ProvenanceSpan::File(span))
                 if span.start_utf8 == 4 && span.end_utf8 == 5
         ));
         assert!(matches!(
+            title_block
+                .correspondence_sources
+                .first()
+                .map(|source| &source.primary),
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.start_utf8 == 5 && span.end_utf8 == 6
+        ));
+        assert!(matches!(
             &title_block.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
-                if span.start_utf8 == 5 && span.end_utf8 == 6
+                if span.start_utf8 == 6 && span.end_utf8 == 7
         ));
     }
 
@@ -1225,6 +1352,110 @@ mod tests {
         );
 
         assert_eq!(ir.extracted_text(), "[1-3,5]");
+    }
+
+    #[test]
+    fn bibliography_items_use_aux_resolved_numeric_labels() {
+        let source = SourceProvenance::file("main.bbl", 0, 96);
+        let stream = RenderEventStream::new(
+            Some("numeric-bibliography-label".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Bibliography,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::BibliographyItem(BibliographyItemEvent {
+                        key: "bengio".to_string(),
+                        label_hint: Some("Bengio(2009)Bengio".to_string()),
+                        text: "Yoshua Bengio. Learning deep architectures.".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::Bibliography,
+                    }),
+                    source,
+                ),
+            ],
+        );
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::from([("bengio".to_string(), "1".to_string())]),
+                targets: BTreeMap::new(),
+            },
+        );
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Bibliography(BibliographyBlock { items, .. })]
+                if items[0].label.as_deref() == Some("1")
+                    && items[0].content.starts_with("Yoshua Bengio")
+        ));
+    }
+
+    #[test]
+    fn resolved_author_year_citations_preserve_requested_delimiters() {
+        let source = SourceProvenance::file("main.tex", 0, 30);
+        let labels = FormattedLabels {
+            labels: BTreeMap::from([
+                (
+                    "parenthetical".to_string(),
+                    ("Bengio, 2009".to_string(), CitationLabelForm::Parenthetical),
+                ),
+                (
+                    "textual".to_string(),
+                    (
+                        "Goodfellow et al. (2014)".to_string(),
+                        CitationLabelForm::Textual,
+                    ),
+                ),
+            ]),
+        };
+        let stream = RenderEventStream::new(
+            Some("author-year-citations".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::InlineCitation(InlineCitationEvent {
+                        keys: vec!["parenthetical".to_string()],
+                        command: "citep".to_string(),
+                        style_hint: CitationStyleHint::Parenthetical,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::InlineCitation(InlineCitationEvent {
+                        keys: vec!["textual".to_string()],
+                        command: "citet".to_string(),
+                        style_hint: CitationStyleHint::Textual,
+                    }),
+                    source,
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &labels);
+
+        assert_eq!(
+            ir.extracted_text(),
+            "(Bengio, 2009) Goodfellow et al. (2014)"
+        );
     }
 
     #[test]
@@ -1630,20 +1861,28 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     2,
+                    RenderEvent::SetDocumentLayout(DocumentLayoutIntent {
+                        text_font_family: Some("times".to_string()),
+                        ..DocumentLayoutIntent::default()
+                    }),
+                    SourceProvenance::file("times.sty", 0, 18),
+                ),
+                RenderEventEnvelope::new(
+                    3,
                     RenderEvent::Text(TextEvent {
                         text: "Before".to_string(),
                     }),
                     SourceProvenance::file("main.tex", 0, 6),
                 ),
                 RenderEventEnvelope::new(
-                    3,
+                    4,
                     RenderEvent::PageBreak(PageBreakEvent {
                         kind: PageBreakKind::NewPage,
                     }),
                     SourceProvenance::file("main.tex", 6, 14),
                 ),
                 RenderEventEnvelope::new(
-                    4,
+                    5,
                     RenderEvent::Text(TextEvent {
                         text: "After".to_string(),
                     }),
@@ -1654,7 +1893,9 @@ mod tests {
 
         let ir = build_document_ir(&stream, &());
 
-        assert_eq!(ir.layout, Some(layout));
+        let mut expected_layout = layout;
+        expected_layout.text_font_family = Some("times".to_string());
+        assert_eq!(ir.layout, Some(expected_layout));
         assert!(matches!(
             ir.blocks.as_slice(),
             [IrBlock::Paragraph(before), IrBlock::PageBreak(page_break), IrBlock::Paragraph(after)]

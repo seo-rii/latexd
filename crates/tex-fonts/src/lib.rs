@@ -14,6 +14,10 @@ pub enum TexFontFace {
     MathItalic10,
     MathItalic7,
     MathExtension10,
+    TimesRoman,
+    TimesBold,
+    TimesItalic,
+    TimesBoldItalic,
 }
 
 impl TexFontFace {
@@ -24,6 +28,24 @@ impl TexFontFace {
             Self::MathItalic10 => "cmmi10",
             Self::MathItalic7 => "cmmi7",
             Self::MathExtension10 => "cmex10",
+            Self::TimesRoman => "ptmr8r",
+            Self::TimesBold => "ptmb8r",
+            Self::TimesItalic => "ptmri8r",
+            Self::TimesBoldItalic => "ptmbi8r",
+        }
+    }
+
+    fn type1_stem(self) -> &'static str {
+        match self {
+            Self::Roman10
+            | Self::Roman7
+            | Self::MathItalic10
+            | Self::MathItalic7
+            | Self::MathExtension10 => self.stem(),
+            Self::TimesRoman => "utmr8a",
+            Self::TimesBold => "utmb8a",
+            Self::TimesItalic => "utmri8a",
+            Self::TimesBoldItalic => "utmbi8a",
         }
     }
 
@@ -34,6 +56,10 @@ impl TexFontFace {
             Self::MathItalic10 => "CMMI10",
             Self::MathItalic7 => "CMMI7",
             Self::MathExtension10 => "CMEX10",
+            Self::TimesRoman => "NimbusRomNo9L-Regu",
+            Self::TimesBold => "NimbusRomNo9L-Medi",
+            Self::TimesItalic => "NimbusRomNo9L-ReguItal",
+            Self::TimesBoldItalic => "NimbusRomNo9L-MediItal",
         }
     }
 }
@@ -162,6 +188,26 @@ pub fn text_advance_em(face: TexFontFace, text: &str) -> Option<f32> {
 
 pub fn face_for_request(request: &FontRequest, size_pt: f32) -> Option<TexFontFace> {
     match (&request.family, request.series, request.shape) {
+        (FontFamilyRequest::Named(name), FontSeries::Regular, FontShape::Upright)
+            if name.eq_ignore_ascii_case("times") =>
+        {
+            Some(TexFontFace::TimesRoman)
+        }
+        (FontFamilyRequest::Named(name), FontSeries::Bold, FontShape::Upright)
+            if name.eq_ignore_ascii_case("times") =>
+        {
+            Some(TexFontFace::TimesBold)
+        }
+        (FontFamilyRequest::Named(name), FontSeries::Regular, FontShape::Italic)
+            if name.eq_ignore_ascii_case("times") =>
+        {
+            Some(TexFontFace::TimesItalic)
+        }
+        (FontFamilyRequest::Named(name), FontSeries::Bold, FontShape::Italic)
+            if name.eq_ignore_ascii_case("times") =>
+        {
+            Some(TexFontFace::TimesBoldItalic)
+        }
         (FontFamilyRequest::Serif, FontSeries::Regular, FontShape::Upright) => {
             Some(TexFontFace::Roman10)
         }
@@ -188,19 +234,27 @@ pub fn resolve_font(face: TexFontFace) -> Option<&'static ResolvedTexFont> {
     static MATH_ITALIC_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static MATH_ITALIC_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static MATH_EXTENSION_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static TIMES_ROMAN: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static TIMES_BOLD: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static TIMES_ITALIC: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static TIMES_BOLD_ITALIC: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     let slot = match face {
         TexFontFace::Roman10 => &ROMAN_10,
         TexFontFace::Roman7 => &ROMAN_7,
         TexFontFace::MathItalic10 => &MATH_ITALIC_10,
         TexFontFace::MathItalic7 => &MATH_ITALIC_7,
         TexFontFace::MathExtension10 => &MATH_EXTENSION_10,
+        TexFontFace::TimesRoman => &TIMES_ROMAN,
+        TexFontFace::TimesBold => &TIMES_BOLD,
+        TexFontFace::TimesItalic => &TIMES_ITALIC,
+        TexFontFace::TimesBoldItalic => &TIMES_BOLD_ITALIC,
     };
     slot.get_or_init(|| load_font(face)).as_ref()
 }
 
 fn load_font(face: TexFontFace) -> Option<ResolvedTexFont> {
     let tfm = read_kpse_file(&format!("{}.tfm", face.stem()))?;
-    let pfb = read_kpse_file(&format!("{}.pfb", face.stem()))?;
+    let pfb = read_kpse_file(&format!("{}.pfb", face.type1_stem()))?;
     Some(ResolvedTexFont {
         face,
         metrics: parse_tfm(&tfm)?,
@@ -348,7 +402,9 @@ fn parse_pfb(bytes: &[u8]) -> Option<Type1Program> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TexFontFace, encode_text, resolve_font};
+    use tex_render_model::{FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape};
+
+    use super::{TexFontFace, encode_text, face_for_request, resolve_font};
 
     #[test]
     fn text_encoding_normalizes_all_whitespace_to_the_tex_space_slot() {
@@ -368,5 +424,95 @@ mod tests {
         assert!(font.metrics.advance_em("The following").unwrap() > 5.0);
         assert!(font.type1.length1 > 0);
         assert!(font.type1.length2 > 0);
+    }
+
+    #[test]
+    fn named_times_requests_map_every_series_and_shape_to_a_times_face() {
+        let face = |series, shape| {
+            face_for_request(
+                &FontRequest {
+                    family: FontFamilyRequest::Named("times".to_string()),
+                    series,
+                    shape,
+                    size_pt: 10.0,
+                    role: FontRole::Body,
+                },
+                10.0,
+            )
+        };
+
+        assert_eq!(
+            face(FontSeries::Regular, FontShape::Upright),
+            Some(TexFontFace::TimesRoman)
+        );
+        assert_eq!(
+            face(FontSeries::Bold, FontShape::Upright),
+            Some(TexFontFace::TimesBold)
+        );
+        assert_eq!(
+            face(FontSeries::Regular, FontShape::Italic),
+            Some(TexFontFace::TimesItalic)
+        );
+        assert_eq!(
+            face(FontSeries::Bold, FontShape::Italic),
+            Some(TexFontFace::TimesBoldItalic)
+        );
+
+        let serif = FontRequest {
+            family: FontFamilyRequest::Serif,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 10.0,
+            role: FontRole::Body,
+        };
+        assert_eq!(face_for_request(&serif, 10.0), Some(TexFontFace::Roman10));
+    }
+
+    #[test]
+    fn times_faces_pair_psnfss_metrics_with_nimbus_type1_programs() {
+        let faces = [
+            (
+                TexFontFace::TimesRoman,
+                "ptmr8r",
+                "utmr8a",
+                "NimbusRomNo9L-Regu",
+            ),
+            (
+                TexFontFace::TimesBold,
+                "ptmb8r",
+                "utmb8a",
+                "NimbusRomNo9L-Medi",
+            ),
+            (
+                TexFontFace::TimesItalic,
+                "ptmri8r",
+                "utmri8a",
+                "NimbusRomNo9L-ReguItal",
+            ),
+            (
+                TexFontFace::TimesBoldItalic,
+                "ptmbi8r",
+                "utmbi8a",
+                "NimbusRomNo9L-MediItal",
+            ),
+        ];
+
+        for (face, tfm_stem, type1_stem, postscript_name) in faces {
+            assert_eq!(face.stem(), tfm_stem);
+            assert_eq!(face.type1_stem(), type1_stem);
+            assert_eq!(face.postscript_name(), postscript_name);
+
+            let Some(font) = resolve_font(face) else {
+                continue;
+            };
+            assert_eq!(font.face, face);
+            assert!(font.metrics.width_em(b'M').is_some_and(|width| width > 0.0));
+            assert!(
+                font.type1
+                    .bytes
+                    .windows(postscript_name.len())
+                    .any(|window| window == postscript_name.as_bytes())
+            );
+        }
     }
 }

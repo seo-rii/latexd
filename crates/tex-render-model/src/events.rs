@@ -214,6 +214,8 @@ pub struct DocumentLayoutIntent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_font_family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_width_pt_milli: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_height_pt_milli: Option<u32>,
@@ -270,6 +272,7 @@ pub struct SetDocumentMetadataEvent {
 pub enum MetadataField {
     Title,
     Author,
+    AuthorNote,
     Affiliation,
     Correspondence,
     Date,

@@ -92,17 +92,17 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             page_width_pt_milli: Some(612_000),
             page_height_pt_milli: Some(792_000),
             text_width_pt_milli: Some(396_000),
-            text_height_pt_milli: Some(648_000),
+            text_height_pt_milli: Some(638_038),
             margin_left_pt_milli: Some(108_000),
-            margin_top_pt_milli: Some(72_000),
-            front_matter_top_pt_milli: Some(72_000),
+            margin_top_pt_milli: Some(91_824),
+            front_matter_top_pt_milli: Some(122_909),
             column_count: Some(1),
-            body_font_size_pt_milli: Some(10_000),
-            line_height_pt_milli: Some(11_000),
-            heading_font_size_pt_milli: Some(12_000),
-            title_font_size_pt_milli: Some(20_000),
-            block_gap_pt_milli: Some(6_000),
-            abstract_indent_pt_milli: Some(36_000),
+            body_font_size_pt_milli: Some(9_963),
+            line_height_pt_milli: Some(10_959),
+            heading_font_size_pt_milli: Some(11_955),
+            title_font_size_pt_milli: Some(17_215),
+            block_gap_pt_milli: Some(5_978),
+            abstract_indent_pt_milli: Some(35_866),
             ..DocumentLayoutIntent::default()
         }),
         "nips_2017" => Some(DocumentLayoutIntent {
@@ -158,6 +158,7 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             title_font_size_pt_milli: Some(14_000),
             block_gap_pt_milli: Some(5_000),
             abstract_indent_pt_milli: Some(0),
+            ..DocumentLayoutIntent::default()
         }),
         "icml2020" => Some(DocumentLayoutIntent {
             profile: Some("icml_2020".to_string()),
@@ -176,6 +177,7 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             title_font_size_pt_milli: Some(14_000),
             block_gap_pt_milli: Some(5_000),
             abstract_indent_pt_milli: Some(0),
+            ..DocumentLayoutIntent::default()
         }),
         "cvpr" | "wacv" => Some(DocumentLayoutIntent {
             profile: Some(package_name.to_string()),
@@ -194,6 +196,11 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             title_font_size_pt_milli: Some(14_000),
             block_gap_pt_milli: Some(5_000),
             abstract_indent_pt_milli: Some(0),
+            ..DocumentLayoutIntent::default()
+        }),
+        "times" | "mathptmx" | "txfonts" | "newtxtext" => Some(DocumentLayoutIntent {
+            text_font_family: Some("times".to_string()),
+            ..DocumentLayoutIntent::default()
         }),
         _ => None,
     }
@@ -611,11 +618,13 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "makecell.sty",
     "marvosym.sty",
     "mathtools.sty",
+    "mathptmx.sty",
     "microtype.sty",
     "multirow.sty",
     "multicol.sty",
     "natbib.sty",
     "nicefrac.sty",
+    "newtxtext.sty",
     "neurips.sty",
     "neurips_2019.sty",
     "neurips_2020.sty",
@@ -658,6 +667,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "times.sty",
     "tocloft.sty",
     "todonotes.sty",
+    "txfonts.sty",
     "ulem.sty",
     "upgreek.sty",
     "url.sty",
@@ -2949,7 +2959,7 @@ impl<'i> Vm<'i> {
                         let after = read_braced_source_argument(source, labels_index)
                             .map(|(_, _, _, after)| after)
                             .unwrap_or(after_name);
-                        let name = normalize_latex_text_with_inline_placeholders(name);
+                        let (name, author_notes) = normalize_author_metadata(name);
                         if !name.is_empty() {
                             self.emit_render_event(
                                 RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
@@ -2960,6 +2970,19 @@ impl<'i> Vm<'i> {
                                     source_path.to_owned(),
                                     content_start as u32,
                                     content_end as u32,
+                                ),
+                            );
+                        }
+                        for (note, note_start, note_end) in author_notes {
+                            self.emit_render_event(
+                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                    field: MetadataField::AuthorNote,
+                                    value: note,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    (content_start + note_start) as u32,
+                                    (content_start + note_end) as u32,
                                 ),
                             );
                         }
@@ -3113,7 +3136,27 @@ impl<'i> Vm<'i> {
                                                 value_start = cursor;
                                             }
                                         } else {
+                                            let control_symbol = value_bytes[cursor];
                                             cursor += 1;
+                                            if group_depth == 0 && control_symbol == b'\\' {
+                                                let mut delimiter_end = cursor;
+                                                if value_bytes.get(delimiter_end) == Some(&b'*') {
+                                                    delimiter_end += 1;
+                                                }
+                                                let option_index =
+                                                    skip_ascii_whitespace(value, delimiter_end);
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        value,
+                                                        option_index,
+                                                    )
+                                                {
+                                                    delimiter_end = after_option;
+                                                }
+                                                values.push((value_start, command_start));
+                                                value_start = delimiter_end;
+                                                cursor = delimiter_end;
+                                            }
                                         }
                                         continue;
                                     }
@@ -3136,17 +3179,53 @@ impl<'i> Vm<'i> {
                             }
                             let span_start = content_start + value_start + leading_whitespace;
                             let span_end = span_start + trimmed.len();
-                            self.emit_render_event(
-                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                    field,
-                                    value: normalize_latex_text_with_inline_placeholders(trimmed),
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    span_start as u32,
-                                    span_end as u32,
-                                ),
-                            );
+                            if field == MetadataField::Author {
+                                let (author, author_notes) = normalize_author_metadata(trimmed);
+                                if !author.is_empty() {
+                                    self.emit_render_event(
+                                        RenderEvent::SetDocumentMetadata(
+                                            SetDocumentMetadataEvent {
+                                                field,
+                                                value: author,
+                                            },
+                                        ),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            span_start as u32,
+                                            span_end as u32,
+                                        ),
+                                    );
+                                }
+                                for (note, note_start, note_end) in author_notes {
+                                    self.emit_render_event(
+                                        RenderEvent::SetDocumentMetadata(
+                                            SetDocumentMetadataEvent {
+                                                field: MetadataField::AuthorNote,
+                                                value: note,
+                                            },
+                                        ),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            (span_start + note_start) as u32,
+                                            (span_start + note_end) as u32,
+                                        ),
+                                    );
+                                }
+                            } else {
+                                self.emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field,
+                                        value: normalize_latex_text_with_inline_placeholders(
+                                            trimmed,
+                                        ),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        span_start as u32,
+                                        span_end as u32,
+                                    ),
+                                );
+                            }
                         }
                         index = after;
                     }
@@ -23469,6 +23548,72 @@ fn strip_latex_line_comments(source: &str) -> String {
         cursor += ch.len_utf8();
     }
     stripped
+}
+
+fn normalize_author_metadata(source: &str) -> (String, Vec<(String, usize, usize)>) {
+    let bytes = source.as_bytes();
+    let mut visible_source = String::with_capacity(source.len());
+    let mut notes = Vec::new();
+    let mut chunk_start = 0usize;
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'%' => {
+                cursor = skip_latex_line_comment(source, cursor);
+            }
+            b'\\' => {
+                let command_start = cursor;
+                cursor += 1;
+                if cursor >= bytes.len() {
+                    break;
+                }
+                if !bytes[cursor].is_ascii_alphabetic() {
+                    let ch = source[cursor..]
+                        .chars()
+                        .next()
+                        .expect("control symbol should have a target");
+                    cursor += ch.len_utf8();
+                    continue;
+                }
+
+                let name_start = cursor;
+                while cursor < bytes.len() && bytes[cursor].is_ascii_alphabetic() {
+                    cursor += 1;
+                }
+                if &source[name_start..cursor] != "thanks" {
+                    continue;
+                }
+                let argument_index = skip_ascii_whitespace(source, cursor);
+                let Some((note, note_start, note_end, after)) =
+                    read_braced_source_argument(source, argument_index)
+                else {
+                    continue;
+                };
+
+                visible_source.push_str(&source[chunk_start..command_start]);
+                let note = normalize_latex_text_with_inline_placeholders(note);
+                if !note.is_empty() {
+                    notes.push((note, note_start, note_end));
+                }
+                chunk_start = after;
+                cursor = after;
+            }
+            _ => {
+                let ch = source[cursor..]
+                    .chars()
+                    .next()
+                    .expect("author metadata cursor should be inside source");
+                cursor += ch.len_utf8();
+            }
+        }
+    }
+    visible_source.push_str(&source[chunk_start..]);
+
+    (
+        normalize_latex_text_with_inline_placeholders(&visible_source),
+        notes,
+    )
 }
 
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
@@ -46119,7 +46264,7 @@ Fallback text.
     #[test]
     fn render_event_capture_records_known_package_layout_intents() {
         for (package, profile, columns, text_width, margin_left, body_font_size) in [
-            ("nips14submit_e", "nips_2014", 1, 396_000, 108_000, 10_000),
+            ("nips14submit_e", "nips_2014", 1, 396_000, 108_000, 9_963),
             ("nips_2017", "nips_2017", 1, 396_000, 108_000, 10_000),
             ("neurips_2019", "neurips_2019", 1, 468_000, 72_000, 10_000),
             ("naaclhlt2019", "naacl_hlt_2019", 2, 453_543, 72_000, 11_000),
@@ -46150,7 +46295,46 @@ Fallback text.
             assert_eq!(layout.text_width_pt_milli, Some(text_width));
             assert_eq!(layout.margin_left_pt_milli, Some(margin_left));
             assert_eq!(layout.body_font_size_pt_milli, Some(body_font_size));
+            if package == "nips14submit_e" {
+                assert_eq!(layout.text_height_pt_milli, Some(638_038));
+                assert_eq!(layout.margin_top_pt_milli, Some(91_824));
+                assert_eq!(layout.front_matter_top_pt_milli, Some(122_909));
+                assert_eq!(layout.line_height_pt_milli, Some(10_959));
+                assert_eq!(layout.heading_font_size_pt_milli, Some(11_955));
+                assert_eq!(layout.title_font_size_pt_milli, Some(17_215));
+                assert_eq!(layout.block_gap_pt_milli, Some(5_978));
+                assert_eq!(layout.abstract_indent_pt_milli, Some(35_866));
+            }
         }
+    }
+
+    #[test]
+    fn render_event_capture_keeps_profile_geometry_and_times_font_intents_separate() {
+        let source = r"\documentclass{article}\usepackage{nips14submit_e,times}\begin{document}Body.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("nips14submit_e.sty", "");
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let layouts = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentLayout(layout) => Some(layout),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(layouts.iter().any(|layout| {
+            layout.profile.as_deref() == Some("nips_2014")
+                && layout.text_width_pt_milli == Some(396_000)
+        }));
+        assert!(
+            layouts
+                .iter()
+                .any(|layout| layout.text_font_family.as_deref() == Some("times"))
+        );
     }
 
     #[test]
@@ -46205,7 +46389,7 @@ Fallback text.
 \icmltitle{A Paper}
 \icmlsetsymbol{equal}{*}
 \begin{icmlauthorlist}
-\icmlauthor{Ada Lovelace}{equal,engine}
+\icmlauthor{Ada Lovelace\thanks{Equal contribution}}{equal,engine}
 \icmlauthor{Charles Babbage}{engine}
 \end{icmlauthorlist}
 \icmlaffiliation{engine}{Analytical Engine Institute}
@@ -46237,6 +46421,7 @@ Fallback text.
             vec![
                 (MetadataField::Title, "A Paper"),
                 (MetadataField::Author, "Ada Lovelace"),
+                (MetadataField::AuthorNote, "Equal contribution"),
                 (MetadataField::Author, "Charles Babbage"),
                 (MetadataField::Affiliation, "Analytical Engine Institute"),
                 (
@@ -46337,9 +46522,9 @@ Fallback text.
     }
 
     #[test]
-    fn render_event_capture_does_not_split_author_text_after_control_symbols_or_in_comments() {
-        let source = r"\author{Ada\\and Team % \and Hidden
-}\begin{document}\maketitle\end{document}";
+    fn render_event_capture_only_splits_explicit_top_level_author_rows() {
+        let source = r"\author{Ada \% and Team % \\ Hidden
+\\ Grace Sample}\begin{document}\maketitle\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -46358,7 +46543,7 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(authors, vec!["Ada and Team"]);
+        assert_eq!(authors, vec!["Ada % and Team", "Grace Sample"]);
     }
 
     #[test]
@@ -46407,11 +46592,21 @@ Fallback text.
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let author_notes = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::AuthorNote =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
-        assert_eq!(
-            authors,
-            vec!["Nai-Hui Chia nc67@rice.edu", "Atsuya Hasegawa"]
-        );
+        assert_eq!(authors, vec!["Nai-Hui Chia", "Atsuya Hasegawa"]);
+        assert_eq!(author_notes, vec!["nc67@rice.edu"]);
         assert_eq!(
             affiliations,
             vec![
@@ -46424,6 +46619,70 @@ Fallback text.
             assert!(!value.contains("[2]"));
             assert!(!value.contains("affil"));
             assert!(!value.contains("thanks"));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_splits_nips_author_rows_and_preserves_notes() {
+        let source = r"\author{Ian Goodfellow\thanks{Primary contact}\\
+Jean Pouget-Abadie\thanks{Research note with {nested \\ row}}\\*[1ex]
+Mehdi Mirza\\
+Sherjil Ozair\thanks{Secondary contact}\\
+Yoshua Bengio}
+\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let metadata = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata) => {
+                    Some((metadata.field, metadata.value.as_str(), &event.meta.source))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let authors = metadata
+            .iter()
+            .filter_map(|(field, value, _)| (*field == MetadataField::Author).then_some(*value))
+            .collect::<Vec<_>>();
+        let notes = metadata
+            .iter()
+            .filter_map(|(field, value, source)| {
+                (*field == MetadataField::AuthorNote).then_some((*value, *source))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            authors,
+            vec![
+                "Ian Goodfellow",
+                "Jean Pouget-Abadie",
+                "Mehdi Mirza",
+                "Sherjil Ozair",
+                "Yoshua Bengio",
+            ]
+        );
+        assert_eq!(
+            notes.iter().map(|(value, _)| *value).collect::<Vec<_>>(),
+            vec![
+                "Primary contact",
+                "Research note with nested row",
+                "Secondary contact"
+            ]
+        );
+        for (note, provenance) in notes {
+            assert!(matches!(
+                &provenance.primary,
+                ProvenanceSpan::File(span)
+                    if &source[span.start_utf8 as usize..span.end_utf8 as usize] == note
+                        || (note == "Research note with nested row"
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"Research note with {nested \\ row}")
+            ));
         }
     }
 
@@ -46513,10 +46772,10 @@ Analytical Engine Lab
                 _ => None,
             })
             .expect("title metadata event");
-        let author = outcome
+        let authors = outcome
             .render_events
             .iter()
-            .find_map(|event| match &event.event {
+            .filter_map(|event| match &event.event {
                 RenderEvent::SetDocumentMetadata(metadata)
                     if metadata.field == MetadataField::Author =>
                 {
@@ -46524,12 +46783,15 @@ Analytical Engine Lab
                 }
                 _ => None,
             })
-            .expect("author metadata event");
+            .collect::<Vec<_>>();
 
         assert_eq!(title, "Progress % Report");
-        assert_eq!(author, "Ada Lovelace Analytical Engine Lab");
+        assert_eq!(authors, ["Ada Lovelace", "Analytical Engine Lab"]);
         for hidden in ["whose", "authors", "omit", "following", "closing"] {
-            assert!(!author.contains(hidden), "{author}");
+            assert!(
+                authors.iter().all(|author| !author.contains(hidden)),
+                "{authors:?}"
+            );
         }
     }
 
@@ -46573,8 +46835,10 @@ Difference Engine Lab
         assert_eq!(
             authors,
             vec![
-                "Ada Lovelace Analytical Engine Lab",
-                "Charles Babbage Difference Engine Lab"
+                "Ada Lovelace",
+                "Analytical Engine Lab",
+                "Charles Babbage",
+                "Difference Engine Lab"
             ]
         );
         assert!(

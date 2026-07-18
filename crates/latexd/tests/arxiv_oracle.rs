@@ -1741,6 +1741,8 @@ fn sample_structure_slice_document_ir() -> DocumentIr {
             title_source: None,
             authors: vec!["Ada Lovelace".to_string()],
             author_sources: Vec::new(),
+            author_notes: Vec::new(),
+            author_note_sources: Vec::new(),
             affiliations: Vec::new(),
             affiliation_sources: Vec::new(),
             correspondence: Vec::new(),

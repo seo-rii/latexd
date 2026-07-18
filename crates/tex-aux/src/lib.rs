@@ -7,7 +7,8 @@ use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_render_model::{
-    AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
+    AuxView, BibliographyRecordView, CitationLabel, CitationLabelForm, CitationStyleHint,
+    LabelTargetView,
 };
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
 use unicode_normalization::UnicodeNormalization;
@@ -24,6 +25,8 @@ pub struct SemanticAux {
     pub bibliography_inputs: Vec<Utf8PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bibliography_style: Option<String>,
+    #[serde(default, skip_serializing_if = "CitationMode::is_auto")]
+    pub citation_mode: CitationMode,
     #[serde(default)]
     pub citation_aliases: Vec<CitationAlias>,
     #[serde(default)]
@@ -44,6 +47,37 @@ pub struct SemanticAux {
     pub bibliography_eprints: Vec<BibliographyEprint>,
     #[serde(default)]
     pub float_captions: Vec<FloatCaption>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CitationMode {
+    #[default]
+    Auto,
+    Numeric,
+    AuthorYear,
+}
+
+impl CitationMode {
+    fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Numeric => "numeric",
+            Self::AuthorYear => "author_year",
+        }
+    }
+
+    fn parse(value: &str) -> Self {
+        match value.trim() {
+            "numeric" => Self::Numeric,
+            "author_year" => Self::AuthorYear,
+            _ => Self::Auto,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -245,10 +279,11 @@ pub struct SourceSpan {
 }
 
 impl AuxView for SemanticAux {
-    fn citation_label(&self, key: &str, _style: CitationStyleHint) -> Option<CitationLabel> {
+    fn citation_label(&self, key: &str, style: CitationStyleHint) -> Option<CitationLabel> {
         if let Some(alias) = self.citation_aliases.iter().find(|alias| alias.key == key) {
             return Some(CitationLabel {
                 text: alias.text.clone(),
+                form: citation_label_form(style),
             });
         }
         if let Some(entry) = self.bibliography.iter().find(|entry| entry.key == key) {
@@ -258,12 +293,62 @@ impl AuxView for SemanticAux {
                 .position(|entry| entry.key == key)
                 .unwrap_or_default()
                 + 1;
-            return Some(CitationLabel {
-                text: entry
+            if self.citation_mode == CitationMode::Numeric || entry.label.is_none() {
+                let normalized = entry
                     .label
                     .as_deref()
-                    .map(normalize_bibliography_inline_markup)
-                    .unwrap_or_else(|| fallback_position.to_string()),
+                    .map(normalize_bibliography_inline_markup);
+                let numeric_label = normalized
+                    .as_deref()
+                    .filter(|label| parse_citation_label(label).1.is_none())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| fallback_position.to_string());
+                if style == CitationStyleHint::Textual
+                    && let Some(author) = entry
+                        .label
+                        .as_deref()
+                        .and_then(|label| parse_citation_label(label).0)
+                        .filter(|author| !author.is_empty())
+                {
+                    return Some(CitationLabel {
+                        text: format!("{author} [{fallback_position}]"),
+                        form: CitationLabelForm::Textual,
+                    });
+                }
+                return Some(CitationLabel {
+                    text: numeric_label,
+                    form: CitationLabelForm::Numeric,
+                });
+            }
+
+            let normalized = normalize_bibliography_inline_markup(
+                entry.label.as_deref().expect("label checked above"),
+            );
+            if style == CitationStyleHint::Numeric {
+                return Some(CitationLabel {
+                    text: normalized,
+                    form: CitationLabelForm::Numeric,
+                });
+            }
+            let (author, year, _) = parse_citation_label(&normalized);
+            if year.is_none() {
+                return Some(CitationLabel {
+                    text: normalized,
+                    form: CitationLabelForm::Numeric,
+                });
+            }
+            let text = match (author, year) {
+                (Some(author), Some(year)) if style == CitationStyleHint::Textual => {
+                    format!("{author} ({year})")
+                }
+                (Some(author), Some(year)) => format!("{author}, {year}"),
+                (Some(author), None) => author,
+                (None, Some(year)) => year,
+                (None, None) => normalized,
+            };
+            return Some(CitationLabel {
+                text,
+                form: citation_label_form(style),
             });
         }
         None
@@ -289,6 +374,16 @@ impl AuxView for SemanticAux {
                 number: label.number.clone(),
                 page: Some(label.page),
             })
+    }
+}
+
+fn citation_label_form(style: CitationStyleHint) -> CitationLabelForm {
+    match style {
+        CitationStyleHint::Numeric => CitationLabelForm::Numeric,
+        CitationStyleHint::Textual => CitationLabelForm::Textual,
+        CitationStyleHint::AuthorYear
+        | CitationStyleHint::Parenthetical
+        | CitationStyleHint::Unknown => CitationLabelForm::Parenthetical,
     }
 }
 
@@ -520,6 +615,7 @@ impl SemanticAux {
             && self.citation_keys == other.citation_keys
             && self.bibliography_inputs == other.bibliography_inputs
             && self.bibliography_style == other.bibliography_style
+            && self.citation_mode == other.citation_mode
             && self.citation_aliases == other.citation_aliases
             && self.bibliography == other.bibliography
             && self.bibliography_titles == other.bibliography_titles
@@ -1234,6 +1330,145 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
     })
 }
 
+fn infer_project_citation_mode(
+    files: &BTreeMap<Utf8PathBuf, String>,
+    bibliography_style: Option<&str>,
+) -> CitationMode {
+    let mut saw_author_year = false;
+    for source in files.values() {
+        match scan_source_citation_mode(source) {
+            CitationMode::Numeric => return CitationMode::Numeric,
+            CitationMode::AuthorYear => saw_author_year = true,
+            CitationMode::Auto => {}
+        }
+    }
+    if saw_author_year {
+        return CitationMode::AuthorYear;
+    }
+
+    let style = bibliography_style
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if [
+        "plain", "unsrt", "abbrv", "alpha", "ieeetr", "ieeetran", "siam", "splncs",
+    ]
+    .iter()
+    .any(|candidate| style == *candidate || style.ends_with(candidate))
+    {
+        CitationMode::Numeric
+    } else {
+        CitationMode::Auto
+    }
+}
+
+fn scan_source_citation_mode(source: &str) -> CitationMode {
+    let mut index = 0usize;
+    let mut mode = CitationMode::Auto;
+    while index < source.len() {
+        let next_command = source[index..].find('\\').map(|offset| index + offset);
+        let next_comment = source[index..].find('%').map(|offset| index + offset);
+        if next_comment.is_some_and(|comment| next_command.is_none_or(|command| comment < command))
+        {
+            index = skip_comment(source, next_comment.expect("comment checked above"));
+            continue;
+        }
+        let Some(command_start) = next_command else {
+            break;
+        };
+        let Some((command_end, command_name)) = read_command_name(source, command_start) else {
+            index = command_start + 1;
+            continue;
+        };
+        index = command_end;
+        let candidate = match command_name.as_str() {
+            "usepackage" | "RequirePackage" => {
+                let (cursor, options) = read_bracket_argument(source, command_end)
+                    .map(|(end, value)| (end, value))
+                    .unwrap_or_else(|| (command_end, String::new()));
+                read_braced_argument(source, cursor).and_then(|(end, packages)| {
+                    index = end;
+                    packages
+                        .split(',')
+                        .map(str::trim)
+                        .any(|package| matches!(package, "natbib" | "biblatex" | "cite"))
+                        .then(|| citation_mode_from_options(&options))
+                })
+            }
+            "PassOptionsToPackage" => {
+                read_braced_argument(source, command_end).and_then(|(options_end, options)| {
+                    read_braced_argument(source, options_end).and_then(
+                        |(packages_end, packages)| {
+                            index = packages_end;
+                            packages
+                                .split(',')
+                                .map(str::trim)
+                                .any(|package| matches!(package, "natbib" | "biblatex" | "cite"))
+                                .then(|| citation_mode_from_options(&options))
+                        },
+                    )
+                })
+            }
+            "setcitestyle" | "ExecuteBibliographyOptions" => {
+                read_braced_argument(source, command_end).map(|(end, options)| {
+                    index = end;
+                    citation_mode_from_options(&options)
+                })
+            }
+            "bibpunct" => {
+                let mut cursor = read_bracket_argument(source, command_end)
+                    .map(|(end, _)| end)
+                    .unwrap_or(command_end);
+                let mut arguments = Vec::new();
+                for _ in 0..4 {
+                    let Some((end, argument)) = read_braced_argument(source, cursor) else {
+                        break;
+                    };
+                    cursor = end;
+                    arguments.push(argument);
+                }
+                index = cursor;
+                arguments.get(3).map(|argument| match argument.trim() {
+                    "n" | "s" => CitationMode::Numeric,
+                    "a" => CitationMode::AuthorYear,
+                    _ => CitationMode::Auto,
+                })
+            }
+            _ => None,
+        };
+        match candidate.unwrap_or(CitationMode::Auto) {
+            CitationMode::Numeric => return CitationMode::Numeric,
+            CitationMode::AuthorYear => mode = CitationMode::AuthorYear,
+            CitationMode::Auto => {}
+        }
+    }
+    mode
+}
+
+fn citation_mode_from_options(options: &str) -> CitationMode {
+    let mut mode = CitationMode::Auto;
+    for option in options
+        .split(',')
+        .map(|option| option.trim().to_ascii_lowercase())
+    {
+        let value = option
+            .split_once('=')
+            .map(|(_, value)| value.trim())
+            .unwrap_or(option.as_str());
+        if matches!(value, "numbers" | "numeric" | "numeric-comp" | "super")
+            || value.starts_with("numeric-")
+        {
+            return CitationMode::Numeric;
+        }
+        if matches!(value, "authoryear" | "author-year" | "alphabetic")
+            || value.starts_with("authoryear-")
+        {
+            mode = CitationMode::AuthorYear;
+        }
+    }
+    mode
+}
+
 fn resolve_existing_project_path(root: &Utf8Path, path: &Utf8Path) -> Option<Utf8PathBuf> {
     if root.join(path).exists() {
         return Some(path.to_path_buf());
@@ -1718,6 +1953,7 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
         citation_keys,
         bibliography_inputs: scan.bibliography_files.clone(),
         bibliography_style: scan.bibliography_style.clone(),
+        citation_mode: infer_project_citation_mode(&scan.files, scan.bibliography_style.as_deref()),
         citation_aliases: citation_aliases.into_values().collect(),
         bibliography,
         bibliography_titles,
@@ -1856,6 +2092,11 @@ pub fn parse_concrete_semantic_aux(payload: &[u8]) -> Result<SemanticAux> {
                 let (_, style) =
                     read_braced_argument(line, cursor).context("missing bibstyle value")?;
                 aux.bibliography_style = Some(decode_aux_text(&style)?);
+            }
+            "latexdcitationmode" => {
+                let (_, mode) =
+                    read_braced_argument(line, cursor).context("missing citation mode")?;
+                aux.citation_mode = CitationMode::parse(&decode_aux_text(&mode)?);
             }
             "bibcite" => {
                 let key = read_braced_argument(line, cursor).context("missing bibcite key")?;
@@ -2236,6 +2477,12 @@ pub fn render_concrete_semantic_aux(aux: &SemanticAux) -> Result<Vec<u8>> {
     }
     if let Some(style) = aux.bibliography_style.as_deref() {
         lines.push(format!("\\bibstyle{{{}}}", encode_aux_text(style)));
+    }
+    if aux.citation_mode != CitationMode::Auto {
+        lines.push(format!(
+            "\\latexdcitationmode{{{}}}",
+            encode_aux_text(aux.citation_mode.as_str())
+        ));
     }
     for alias in &aux.citation_aliases {
         lines.push(format!(
@@ -7889,7 +8136,7 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use std::fs;
     use tempfile::tempdir;
-    use tex_render_model::{AuxView, CitationStyleHint};
+    use tex_render_model::{AuxView, CitationLabelForm, CitationStyleHint};
 
     #[test]
     fn label_parse_write_roundtrip() {
@@ -7947,6 +8194,7 @@ mod tests {
                 Utf8PathBuf::from("refs-b.bbl"),
             ],
             bibliography_style: Some("plainnat".to_string()),
+            citation_mode: super::CitationMode::AuthorYear,
             citation_aliases: vec![super::CitationAlias {
                 key: "alpha".to_string(),
                 text: "Paper A".to_string(),
@@ -8928,6 +9176,7 @@ mod tests {
             citation_keys: vec!["alpha".to_string()],
             bibliography_inputs: vec![Utf8PathBuf::from("refs.bbl")],
             bibliography_style: None,
+            citation_mode: super::CitationMode::Auto,
             citation_aliases: Vec::new(),
             bibliography: vec![super::BibliographyEntry {
                 key: "alpha".to_string(),
@@ -8998,6 +9247,7 @@ mod tests {
             citation_keys: vec!["alpha".to_string()],
             bibliography_inputs: vec![Utf8PathBuf::from("refs.bbl")],
             bibliography_style: None,
+            citation_mode: super::CitationMode::Auto,
             citation_aliases: Vec::new(),
             bibliography: vec![super::BibliographyEntry {
                 key: "alpha".to_string(),
@@ -10358,6 +10608,76 @@ mod tests {
 
         assert_eq!(aux.citation_keys, vec!["alpha".to_string()]);
         assert_eq!(aux.citation_alias_text("alpha"), Some("Paper I"));
+    }
+
+    #[test]
+    fn numeric_natbib_mode_uses_bibliography_positions_for_author_year_labels() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\usepackage[numbers]{natbib}\begin{document}\citep{bengio}\citet{bengio}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{1}\bibitem[Bengio(2009)Bengio]{bengio} Yoshua Bengio. Learning deep architectures.\end{thebibliography}",
+        )
+        .expect("write bbl");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+
+        assert_eq!(aux.citation_mode, super::CitationMode::Numeric);
+        assert_eq!(
+            aux.citation_label("bengio", CitationStyleHint::Parenthetical),
+            Some(tex_render_model::CitationLabel {
+                text: "1".to_string(),
+                form: CitationLabelForm::Numeric,
+            })
+        );
+        assert_eq!(
+            aux.citation_label("bengio", CitationStyleHint::Textual),
+            Some(tex_render_model::CitationLabel {
+                text: "Bengio [1]".to_string(),
+                form: CitationLabelForm::Textual,
+            })
+        );
+    }
+
+    #[test]
+    fn author_year_natbib_mode_preserves_textual_and_parenthetical_forms() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\usepackage[authoryear]{natbib}\begin{document}\citep{bengio}\citet{bengio}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{1}\bibitem[Bengio(2009)Bengio]{bengio} Yoshua Bengio. Learning deep architectures.\end{thebibliography}",
+        )
+        .expect("write bbl");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+
+        assert_eq!(aux.citation_mode, super::CitationMode::AuthorYear);
+        assert_eq!(
+            aux.citation_label("bengio", CitationStyleHint::Parenthetical),
+            Some(tex_render_model::CitationLabel {
+                text: "Bengio, 2009".to_string(),
+                form: CitationLabelForm::Parenthetical,
+            })
+        );
+        assert_eq!(
+            aux.citation_label("bengio", CitationStyleHint::Textual),
+            Some(tex_render_model::CitationLabel {
+                text: "Bengio (2009)".to_string(),
+                form: CitationLabelForm::Textual,
+            })
+        );
     }
 
     #[test]

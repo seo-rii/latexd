@@ -33,19 +33,31 @@ pub struct PageDisplayListOptions {
     pub paragraph_gap_pt: Option<f32>,
     pub body_font_size_pt: f32,
     pub heading_font_size_pt: f32,
+    pub heading_line_height_pt: Option<f32>,
+    pub heading_gap_before_pt: Option<f32>,
+    pub heading_gap_after_pt: Option<f32>,
+    pub heading_number_separator: Option<String>,
     pub title_font_size_pt: f32,
     pub title_font_bold: bool,
+    pub title_line_height_pt: Option<f32>,
     pub title_gap_pt: Option<f32>,
     pub author_date_font_size_pt: Option<f32>,
+    pub author_date_line_height_pt: Option<f32>,
+    pub author_bold_row_count: usize,
+    pub author_first_row_extra_gap_pt: f32,
     pub authors_on_single_line: bool,
     pub author_date_gap_pt: f32,
     pub front_matter_gap_pt: f32,
     pub abstract_font_size_pt: Option<f32>,
     pub abstract_line_height_pt: Option<f32>,
     pub abstract_first_line_indent_pt: f32,
+    pub abstract_heading_font_size_pt: Option<f32>,
+    pub abstract_heading_line_height_pt: Option<f32>,
     pub abstract_heading_bold: bool,
     pub abstract_heading_centered: bool,
     pub abstract_heading_gap_pt: f32,
+    pub abstract_gap_after_pt: Option<f32>,
+    pub first_page_rules: Vec<Rect>,
     pub show_page_numbers: bool,
     pub page_number_font_size_pt: f32,
     pub page_number_offset_pt: f32,
@@ -76,19 +88,31 @@ impl Default for PageDisplayListOptions {
             paragraph_gap_pt: None,
             body_font_size_pt: 11.0,
             heading_font_size_pt: 15.0,
+            heading_line_height_pt: None,
+            heading_gap_before_pt: None,
+            heading_gap_after_pt: None,
+            heading_number_separator: None,
             title_font_size_pt: 18.0,
             title_font_bold: true,
+            title_line_height_pt: None,
             title_gap_pt: None,
             author_date_font_size_pt: None,
+            author_date_line_height_pt: None,
+            author_bold_row_count: 0,
+            author_first_row_extra_gap_pt: 0.0,
             authors_on_single_line: false,
             author_date_gap_pt: 0.0,
             front_matter_gap_pt: 14.0,
             abstract_font_size_pt: None,
             abstract_line_height_pt: None,
             abstract_first_line_indent_pt: 0.0,
+            abstract_heading_font_size_pt: None,
+            abstract_heading_line_height_pt: None,
             abstract_heading_bold: false,
             abstract_heading_centered: false,
             abstract_heading_gap_pt: 0.0,
+            abstract_gap_after_pt: None,
+            first_page_rules: Vec::new(),
             show_page_numbers: false,
             page_number_font_size_pt: 10.0,
             page_number_offset_pt: 18.0,
@@ -99,6 +123,11 @@ impl Default for PageDisplayListOptions {
 impl PageDisplayListOptions {
     pub fn for_document_ir(document_ir: &DocumentIr) -> Self {
         let mut options = Self::default();
+        let layout_profile = document_ir
+            .layout
+            .as_ref()
+            .and_then(|layout| layout.profile.as_deref())
+            .map(|profile| profile.trim().to_ascii_lowercase());
         let has_package_layout_profile = document_ir
             .layout
             .as_ref()
@@ -348,6 +377,59 @@ impl PageDisplayListOptions {
                 options.abstract_indent_pt = value as f32 / 1000.0;
             }
         }
+        if layout_profile.as_deref() == Some("nips_2014") {
+            options.page_width_pt = 612.0;
+            options.page_height_pt = 792.0;
+            options.margin_left_pt = 108.0;
+            options.margin_top_pt = 91.824;
+            options.margin_bottom_pt = 62.138;
+            options.front_matter_top_pt = Some(122.909);
+            options.body_font_size_pt = 9.9626;
+            options.line_height_pt = 10.9589;
+            options.block_gap_pt = 5.9776;
+            options.paragraph_first_line_indent_pt = 0.0;
+            options.paragraph_gap_pt = Some(5.9776);
+            options.heading_font_size_pt = 11.9552;
+            options.heading_line_height_pt = Some(13.9477);
+            options.heading_gap_before_pt = Some(15.3575);
+            options.heading_gap_after_pt = Some(11.5653);
+            options.heading_number_separator = Some("    ".to_string());
+            options.title_font_size_pt = 17.2154;
+            options.title_line_height_pt = Some(19.9253);
+            options.title_gap_pt = Some(32.6587);
+            options.author_date_font_size_pt = Some(9.9626);
+            options.author_date_line_height_pt = Some(10.9589);
+            options.author_bold_row_count = 2;
+            options.author_first_row_extra_gap_pt = 0.7871;
+            options.front_matter_gap_pt = 30.2871;
+            options.abstract_indent_pt = 35.8655;
+            options.abstract_font_size_pt = Some(9.9626);
+            options.abstract_line_height_pt = Some(10.9589);
+            options.abstract_first_line_indent_pt = 0.0;
+            options.abstract_heading_font_size_pt = Some(11.9552);
+            options.abstract_heading_line_height_pt = Some(13.9477);
+            options.abstract_heading_bold = true;
+            options.abstract_heading_centered = true;
+            options.abstract_heading_gap_pt = 12.2693;
+            options.abstract_gap_after_pt = Some(12.7016);
+            options.first_page_rules = vec![
+                Rect {
+                    x: 108.0,
+                    y: 89.062,
+                    width: 396.0,
+                    height: 3.985,
+                },
+                Rect {
+                    x: 108.0,
+                    y: 138.129,
+                    width: 396.0,
+                    height: 0.996,
+                },
+            ];
+            options.show_page_numbers = true;
+            options.page_number_font_size_pt = 9.9626;
+            options.page_number_offset_pt = 29.888;
+        }
         let uses_standard_article_metrics = document_ir
             .document_class
             .as_ref()
@@ -553,6 +635,11 @@ pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
 ) -> Vec<PageDisplayList> {
+    let uses_nips_2014_metrics = document_ir
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.profile.as_deref())
+        .is_some_and(|profile| profile.trim().eq_ignore_ascii_case("nips_2014"));
     let uses_standard_article_metrics = document_ir
         .document_class
         .as_ref()
@@ -577,8 +664,14 @@ pub fn build_page_display_lists(
     let total_column_gap_pt = column_gap_pt * column_count.saturating_sub(1) as f32;
     let column_width_pt =
         ((page_content_width_pt - total_column_gap_pt).max(1.0) / column_count as f32).max(1.0);
+    let text_font_family = document_ir
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.text_font_family.as_ref())
+        .map(|family| FontFamilyRequest::Named(family.clone()))
+        .unwrap_or(FontFamilyRequest::Serif);
     let body_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: FontSeries::Regular,
         shape: FontShape::Upright,
         size_pt: options.body_font_size_pt,
@@ -591,21 +684,21 @@ pub fn build_page_display_lists(
         .bibliography_line_height_pt
         .unwrap_or(options.line_height_pt);
     let bibliography_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: FontSeries::Regular,
         shape: FontShape::Upright,
         size_pt: bibliography_font_size_pt,
         role: FontRole::Body,
     };
     let heading_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: FontSeries::Bold,
         shape: FontShape::Upright,
         size_pt: options.heading_font_size_pt,
         role: FontRole::Heading,
     };
     let title_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: if options.title_font_bold {
             FontSeries::Bold
         } else {
@@ -619,12 +712,19 @@ pub fn build_page_display_lists(
         .author_date_font_size_pt
         .unwrap_or(options.body_font_size_pt);
     let author_date_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: FontSeries::Regular,
         shape: FontShape::Upright,
         size_pt: author_date_font_size_pt,
         role: FontRole::Body,
     };
+    let author_date_bold_font = FontRequest {
+        series: FontSeries::Bold,
+        ..author_date_font.clone()
+    };
+    let author_date_line_height_pt = options
+        .author_date_line_height_pt
+        .unwrap_or(options.line_height_pt);
     let abstract_font_size_pt = options
         .abstract_font_size_pt
         .unwrap_or(options.body_font_size_pt);
@@ -632,21 +732,27 @@ pub fn build_page_display_lists(
         .abstract_line_height_pt
         .unwrap_or(options.line_height_pt);
     let abstract_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family.clone(),
         series: FontSeries::Regular,
         shape: FontShape::Upright,
         size_pt: abstract_font_size_pt,
         role: FontRole::Body,
     };
+    let abstract_heading_font_size_pt = options
+        .abstract_heading_font_size_pt
+        .unwrap_or(abstract_font_size_pt);
+    let abstract_heading_line_height_pt = options
+        .abstract_heading_line_height_pt
+        .unwrap_or(abstract_line_height_pt);
     let abstract_heading_font = FontRequest {
-        family: FontFamilyRequest::Serif,
+        family: text_font_family,
         series: if options.abstract_heading_bold {
             FontSeries::Bold
         } else {
             FontSeries::Regular
         },
         shape: FontShape::Upright,
-        size_pt: abstract_font_size_pt,
+        size_pt: abstract_heading_font_size_pt,
         role: FontRole::Heading,
     };
     let math_font = FontRequest {
@@ -784,7 +890,9 @@ pub fn build_page_display_lists(
                         source,
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
-                        line_height_pt: options.line_height_pt,
+                        line_height_pt: options
+                            .title_line_height_pt
+                            .unwrap_or(options.line_height_pt),
                         gap_after_pt: options.title_gap_pt.unwrap_or(options.block_gap_pt * 2.0),
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
@@ -793,18 +901,20 @@ pub fn build_page_display_lists(
                         full_width: true,
                     }));
                 }
-                let author_gap_after =
-                    if block.affiliations.is_empty() && block.correspondence.is_empty() {
-                        if block.date.is_some() {
-                            options.author_date_gap_pt
-                        } else if block.keywords.is_empty() && block.pacs.is_empty() {
-                            options.front_matter_gap_pt
-                        } else {
-                            0.0
-                        }
+                let author_gap_after = if (uses_nips_2014_metrics || block.author_notes.is_empty())
+                    && block.affiliations.is_empty()
+                    && block.correspondence.is_empty()
+                {
+                    if block.date.is_some() {
+                        options.author_date_gap_pt
+                    } else if block.keywords.is_empty() && block.pacs.is_empty() {
+                        options.front_matter_gap_pt
                     } else {
                         0.0
-                    };
+                    }
+                } else {
+                    0.0
+                };
                 if options.authors_on_single_line && !block.authors.is_empty() {
                     let mut segments = Vec::new();
                     for (index, author) in block.authors.iter().enumerate() {
@@ -837,9 +947,13 @@ pub fn build_page_display_lists(
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments,
                         source: block.source.clone(),
-                        font: author_date_font.clone(),
+                        font: if options.author_bold_row_count > 0 {
+                            author_date_bold_font.clone()
+                        } else {
+                            author_date_font.clone()
+                        },
                         size_pt: author_date_font_size_pt,
-                        line_height_pt: options.line_height_pt,
+                        line_height_pt: author_date_line_height_pt,
                         gap_after_pt: author_gap_after,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
@@ -854,6 +968,14 @@ pub fn build_page_display_lists(
                             .get(index)
                             .cloned()
                             .unwrap_or_else(|| block.source.clone());
+                        let mut gap_after_pt = if index + 1 == block.authors.len() {
+                            author_gap_after
+                        } else {
+                            0.0
+                        };
+                        if index == 0 {
+                            gap_after_pt += options.author_first_row_extra_gap_pt;
+                        }
                         logical_items.push(LogicalItem::Text(LogicalTextRun {
                             segments: vec![LogicalTextSegment {
                                 text: author.clone(),
@@ -865,11 +987,51 @@ pub fn build_page_display_lists(
                                 table_vertical_rule_offsets: Vec::new(),
                             }],
                             source,
-                            font: author_date_font.clone(),
+                            font: if index < options.author_bold_row_count {
+                                author_date_bold_font.clone()
+                            } else {
+                                author_date_font.clone()
+                            },
                             size_pt: author_date_font_size_pt,
+                            line_height_pt: author_date_line_height_pt,
+                            gap_after_pt,
+                            first_line_indent_pt: 0.0,
+                            continuation_indent_pt: 0.0,
+                            right_indent_pt: 0.0,
+                            preserve_leading_whitespace: false,
+                            full_width: true,
+                        }));
+                    }
+                }
+                if !uses_nips_2014_metrics {
+                    for (index, note) in block.author_notes.iter().enumerate() {
+                        let source = block
+                            .author_note_sources
+                            .get(index)
+                            .cloned()
+                            .unwrap_or_else(|| block.source.clone());
+                        logical_items.push(LogicalItem::Text(LogicalTextRun {
+                            segments: vec![LogicalTextSegment {
+                                text: note.clone(),
+                                source: source.clone(),
+                                link_target: None,
+                                table_rule: false,
+                                table_rule_trim_start_pt: None,
+                                table_rule_trim_end_pt: None,
+                                table_vertical_rule_offsets: Vec::new(),
+                            }],
+                            source,
+                            font: body_font.clone(),
+                            size_pt: options.body_font_size_pt,
                             line_height_pt: options.line_height_pt,
-                            gap_after_pt: if index + 1 == block.authors.len() {
-                                author_gap_after
+                            gap_after_pt: if index + 1 == block.author_notes.len()
+                                && block.affiliations.is_empty()
+                                && block.correspondence.is_empty()
+                                && block.date.is_none()
+                                && block.keywords.is_empty()
+                                && block.pacs.is_empty()
+                            {
+                                options.front_matter_gap_pt
                             } else {
                                 0.0
                             },
@@ -1053,8 +1215,11 @@ pub fn build_page_display_lists(
             }
             IrBlock::Abstract(block) => {
                 let abstract_heading_indent_pt = if options.abstract_heading_centered {
-                    let heading_width_pt =
-                        text_advance_pt("Abstract", &abstract_heading_font, abstract_font_size_pt);
+                    let heading_width_pt = text_advance_pt(
+                        "Abstract",
+                        &abstract_heading_font,
+                        abstract_heading_font_size_pt,
+                    );
                     ((column_width_pt - heading_width_pt) / 2.0).max(0.0)
                 } else {
                     0.0
@@ -1071,8 +1236,8 @@ pub fn build_page_display_lists(
                     }],
                     source: block.source.clone(),
                     font: abstract_heading_font.clone(),
-                    size_pt: abstract_font_size_pt,
-                    line_height_pt: abstract_line_height_pt,
+                    size_pt: abstract_heading_font_size_pt,
+                    line_height_pt: abstract_heading_line_height_pt,
                     gap_after_pt: options.abstract_heading_gap_pt,
                     first_line_indent_pt: abstract_heading_indent_pt,
                     continuation_indent_pt: 0.0,
@@ -1086,7 +1251,9 @@ pub fn build_page_display_lists(
                     font: abstract_font.clone(),
                     size_pt: abstract_font_size_pt,
                     line_height_pt: abstract_line_height_pt,
-                    gap_after_pt: options.block_gap_pt,
+                    gap_after_pt: options
+                        .abstract_gap_after_pt
+                        .unwrap_or(options.block_gap_pt),
                     first_line_indent_pt: options.abstract_indent_pt
                         + options.abstract_first_line_indent_pt,
                     continuation_indent_pt: options.abstract_indent_pt,
@@ -1142,6 +1309,16 @@ pub fn build_page_display_lists(
                             ),
                             _ => legacy_metrics,
                         }
+                    } else if uses_nips_2014_metrics && block.level == 1 {
+                        (
+                            options.heading_font_size_pt,
+                            options
+                                .heading_line_height_pt
+                                .unwrap_or(options.line_height_pt),
+                            options.heading_gap_before_pt.unwrap_or(0.0),
+                            options.heading_gap_after_pt.unwrap_or(options.block_gap_pt),
+                            options.heading_number_separator.as_deref().unwrap_or(" "),
+                        )
                     } else {
                         legacy_metrics
                     };
@@ -2363,6 +2540,30 @@ pub fn build_page_display_lists(
     }
     let logical_items = grouped_logical_items;
 
+    let author_notes = document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(block) => Some(
+                block
+                    .author_notes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, note)| {
+                        (
+                            note.clone(),
+                            block
+                                .author_note_sources
+                                .get(index)
+                                .cloned()
+                                .unwrap_or_else(|| block.source.clone()),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut pages = Vec::new();
     let mut pending_labels = document_ir.labels.clone();
     pending_labels.sort_by(
@@ -2380,6 +2581,45 @@ pub fn build_page_display_lists(
     );
     let mut page_content_occurrences = std::collections::BTreeMap::<String, usize>::new();
     let mut finish_page = |pages: &mut Vec<PageDisplayList>, mut pending: PendingPage| {
+        if uses_nips_2014_metrics && pages.is_empty() {
+            let note_font_size_pt = 8.9664;
+            let note_line_height_pt = 10.9589;
+            let note_text_x = 124.139;
+            let note_marker_x = 118.8;
+            let mut note_font = body_font.clone();
+            note_font.size_pt = note_font_size_pt;
+            for (index, (note, source)) in author_notes.iter().enumerate() {
+                let marker = match index {
+                    0 => "*".to_string(),
+                    1 => "†".to_string(),
+                    2 => "‡".to_string(),
+                    _ => format!("{}", index + 1),
+                };
+                let y = 698.78 + index as f32 * note_line_height_pt;
+                if let ProvenanceSpan::File(span) = &source.primary
+                    && !pending.source_spans.contains(span)
+                {
+                    pending.source_spans.push(span.clone());
+                }
+                for (text, x) in [(marker, note_marker_x), (note.clone(), note_text_x)] {
+                    let advance = text_advance_pt(&text, &note_font, note_font_size_pt);
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!(
+                        "author-note:{index}:{x:.3}:{y:.3}:{advance:.3}:{text}"
+                    ));
+                    pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                        origin: Point { x, y },
+                        font: note_font.clone(),
+                        size_pt: note_font_size_pt,
+                        text: text.clone(),
+                        approximate_advance_pt: advance,
+                        glyphs: None,
+                        clusters: approximate_text_clusters(&text),
+                        source: source.clone(),
+                    }));
+                }
+            }
+        }
         if options.show_page_numbers {
             let page_number = pages.len() + 1;
             let text = page_number.to_string();
@@ -2439,6 +2679,13 @@ pub fn build_page_display_lists(
         source_spans: Vec::new(),
         text: String::new(),
         hash_input: format!("options:{options:?}:font-metrics:basic-v1"),
+    };
+    let page_content_bottom_pt = |page_index: usize| {
+        if uses_nips_2014_metrics && page_index == 0 && !author_notes.is_empty() {
+            680.952
+        } else {
+            options.page_height_pt - options.margin_bottom_pt
+        }
     };
     let content_height_pt =
         (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt).max(1.0);
@@ -2575,13 +2822,23 @@ pub fn build_page_display_lists(
         ])
     };
     let mut pending = new_pending_page();
-    let mut pending_image_row: Option<PendingImageRow> = None;
-    let mut column_index = 0usize;
-    let first_page_top_pt = if document_ir
+    let has_title_block = document_ir
         .blocks
         .iter()
-        .any(|block| matches!(block, IrBlock::TitleBlock(_)))
-    {
+        .any(|block| matches!(block, IrBlock::TitleBlock(_)));
+    if has_title_block {
+        for rule in &options.first_page_rules {
+            pending.hash_input.push('\u{1f}');
+            pending.hash_input.push_str(&format!(
+                "front-matter-rule:{:.3}:{:.3}:{:.3}:{:.3}",
+                rule.x, rule.y, rule.width, rule.height
+            ));
+            pending.ops.push(DrawOp::Rule(rule.clone()));
+        }
+    }
+    let mut pending_image_row: Option<PendingImageRow> = None;
+    let mut column_index = 0usize;
+    let first_page_top_pt = if has_title_block {
         options.front_matter_top_pt.unwrap_or(options.margin_top_pt)
     } else {
         options.margin_top_pt
@@ -2688,7 +2945,7 @@ pub fn build_page_display_lists(
                     + layout.ascent_pt
                     + layout.descent_pt
                     + logical.gap_after_pt;
-                if y + required_height_pt > options.page_height_pt - options.margin_bottom_pt
+                if y + required_height_pt > page_content_bottom_pt(pages.len())
                     && !pending.ops.is_empty()
                 {
                     if column_index + 1 < column_count {
@@ -3001,7 +3258,7 @@ pub fn build_page_display_lists(
                     } else {
                         logical.line_height_pt
                     };
-                    if y + line_advance_pt > options.page_height_pt - options.margin_bottom_pt
+                    if y + line_advance_pt > page_content_bottom_pt(pages.len())
                         && !pending.ops.is_empty()
                     {
                         if !full_width && column_index + 1 < column_count {
@@ -3266,7 +3523,7 @@ pub fn build_page_display_lists(
                     .iter()
                     .map(|container| container.height_pt)
                     .fold(options.line_height_pt, f32::max);
-                if y + row_height_pt > options.page_height_pt - options.margin_bottom_pt
+                if y + row_height_pt > page_content_bottom_pt(pages.len())
                     && !pending.ops.is_empty()
                 {
                     if column_index + 1 < column_count {
@@ -3809,8 +4066,7 @@ pub fn build_page_display_lists(
                     row.packable
                         && image_is_packable
                         && row.used_width_pt + row_gap_pt + image_width <= column_width_pt + 0.01
-                        && row.y + required_height
-                            <= options.page_height_pt - options.margin_bottom_pt
+                        && row.y + required_height <= page_content_bottom_pt(pages.len())
                 });
                 let (image_x, image_y) = if can_join_pending_row {
                     let row = pending_image_row.as_mut().expect("pending image row");
@@ -3835,7 +4091,7 @@ pub fn build_page_display_lists(
                         column_start_y = options.margin_top_pt;
                         y = column_start_y;
                     }
-                    if y + required_height > options.page_height_pt - options.margin_bottom_pt
+                    if y + required_height > page_content_bottom_pt(pages.len())
                         && !pending.ops.is_empty()
                     {
                         if !full_width && column_index + 1 < column_count {
@@ -4036,15 +4292,15 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp, FontSeries,
-        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
-        GraphicBlock, GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale,
-        ImageTrim, ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
-        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MathAtomKind,
-        MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, PageBreakKind,
-        ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan,
-        TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan,
-        TextCluster, TitleBlock,
+        DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp,
+        FontFamilyRequest, FontSeries, GraphicAssetDensity, GraphicAssetDensityUnit,
+        GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, GraphicPageSelection,
+        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
+        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
+        ListItemIr, ListKind, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
+        PageBreakBlock, PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
+        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
+        TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -4059,6 +4315,8 @@ mod tests {
                     title_source: None,
                     authors: vec!["Ada Lovelace".to_string()],
                     author_sources: Vec::new(),
+                    author_notes: Vec::new(),
+                    author_note_sources: Vec::new(),
                     affiliations: Vec::new(),
                     affiliation_sources: Vec::new(),
                     correspondence: Vec::new(),
@@ -7365,6 +7623,8 @@ mod tests {
                 title_source: Some(title_source),
                 authors: vec!["Ada Lovelace".to_string()],
                 author_sources: vec![author_source],
+                author_notes: Vec::new(),
+                author_note_sources: Vec::new(),
                 affiliations: Vec::new(),
                 affiliation_sources: Vec::new(),
                 correspondence: Vec::new(),
@@ -7886,6 +8146,171 @@ mod tests {
     }
 
     #[test]
+    fn nips_2014_profile_reproduces_measured_front_matter_baselines() {
+        let source = SourceProvenance::file("main.tex", 0, 256);
+        let document = DocumentIr::with_document_class_layout_and_labels(
+            vec![
+                IrBlock::TitleBlock(TitleBlock {
+                    title: Some("Generative Adversarial Nets".to_string()),
+                    title_source: Some(source.clone()),
+                    authors: vec![
+                        "First author row".to_string(),
+                        "Second author row".to_string(),
+                        "First affiliation row".to_string(),
+                        "Second affiliation row".to_string(),
+                        "Third affiliation row".to_string(),
+                    ],
+                    author_sources: vec![source.clone(); 5],
+                    author_notes: vec!["First author note.".to_string()],
+                    author_note_sources: vec![source.clone()],
+                    affiliations: Vec::new(),
+                    affiliation_sources: Vec::new(),
+                    correspondence: Vec::new(),
+                    correspondence_sources: Vec::new(),
+                    date: None,
+                    date_source: None,
+                    keywords: Vec::new(),
+                    keyword_sources: Vec::new(),
+                    pacs: Vec::new(),
+                    pacs_sources: Vec::new(),
+                    source: source.clone(),
+                }),
+                IrBlock::Abstract(AbstractBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Abstract body.".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Heading(HeadingBlock {
+                    level: 1,
+                    number: Some("1".to_string()),
+                    content: vec![InlineNode::Text {
+                        text: "Introduction".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Body.".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+            ],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: Vec::new(),
+                source: source.clone(),
+            }),
+            Some(DocumentLayoutIntent {
+                profile: Some("nips_2014".to_string()),
+                text_font_family: Some("times".to_string()),
+                ..DocumentLayoutIntent::default()
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+        let pages = build_page_display_lists(&document, options.clone());
+        let run = |text: &str| {
+            pages[0].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run),
+                _ => None,
+            })
+        };
+
+        let title = run("Generative Adversarial Nets").expect("title");
+        let author_1 = run("First author row").expect("first author row");
+        let author_2 = run("Second author row").expect("second author row");
+        let affiliation = run("First affiliation row").expect("affiliation row");
+        let abstract_heading = run("Abstract").expect("abstract heading");
+        let abstract_body = run("Abstract body.").expect("abstract body");
+        let heading_number = run("1").expect("heading number");
+        let body = run("Body.").expect("body");
+        let author_note = run("First author note.").expect("author note");
+
+        assert!((title.origin.y - 122.909).abs() < 0.001);
+        assert!((author_1.origin.y - 175.493).abs() < 0.001);
+        assert!((author_2.origin.y - 187.239).abs() < 0.001);
+        assert!((affiliation.origin.y - 198.198).abs() < 0.001);
+        assert_eq!(author_1.font.series, FontSeries::Bold);
+        assert_eq!(author_2.font.series, FontSeries::Bold);
+        assert_eq!(affiliation.font.series, FontSeries::Regular);
+        assert!(
+            (abstract_heading.origin.y - 261.362).abs() < 0.002,
+            "abstract heading baseline was {}",
+            abstract_heading.origin.y
+        );
+        assert!(
+            (abstract_body.origin.y - abstract_heading.origin.y - 13.9477 - 12.2693).abs() < 0.001
+        );
+        assert!((body.origin.y - heading_number.origin.y - 13.9477 - 11.5653).abs() < 0.001);
+        assert!((author_note.origin.y - 698.78).abs() < 0.001);
+        assert_eq!(options.first_page_rules.len(), 2);
+        assert!(pages[0].ops.iter().any(|op| {
+            matches!(op, DrawOp::Rule(rule) if (rule.y - 89.062).abs() < 0.001 && (rule.height - 3.985).abs() < 0.001)
+        }));
+        assert!(run("1").is_some());
+    }
+
+    #[test]
+    fn document_text_font_intent_applies_to_body_and_heading_runs() {
+        let source = SourceProvenance::file("main.tex", 0, 32);
+        let document = DocumentIr::with_document_class_layout_and_labels(
+            vec![
+                IrBlock::Heading(HeadingBlock {
+                    level: 1,
+                    number: Some("1".to_string()),
+                    content: vec![InlineNode::Text {
+                        text: "Intro".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Body".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+            ],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: Vec::new(),
+                source,
+            }),
+            Some(DocumentLayoutIntent {
+                text_font_family: Some("times".to_string()),
+                ..DocumentLayoutIntent::default()
+            }),
+            Vec::new(),
+        );
+
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions::for_document_ir(&document),
+        );
+        let text_runs = pages
+            .iter()
+            .flat_map(|page| &page.ops)
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(text_runs.iter().any(|run| run.text.contains("Intro")));
+        assert!(text_runs.iter().any(|run| run.text.contains("Body")));
+        assert!(
+            text_runs
+                .iter()
+                .all(|run| { run.font.family == FontFamilyRequest::Named("times".to_string()) })
+        );
+    }
+
+    #[test]
     fn article_paragraphs_indent_except_immediately_after_headings() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let document = DocumentIr::with_document_class_and_labels(
@@ -8001,6 +8426,8 @@ mod tests {
                     title_source: Some(source.clone()),
                     authors: vec!["Ada Example".to_string(), "Grace Sample".to_string()],
                     author_sources: vec![source.clone(), source.clone()],
+                    author_notes: Vec::new(),
+                    author_note_sources: Vec::new(),
                     affiliations: Vec::new(),
                     affiliation_sources: Vec::new(),
                     correspondence: Vec::new(),
@@ -8101,6 +8528,8 @@ mod tests {
                 title_source: Some(source.clone()),
                 authors: Vec::new(),
                 author_sources: Vec::new(),
+                author_notes: Vec::new(),
+                author_note_sources: Vec::new(),
                 affiliations: Vec::new(),
                 affiliation_sources: Vec::new(),
                 correspondence: Vec::new(),
@@ -8137,6 +8566,8 @@ mod tests {
             title_source: Some(source.clone()),
             authors: Vec::new(),
             author_sources: Vec::new(),
+            author_notes: Vec::new(),
+            author_note_sources: Vec::new(),
             affiliations: Vec::new(),
             affiliation_sources: Vec::new(),
             correspondence: Vec::new(),

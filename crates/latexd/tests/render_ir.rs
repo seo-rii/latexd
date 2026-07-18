@@ -2650,10 +2650,8 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
         .expect("title block");
 
     assert_eq!(title.title.as_deref(), Some("Quantum Paper"));
-    assert_eq!(
-        title.authors,
-        vec!["Nai-Hui Chia nc67@rice.edu", "Atsuya Hasegawa"]
-    );
+    assert_eq!(title.authors, vec!["Nai-Hui Chia", "Atsuya Hasegawa"]);
+    assert_eq!(title.author_notes, vec!["nc67@rice.edu"]);
     assert_eq!(
         title.affiliations,
         vec![
@@ -2664,7 +2662,8 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
     let extracted_text = capture.document_ir.extracted_text();
     for visible in [
         "Quantum Paper",
-        "Nai-Hui Chia nc67@rice.edu",
+        "Nai-Hui Chia",
+        "nc67@rice.edu",
         "Atsuya Hasegawa",
         "Department of Computer Science",
         "Graduate School of Mathematics",
@@ -2686,7 +2685,8 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
         .join(" ");
     for visible in [
         "Quantum Paper",
-        "Nai-Hui Chia nc67@rice.edu",
+        "Nai-Hui Chia",
+        "nc67@rice.edu",
         "Atsuya Hasegawa",
         "Department of Computer Science",
         "Graduate School of Mathematics",
@@ -2971,7 +2971,11 @@ fn frontmatter_metadata_comments_do_not_leak_into_ir_or_display_list() {
     assert_eq!(title.title.as_deref(), Some("HSViT"));
     assert_eq!(
         title.authors,
-        vec!["Chenhao Xu School of IT, Deakin University Geelong, VIC, Australia"]
+        vec![
+            "Chenhao Xu",
+            "School of IT, Deakin University",
+            "Geelong, VIC, Australia"
+        ]
     );
     let extracted_text = capture.document_ir.extracted_text();
     let display_list_text = capture
@@ -2986,7 +2990,9 @@ fn frontmatter_metadata_comments_do_not_leak_into_ir_or_display_list() {
         .join("\n");
     for visible in [
         "HSViT",
-        "Chenhao Xu School of IT, Deakin University Geelong, VIC, Australia",
+        "Chenhao Xu",
+        "School of IT, Deakin University",
+        "Geelong, VIC, Australia",
     ] {
         assert!(extracted_text.contains(visible), "{extracted_text}");
         assert!(display_list_text.contains(visible), "{display_list_text}");
@@ -29030,18 +29036,21 @@ fn aux_textual_author_year_citation_labels_are_not_bracketed() {
 
     assert_eq!(citations.len(), 2);
     assert_eq!(citations[0].style_hint, CitationStyleHint::Textual);
-    assert_eq!(citations[0].resolved_label.as_deref(), Some("Alpha 2024a"));
-    assert_eq!(citations[0].display_text, "Alpha 2024a");
+    assert_eq!(
+        citations[0].resolved_label.as_deref(),
+        Some("Alpha (2024a)")
+    );
+    assert_eq!(citations[0].display_text, "Alpha (2024a)");
     assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
     assert_eq!(
         citations[1].resolved_label.as_deref(),
-        Some("[Alpha 2024a]")
+        Some("(Alpha, 2024a)")
     );
-    assert_eq!(citations[1].display_text, "[Alpha 2024a]");
+    assert_eq!(citations[1].display_text, "(Alpha, 2024a)");
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
-        extracted_text.contains("See Alpha 2024a and [Alpha 2024a]."),
+        extracted_text.contains("See Alpha (2024a) and (Alpha, 2024a)."),
         "{extracted_text}"
     );
     assert!(!extracted_text.contains("alpha"));
@@ -29057,7 +29066,7 @@ fn aux_textual_author_year_citation_labels_are_not_bracketed() {
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("See Alpha 2024a and [Alpha 2024a]."),
+        display_list_text.contains("See Alpha (2024a) and (Alpha, 2024a)."),
         "{display_list_text}"
     );
 }
