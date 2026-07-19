@@ -859,15 +859,110 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             .normalized_visible_text
                             .clone()
                             .unwrap_or_else(|| event.source_excerpt.clone());
-                        let mut rows = visible
-                            .split(';')
+                        let split_nested_table_cell_lines = |text: &str| {
+                            let mut result = String::with_capacity(text.len());
+                            let mut wrapper_stack = Vec::new();
+                            let mut index = 0usize;
+                            while index < text.len() {
+                                let ch = text[index..].chars().next().expect("table cell char");
+                                if ch.is_ascii_alphabetic() {
+                                    let identifier_start = index;
+                                    index += ch.len_utf8();
+                                    while index < text.len()
+                                        && text[index..].chars().next().is_some_and(|next| {
+                                            next.is_ascii_alphanumeric() || next == '_'
+                                        })
+                                    {
+                                        index += text[index..]
+                                            .chars()
+                                            .next()
+                                            .expect("table cell identifier char")
+                                            .len_utf8();
+                                    }
+                                    let identifier = &text[identifier_start..index];
+                                    result.push_str(identifier);
+                                    if text.as_bytes().get(index).copied() == Some(b'(') {
+                                        result.push('(');
+                                        wrapper_stack.push(matches!(
+                                            identifier,
+                                            "array"
+                                                | "matrix"
+                                                | "cases"
+                                                | "subarray"
+                                                | "aligned"
+                                                | "split"
+                                                | "gathered"
+                                                | "multlined"
+                                                | "alignedat"
+                                                | "substack"
+                                                | "bordermatrix"
+                                        ));
+                                        index += 1;
+                                    }
+                                    continue;
+                                }
+                                match ch {
+                                    '(' => wrapper_stack.push(false),
+                                    ')' => {
+                                        wrapper_stack.pop();
+                                    }
+                                    ';' if wrapper_stack.last().copied().unwrap_or(false) => {
+                                        result.push('\n');
+                                        index += ch.len_utf8();
+                                        while index < text.len()
+                                            && text[index..]
+                                                .chars()
+                                                .next()
+                                                .is_some_and(char::is_whitespace)
+                                        {
+                                            index += text[index..]
+                                                .chars()
+                                                .next()
+                                                .expect("table cell whitespace")
+                                                .len_utf8();
+                                        }
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                                result.push(ch);
+                                index += ch.len_utf8();
+                            }
+                            result
+                        };
+                        let mut serialized_rows = Vec::new();
+                        let mut row_start = 0usize;
+                        let mut parenthesis_depth = 0usize;
+                        let mut bracket_depth = 0usize;
+                        let mut brace_depth = 0usize;
+                        for (index, ch) in visible.char_indices() {
+                            match ch {
+                                '(' => parenthesis_depth += 1,
+                                ')' => parenthesis_depth = parenthesis_depth.saturating_sub(1),
+                                '[' => bracket_depth += 1,
+                                ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                                '{' => brace_depth += 1,
+                                '}' => brace_depth = brace_depth.saturating_sub(1),
+                                ';' if parenthesis_depth == 0
+                                    && bracket_depth == 0
+                                    && brace_depth == 0 =>
+                                {
+                                    serialized_rows.push(&visible[row_start..index]);
+                                    row_start = index + ch.len_utf8();
+                                }
+                                _ => {}
+                            }
+                        }
+                        serialized_rows.push(&visible[row_start..]);
+                        let mut rows = serialized_rows
+                            .into_iter()
                             .filter_map(|row| {
                                 let cells = row
                                     .split(" | ")
                                     .map(str::trim)
                                     .filter(|cell| !cell.is_empty())
                                     .map(|text| TableCell {
-                                        text: text.to_string(),
+                                        text: split_nested_table_cell_lines(text),
                                         column_span: None,
                                         row_span: None,
                                         alignment: None,

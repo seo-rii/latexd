@@ -23494,6 +23494,69 @@ fn tabular_multirow_visible_text_survives_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_multirow_nested_math_array_stays_in_one_outer_cell() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{multirow}\begin{document}\begin{tabular}{ll}\multirow{2}{*}{\(\left[\begin{array}{c}A\\B\end{array}\right]\)} & Tail \\ & Next\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert!(
+        table.rows[0].cells[0].text.contains("array(A\nB)"),
+        "{:?}",
+        table.rows
+    );
+    assert_eq!(table.rows[0].cells[0].row_span, Some(2));
+    assert_eq!(table.rows[0].cells[1].text, "Tail");
+    assert_eq!(table.rows[1].cells[0].text, "Next");
+}
+
+#[test]
+fn tabular_local_macro_preserves_nested_math_array_content() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{multirow}\newcommand{\blocka}[2]{\multirow{3}{*}{\(\left[\begin{array}{c}\text{3$\times$3, #1}\\[-.1em] \text{3$\times$3, #1}\end{array}\right]\)$\times$#2}}\begin{document}\begin{tabular}{ll}\blocka{64}{2} & Tail \\ & Next \\ & Last\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 3);
+    assert!(
+        table.rows[0].cells[0].text.contains("3 x3, 64"),
+        "{:?}",
+        table.rows
+    );
+    assert_eq!(
+        table.rows[0].cells[0].text.matches('\n').count(),
+        1,
+        "{:?}",
+        table.rows
+    );
+    assert!(!table.rows[0].cells[0].text.contains("642"));
+    assert_eq!(table.rows[0].cells[1].text, "Tail");
+    assert_eq!(table.rows[1].cells[0].text, "Next");
+    assert_eq!(table.rows[2].cells[0].text, "Last");
+}
+
+#[test]
 fn tabular_multirow_optional_arguments_do_not_leak() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -11748,6 +11748,11 @@ impl<'i> Vm<'i> {
             default_argument: Option<String>,
             replacement: String,
         }
+        struct CustomTableMacro {
+            parameter_count: usize,
+            default_argument: Option<String>,
+            replacement: String,
+        }
         let mut custom_column_types = HashMap::<char, CustomColumnType>::new();
         let mut custom_definition_index = 0usize;
         let definition_source = &source[..command_start.min(source.len())];
@@ -11803,6 +11808,93 @@ impl<'i> Vm<'i> {
                 }
             }
             custom_definition_index = definition_start + "\\newcolumntype".len();
+        }
+        let mut custom_table_macros = HashMap::<String, CustomTableMacro>::new();
+        let mut macro_definition_index = 0usize;
+        while macro_definition_index < definition_source.len() {
+            let next_definition = [
+                "\\newcommand",
+                "\\renewcommand",
+                "\\providecommand",
+                "\\DeclareRobustCommand",
+            ]
+            .into_iter()
+            .filter_map(|definition_command| {
+                definition_source[macro_definition_index..]
+                    .find(definition_command)
+                    .map(|relative_start| (relative_start, definition_command))
+            })
+            .min_by_key(|(relative_start, _)| *relative_start);
+            let Some((relative_definition_start, definition_command)) = next_definition else {
+                break;
+            };
+            let definition_start = macro_definition_index + relative_definition_start;
+            let mut definition_index = definition_start + definition_command.len();
+            if definition_source[definition_index..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '@')
+                || is_commented_source_index(source, definition_start)
+            {
+                macro_definition_index = definition_index;
+                continue;
+            }
+            if definition_source.as_bytes().get(definition_index).copied() == Some(b'*') {
+                definition_index += 1;
+            }
+            definition_index = skip_ascii_whitespace(definition_source, definition_index);
+            let Some((target, _, _, after_target)) =
+                read_braced_source_argument(definition_source, definition_index)
+            else {
+                macro_definition_index = definition_index.max(definition_start + 1);
+                continue;
+            };
+            let target = target.trim().trim_start_matches('\\');
+            if target.is_empty()
+                || !target
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphabetic() || ch == '@')
+            {
+                macro_definition_index = after_target;
+                continue;
+            }
+            let mut parameter_count = 0usize;
+            let mut default_argument = None;
+            definition_index = skip_ascii_whitespace(definition_source, after_target);
+            if let Some((count_text, _, _, after_count)) =
+                read_bracket_source_argument(definition_source, definition_index)
+            {
+                parameter_count = count_text.trim().parse::<usize>().unwrap_or(0).min(9);
+                definition_index = skip_ascii_whitespace(definition_source, after_count);
+                if parameter_count > 0
+                    && let Some((default_text, _, _, after_default)) =
+                        read_bracket_source_argument(definition_source, definition_index)
+                {
+                    default_argument = Some(default_text.to_string());
+                    definition_index = skip_ascii_whitespace(definition_source, after_default);
+                }
+            }
+            let Some((replacement, _, _, after_replacement)) =
+                read_braced_source_argument(definition_source, definition_index)
+            else {
+                macro_definition_index = definition_index.max(definition_start + 1);
+                continue;
+            };
+            if replacement.len() <= 8 * 1024 {
+                let custom = CustomTableMacro {
+                    parameter_count,
+                    default_argument,
+                    replacement: replacement.to_string(),
+                };
+                if definition_command == "\\providecommand" {
+                    custom_table_macros
+                        .entry(target.to_string())
+                        .or_insert(custom);
+                } else {
+                    custom_table_macros.insert(target.to_string(), custom);
+                }
+            }
+            macro_definition_index = after_replacement;
         }
         let parse_table_dimension_pt_milli = |dimension_text: &str| -> Option<u32> {
             let normalized = normalize_latex_text(dimension_text);
@@ -14154,6 +14246,48 @@ impl<'i> Vm<'i> {
                             }
                         }
                         _ => {
+                            if let Some(custom) = custom_table_macros.get(command) {
+                                let mut argument_index = command_end;
+                                let mut arguments = Vec::with_capacity(custom.parameter_count);
+                                if let Some(default_argument) = &custom.default_argument {
+                                    argument_index =
+                                        skip_ascii_whitespace(table_body, argument_index);
+                                    if let Some((argument, _, _, after_argument)) =
+                                        read_bracket_source_argument(table_body, argument_index)
+                                    {
+                                        arguments.push(argument.to_string());
+                                        argument_index = after_argument;
+                                    } else {
+                                        arguments.push(default_argument.clone());
+                                    }
+                                }
+                                while arguments.len() < custom.parameter_count {
+                                    argument_index =
+                                        skip_ascii_whitespace(table_body, argument_index);
+                                    let Some((argument, _, _, after_argument)) =
+                                        read_braced_source_argument(table_body, argument_index)
+                                    else {
+                                        break;
+                                    };
+                                    arguments.push(argument.to_string());
+                                    argument_index = after_argument;
+                                }
+                                if arguments.len() == custom.parameter_count {
+                                    let mut expanded = custom.replacement.clone();
+                                    for (index, argument) in arguments.iter().enumerate().rev() {
+                                        expanded =
+                                            expanded.replace(&format!("#{}", index + 1), argument);
+                                    }
+                                    let visible =
+                                        normalize_latex_text_with_inline_placeholders(&expanded);
+                                    if !visible.is_empty() {
+                                        rewritten.push_str(&visible);
+                                        row_has_visible_content = true;
+                                    }
+                                    table_index = argument_index;
+                                    continue;
+                                }
+                            }
                             rewritten.push('\\');
                             rewritten.push_str(command);
                             if !command.is_empty() {
@@ -26441,6 +26575,12 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         };
                         let mut rows = Vec::new();
                         for row in body.split("\\\\") {
+                            let mut row = row.trim();
+                            if let Some((_, _, _, after_spacing)) =
+                                read_bracket_source_argument(row, 0)
+                            {
+                                row = row[after_spacing..].trim_start();
+                            }
                             let cells = row
                                 .split('&')
                                 .filter_map(|cell| {
@@ -34413,6 +34553,70 @@ Fallback text.
                 cell_prefix: None,
                 cell_suffix: None,
             }]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_preserves_nested_math_array_rows_inside_multirow_cell() {
+        let source = r"\documentclass{article}\usepackage{multirow}\begin{document}\begin{tabular}{ll}\multirow{2}{*}{\(\left[\begin{array}{c}A\\B\end{array}\right]\)} & Tail \\ & Next\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert!(visible_text.contains("array(A; B)"), "{visible_text:?}");
+        assert!(
+            visible_text.ends_with("| Tail ; | Next"),
+            "{visible_text:?}"
+        );
+        assert_eq!(visible.table_cell_spans.len(), 1);
+        assert_eq!(visible.table_cell_spans[0].row_span, Some(2));
+    }
+
+    #[test]
+    fn render_event_capture_expands_local_table_macros_without_joining_arguments() {
+        let source = r"\documentclass{article}\usepackage{multirow}\newcommand{\blocka}[2]{\multirow{3}{*}{\(\left[\begin{array}{c}\text{3$\times$3, #1}\\[-.1em] \text{3$\times$3, #1}\end{array}\right]\)$\times$#2}}\begin{document}\begin{tabular}{ll}\blocka{64}{2} & Tail \\ & Next \\ & Last\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert!(visible_text.contains("3 x3, 64"), "{visible_text:?}");
+        assert!(!visible_text.contains("642"), "{visible_text:?}");
+        assert!(!visible_text.contains("-.1em"), "{visible_text:?}");
+        assert!(
+            visible_text.ends_with("| Tail ; | Next ; | Last"),
+            "{visible_text:?}"
         );
     }
 

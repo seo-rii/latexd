@@ -1963,7 +1963,11 @@ pub fn build_page_display_lists(
                                     .max()
                                     .unwrap_or(0)
                             } else {
-                                cell.text.chars().count()
+                                cell.text
+                                    .split('\n')
+                                    .map(|line| line.chars().count())
+                                    .max()
+                                    .unwrap_or(0)
                             };
                             column_widths[column_index] =
                                 column_widths[column_index].max(minimum_content_width);
@@ -2088,7 +2092,12 @@ pub fn build_page_display_lists(
                             .iter()
                             .sum::<usize>();
                         spanned_width += base_spanned_separator_width(column_index, end_column);
-                        let text_width = cell.text.chars().count();
+                        let text_width = cell
+                            .text
+                            .split('\n')
+                            .map(|line| line.chars().count())
+                            .max()
+                            .unwrap_or(0);
                         if (column_span > 1 || cell.alignment.is_some())
                             && text_width > spanned_width
                             && end_column > 0
@@ -2232,7 +2241,7 @@ pub fn build_page_display_lists(
                             if should_wrap {
                                 wrap_table_cell_text(&cell.text, cell_width)
                             } else {
-                                vec![cell.text.clone()]
+                                cell.text.split('\n').map(str::to_string).collect()
                             }
                         })
                         .collect::<Vec<_>>();
@@ -5875,6 +5884,64 @@ mod tests {
         assert!(table_runs[0].text.contains("right"));
         assert!(table_runs.iter().any(|run| run.text.contains("alpha")));
         assert!(table_runs.iter().any(|run| run.text.contains("delta")));
+    }
+
+    #[test]
+    fn explicit_table_cell_lines_use_longest_line_for_font_scale() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: Vec::new(),
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![TableCell {
+                        text: "abcdefghij\nklmnopqrst".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    }],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 80.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let table_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.font.role == FontRole::Mono => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(table_runs.len(), 2, "{table_runs:?}");
+        assert!(
+            table_runs.iter().all(|run| run.size_pt >= 9.9),
+            "{table_runs:?}"
+        );
+        assert_eq!(table_runs[0].text, "abcdefghij");
+        assert_eq!(table_runs[1].text, "klmnopqrst");
+        assert!(((table_runs[1].origin.y - table_runs[0].origin.y) - 12.0).abs() <= 0.01);
     }
 
     #[test]
