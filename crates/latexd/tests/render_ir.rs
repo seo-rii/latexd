@@ -100,6 +100,19 @@ fn document_tables(document: &DocumentIr) -> Vec<TableIrView<'_>> {
     tables
 }
 
+fn all_display_list_text(capture: &InternalRenderIrCapture) -> String {
+    capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| page.ops.iter())
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 fn tiny_png_bytes() -> Vec<u8> {
     tiny_png_bytes_with_first_red(255)
 }
@@ -4167,15 +4180,7 @@ fn figure_table_alignment_declarations_do_not_leak_into_render_text() {
     assert!(extracted_text.contains("Data."));
     assert!(extracted_text.contains("Visible."));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Plot."));
     assert!(display_list_text.contains("Data."));
     assert!(display_list_text.contains("Visible."));
@@ -7411,15 +7416,7 @@ fn sidecap_float_capture_survives_ir_without_fallback() {
     assert!(label_keys.contains(&"fig:side"));
     assert!(label_keys.contains(&"tab:side"));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Side [?]."));
     assert!(display_list_text.contains("Side table."));
     for hidden in ["[1]", "[ht]", "key", "fig:side", "tab:side"] {
@@ -7468,15 +7465,7 @@ fn wrap_float_capture_survives_ir_without_fallback() {
     assert!(label_keys.contains(&"fig:wrap"));
     assert!(label_keys.contains(&"tab:wrap"));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Wrapped figure."));
     assert!(display_list_text.contains("Wrapped table."));
     assert!(!display_list_text.contains("0.35"));
@@ -7524,15 +7513,7 @@ fn floatflt_floating_environment_capture_survives_ir_without_layout_leakage() {
     assert!(label_keys.contains(&"fig:flt"));
     assert!(label_keys.contains(&"tab:flt"));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Floating [?]."));
     assert!(display_list_text.contains("Floating table."));
     for hidden in ["0.35", "0.4", "textwidth", "key", "fig:flt", "tab:flt"] {
@@ -7591,15 +7572,7 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
         assert!(label_keys.contains(&key), "{label_keys:?}");
     }
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Window [?]."));
     assert!(display_list_text.contains("Window table."));
     for hidden in [
@@ -7663,15 +7636,7 @@ fn margin_float_capture_survives_ir_without_fallback() {
     assert!(label_keys.contains(&"fig:margin"));
     assert!(label_keys.contains(&"tab:margin"));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Margin [?]."));
     assert!(display_list_text.contains("Margin table."));
     assert!(
@@ -7941,15 +7906,7 @@ fn figcaption_and_tabcaption_capture_as_float_captions_without_option_leakage() 
     assert!(extracted_text.contains("Figure caption [?]."));
     assert!(extracted_text.contains("Table caption [?]."));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Figure caption [?]."));
     assert!(display_list_text.contains("Table caption [?]."));
 
@@ -8125,15 +8082,7 @@ fn float_label_definitions_survive_ir_without_visible_keys() {
     assert!(!extracted_text.contains("fig:plot"));
     assert!(!extracted_text.contains("tab:data"));
 
-    let display_list_text = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            DrawOp::TextRun(run) => Some(run.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let display_list_text = all_display_list_text(&capture);
     assert!(display_list_text.contains("Plot caption."));
     assert!(display_list_text.contains("Table caption."));
     assert!(!display_list_text.contains("fig:plot"));

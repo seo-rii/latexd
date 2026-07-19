@@ -641,6 +641,7 @@ struct LogicalContainer {
     source: SourceProvenance,
     content_hash: String,
     deferred_top_float: bool,
+    requires_top_placement: bool,
     full_width: bool,
 }
 
@@ -667,6 +668,7 @@ fn build_logical_container(
     options: &PageDisplayListOptions,
     layout: Option<&tex_render_model::DocumentLayoutIntent>,
     deferred_top_float: bool,
+    requires_top_placement: bool,
     full_width: bool,
 ) -> LogicalContainer {
     let nested_options = PageDisplayListOptions {
@@ -744,6 +746,7 @@ fn build_logical_container(
         source,
         content_hash: blake3::hash(hash_input.as_bytes()).to_hex().to_string(),
         deferred_top_float,
+        requires_top_placement,
         full_width,
     }
 }
@@ -1560,6 +1563,7 @@ pub fn build_page_display_lists(
                     document_ir.layout.as_ref(),
                     matches!(block.name.as_str(), "algorithm" | "algorithm*"),
                     false,
+                    false,
                 )));
             }
             IrBlock::Float(block) => {
@@ -1596,6 +1600,7 @@ pub fn build_page_display_lists(
                     block.source.clone(),
                     &options,
                     document_ir.layout.as_ref(),
+                    !matches!(block.placement, FloatPlacement::Here),
                     !matches!(block.placement, FloatPlacement::Here),
                     block.full_width,
                 )]));
@@ -4351,12 +4356,18 @@ pub fn build_page_display_lists(
                 let is_deferred_top_float = containers
                     .iter()
                     .any(|container| container.deferred_top_float);
+                let requires_top_placement = containers
+                    .iter()
+                    .any(|container| container.requires_top_placement);
                 let is_full_width = containers.iter().any(|container| container.full_width);
+                let is_at_column_top = (y - column_start_y).abs() <= 0.01;
                 let overflows_last_column = y + row_height_pt
                     > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && (is_full_width || column_index + 1 >= column_count);
                 if is_deferred_top_float
                     && (!deferred_top_container_rows.is_empty()
+                        || (requires_top_placement
+                            && (!is_at_column_top || (is_full_width && column_index > 0)))
                         || (overflows_last_column && !pending.ops.is_empty()))
                 {
                     deferred_top_container_rows.push(containers);
@@ -10398,6 +10409,62 @@ mod tests {
         );
         assert!(find_run(1, "first-float-caption").is_some());
         assert!(find_run(1, "second-float-1").is_some_and(|point| point.y >= 50.0));
+    }
+
+    #[test]
+    fn defers_full_width_top_float_encountered_mid_column() {
+        let source = SourceProvenance::file("main.tex", 0, 200);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("before-1\nbefore-2\nbefore-3"),
+            IrBlock::Float(FloatBlock {
+                kind: FloatKind::Figure,
+                placement: FloatPlacement::Top,
+                full_width: true,
+                children: vec![paragraph("wide-float")],
+                caption: Some("wide-caption".to_string()),
+                caption_source: Some(source.clone()),
+                source: source.clone(),
+            }),
+            paragraph("after-float"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(pages.len(), 2);
+        assert!(find_run(0, "before-1").is_some());
+        assert!(find_run(0, "wide-float").is_none());
+        assert_eq!(find_run(1, "wide-float"), Some(Point { x: 10.0, y: 10.0 }));
+        assert!(find_run(1, "wide-caption").is_some());
     }
 
     #[test]
