@@ -1,7 +1,7 @@
 use hypher::{Lang, MAX_INLINE_SIZE, hyphenate_bounded};
 use tex_render_model::FontRequest;
 
-use crate::font_metrics::text_advance_pt;
+use crate::font_metrics::{fallback_char_advance_pt, text_advance_pt};
 
 const PRETOLERANCE: f64 = 100.0;
 const TOLERANCE: f64 = 200.0;
@@ -89,9 +89,11 @@ pub(crate) fn select_paragraph_breaks(
         .rfind(|(_, ch)| !ch.is_whitespace())
         .map(|(index, ch)| index + ch.len_utf8())
         .expect("non-whitespace paragraph has an end");
+    let metrics = ParagraphMetrics::new(request.text, request.font, request.font_size_pt);
 
     run_pass(
         request,
+        &metrics,
         paragraph_start,
         paragraph_end,
         false,
@@ -101,6 +103,7 @@ pub(crate) fn select_paragraph_breaks(
     .or_else(|| {
         run_pass(
             request,
+            &metrics,
             paragraph_start,
             paragraph_end,
             true,
@@ -112,6 +115,7 @@ pub(crate) fn select_paragraph_breaks(
         if request.settings.emergency_stretch_pt > 0.0 {
             run_pass(
                 request,
+                &metrics,
                 paragraph_start,
                 paragraph_end,
                 true,
@@ -122,6 +126,84 @@ pub(crate) fn select_paragraph_breaks(
             None
         }
     })
+}
+
+struct ParagraphMetrics {
+    fallback_width_prefix_pt: Vec<f32>,
+    tex_width_prefix_pt: Vec<f32>,
+    unsupported_prefix: Vec<u32>,
+    leading_kern_pt: Vec<f32>,
+    whitespace_run_prefix: Vec<usize>,
+    starts_inside_whitespace: Vec<bool>,
+}
+
+impl ParagraphMetrics {
+    fn new(text: &str, font: &FontRequest, font_size_pt: f32) -> Self {
+        let mut metrics = Self {
+            fallback_width_prefix_pt: vec![0.0; text.len() + 1],
+            tex_width_prefix_pt: vec![0.0; text.len() + 1],
+            unsupported_prefix: vec![0; text.len() + 1],
+            leading_kern_pt: vec![0.0; text.len() + 1],
+            whitespace_run_prefix: vec![0; text.len() + 1],
+            starts_inside_whitespace: vec![false; text.len() + 1],
+        };
+        let face = tex_fonts::face_for_request(font, font_size_pt);
+        let mut previous = None::<(char, f32)>;
+        let mut previous_was_whitespace = false;
+
+        for (start, ch) in text.char_indices() {
+            let end = start + ch.len_utf8();
+            metrics.fallback_width_prefix_pt[end] = metrics.fallback_width_prefix_pt[start]
+                + fallback_char_advance_pt(ch, font, font_size_pt);
+
+            let exact_width_pt = face.and_then(|face| {
+                let mut encoded = [0; 4];
+                tex_fonts::text_advance_em(face, ch.encode_utf8(&mut encoded))
+                    .map(|advance_em| advance_em * font_size_pt)
+            });
+            let leading_kern_pt = match (face, previous, exact_width_pt) {
+                (Some(face), Some((previous_ch, previous_width_pt)), Some(width_pt)) => {
+                    let mut pair = String::with_capacity(previous_ch.len_utf8() + ch.len_utf8());
+                    pair.push(previous_ch);
+                    pair.push(ch);
+                    tex_fonts::text_advance_em(face, &pair)
+                        .map(|advance_em| advance_em * font_size_pt - previous_width_pt - width_pt)
+                        .unwrap_or(0.0)
+                }
+                _ => 0.0,
+            };
+            metrics.leading_kern_pt[start] = leading_kern_pt;
+            metrics.tex_width_prefix_pt[end] = metrics.tex_width_prefix_pt[start]
+                + leading_kern_pt
+                + exact_width_pt.unwrap_or(0.0);
+            metrics.unsupported_prefix[end] =
+                metrics.unsupported_prefix[start] + u32::from(exact_width_pt.is_none());
+
+            let is_whitespace = ch.is_whitespace();
+            metrics.starts_inside_whitespace[start] = is_whitespace && previous_was_whitespace;
+            metrics.whitespace_run_prefix[end] = metrics.whitespace_run_prefix[start]
+                + usize::from(is_whitespace && !previous_was_whitespace);
+            previous = exact_width_pt.map(|width_pt| (ch, width_pt));
+            previous_was_whitespace = is_whitespace;
+        }
+        metrics
+    }
+
+    fn width_pt(&self, start_utf8: usize, end_utf8: usize) -> f32 {
+        debug_assert!(start_utf8 <= end_utf8);
+        if self.unsupported_prefix[end_utf8] == self.unsupported_prefix[start_utf8] {
+            self.tex_width_prefix_pt[end_utf8]
+                - self.tex_width_prefix_pt[start_utf8]
+                - self.leading_kern_pt[start_utf8]
+        } else {
+            self.fallback_width_prefix_pt[end_utf8] - self.fallback_width_prefix_pt[start_utf8]
+        }
+    }
+
+    fn interword_spaces(&self, start_utf8: usize, end_utf8: usize) -> usize {
+        let runs = self.whitespace_run_prefix[end_utf8] - self.whitespace_run_prefix[start_utf8];
+        runs + usize::from(self.starts_inside_whitespace[start_utf8])
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +283,7 @@ struct BreakState {
 
 fn run_pass(
     request: ParagraphBreakRequest<'_>,
+    metrics: &ParagraphMetrics,
     paragraph_start: usize,
     paragraph_end: usize,
     allow_hyphenation: bool,
@@ -355,24 +438,13 @@ fn run_pass(
                 } else {
                     request.continuation_width_pt
                 };
-                let line_text = &request.text[line_start..line_end];
-                let interword_spaces = line_text
-                    .chars()
-                    .fold((0usize, false), |(count, in_space), ch| {
-                        if ch.is_whitespace() {
-                            (count + usize::from(!in_space), true)
-                        } else {
-                            (count, false)
-                        }
-                    })
-                    .0;
-                let natural_width_pt =
-                    text_advance_pt(line_text, request.font, request.font_size_pt)
-                        + if endpoint.append_hyphen() {
-                            hyphen_width_pt
-                        } else {
-                            0.0
-                        };
+                let interword_spaces = metrics.interword_spaces(line_start, line_end);
+                let natural_width_pt = metrics.width_pt(line_start, line_end)
+                    + if endpoint.append_hyphen() {
+                        hyphen_width_pt
+                    } else {
+                        0.0
+                    };
                 let ragged_line = endpoint.final_line() || endpoint.forced_break();
                 let (badness, fitness) = if ragged_line {
                     if natural_width_pt > target_width_pt + WIDTH_EPSILON_PT {
@@ -486,13 +558,24 @@ mod tests {
     use tex_render_model::{FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape};
 
     use super::{
-        MAX_PARAGRAPH_BYTES, ParagraphBreakRequest, ParagraphBreakSettings, select_paragraph_breaks,
+        MAX_PARAGRAPH_BYTES, ParagraphBreakRequest, ParagraphBreakSettings, ParagraphMetrics,
+        select_paragraph_breaks,
     };
     use crate::font_metrics::text_advance_pt;
 
     fn mono_font() -> FontRequest {
         FontRequest {
             family: FontFamilyRequest::Mono,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 10.0,
+            role: FontRole::Body,
+        }
+    }
+
+    fn serif_font() -> FontRequest {
+        FontRequest {
+            family: FontFamilyRequest::Serif,
             series: FontSeries::Regular,
             shape: FontShape::Upright,
             size_pt: 10.0,
@@ -513,6 +596,38 @@ mod tests {
             first_line_width_pt,
             continuation_width_pt,
             settings: ParagraphBreakSettings::default(),
+        }
+    }
+
+    #[test]
+    fn cached_metrics_match_direct_widths_and_whitespace_runs() {
+        let text = "AV alpha  \u{03b2}eta gamma";
+        let alpha_start = text.find("alpha").unwrap();
+        let beta_start = text.find("\u{03b2}eta").unwrap();
+        let ranges = [
+            (0, 2),
+            (alpha_start, alpha_start + "alpha".len()),
+            (alpha_start, beta_start + "\u{03b2}eta".len()),
+            (beta_start, text.len()),
+        ];
+
+        for font in [mono_font(), serif_font()] {
+            let metrics = ParagraphMetrics::new(text, &font, 10.0);
+            for (start, end) in ranges {
+                let direct_width = text_advance_pt(&text[start..end], &font, 10.0);
+                assert!((metrics.width_pt(start, end) - direct_width).abs() < 0.001);
+                let direct_spaces = text[start..end]
+                    .chars()
+                    .fold((0usize, false), |(count, in_space), ch| {
+                        if ch.is_whitespace() {
+                            (count + usize::from(!in_space), true)
+                        } else {
+                            (count, false)
+                        }
+                    })
+                    .0;
+                assert_eq!(metrics.interword_spaces(start, end), direct_spaces);
+            }
         }
     }
 
