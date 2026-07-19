@@ -1,9 +1,10 @@
 use tex_render_model::{
-    BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
-    FontSeries, FontShape, FootnoteId, GraphicAssetDensityUnit, ImageCrop, ImageRotation,
-    ImageScale, ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation,
-    ListKind, MathNode, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
-    Rect, SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan,
+    BibliographyBlock, Destination, DocumentIr, DrawOp, FloatKind, FloatPlacement,
+    FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, FootnoteId,
+    GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport,
+    InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind, MathNode, PageDisplayList,
+    Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+    TableColumnAlignment, TableRow, TableRuleSpan,
 };
 
 use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
@@ -632,6 +633,8 @@ struct LogicalContainer {
     source_spans: Vec<SourceSpan>,
     source: SourceProvenance,
     content_hash: String,
+    deferred_top_float: bool,
+    full_width: bool,
 }
 
 enum LogicalItem {
@@ -644,6 +647,98 @@ enum LogicalItem {
     PageBreak,
     Container(LogicalContainer),
     ContainerRow(Vec<LogicalContainer>),
+}
+
+fn build_logical_container(
+    name: String,
+    width_pt: f32,
+    declared_height_pt: Option<f32>,
+    alignment: Option<LayoutAlignment>,
+    inner_alignment: Option<LayoutAlignment>,
+    children: Vec<IrBlock>,
+    source: SourceProvenance,
+    options: &PageDisplayListOptions,
+    layout: Option<&tex_render_model::DocumentLayoutIntent>,
+    deferred_top_float: bool,
+    full_width: bool,
+) -> LogicalContainer {
+    let nested_options = PageDisplayListOptions {
+        page_width_pt: width_pt,
+        page_height_pt: 100_000.0,
+        margin_left_pt: 0.0,
+        margin_top_pt: 0.0,
+        margin_bottom_pt: 0.0,
+        column_count: 1,
+        column_gap_pt: 0.0,
+        show_page_numbers: false,
+        first_page_rules: Vec::new(),
+        ..options.clone()
+    };
+    let mut nested_document = DocumentIr::new(children);
+    nested_document.layout = layout.cloned();
+    let nested_pages = build_page_display_lists(&nested_document, nested_options);
+    let mut ops = Vec::new();
+    let mut source_spans = Vec::new();
+    let mut content_height = 0.0_f32;
+    let mut hash_input = format!(
+        "layout-container:{name}:{width_pt:.3}:{alignment:?}:{declared_height_pt:?}:{inner_alignment:?}"
+    );
+    for page in nested_pages {
+        let page_height = page.ops.iter().fold(0.0_f32, |height, op| {
+            let bottom = match op {
+                DrawOp::Save | DrawOp::Restore => 0.0,
+                DrawOp::ClipRect(rect) | DrawOp::Rule(rect) => rect.y + rect.height,
+                DrawOp::TextRun(run) => run.origin.y + options.line_height_pt,
+                DrawOp::Image(image) => image.rect.y + image.rect.height,
+                DrawOp::LinkAnnotation(link) => link.rect.y + link.rect.height,
+                DrawOp::NamedDestination(destination) => destination.point.y,
+            };
+            height.max(bottom)
+        });
+        for mut op in page.ops {
+            op.translate(0.0, content_height);
+            ops.push(op);
+        }
+        for span in page.source_spans {
+            if !source_spans.contains(&span) {
+                source_spans.push(span);
+            }
+        }
+        hash_input.push('\u{1f}');
+        hash_input.push_str(&page.content_hash);
+        if page_height > 0.0 {
+            content_height += page_height + options.block_gap_pt;
+        }
+    }
+    if content_height > 0.0 {
+        content_height -= options.block_gap_pt;
+    }
+    let height_pt = declared_height_pt
+        .unwrap_or(content_height)
+        .max(content_height)
+        .max(options.line_height_pt);
+    let inner_offset_y = match inner_alignment {
+        Some(LayoutAlignment::Bottom) => height_pt - content_height,
+        Some(LayoutAlignment::Center) => (height_pt - content_height) / 2.0,
+        Some(LayoutAlignment::Top | LayoutAlignment::Stretch) | None => 0.0,
+    };
+    if inner_offset_y > 0.0 {
+        for op in &mut ops {
+            op.translate(0.0, inner_offset_y);
+        }
+    }
+    LogicalContainer {
+        name,
+        width_pt,
+        height_pt,
+        alignment,
+        ops,
+        source_spans,
+        source,
+        content_hash: blake3::hash(hash_input.as_bytes()).to_hex().to_string(),
+        deferred_top_float,
+        full_width,
+    }
 }
 
 pub fn build_page_display_lists(
@@ -1446,87 +1541,57 @@ pub fn build_page_display_lists(
                         &options,
                     )
                 });
-                let nested_options = PageDisplayListOptions {
-                    page_width_pt: width_pt,
-                    page_height_pt: 100_000.0,
-                    margin_left_pt: 0.0,
-                    margin_top_pt: 0.0,
-                    margin_bottom_pt: 0.0,
-                    column_count: 1,
-                    column_gap_pt: 0.0,
-                    show_page_numbers: false,
-                    first_page_rules: Vec::new(),
-                    ..options.clone()
-                };
-                let nested_pages = build_page_display_lists(
-                    &DocumentIr::new(block.children.clone()),
-                    nested_options,
-                );
-                let mut ops = Vec::new();
-                let mut source_spans = Vec::new();
-                let mut content_height = 0.0_f32;
-                let mut hash_input = format!(
-                    "layout-container:{}:{}:{:?}:{:?}:{:?}",
-                    block.name,
-                    block.width_spec,
-                    block.alignment,
-                    block.height_spec,
-                    block.inner_alignment
-                );
-                for page in nested_pages {
-                    let page_height = page.ops.iter().fold(0.0_f32, |height, op| {
-                        let bottom = match op {
-                            DrawOp::Save | DrawOp::Restore => 0.0,
-                            DrawOp::ClipRect(rect) | DrawOp::Rule(rect) => rect.y + rect.height,
-                            DrawOp::TextRun(run) => run.origin.y + options.line_height_pt,
-                            DrawOp::Image(image) => image.rect.y + image.rect.height,
-                            DrawOp::LinkAnnotation(link) => link.rect.y + link.rect.height,
-                            DrawOp::NamedDestination(destination) => destination.point.y,
-                        };
-                        height.max(bottom)
-                    });
-                    for mut op in page.ops {
-                        op.translate(0.0, content_height);
-                        ops.push(op);
-                    }
-                    for span in page.source_spans {
-                        if !source_spans.contains(&span) {
-                            source_spans.push(span);
-                        }
-                    }
-                    hash_input.push('\u{1f}');
-                    hash_input.push_str(&page.content_hash);
-                    if page_height > 0.0 {
-                        content_height += page_height + options.block_gap_pt;
-                    }
-                }
-                if content_height > 0.0 {
-                    content_height -= options.block_gap_pt;
-                }
-                let height_pt = declared_height_pt
-                    .unwrap_or(content_height)
-                    .max(content_height)
-                    .max(options.line_height_pt);
-                let inner_offset_y = match block.inner_alignment {
-                    Some(LayoutAlignment::Bottom) => height_pt - content_height,
-                    Some(LayoutAlignment::Center) => (height_pt - content_height) / 2.0,
-                    Some(LayoutAlignment::Top | LayoutAlignment::Stretch) | None => 0.0,
-                };
-                if inner_offset_y > 0.0 {
-                    for op in &mut ops {
-                        op.translate(0.0, inner_offset_y);
-                    }
-                }
-                logical_items.push(LogicalItem::Container(LogicalContainer {
-                    name: block.name.clone(),
+                logical_items.push(LogicalItem::Container(build_logical_container(
+                    block.name.clone(),
                     width_pt,
-                    height_pt,
-                    alignment: block.alignment,
-                    ops,
-                    source_spans,
-                    source: block.source.clone(),
-                    content_hash: blake3::hash(hash_input.as_bytes()).to_hex().to_string(),
-                }));
+                    declared_height_pt,
+                    block.alignment,
+                    block.inner_alignment,
+                    block.children.clone(),
+                    block.source.clone(),
+                    &options,
+                    document_ir.layout.as_ref(),
+                    matches!(block.name.as_str(), "algorithm" | "algorithm*"),
+                    false,
+                )));
+            }
+            IrBlock::Float(block) => {
+                let width_pt = if block.full_width {
+                    page_content_width_pt
+                } else {
+                    column_width_pt
+                };
+                let mut children = block.children.clone();
+                if let Some(caption) = &block.caption {
+                    let source = block
+                        .caption_source
+                        .clone()
+                        .unwrap_or_else(|| block.source.clone());
+                    children.push(IrBlock::Paragraph(tex_render_model::ParagraphBlock {
+                        content: vec![InlineNode::Text {
+                            text: caption.clone(),
+                            source: source.clone(),
+                        }],
+                        source,
+                    }));
+                }
+                let name = match block.kind {
+                    FloatKind::Figure => "figure",
+                    FloatKind::Table => "table",
+                };
+                logical_items.push(LogicalItem::ContainerRow(vec![build_logical_container(
+                    name.to_string(),
+                    width_pt,
+                    None,
+                    Some(LayoutAlignment::Top),
+                    Some(LayoutAlignment::Top),
+                    children,
+                    block.source.clone(),
+                    &options,
+                    document_ir.layout.as_ref(),
+                    !matches!(block.placement, FloatPlacement::Here),
+                    block.full_width,
+                )]));
             }
             IrBlock::List(block) => {
                 let uses_standard_list_metrics = uses_standard_article_metrics
@@ -3288,12 +3353,20 @@ pub fn build_page_display_lists(
     macro_rules! place_container_row {
         ($containers:expr) => {{
             let containers = $containers;
+            let row_full_width = containers.iter().any(|container| container.full_width);
+            if row_full_width {
+                column_index = 0;
+            }
             let row_height_pt = containers
                 .iter()
                 .map(|container| container.height_pt)
                 .fold(options.line_height_pt, f32::max);
-            let mut container_x =
-                options.margin_left_pt + column_index as f32 * (column_width_pt + column_gap_pt);
+            let mut container_x = options.margin_left_pt
+                + if row_full_width {
+                    0.0
+                } else {
+                    column_index as f32 * (column_width_pt + column_gap_pt)
+                };
             for container in containers {
                 let alignment_offset_y = match container.alignment {
                     Some(LayoutAlignment::Top | LayoutAlignment::Stretch) => 0.0,
@@ -3363,6 +3436,10 @@ pub fn build_page_display_lists(
                 container_x += container.width_pt + container_gap_pt;
             }
             y += row_height_pt + options.block_gap_pt;
+            if row_full_width {
+                column_start_y = y;
+                let _ = column_start_y;
+            }
         }};
     }
 
@@ -4264,13 +4341,13 @@ pub fn build_page_display_lists(
                     .iter()
                     .map(|container| container.height_pt)
                     .fold(options.line_height_pt, f32::max);
-                let is_deferred_top_float = containers.iter().any(|container| {
-                    container.name.eq_ignore_ascii_case("algorithm")
-                        || container.name.eq_ignore_ascii_case("algorithm*")
-                });
+                let is_deferred_top_float = containers
+                    .iter()
+                    .any(|container| container.deferred_top_float);
+                let is_full_width = containers.iter().any(|container| container.full_width);
                 let overflows_last_column = y + row_height_pt
                     > page_content_bottom_pt(pages.len(), &pending, column_index)
-                    && column_index + 1 >= column_count;
+                    && (is_full_width || column_index + 1 >= column_count);
                 if is_deferred_top_float
                     && (!deferred_top_container_rows.is_empty()
                         || (overflows_last_column && !pending.ops.is_empty()))
@@ -4281,7 +4358,7 @@ pub fn build_page_display_lists(
                 if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && !pending.ops.is_empty()
                 {
-                    if column_index + 1 < column_count {
+                    if !is_full_width && column_index + 1 < column_count {
                         column_index += 1;
                         y = column_start_y;
                     } else {
@@ -5011,16 +5088,17 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp,
-        FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, FootnoteAnchor,
-        FootnoteCommandKind, FootnoteIr, GraphicAssetDensity, GraphicAssetDensityUnit,
-        GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, GraphicPageSelection,
-        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
-        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
-        ListItemIr, ListKind, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
-        PageBreakBlock, PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
-        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
-        TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp, FloatBlock,
+        FloatKind, FloatPlacement, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
+        FootnoteAnchor, FootnoteCommandKind, FootnoteIr, GraphicAssetDensity,
+        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
+        GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
+        ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
+        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MathAtomKind,
+        MathLargeOperator, MathNode, MathScriptPlacement, PageBreakBlock, PageBreakKind,
+        ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan,
+        TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan,
+        TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -10251,6 +10329,68 @@ mod tests {
                 .iter()
                 .any(|(text, point)| { *text == "after" && point.y < 100.0 })
         );
+    }
+
+    #[test]
+    fn defers_overflowing_floats_in_fifo_order() {
+        let source = SourceProvenance::file("main.tex", 0, 200);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let float = |label: &str| {
+            IrBlock::Float(FloatBlock {
+                kind: FloatKind::Figure,
+                placement: FloatPlacement::Top,
+                full_width: false,
+                children: vec![paragraph(&format!("{label}-1\n{label}-2\n{label}-3"))],
+                caption: Some(format!("{label}-caption")),
+                caption_source: Some(source.clone()),
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("before-1\nbefore-2\nbefore-3\nbefore-4\nbefore-5"),
+            float("first-float"),
+            float("second-float"),
+            paragraph("after-1\nafter-2\nafter-3"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(pages.len(), 2);
+        assert!(find_run(0, "after-1").is_some());
+        assert!(find_run(0, "first-float-1").is_none());
+        assert_eq!(
+            find_run(1, "first-float-1"),
+            Some(Point { x: 10.0, y: 10.0 })
+        );
+        assert!(find_run(1, "first-float-caption").is_some());
+        assert!(find_run(1, "second-float-1").is_some_and(|point| point.y >= 50.0));
     }
 
     #[test]

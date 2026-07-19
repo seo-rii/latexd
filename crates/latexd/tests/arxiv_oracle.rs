@@ -1179,6 +1179,21 @@ fn collect_structure_slice_texts(
             IrBlock::LayoutContainer(block) => {
                 pending_blocks.extend(block.children.iter().rev());
             }
+            IrBlock::Float(block) => {
+                if let Some(caption) = &block.caption {
+                    append_slice(
+                        OracleStructureSliceKind::Caption,
+                        caption.clone(),
+                        vec![
+                            block
+                                .caption_source
+                                .clone()
+                                .unwrap_or_else(|| block.source.clone()),
+                        ],
+                    );
+                }
+                pending_blocks.extend(block.children.iter().rev());
+            }
             IrBlock::PageBreak(_) => {}
             IrBlock::List(block) => {
                 append_slice(

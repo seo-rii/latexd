@@ -3,11 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
     CitationLabelForm, CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent,
-    EnvironmentBlock, FootnoteAnchor, FootnoteCommandKind, FootnoteId, FootnoteIr, GraphicBlock,
-    HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline,
-    ListBlock, ListItemIr, ListKind, MetadataField, PageBreakBlock, ParagraphBlock,
-    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
-    SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
+    EnvironmentBlock, FloatBlock, FloatKind, FloatPlacement, FootnoteAnchor, FootnoteCommandKind,
+    FootnoteId, FootnoteIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
+    LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
+    PageBreakBlock, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
+    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
+    TableRulePosition, TitleBlock,
 };
 
 use crate::math_ir::parse_display_math_structure;
@@ -30,6 +31,94 @@ struct ActiveFootnote {
     source: SourceProvenance,
 }
 
+struct ActiveFloat {
+    kind: FloatKind,
+    full_width: bool,
+    children: Vec<IrBlock>,
+    captions: Vec<ActiveFloatCaption>,
+    source: SourceProvenance,
+}
+
+struct ActiveFloatCaption {
+    text: String,
+    source: SourceProvenance,
+    after_child_count: usize,
+}
+
+impl ActiveFloat {
+    fn into_block(mut self) -> IrBlock {
+        let outer_caption_index = match self.captions.as_slice() {
+            [] => None,
+            [_] => Some(0),
+            captions => (captions[captions.len() - 1].after_child_count
+                == captions[captions.len() - 2].after_child_count)
+                .then_some(captions.len() - 1),
+        };
+        let outer_caption = outer_caption_index.map(|index| self.captions.remove(index));
+        for caption in self.captions {
+            let preceding_end = caption.after_child_count.min(self.children.len());
+            let target_index = self.children[..preceding_end]
+                .iter()
+                .rposition(|block| match block {
+                    IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic)
+                        if graphic.caption.is_none() =>
+                    {
+                        true
+                    }
+                    _ => false,
+                })
+                .or_else(|| {
+                    self.children[preceding_end..]
+                        .iter()
+                        .position(|block| match block {
+                            IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic)
+                                if graphic.caption.is_none() =>
+                            {
+                                true
+                            }
+                            _ => false,
+                        })
+                        .map(|index| preceding_end + index)
+                });
+            if let Some(target_index) = target_index {
+                let graphic = match &mut self.children[target_index] {
+                    IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic) => graphic,
+                    _ => unreachable!("selected graphic child"),
+                };
+                graphic.caption = Some(caption.text);
+                graphic.caption_source = Some(caption.source);
+            } else {
+                self.children.push(IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: caption.text,
+                        source: caption.source.clone(),
+                    }],
+                    source: caption.source,
+                }));
+            }
+        }
+        IrBlock::Float(FloatBlock {
+            kind: self.kind,
+            placement: FloatPlacement::Top,
+            full_width: self.full_width,
+            children: self.children,
+            caption: outer_caption.as_ref().map(|caption| caption.text.clone()),
+            caption_source: outer_caption.map(|caption| caption.source),
+            source: self.source,
+        })
+    }
+}
+
+fn float_kind_and_width(block: &tex_render_model::BlockKind) -> Option<(FloatKind, bool)> {
+    match block {
+        tex_render_model::BlockKind::Figure => Some((FloatKind::Figure, false)),
+        tex_render_model::BlockKind::FullWidthFigure => Some((FloatKind::Figure, true)),
+        tex_render_model::BlockKind::Table => Some((FloatKind::Table, false)),
+        tex_render_model::BlockKind::FullWidthTable => Some((FloatKind::Table, true)),
+        _ => None,
+    }
+}
+
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
@@ -47,8 +136,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     bibliography_items: Option<(Vec<BibliographyItemIr>, SourceProvenance)>,
     list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
-    float_stack: Vec<tex_render_model::BlockKind>,
-    pending_table_caption: Option<(String, SourceProvenance)>,
+    float_stack: Vec<ActiveFloat>,
     document_class: Option<DocumentClassIr>,
     layout: Option<DocumentLayoutIntent>,
     title: Option<(String, SourceProvenance)>,
@@ -82,7 +170,6 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             list: None,
             list_item: None,
             float_stack: Vec::new(),
-            pending_table_caption: None,
             document_class: None,
             layout: None,
             title: None,
@@ -329,7 +416,15 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         | tex_render_model::BlockKind::FullWidthFigure
                         | tex_render_model::BlockKind::Table
                         | tex_render_model::BlockKind::FullWidthTable => {
-                            self.float_stack.push(event.block.clone());
+                            let (kind, full_width) = float_kind_and_width(&event.block)
+                                .expect("matched float block kind");
+                            self.float_stack.push(ActiveFloat {
+                                kind,
+                                full_width,
+                                children: Vec::new(),
+                                captions: Vec::new(),
+                                source: envelope.meta.source.clone(),
+                            });
                         }
                         tex_render_model::BlockKind::Environment { name } => {
                             if let Some((name, content, source)) = self.environment_content.take() {
@@ -425,39 +520,25 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     | tex_render_model::BlockKind::FullWidthFigure
                     | tex_render_model::BlockKind::Table
                     | tex_render_model::BlockKind::FullWidthTable => {
-                        if self.float_stack.last() == Some(&event.block) {
-                            self.float_stack.pop();
-                        } else if let Some(position) = self
-                            .float_stack
-                            .iter()
-                            .rposition(|block| block == &event.block)
-                        {
-                            self.float_stack.remove(position);
+                        self.flush_paragraph();
+                        let Some((kind, full_width)) = float_kind_and_width(&event.block) else {
+                            unreachable!("matched float block kind");
+                        };
+                        let Some(position) = self.float_stack.iter().rposition(|active| {
+                            active.kind == kind && active.full_width == full_width
+                        }) else {
+                            continue;
+                        };
+                        while self.float_stack.len() > position + 1 {
+                            let nested = self.float_stack.pop().expect("nested float");
+                            self.float_stack
+                                .last_mut()
+                                .expect("parent float")
+                                .children
+                                .push(nested.into_block());
                         }
-                        if matches!(
-                            event.block,
-                            tex_render_model::BlockKind::Table
-                                | tex_render_model::BlockKind::FullWidthTable
-                        ) && let Some((caption, caption_source)) =
-                            self.pending_table_caption.take()
-                        {
-                            let full_width =
-                                matches!(event.block, tex_render_model::BlockKind::FullWidthTable);
-                            let table = TableBlock {
-                                environment: "table".to_string(),
-                                width_spec: None,
-                                columns: Vec::new(),
-                                rows: Vec::new(),
-                                caption: Some(caption),
-                                caption_source: Some(caption_source.clone()),
-                                source: caption_source,
-                            };
-                            self.push_block(if full_width {
-                                IrBlock::FullWidthTable(table)
-                            } else {
-                                IrBlock::Table(table)
-                            });
-                        }
+                        let active = self.float_stack.pop().expect("matching float");
+                        self.push_block(active.into_block());
                     }
                 },
                 RenderEvent::BeginLayoutContainer(event) => {
@@ -805,12 +886,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 })
                             })
                             .collect::<Vec<_>>();
-                        let (mut caption, mut caption_source) = self
-                            .pending_table_caption
-                            .take()
-                            .map_or((None, None), |(caption, source)| {
-                                (Some(caption), Some(source))
-                            });
+                        let mut caption = None;
+                        let mut caption_source = None;
                         if caption.is_none()
                             && event.environment.as_deref() == Some("longtable")
                             && event.source_excerpt.contains(r"\caption")
@@ -888,10 +965,6 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 }
                             }
                         }
-                        let full_width = matches!(
-                            self.float_stack.last(),
-                            Some(tex_render_model::BlockKind::FullWidthTable)
-                        );
                         let table = TableBlock {
                             environment: event
                                 .environment
@@ -904,11 +977,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             caption_source,
                             source: envelope.meta.source.clone(),
                         };
-                        self.push_block(if full_width {
-                            IrBlock::FullWidthTable(table)
-                        } else {
-                            IrBlock::Table(table)
-                        });
+                        self.push_block(IrBlock::Table(table));
                     } else {
                         self.push_block(IrBlock::RawFallback(
                             tex_render_model::RawFallbackIr::from_event(
@@ -928,11 +997,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 })
                             })
                         });
-                    let full_width = option_requests_full_width
-                        || matches!(
-                            self.float_stack.last(),
-                            Some(tex_render_model::BlockKind::FullWidthFigure)
-                        );
+                    let full_width = option_requests_full_width && self.float_stack.is_empty();
                     let graphic = GraphicBlock {
                         path: event.path.clone(),
                         options: event.options.clone(),
@@ -965,37 +1030,28 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }));
                 }
                 RenderEvent::Caption(event) => {
-                    let table_float_open = matches!(
-                        self.float_stack.last(),
-                        Some(
-                            tex_render_model::BlockKind::Table
-                                | tex_render_model::BlockKind::FullWidthTable
-                        )
-                    );
+                    if self.layout_container_stack.is_empty()
+                        && let Some(active) = self.float_stack.last_mut()
+                    {
+                        active.captions.push(ActiveFloatCaption {
+                            text: event.text.clone(),
+                            source: envelope.meta.source.clone(),
+                            after_child_count: active.children.len(),
+                        });
+                        continue;
+                    }
                     let target_blocks =
                         if let Some(container) = self.layout_container_stack.last_mut() {
                             &mut container.children
                         } else {
                             &mut self.blocks
                         };
-                    if !table_float_open
-                        && let Some(IrBlock::Graphic(block) | IrBlock::FullWidthGraphic(block)) =
-                            target_blocks.last_mut()
+                    if let Some(IrBlock::Graphic(block) | IrBlock::FullWidthGraphic(block)) =
+                        target_blocks.last_mut()
                         && block.caption.is_none()
                     {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
-                    } else if table_float_open {
-                        if let Some(IrBlock::Table(block) | IrBlock::FullWidthTable(block)) =
-                            target_blocks.last_mut()
-                            && block.caption.is_none()
-                        {
-                            block.caption = Some(event.text.clone());
-                            block.caption_source = Some(envelope.meta.source.clone());
-                        } else {
-                            self.pending_table_caption =
-                                Some((event.text.clone(), envelope.meta.source.clone()));
-                        }
                     } else {
                         self.flush_paragraph();
                         self.push_block(IrBlock::Paragraph(ParagraphBlock {
@@ -1038,6 +1094,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         while let Some(container) = self.layout_container_stack.pop() {
             self.push_block(IrBlock::LayoutContainer(container));
         }
+        while let Some(active) = self.float_stack.pop() {
+            self.push_block(active.into_block());
+        }
         let mut document = DocumentIr::with_document_class_layout_and_labels(
             self.blocks,
             self.document_class,
@@ -1051,6 +1110,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
     fn push_block(&mut self, block: IrBlock) {
         if let Some(container) = self.layout_container_stack.last_mut() {
             container.children.push(block);
+        } else if let Some(active) = self.float_stack.last_mut() {
+            active.children.push(block);
         } else {
             self.blocks.push(block);
         }
@@ -1199,13 +1260,13 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BeginFootnoteEvent, BibliographyBlock, BibliographyItemEvent, BlockKind,
         CaptionEvent, CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
-        DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, FlushTitleBlockEvent,
-        FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
-        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
-        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, FloatKind, FloatPlacement,
+        FlushTitleBlockEvent, FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent,
+        HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent,
+        IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField,
+        PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
+        RenderEvent, RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent,
+        SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -2030,12 +2091,71 @@ mod tests {
 
         assert!(matches!(
             ir.blocks.as_slice(),
-            [IrBlock::Graphic(graphic), IrBlock::Table(table)]
-                if graphic.caption.as_deref() == Some("Plot caption.")
+            [IrBlock::Float(figure), IrBlock::Float(table)]
+                if figure.kind == FloatKind::Figure
+                    && figure.caption.as_deref() == Some("Plot caption.")
+                    && matches!(figure.children.as_slice(), [IrBlock::Graphic(graphic)] if graphic.path == "figures/plot.pdf")
+                    && table.kind == FloatKind::Table
                     && table.caption.as_deref() == Some("Table caption.")
-                    && table.rows.is_empty()
+                    && table.children.is_empty()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.\nTable caption.");
+    }
+
+    #[test]
+    fn figure_float_preserves_multiple_graphics_in_source_order() {
+        let source = SourceProvenance::file("main.tex", 0, 120);
+        let mut next_id = 1;
+        let mut event = |event| {
+            let envelope = RenderEventEnvelope::new(next_id, event, source.clone());
+            next_id += 1;
+            envelope
+        };
+        let graphic = |path: &str| {
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                path: path.to_string(),
+                options: Some("width=2cm".to_string()),
+                page_selection: None,
+                asset_format: None,
+                asset_hash: None,
+                asset_dimensions: None,
+            })
+        };
+        let stream = RenderEventStream::new(
+            Some("multi-graphic-float".to_string()),
+            vec![
+                event(RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Figure,
+                })),
+                event(graphic("figures/a.pdf")),
+                event(graphic("figures/b.pdf")),
+                event(RenderEvent::Caption(CaptionEvent {
+                    text: "Panels.".to_string(),
+                })),
+                event(RenderEvent::EndBlock(EndBlockEvent {
+                    block: BlockKind::Figure,
+                })),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &());
+        let [IrBlock::Float(float)] = ir.blocks.as_slice() else {
+            panic!("expected one float: {:?}", ir.blocks);
+        };
+        let paths = float
+            .children
+            .iter()
+            .filter_map(|block| match block {
+                IrBlock::Graphic(graphic) => Some(graphic.path.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(float.kind, FloatKind::Figure);
+        assert_eq!(float.placement, FloatPlacement::Top);
+        assert!(!float.full_width);
+        assert_eq!(paths, ["figures/a.pdf", "figures/b.pdf"]);
+        assert_eq!(float.caption.as_deref(), Some("Panels."));
     }
 
     #[test]
@@ -2229,9 +2349,13 @@ mod tests {
 
         assert!(matches!(
             ir.blocks.as_slice(),
-            [IrBlock::FullWidthGraphic(graphic), IrBlock::FullWidthTable(table)]
-                if graphic.path == "figures/wide.pdf"
-                    && graphic.caption.as_deref() == Some("Wide figure.")
+            [IrBlock::Float(figure), IrBlock::Float(table)]
+                if figure.kind == FloatKind::Figure
+                    && figure.full_width
+                    && figure.caption.as_deref() == Some("Wide figure.")
+                    && matches!(figure.children.as_slice(), [IrBlock::Graphic(graphic)] if graphic.path == "figures/wide.pdf")
+                    && table.kind == FloatKind::Table
+                    && table.full_width
                     && table.caption.as_deref() == Some("Wide table.")
         ));
     }

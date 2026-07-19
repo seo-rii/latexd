@@ -35,11 +35,11 @@ pub use events::{
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
-    DocumentClassIr, DocumentIr, EnvironmentBlock, FootnoteAnchor, FootnoteIr, GraphicBlock,
-    HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline,
-    ListBlock, ListItemIr, MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement,
-    PageBreakBlock, ParagraphBlock, RawFallbackIr, ReferenceInline, TableBlock, TableCell,
-    TableRow, TitleBlock,
+    DocumentClassIr, DocumentIr, EnvironmentBlock, FloatBlock, FloatKind, FloatPlacement,
+    FootnoteAnchor, FootnoteIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
+    LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, MathAtomKind, MathLargeOperator,
+    MathNode, MathScriptPlacement, PageBreakBlock, ParagraphBlock, RawFallbackIr, ReferenceInline,
+    TableBlock, TableCell, TableRow, TitleBlock,
 };
 pub use pdf_asset::{
     PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,

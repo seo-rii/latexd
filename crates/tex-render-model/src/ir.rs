@@ -71,6 +71,25 @@ impl DocumentIr {
                 pending_blocks.extend(container.children.iter().rev());
                 continue;
             }
+            if let IrBlock::Float(float) = block {
+                if let Some(caption) = &float.caption {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(caption);
+                }
+                pending_blocks.extend(float.children.iter().rev().filter(|child| match child {
+                    IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic) => {
+                        graphic.caption.is_some()
+                    }
+                    IrBlock::IncludedPdfPage(_) | IrBlock::PageBreak(_) => false,
+                    IrBlock::Table(table) | IrBlock::FullWidthTable(table) => {
+                        !table.visible_text().is_empty()
+                    }
+                    _ => true,
+                }));
+                continue;
+            }
             if matches!(block, IrBlock::PageBreak(_)) {
                 continue;
             }
@@ -250,6 +269,7 @@ impl DocumentIr {
                     }
                 }
                 IrBlock::LayoutContainer(_) => unreachable!("layout containers are flattened"),
+                IrBlock::Float(_) => unreachable!("floats are flattened"),
                 IrBlock::List(block) => {
                     for (index, item) in block.items.iter().enumerate() {
                         if index > 0 {
@@ -370,6 +390,7 @@ pub enum IrBlock {
     Paragraph(ParagraphBlock),
     Environment(EnvironmentBlock),
     LayoutContainer(LayoutContainerBlock),
+    Float(FloatBlock),
     List(ListBlock),
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
@@ -458,6 +479,38 @@ pub struct LayoutContainerBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_alignment: Option<LayoutAlignment>,
     pub children: Vec<IrBlock>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FloatKind {
+    Figure,
+    Table,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FloatPlacement {
+    Here,
+    #[default]
+    Top,
+    Bottom,
+    Page,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FloatBlock {
+    #[serde(rename = "float_kind")]
+    pub kind: FloatKind,
+    #[serde(default)]
+    pub placement: FloatPlacement,
+    pub full_width: bool,
+    pub children: Vec<IrBlock>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_source: Option<SourceProvenance>,
     pub source: SourceProvenance,
 }
 
@@ -768,8 +821,9 @@ pub struct LinkInline {
 #[cfg(test)]
 mod tests {
     use super::{
-        DisplayMathBlock, DocumentIr, HeadingBlock, InlineNode, IrBlock, ListBlock, ListItemIr,
-        PageBreakBlock, ParagraphBlock,
+        DOCUMENT_IR_SCHEMA_VERSION, DisplayMathBlock, DocumentIr, FloatBlock, FloatKind,
+        FloatPlacement, HeadingBlock, InlineNode, IrBlock, ListBlock, ListItemIr, PageBreakBlock,
+        ParagraphBlock,
     };
     use crate::{ListKind, PageBreakKind, SourceProvenance};
 
@@ -849,5 +903,88 @@ mod tests {
         assert!(encoded.contains("\"kind\":\"page_break\""));
         assert!(encoded.contains("\"break_kind\":\"clear_double_page\""));
         assert_eq!(decoded, document);
+    }
+
+    #[test]
+    fn extracted_text_includes_float_caption_and_ordered_children() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let document = DocumentIr::new(vec![IrBlock::Float(FloatBlock {
+            kind: FloatKind::Figure,
+            placement: FloatPlacement::Top,
+            full_width: false,
+            children: vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "First child.".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Second child.".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+            ],
+            caption: Some("Figure caption.".to_string()),
+            caption_source: Some(source.clone()),
+            source,
+        })]);
+
+        assert_eq!(
+            document.extracted_text(),
+            "Figure caption.\nFirst child.\nSecond child."
+        );
+    }
+
+    #[test]
+    fn float_block_json_shape_and_schema_are_stable() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let document = DocumentIr::new(vec![IrBlock::Float(FloatBlock {
+            kind: FloatKind::Figure,
+            placement: FloatPlacement::default(),
+            full_width: true,
+            children: vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Figure body.".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })],
+            caption: Some("Figure caption.".to_string()),
+            caption_source: Some(source.clone()),
+            source,
+        })]);
+
+        let encoded = serde_json::to_value(&document).expect("serialize document IR");
+        let block = &encoded["blocks"][0];
+
+        assert_eq!(encoded["schema_version"], DOCUMENT_IR_SCHEMA_VERSION);
+        assert_eq!(block["kind"], "float");
+        assert_eq!(block["float_kind"], "figure");
+        assert_eq!(block["placement"], "top");
+        assert_eq!(block["full_width"], true);
+        assert_eq!(block["children"][0]["kind"], "paragraph");
+        assert_eq!(block["caption"], "Figure caption.");
+        assert!(block.get("caption_source").is_some());
+        assert!(block.get("source").is_some());
+
+        let decoded: DocumentIr =
+            serde_json::from_value(encoded.clone()).expect("deserialize document IR");
+        assert_eq!(decoded, document);
+
+        let mut without_placement = encoded;
+        without_placement["blocks"][0]
+            .as_object_mut()
+            .expect("float block object")
+            .remove("placement");
+        let decoded: DocumentIr =
+            serde_json::from_value(without_placement).expect("deserialize default placement");
+        let [IrBlock::Float(float)] = decoded.blocks.as_slice() else {
+            panic!("expected float block");
+        };
+        assert_eq!(float.placement, FloatPlacement::Top);
     }
 }

@@ -10,12 +10,95 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, ImageCrop, ImageRotation,
-    ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MathAtomKind, MathNode,
-    MathScriptPlacement, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
-    TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
+    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, GraphicBlock, ImageCrop,
+    ImageRotation, ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MathAtomKind,
+    MathNode, MathScriptPlacement, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
+    SpaceKind, TableBlock, TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
 };
-use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
+use tex_render_model::{
+    DocumentIr, FloatBlock, FloatKind, InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole,
+    TableRuleSpan,
+};
+
+#[derive(Clone, Copy)]
+struct GraphicIrView<'a> {
+    graphic: &'a GraphicBlock,
+    float: Option<&'a FloatBlock>,
+    full_width: bool,
+}
+
+impl GraphicIrView<'_> {
+    fn caption(&self) -> Option<&str> {
+        self.graphic
+            .caption
+            .as_deref()
+            .or_else(|| self.float.and_then(|float| float.caption.as_deref()))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TableIrView<'a> {
+    table: &'a TableBlock,
+    float: Option<&'a FloatBlock>,
+}
+
+impl TableIrView<'_> {
+    fn caption(&self) -> Option<&str> {
+        self.table
+            .caption
+            .as_deref()
+            .or_else(|| self.float.and_then(|float| float.caption.as_deref()))
+    }
+}
+
+fn collect_render_blocks<'a>(
+    blocks: &'a [IrBlock],
+    active_float: Option<&'a FloatBlock>,
+    graphics: &mut Vec<GraphicIrView<'a>>,
+    tables: &mut Vec<TableIrView<'a>>,
+) {
+    for block in blocks {
+        match block {
+            IrBlock::Float(float) => {
+                collect_render_blocks(&float.children, Some(float), graphics, tables);
+            }
+            IrBlock::LayoutContainer(container) => {
+                collect_render_blocks(&container.children, active_float, graphics, tables);
+            }
+            IrBlock::Graphic(graphic) => graphics.push(GraphicIrView {
+                graphic,
+                float: active_float,
+                full_width: active_float.is_some_and(|float| float.full_width),
+            }),
+            IrBlock::FullWidthGraphic(graphic) => graphics.push(GraphicIrView {
+                graphic,
+                float: active_float,
+                full_width: true,
+            }),
+            IrBlock::Table(table) => tables.push(TableIrView {
+                table,
+                float: active_float,
+            }),
+            IrBlock::FullWidthTable(table) => tables.push(TableIrView {
+                table,
+                float: active_float,
+            }),
+            _ => {}
+        }
+    }
+}
+
+fn document_graphics(document: &DocumentIr) -> Vec<GraphicIrView<'_>> {
+    let mut graphics = Vec::new();
+    collect_render_blocks(&document.blocks, None, &mut graphics, &mut Vec::new());
+    graphics
+}
+
+fn document_tables(document: &DocumentIr) -> Vec<TableIrView<'_>> {
+    let mut tables = Vec::new();
+    collect_render_blocks(&document.blocks, None, &mut Vec::new(), &mut tables);
+    tables
+}
 
 fn tiny_png_bytes() -> Vec<u8> {
     tiny_png_bytes_with_first_red(255)
@@ -4034,14 +4117,15 @@ fn bibliography_item_urlstyle_declaration_does_not_leak() {
 fn graphic_render_ir_capture_derives_display_list_image() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.pdf"
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-                    && graphic.caption_source.is_some()
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.pdf"
+            && view.caption() == Some("Plot caption.")
+            && view
+                .graphic
+                .caption_source
+                .as_ref()
+                .or_else(|| view.float.and_then(|float| float.caption_source.as_ref()))
+                .is_some()
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -4075,13 +4159,8 @@ fn figure_table_alignment_declarations_do_not_leak_into_render_text() {
         &[("figures/plot.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.pdf"
-                    && graphic.caption.as_deref() == Some("Plot.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.pdf" && view.caption() == Some("Plot.")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Plot."));
@@ -4226,15 +4305,11 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
             )
         })
         .expect("graphic event");
-    let graphic_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
-            _ => None,
-        })
+    let graphic_view = document_graphics(&capture.document_ir)
+        .into_iter()
+        .find(|view| view.graphic.path == "figures/plot.pdf")
         .expect("graphic block");
+    let graphic_block = graphic_view.graphic;
     let image_op = capture.page_display_lists[0]
         .ops
         .iter()
@@ -4280,7 +4355,7 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
             "options": graphic_block.options,
             "asset_format": graphic_block.asset_format,
             "asset_hash": graphic_block.asset_hash,
-            "caption": graphic_block.caption,
+            "caption": graphic_view.caption(),
             "source": graphic_block.source,
         },
         "display_list": {
@@ -4310,18 +4385,19 @@ fn caption_provenance_preserves_text_and_invocation_spans() {
         })
         .expect("caption event");
     assert_eq!(caption_event.meta.mode_hint, ModeHint::Vertical);
-    let graphic_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
-            _ => None,
-        })
+    let graphic_view = document_graphics(&capture.document_ir)
+        .into_iter()
+        .find(|view| view.graphic.path == "figures/plot.pdf")
         .expect("graphic block");
-    let caption_source = graphic_block
+    let caption_source = graphic_view
+        .graphic
         .caption_source
         .as_ref()
+        .or_else(|| {
+            graphic_view
+                .float
+                .and_then(|float| float.caption_source.as_ref())
+        })
         .expect("caption source");
     let caption_text_run = capture.page_display_lists[0]
         .ops
@@ -4363,8 +4439,8 @@ fn caption_provenance_preserves_text_and_invocation_spans() {
             "meta": caption_event.meta,
         },
         "ir": {
-            "caption": graphic_block.caption,
-            "caption_source": graphic_block.caption_source,
+            "caption": graphic_view.caption(),
+            "caption_source": caption_source,
         },
         "display_list": {
             "text": caption_text_run.text,
@@ -4389,13 +4465,8 @@ fn extensionless_graphic_assets_resolve_before_ir_and_display_list() {
         &[("figures/plot.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.pdf"
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.pdf" && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -4430,14 +4501,10 @@ fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
             _ => None,
         })
         .expect("graphic event");
-    let graphic_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Graphic(graphic) if graphic.path == "figures/vector.svg" => Some(graphic),
-            _ => None,
-        })
+    let graphic_block = document_graphics(&capture.document_ir)
+        .into_iter()
+        .find(|view| view.graphic.path == "figures/vector.svg")
+        .map(|view| view.graphic)
         .expect("graphic block");
     let image_op = capture.page_display_lists[0]
         .ops
@@ -4547,14 +4614,10 @@ fn graphic_asset_hash_survives_render_boundaries_and_affects_page_hash() {
             _ => None,
         })
         .expect("graphic event");
-    let graphic_block = first
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
-            _ => None,
-        })
+    let graphic_block = document_graphics(&first.document_ir)
+        .into_iter()
+        .find(|view| view.graphic.path == "figures/plot.pdf")
+        .map(|view| view.graphic)
         .expect("graphic block");
     let image_op = first.page_display_lists[0]
         .ops
@@ -4584,13 +4647,8 @@ fn graphicspath_assets_resolve_before_ir_and_display_list() {
         &[("figures/plot.png", "fake png")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.png"
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.png" && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -6488,13 +6546,8 @@ fn declared_graphic_extension_order_resolves_before_ir_and_display_list() {
         ],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.png"
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.png" && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -6516,14 +6569,10 @@ fn legacy_epsfig_capture_survives_ir_and_display_list() {
         &[("figures/plot.eps", "fake eps")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.eps"
-                    && graphic.options.as_deref() == Some("file=figures/plot,width=5cm")
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.eps"
+            && view.graphic.options.as_deref() == Some("file=figures/plot,width=5cm")
+            && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -6545,14 +6594,10 @@ fn braced_legacy_epsfig_paths_survive_ir_and_display_list() {
         &[("figures/plot.eps", "fake eps")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.eps"
-                    && graphic.options.as_deref() == Some("file={figures/plot},width=5cm")
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.eps"
+            && view.graphic.options.as_deref() == Some("file={figures/plot},width=5cm")
+            && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -6574,14 +6619,10 @@ fn legacy_epsf_file_capture_survives_ir_and_display_list() {
         &[("figures/plot.eps", "fake eps")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/plot.eps"
-                    && graphic.options.as_deref() == Some("width=4cm,height=2cm")
-                    && graphic.caption.as_deref() == Some("Plot caption.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/plot.eps"
+            && view.graphic.options.as_deref() == Some("width=4cm,height=2cm")
+            && view.caption() == Some("Plot caption.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -6905,14 +6946,10 @@ fn graphic_psfrag_helpers_do_not_leak_replacement_arguments() {
         &[("figures/fragged.eps", "fake eps")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/fragged.eps"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Fragged figure.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/fragged.eps"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Fragged figure.")
     }));
     assert!(
         capture.page_display_lists[0].ops.iter().any(
@@ -6993,14 +7030,10 @@ fn overpic_inside_figure_preserves_image_and_caption() {
         &[("figures/annotated.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/annotated.pdf"
-                    && graphic.options.as_deref() == Some("width=5cm")
-                    && graphic.caption.as_deref() == Some("Annotated figure.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/annotated.pdf"
+            && view.graphic.options.as_deref() == Some("width=5cm")
+            && view.caption() == Some("Annotated figure.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(
         |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/annotated.pdf")
@@ -7035,14 +7068,10 @@ fn floatrow_ffigbox_preserves_image_and_caption_without_option_leakage() {
         &[("figures/floatrow.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/floatrow.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Floatrow [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/floatrow.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Floatrow [?].")
     }));
     assert!(
         capture.page_display_lists[0].ops.iter().any(
@@ -7086,14 +7115,10 @@ fn floatrow_fcapside_preserves_image_and_caption_without_option_leakage() {
         &[("figures/fcapside.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/fcapside.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Side float [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/fcapside.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Side float [?].")
     }));
     assert!(
         capture.page_display_lists[0].ops.iter().any(
@@ -7131,14 +7156,10 @@ fn floatrow_ffigbox_caption_first_preserves_image_and_caption() {
         &[("figures/reversed.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/reversed.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Reversed [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/reversed.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Reversed [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Reversed [?]."));
@@ -7156,14 +7177,10 @@ fn floatrow_floatbox_preserves_image_and_caption_without_option_leakage() {
         &[("figures/generic-floatbox.pdf", "%PDF fake")],
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/generic-floatbox.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Generic [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/generic-floatbox.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Generic [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Generic [?]."));
@@ -7190,14 +7207,10 @@ fn floatrow_caption_like_commands_preserve_captions_without_option_leakage() {
         ("figures/fcapside-like.pdf", "Side sub [?]."),
         ("figures/floatbox-like.pdf", "Below generic [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=3cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=3cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -7225,14 +7238,10 @@ fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/starred.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm,clip")
-                    && graphic.caption.as_deref() == Some("Starred plot.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/starred.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm,clip")
+            && view.caption() == Some("Starred plot.")
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
@@ -7262,13 +7271,10 @@ fn starred_float_graphic_capture_derives_display_list_image_without_fallback() {
         &SemanticAux::default(),
     );
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::FullWidthGraphic(graphic)
-                if graphic.path == "figures/wide.pdf"
-                    && graphic.caption.as_deref() == Some("Wide figure.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/wide.pdf"
+            && view.full_width
+            && view.caption() == Some("Wide figure.")
     }));
     assert!(
         capture.page_display_lists[0].ops.iter().any(|op| {
@@ -7298,10 +7304,15 @@ fn starred_table_caption_capture_survives_ir_without_fallback() {
                 if fallback.environment.as_deref() == Some("table*")
         )
     }));
-    assert!(matches!(
-        capture.document_ir.blocks.as_slice(),
-        [IrBlock::FullWidthTable(table)] if table.caption.as_deref() == Some("Wide table.")
-    ));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Float(float)
+                if float.kind == FloatKind::Table
+                    && float.full_width
+                    && float.caption.as_deref() == Some("Wide table.")
+        )
+    }));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -7320,14 +7331,11 @@ fn sideways_float_capture_survives_ir_without_fallback() {
     let capture =
         capture_internal_render_ir("main.tex", SIDEWAYS_FLOAT_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::FullWidthGraphic(graphic)
-                if graphic.path == "figures/rotated.pdf"
-                    && graphic.options.as_deref() == Some("width=4cm")
-                    && graphic.caption.as_deref() == Some("Rotated figure.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/rotated.pdf"
+            && view.full_width
+            && view.graphic.options.as_deref() == Some("width=4cm")
+            && view.caption() == Some("Rotated figure.")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Rotated figure."));
@@ -7375,14 +7383,10 @@ fn sidecap_float_capture_survives_ir_without_fallback() {
     let capture =
         capture_internal_render_ir("main.tex", SIDECAP_FLOAT_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/side.pdf"
-                    && graphic.options.as_deref() == Some("width=4cm")
-                    && graphic.caption.as_deref() == Some("Side [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/side.pdf"
+            && view.graphic.options.as_deref() == Some("width=4cm")
+            && view.caption() == Some("Side [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Side [?]."));
@@ -7434,14 +7438,10 @@ fn wrap_float_capture_survives_ir_without_fallback() {
     let capture =
         capture_internal_render_ir("main.tex", WRAP_FLOAT_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/wrapped.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Wrapped figure.")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/wrapped.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Wrapped figure.")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Wrapped figure."));
@@ -7493,14 +7493,10 @@ fn floatflt_floating_environment_capture_survives_ir_without_layout_leakage() {
     let capture =
         capture_internal_render_ir("main.tex", FLOATFLT_FLOAT_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/floating.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Floating [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/floating.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Floating [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Floating [?]."));
@@ -7554,14 +7550,10 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
     let capture =
         capture_internal_render_ir("main.tex", PICINPAR_WINDOW_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/window.pdf"
-                    && graphic.options.as_deref() == Some("width=2cm")
-                    && graphic.caption.as_deref() == Some("Window [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/window.pdf"
+            && view.graphic.options.as_deref() == Some("width=2cm")
+            && view.caption() == Some("Window [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Window [?]."));
@@ -7634,14 +7626,10 @@ fn margin_float_capture_survives_ir_without_fallback() {
     let capture =
         capture_internal_render_ir("main.tex", MARGIN_FLOAT_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/margin.pdf"
-                    && graphic.options.as_deref() == Some("width=2cm")
-                    && graphic.caption.as_deref() == Some("Margin [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/margin.pdf"
+            && view.graphic.options.as_deref() == Some("width=2cm")
+            && view.caption() == Some("Margin [?].")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Margin [?]."));
@@ -7837,14 +7825,10 @@ fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", CAPTION_SETUP_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/caption-setup.pdf"
-                    && graphic.options.as_deref() == Some("width=2cm")
-                    && graphic.caption.as_deref() == Some("Visible [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/caption-setup.pdf"
+            && view.graphic.options.as_deref() == Some("width=2cm")
+            && view.caption() == Some("Visible [?].")
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
@@ -7915,14 +7899,10 @@ fn caption_like_commands_capture_as_float_captions_without_option_leakage() {
         ("figures/caption-above.pdf", "Visible above [?]."),
         ("figures/caption-below.pdf", "Visible below [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -7951,14 +7931,10 @@ fn figcaption_and_tabcaption_capture_as_float_captions_without_option_leakage() 
     let capture =
         capture_internal_render_ir("main.tex", FIG_TAB_CAPTION_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/figcaption.pdf"
-                    && graphic.options.as_deref() == Some("width=2cm")
-                    && graphic.caption.as_deref() == Some("Figure caption [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/figcaption.pdf"
+            && view.graphic.options.as_deref() == Some("width=2cm")
+            && view.caption() == Some("Figure caption [?].")
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
@@ -25840,17 +25816,13 @@ fn longtable_repeated_head_and_foot_templates_do_not_leak() {
 fn table_float_caption_and_tabular_body_build_table_ir() {
     let capture =
         capture_internal_render_ir("main.tex", TABLE_FLOAT_BODY_SOURCE, &SemanticAux::default());
-    let table = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
-            _ => None,
-        })
+    let table_view = document_tables(&capture.document_ir)
+        .into_iter()
+        .find(|view| view.table.environment == "tabular")
         .expect("table float table");
+    let table = table_view.table;
 
-    assert_eq!(table.caption.as_deref(), Some("Data table."));
+    assert_eq!(table_view.caption(), Some("Data table."));
     assert_eq!(table.rows.len(), 2);
     assert_eq!(table.rows[0].cells[0].text, "Alpha");
     assert_eq!(table.rows[0].cells[1].text, "Beta");
@@ -25894,17 +25866,13 @@ fn table_float_caption_and_tabular_body_build_table_ir() {
 fn floatrow_ttabbox_preserves_table_and_caption_without_option_leakage() {
     let capture =
         capture_internal_render_ir("main.tex", FLOATROW_TTABBOX_SOURCE, &SemanticAux::default());
-    let table = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
-            _ => None,
-        })
+    let table_view = document_tables(&capture.document_ir)
+        .into_iter()
+        .find(|view| view.table.environment == "tabular")
         .expect("floatrow ttabbox table");
+    let table = table_view.table;
 
-    assert_eq!(table.caption.as_deref(), Some("Floatrow table."));
+    assert_eq!(table_view.caption(), Some("Floatrow table."));
     assert_eq!(table.rows[0].cells[0].text, "A");
     assert_eq!(table.rows[0].cells[1].text, "B");
 
@@ -27893,14 +27861,10 @@ fn measuredfigure_capture_preserves_image_and_caption_as_graphic_block() {
     let capture =
         capture_internal_render_ir("main.tex", MEASURED_FIGURE_SOURCE, &SemanticAux::default());
 
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/measured.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
-                    && graphic.caption.as_deref() == Some("Measured [?].")
-        )
+    assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+        view.graphic.path == "figures/measured.pdf"
+            && view.graphic.options.as_deref() == Some("width=3cm")
+            && view.caption() == Some("Measured [?].")
     }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
@@ -28009,14 +27973,10 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
         ("figures/c.pdf", Some("width=1cm"), "Legacy [?]."),
         ("figures/d.pdf", Some("width=4cm"), "Caption box [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == options
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == options
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -28110,14 +28070,10 @@ fn subfloat_two_optional_captions_use_long_caption_without_short_leakage() {
         ("figures/two-optional-a.pdf", "Long [?]."),
         ("figures/two-optional-b.pdf", "Legacy long [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -28153,14 +28109,10 @@ fn starred_subfloat_commands_capture_without_star_or_command_leakage() {
         ("figures/subfloat-star-a.pdf", "Starred panel [?]."),
         ("figures/subfloat-star-b.pdf", "Starred legacy panel [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -28185,14 +28137,10 @@ fn captionbox_leading_optional_uses_long_caption_without_short_leakage() {
         ("figures/captionbox-leading-a.pdf", "Subcaption long [?]."),
         ("figures/captionbox-leading-b.pdf", "Captionbox long [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -28225,14 +28173,10 @@ fn starred_captionbox_commands_capture_without_star_or_option_leakage() {
         ("figures/captionbox-star-a.pdf", "Starred subcaption [?]."),
         ("figures/captionbox-star-b.pdf", "Starred box [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
@@ -28266,14 +28210,10 @@ fn subfloat_and_captionbox_body_labels_survive_capture() {
         ("figures/panel-label-a.pdf", "Panel [?]."),
         ("figures/panel-label-b.pdf", "Box [?]."),
     ] {
-        assert!(capture.document_ir.blocks.iter().any(|block| {
-            matches!(
-                block,
-                IrBlock::Graphic(graphic)
-                    if graphic.path == path
-                        && graphic.options.as_deref() == Some("width=2cm")
-                        && graphic.caption.as_deref() == Some(caption)
-            )
+        assert!(document_graphics(&capture.document_ir).iter().any(|view| {
+            view.graphic.path == path
+                && view.graphic.options.as_deref() == Some("width=2cm")
+                && view.caption() == Some(caption)
         }));
     }
 
