@@ -7332,6 +7332,98 @@ fn starred_table_caption_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn commented_starred_table_boundaries_keep_tables_in_one_full_width_float() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}
+\begin{table*}[t]
+\begin{tabular}{ll}A & B\end{tabular}
+%\end{table*}
+%\begin{table*}[t]
+\begin{tabular}{ll}C & D\end{tabular}
+\end{table*}
+\end{document}",
+        &SemanticAux::default(),
+    );
+
+    let float = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Float(float) if float.kind == FloatKind::Table && float.full_width => {
+                Some(float)
+            }
+            _ => None,
+        })
+        .expect("full-width table float");
+    let child_table_count = float
+        .children
+        .iter()
+        .filter(|block| matches!(block, IrBlock::Table(_) | IrBlock::FullWidthTable(_)))
+        .count();
+
+    assert_eq!(child_table_count, 2);
+    assert!(
+        !capture
+            .document_ir
+            .blocks
+            .iter()
+            .any(|block| matches!(block, IrBlock::Table(_) | IrBlock::FullWidthTable(_)))
+    );
+}
+
+#[test]
+fn multiple_tables_in_one_float_keep_interleaved_captions() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{table}[t]\begin{tabular}{ll}A & B\end{tabular}\caption{First table.}\begin{tabular}{ll}C & D\end{tabular}\caption{Second table.}\end{table}\end{document}",
+        &SemanticAux::default(),
+    );
+    let float = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Float(float) if float.kind == FloatKind::Table => Some(float),
+            _ => None,
+        })
+        .expect("table float");
+
+    assert!(float.caption.is_none());
+    assert!(matches!(
+        float.children.as_slice(),
+        [IrBlock::Table(first), IrBlock::Table(second)]
+            if first.caption.as_deref() == Some("First table.")
+                && second.caption.as_deref() == Some("Second table.")
+    ));
+}
+
+#[test]
+fn unlabeled_bibliography_items_receive_visible_numeric_labels() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{thebibliography}{9}\bibitem{first}First reference.\bibitem{second}Second reference.\end{thebibliography}\end{document}",
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].label.as_deref(), Some("1"));
+    assert_eq!(bibliography.items[1].label.as_deref(), Some("2"));
+    let display_text = all_display_list_text(&capture);
+    assert!(display_text.contains("[1] First reference."));
+    assert!(display_text.contains("[2] Second reference."));
+}
+
+#[test]
 fn sideways_float_capture_survives_ir_without_fallback() {
     let capture =
         capture_internal_render_ir("main.tex", SIDEWAYS_FLOAT_SOURCE, &SemanticAux::default());
@@ -23557,6 +23649,33 @@ fn tabular_local_macro_preserves_nested_math_array_content() {
 }
 
 #[test]
+fn tabular_local_cell_macro_preserves_nested_tabular_lines() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\newcommand{\tabincell}[2]{\begin{tabular}{@{}#1@{}}#2\end{tabular}}\begin{document}\begin{tabular}{ll}\tabincell{c}{LOC \\ method} & \tabincell{c}{top-5 LOC error \\ on predicted CLS} \\ RPN & 13.3\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "LOC\nmethod");
+    assert_eq!(
+        table.rows[0].cells[1].text,
+        "top-5 LOC error\non predicted CLS"
+    );
+    assert_eq!(table.rows[1].cells[0].text, "RPN");
+    assert_eq!(table.rows[1].cells[1].text, "13.3");
+}
+
+#[test]
 fn tabular_multirow_optional_arguments_do_not_leak() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -29419,7 +29538,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(
         fs::read_to_string(paths.events)
             .expect("events json")
-            .contains("\"schema_version\": 2")
+            .contains("\"schema_version\": 3")
     );
     assert!(
         fs::read_to_string(paths.document_ir)

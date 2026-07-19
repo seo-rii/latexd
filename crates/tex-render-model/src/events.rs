@@ -5,7 +5,7 @@ use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 pub type EventId = u64;
 pub type FootnoteId = u64;
 
-pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 2;
+pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventStream {
@@ -537,6 +537,37 @@ impl GraphicAssetFormat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptionEvent {
     pub text: String,
+    pub numbered: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_kind: Option<CaptionKind>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inline_placeholders: Vec<CaptionInlinePlaceholderEvent>,
+}
+
+impl CaptionEvent {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            numbered: true,
+            caption_kind: None,
+            inline_placeholders: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionKind {
+    Figure,
+    Table,
+    Algorithm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CaptionInlinePlaceholderEvent {
+    Citation(InlineCitationEvent),
+    Reference(InlineReferenceEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -948,9 +979,7 @@ mod tests {
         );
         let caption = RenderEventEnvelope::new(
             14,
-            RenderEvent::Caption(CaptionEvent {
-                text: "Plot caption.".to_string(),
-            }),
+            RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
             SourceProvenance::file("main.tex", 290, 303),
         );
         let bibliography_item = RenderEventEnvelope::new(

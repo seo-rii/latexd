@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 blake3.workspace = true
+camino.workspace = true
 hypher = { version = "0.1.7", default-features = false, features = ["english"] }
 tex-fonts = { path = "../tex-fonts" }
 tex-render-model = { path = "../tex-render-model" }

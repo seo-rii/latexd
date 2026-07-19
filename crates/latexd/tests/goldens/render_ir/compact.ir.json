@@ -375,6 +375,7 @@
       "items": [
         {
           "key": "key",
+          "label": "1",
           "content": "Author. Title.",
           "source": {
             "primary": {

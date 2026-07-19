@@ -8,7 +8,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_render_model::{
     AuxView, BibliographyRecordView, CitationLabel, CitationLabelForm, CitationStyleHint,
-    LabelTargetView,
+    FloatCaptionView, LabelTargetView,
 };
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
 use unicode_normalization::UnicodeNormalization;
@@ -373,6 +373,16 @@ impl AuxView for SemanticAux {
                 key: label.key.clone(),
                 number: label.number.clone(),
                 page: Some(label.page),
+            })
+    }
+
+    fn float_caption(&self, path: &Utf8Path, offset_utf8: u32) -> Option<FloatCaptionView> {
+        self.float_captions
+            .iter()
+            .find(|caption| caption.file == path && caption.offset_utf8 == offset_utf8)
+            .map(|caption| FloatCaptionView {
+                kind: caption.kind.clone(),
+                number: caption.number.clone(),
             })
     }
 }
@@ -1673,11 +1683,14 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
             equation.offset_utf8,
         )
     }));
-    combined.extend(
-        scan.floats
-            .iter()
-            .map(|float| (float.order, 4u8, float.file.clone(), float.offset_utf8)),
-    );
+    combined.extend(scan.captions.iter().map(|caption| {
+        (
+            caption.order,
+            4u8,
+            caption.file.clone(),
+            caption.offset_utf8,
+        )
+    }));
     combined.extend(
         scan.blocks
             .iter()
@@ -1787,23 +1800,23 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
             continue;
         }
         if kind == 4 {
-            let float = scan
-                .floats
+            let caption = scan
+                .captions
                 .iter()
-                .find(|float| float.order == order)
+                .find(|caption| caption.order == order)
                 .unwrap();
-            if float.numbered {
-                let number = if float.kind == FloatKind::Figure {
+            if caption.numbered {
+                let number = if caption.kind == FloatKind::Figure {
                     figure_counter += 1;
                     figure_counter.to_string()
-                } else if float.kind == FloatKind::Table {
+                } else if caption.kind == FloatKind::Table {
                     table_counter += 1;
                     table_counter.to_string()
                 } else {
                     algorithm_counter += 1;
                     algorithm_counter.to_string()
                 };
-                numbered_floats.push((file, offset_utf8, float.kind, number));
+                numbered_floats.push((file, offset_utf8, caption.kind, number));
             }
             continue;
         }
@@ -1928,7 +1941,7 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
             .find(|(float_file, float_offset, float_kind, _)| {
                 *float_file == caption.file
                     && *float_kind == caption.kind
-                    && *float_offset <= caption.offset_utf8
+                    && *float_offset == caption.offset_utf8
             })
             .map(|(_, _, _, number)| number.clone())
             .filter(|_| caption.numbered)
@@ -7279,7 +7292,7 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                     cursor = option_end;
                 }
                 if let Some((argument_end, title)) = read_braced_argument(source, cursor) {
-                    if let Some((kind, numbered)) = environment_stack
+                    if let Some((kind, _)) = environment_stack
                         .iter()
                         .rev()
                         .find_map(|(_, current_float)| *current_float)
@@ -7288,7 +7301,7 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                         events.push(CommandEvent::Caption {
                             offset: command_start as u32,
                             kind,
-                            numbered: numbered && !starred,
+                            numbered: !starred,
                             list_title: list_title.unwrap_or_else(|| body_title.clone()),
                             body_title,
                         });
@@ -12147,7 +12160,7 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
         fs::write(
             root.join("main.tex"),
-            "\\section{Intro}\\begin{figure}\\label{fig:first}a\\end{figure}\\begin{table}\\label{tab:first}b\\end{table}",
+            "\\section{Intro}\\begin{figure}\\caption{First Figure}\\label{fig:first}a\\end{figure}\\begin{table}\\caption{First Table}\\label{tab:first}b\\end{table}",
         )
         .expect("write main");
         let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
@@ -12187,7 +12200,7 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
         fs::write(
             root.join("main.tex"),
-            "\\section{Intro}\\begin{algorithm}\\label{alg:first}a\\end{algorithm}",
+            "\\section{Intro}\\begin{algorithm}\\caption{First Algorithm}\\label{alg:first}a\\end{algorithm}",
         )
         .expect("write main");
         let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
@@ -12243,6 +12256,94 @@ mod tests {
         assert_eq!(aux.float_captions[1].kind, "table");
         assert_eq!(aux.float_captions[1].number, "1");
         assert_eq!(aux.float_captions[1].title, "Long Table Title");
+    }
+
+    #[test]
+    fn derive_semantic_aux_numbers_captions_in_starred_float_environments() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\begin{figure*}\\caption{Wide Figure}\\label{fig:wide}a\\end{figure*}\\begin{table*}\\caption{Wide Table}\\label{tab:wide}b\\end{table*}\\begin{algorithm*}\\caption{Wide Algorithm}\\label{alg:wide}c\\end{algorithm*}",
+        )
+        .expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: 256,
+                }],
+            }],
+        );
+
+        for key in ["fig:wide", "tab:wide", "alg:wide"] {
+            assert_eq!(
+                aux.labels
+                    .iter()
+                    .find(|label| label.key == key)
+                    .expect("starred float label")
+                    .number,
+                "1"
+            );
+        }
+        assert_eq!(
+            aux.float_captions
+                .iter()
+                .map(|caption| (caption.kind.as_str(), caption.number.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("figure", "1"), ("table", "1"), ("algorithm", "1")]
+        );
+    }
+
+    #[test]
+    fn derive_semantic_aux_does_not_number_captionless_or_starred_captions() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\begin{figure}Captionless\\end{figure}\\begin{figure}\\caption*{Unnumbered Figure}\\end{figure}\\captionof*{figure}{Detached Unnumbered Figure}\\begin{figure}\\caption{First Figure}\\label{fig:first}a\\end{figure}\\begin{figure}\\caption{Second Figure}\\label{fig:second}b\\end{figure}",
+        )
+        .expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: 320,
+                }],
+            }],
+        );
+
+        assert_eq!(
+            aux.labels
+                .iter()
+                .find(|label| label.key == "fig:first")
+                .expect("first numbered figure")
+                .number,
+            "1"
+        );
+        assert_eq!(
+            aux.labels
+                .iter()
+                .find(|label| label.key == "fig:second")
+                .expect("second numbered figure")
+                .number,
+            "2"
+        );
+        assert_eq!(
+            aux.float_captions
+                .iter()
+                .map(|caption| caption.number.as_str())
+                .collect::<Vec<_>>(),
+            vec!["", "", "1", "2"]
+        );
     }
 
     #[test]

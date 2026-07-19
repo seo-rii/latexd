@@ -308,7 +308,7 @@
         "text": "2"
       },
       {
-        "approximate_advance_pt": 67.55854034423828,
+        "approximate_advance_pt": 82.83636474609375,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -324,7 +324,7 @@
         },
         "size_pt": 11.0,
         "source": "<present>",
-        "text": "Author. Title."
+        "text": "[1] Author. Title."
       },
       {
         "approximate_advance_pt": 65.84745025634766,

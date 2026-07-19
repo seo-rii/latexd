@@ -37,7 +37,9 @@
       },
       "event": {
         "event": {
+          "caption_kind": "figure",
           "kind": "caption",
+          "numbered": true,
           "text": "Long Figure Title"
         },
         "meta": {
@@ -183,7 +185,9 @@
       },
       "event": {
         "event": {
+          "caption_kind": "table",
           "kind": "caption",
+          "numbered": false,
           "text": "Long Table Title"
         },
         "meta": {

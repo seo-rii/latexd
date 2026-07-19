@@ -2,9 +2,9 @@ use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FloatKind, FloatPlacement,
     FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, FootnoteId,
     GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport,
-    InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind, MathNode, PageDisplayList,
-    Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-    TableColumnAlignment, TableRow, TableRuleSpan,
+    InlineNode, IrBlock, LayoutAlignment, LinkAnnotation, ListKind, MathNode, PageBreakKind,
+    PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
+    SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan,
 };
 
 use crate::font_metrics::{approximate_text_clusters, text_advance_pt};
@@ -652,7 +652,7 @@ enum LogicalItem {
     VerticalGap(f32),
     Image(LogicalImage),
     FullPageImage(LogicalImage),
-    PageBreak,
+    PageBreak(PageBreakKind),
     Container(LogicalContainer),
     ContainerRow(Vec<LogicalContainer>),
 }
@@ -760,6 +760,11 @@ pub fn build_page_display_lists(
         .as_ref()
         .and_then(|layout| layout.profile.as_deref())
         .is_some_and(|profile| profile.trim().eq_ignore_ascii_case("nips_2014"));
+    let uses_cvpr_metrics = document_ir
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.profile.as_deref())
+        .is_some_and(|profile| profile.trim().eq_ignore_ascii_case("cvpr"));
     let uses_standard_article_metrics = document_ir
         .document_class
         .as_ref()
@@ -1841,7 +1846,9 @@ pub fn build_page_display_lists(
                     full_width: true,
                 }));
             }
-            IrBlock::PageBreak(_) => logical_items.push(LogicalItem::PageBreak),
+            IrBlock::PageBreak(block) => {
+                logical_items.push(LogicalItem::PageBreak(block.kind));
+            }
             table @ (IrBlock::Table(_) | IrBlock::FullWidthTable(_)) => {
                 let (block, full_width) = match table {
                     IrBlock::Table(block) => (block, false),
@@ -2276,7 +2283,23 @@ pub fn build_page_display_lists(
                     1.0
                 };
                 let table_font_size_pt = options.body_font_size_pt * table_font_scale;
-                let table_line_height_pt = options.line_height_pt * table_font_scale;
+                let table_vertical_scale = if table_font_scale < 1.0 {
+                    if requested_table_width_pt.is_some() {
+                        // The fallback uses a monospaced row to preserve columns, while TeX tables
+                        // normally use a substantially narrower proportional face. Compensate for
+                        // that width overestimate before applying a resizebox scale vertically.
+                        (table_font_scale * (0.6 / 0.45)).min(1.0)
+                    } else {
+                        // Width fitting is a fallback limitation, not an instruction to collapse
+                        // the source table's baseline spacing.
+                        table_font_scale.max(0.9)
+                    }
+                } else {
+                    1.0
+                };
+                let table_row_stretch = if uses_cvpr_metrics { 1.1 } else { 1.0 };
+                let table_line_height_pt =
+                    options.line_height_pt * table_vertical_scale * table_row_stretch;
                 let table_side_indent_pt = if full_width {
                     0.0
                 } else if let Some(width) = requested_table_width_pt {
@@ -3288,7 +3311,7 @@ pub fn build_page_display_lists(
         options.margin_top_pt
     };
     let mut y = first_page_top_pt;
-    let mut column_start_y = first_page_top_pt;
+    let mut column_start_ys = vec![first_page_top_pt; column_count];
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
         if let ProvenanceSpan::File(span) = &source.primary {
             if !source_spans.contains(span) {
@@ -3369,15 +3392,29 @@ pub fn build_page_display_lists(
             }
             additional_height
         };
-    let mut deferred_top_container_rows = Vec::<Vec<LogicalContainer>>::new();
+    struct DeferredTopContainerRow {
+        containers: Vec<LogicalContainer>,
+        enqueued_page_index: usize,
+    }
+
+    let mut deferred_top_container_rows = Vec::<DeferredTopContainerRow>::new();
+    let mut deferred_top_float_columns = Vec::<(String, usize)>::new();
 
     macro_rules! place_container_row {
         ($containers:expr) => {{
             let containers = $containers;
             let row_full_width = containers.iter().any(|container| container.full_width);
+            let row_requires_top_placement = containers
+                .iter()
+                .any(|container| container.requires_top_placement);
+            let row_reserves_column_top = row_requires_top_placement
+                || containers
+                    .iter()
+                    .any(|container| container.deferred_top_float);
             if row_full_width {
                 column_index = 0;
             }
+            let row_started_at_column_top = (y - column_start_ys[column_index]).abs() <= 0.01;
             let row_height_pt = containers
                 .iter()
                 .map(|container| container.height_pt)
@@ -3458,8 +3495,10 @@ pub fn build_page_display_lists(
             }
             y += row_height_pt + options.block_gap_pt;
             if row_full_width {
-                column_start_y = y;
-                let _ = column_start_y;
+                column_start_ys.fill(y);
+                deferred_top_float_columns.clear();
+            } else if row_reserves_column_top && row_started_at_column_top {
+                column_start_ys[column_index] = y;
             }
         }};
     }
@@ -3467,9 +3506,52 @@ pub fn build_page_display_lists(
     macro_rules! place_deferred_top_container_rows {
         () => {{
             loop {
-                let Some(containers) = deferred_top_container_rows.first() else {
+                let Some(deferred) = deferred_top_container_rows.first() else {
                     break;
                 };
+                let containers = &deferred.containers;
+                let row_full_width = containers.iter().any(|container| container.full_width);
+                let row_requires_top_placement = containers
+                    .iter()
+                    .any(|container| container.requires_top_placement);
+                if row_requires_top_placement && !row_full_width && column_count > 1 {
+                    let float_name = containers
+                        .first()
+                        .map(|container| container.name.as_str())
+                        .filter(|name| matches!(*name, "figure" | "table"));
+                    let assigned_column = float_name.and_then(|name| {
+                        deferred_top_float_columns
+                            .iter()
+                            .find_map(|(assigned_name, column)| {
+                                (assigned_name == name).then_some(*column)
+                            })
+                    });
+                    column_index = assigned_column.unwrap_or_else(|| {
+                        column_start_ys
+                            .iter()
+                            .enumerate()
+                            .min_by(|left, right| left.1.total_cmp(right.1))
+                            .map(|(index, _)| index)
+                            .unwrap_or(0)
+                    });
+                    if assigned_column.is_none()
+                        && let Some(name) = float_name
+                    {
+                        deferred_top_float_columns.push((name.to_string(), column_index));
+                    }
+                    y = column_start_ys[column_index];
+                } else if row_full_width {
+                    let first_column_start_y = column_start_ys[0];
+                    if column_start_ys
+                        .iter()
+                        .any(|start_y| (*start_y - first_column_start_y).abs() > 0.01)
+                        && !pending.ops.is_empty()
+                    {
+                        break;
+                    }
+                    column_index = 0;
+                    y = first_column_start_y;
+                }
                 let row_height_pt = containers
                     .iter()
                     .map(|container| container.height_pt)
@@ -3479,9 +3561,68 @@ pub fn build_page_display_lists(
                 {
                     break;
                 }
-                let containers = deferred_top_container_rows.remove(0);
-                place_container_row!(containers);
+                let deferred = deferred_top_container_rows.remove(0);
+                place_container_row!(deferred.containers);
             }
+        }};
+    }
+
+    macro_rules! place_deferred_top_container_rows_in_current_column {
+        () => {{
+            loop {
+                let Some(position) = deferred_top_container_rows.iter().position(|deferred| {
+                    let float_name = deferred
+                        .containers
+                        .first()
+                        .map(|container| container.name.as_str())
+                        .filter(|name| matches!(*name, "figure" | "table"));
+                    let assigned_column = float_name.and_then(|name| {
+                        deferred_top_float_columns.iter().find_map(
+                            |(assigned_name, assigned_column)| {
+                                (assigned_name == name).then_some(*assigned_column)
+                            },
+                        )
+                    });
+                    let fills_complementary_column = match assigned_column {
+                        Some(assigned_column) => assigned_column == column_index,
+                        None => float_name.is_some() && !deferred_top_float_columns.is_empty(),
+                    };
+
+                    (deferred.enqueued_page_index < pages.len() || fills_complementary_column)
+                        && !deferred
+                            .containers
+                            .iter()
+                            .any(|container| container.full_width)
+                }) else {
+                    break;
+                };
+                let containers = &deferred_top_container_rows[position].containers;
+                let row_height_pt = containers
+                    .iter()
+                    .map(|container| container.height_pt)
+                    .fold(options.line_height_pt, f32::max);
+                y = column_start_ys[column_index];
+                if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index) {
+                    break;
+                }
+                if let Some(float_name) = containers
+                    .first()
+                    .map(|container| container.name.as_str())
+                    .filter(|name| matches!(*name, "figure" | "table"))
+                {
+                    if let Some((_, assigned_column)) = deferred_top_float_columns
+                        .iter_mut()
+                        .find(|(assigned_name, _)| assigned_name == float_name)
+                    {
+                        *assigned_column = column_index;
+                    } else {
+                        deferred_top_float_columns.push((float_name.to_string(), column_index));
+                    }
+                }
+                let deferred = deferred_top_container_rows.remove(position);
+                place_container_row!(deferred.containers);
+            }
+            y = column_start_ys[column_index];
         }};
     }
 
@@ -3490,9 +3631,12 @@ pub fn build_page_display_lists(
             finish_page(&mut pages, pending);
             pending = new_pending_page();
             column_index = 0;
-            column_start_y = options.margin_top_pt;
-            y = column_start_y;
+            column_start_ys.fill(options.margin_top_pt);
+            deferred_top_float_columns.clear();
+            y = column_start_ys[0];
             place_deferred_top_container_rows!();
+            column_index = 0;
+            y = column_start_ys[0];
         }};
     }
 
@@ -3506,7 +3650,7 @@ pub fn build_page_display_lists(
                 if let Some(row) = pending_image_row.take() {
                     y = row.y + row.height_pt + row.gap_after_pt;
                 }
-                if y > column_start_y + 0.01 {
+                if y > column_start_ys[column_index] + 0.01 {
                     y += gap_pt.max(0.0);
                 }
             }
@@ -3549,7 +3693,7 @@ pub fn build_page_display_lists(
                 {
                     if column_index + 1 < column_count {
                         column_index += 1;
-                        y = column_start_y;
+                        place_deferred_top_container_rows_in_current_column!();
                     } else {
                         start_next_page!();
                     }
@@ -3593,9 +3737,12 @@ pub fn build_page_display_lists(
                         start_next_page!();
                     } else {
                         column_index = 0;
-                        column_start_y = options.margin_top_pt;
-                        y = column_start_y;
+                        column_start_ys.fill(options.margin_top_pt);
+                        deferred_top_float_columns.clear();
+                        y = column_start_ys[0];
                         place_deferred_top_container_rows!();
+                        column_index = 0;
+                        y = column_start_ys[0];
                     }
                 }
                 let mut wrapped_lines = Vec::new();
@@ -4010,7 +4157,7 @@ pub fn build_page_display_lists(
                     {
                         if !full_width && column_index + 1 < column_count {
                             column_index += 1;
-                            y = column_start_y;
+                            place_deferred_top_container_rows_in_current_column!();
                         } else {
                             start_next_page!();
                         }
@@ -4055,7 +4202,7 @@ pub fn build_page_display_lists(
                     {
                         if !full_width && column_index + 1 < column_count {
                             column_index += 1;
-                            y = column_start_y;
+                            place_deferred_top_container_rows_in_current_column!();
                         } else {
                             start_next_page!();
                         }
@@ -4351,7 +4498,8 @@ pub fn build_page_display_lists(
                 }
                 y += logical.gap_after_pt;
                 if full_width {
-                    column_start_y = y;
+                    column_start_ys.fill(y);
+                    deferred_top_float_columns.clear();
                 }
             }
             LogicalItem::ContainerRow(containers) => {
@@ -4369,7 +4517,7 @@ pub fn build_page_display_lists(
                     .iter()
                     .any(|container| container.requires_top_placement);
                 let is_full_width = containers.iter().any(|container| container.full_width);
-                let is_at_column_top = (y - column_start_y).abs() <= 0.01;
+                let is_at_column_top = (y - column_start_ys[column_index]).abs() <= 0.01;
                 let overflows_last_column = y + row_height_pt
                     > page_content_bottom_pt(pages.len(), &pending, column_index)
                     && (is_full_width || column_index + 1 >= column_count);
@@ -4379,7 +4527,10 @@ pub fn build_page_display_lists(
                             && (!is_at_column_top || (is_full_width && column_index > 0)))
                         || (overflows_last_column && !pending.ops.is_empty()))
                 {
-                    deferred_top_container_rows.push(containers);
+                    deferred_top_container_rows.push(DeferredTopContainerRow {
+                        containers,
+                        enqueued_page_index: pages.len(),
+                    });
                     continue;
                 }
                 if y + row_height_pt > page_content_bottom_pt(pages.len(), &pending, column_index)
@@ -4387,7 +4538,7 @@ pub fn build_page_display_lists(
                 {
                     if !is_full_width && column_index + 1 < column_count {
                         column_index += 1;
-                        y = column_start_y;
+                        place_deferred_top_container_rows_in_current_column!();
                     } else {
                         start_next_page!();
                     }
@@ -4400,33 +4551,49 @@ pub fn build_page_display_lists(
             LogicalItem::KeepTogetherText(_) => {
                 unreachable!("keep-together text must be normalized before page placement")
             }
-            LogicalItem::PageBreak => {
+            LogicalItem::PageBreak(kind) => {
                 pending_image_row = None;
                 if !pending.ops.is_empty() {
-                    start_next_page!();
+                    if matches!(kind, PageBreakKind::NewPage) && column_index + 1 < column_count {
+                        column_index += 1;
+                        place_deferred_top_container_rows_in_current_column!();
+                    } else {
+                        start_next_page!();
+                    }
                 } else {
                     column_index = 0;
-                    column_start_y = options.margin_top_pt;
-                    y = column_start_y;
+                    column_start_ys.fill(options.margin_top_pt);
+                    deferred_top_float_columns.clear();
+                    y = column_start_ys[0];
                     place_deferred_top_container_rows!();
+                    column_index = 0;
+                    y = column_start_ys[0];
                 }
             }
             LogicalItem::FullPageImage(logical) => {
                 pending_image_row = None;
                 if !pending.ops.is_empty() {
-                    start_next_page!();
+                    finish_page(&mut pages, pending);
+                    pending = new_pending_page();
+                    column_index = 0;
+                    column_start_ys.fill(options.margin_top_pt);
+                    deferred_top_float_columns.clear();
+                    y = column_start_ys[0];
+                    place_deferred_top_container_rows!();
                 } else {
                     column_index = 0;
-                    column_start_y = options.margin_top_pt;
-                    y = column_start_y;
+                    column_start_ys.fill(options.margin_top_pt);
+                    deferred_top_float_columns.clear();
+                    y = column_start_ys[0];
                     place_deferred_top_container_rows!();
                 }
                 while !deferred_top_container_rows.is_empty() {
                     finish_page(&mut pages, pending);
                     pending = new_pending_page();
                     column_index = 0;
-                    column_start_y = options.margin_top_pt;
-                    y = column_start_y;
+                    column_start_ys.fill(options.margin_top_pt);
+                    deferred_top_float_columns.clear();
+                    y = column_start_ys[0];
                     place_deferred_top_container_rows!();
                 }
                 if !pending.ops.is_empty() {
@@ -4499,8 +4666,9 @@ pub fn build_page_display_lists(
                 finish_page(&mut pages, pending);
                 pending = new_pending_page();
                 column_index = 0;
-                column_start_y = options.margin_top_pt;
-                y = column_start_y;
+                column_start_ys.fill(options.margin_top_pt);
+                deferred_top_float_columns.clear();
+                y = column_start_ys[0];
             }
             LogicalItem::Image(logical) => {
                 let full_width = logical.full_width;
@@ -4894,9 +5062,12 @@ pub fn build_page_display_lists(
                             start_next_page!();
                         } else {
                             column_index = 0;
-                            column_start_y = options.margin_top_pt;
-                            y = column_start_y;
+                            column_start_ys.fill(options.margin_top_pt);
+                            deferred_top_float_columns.clear();
+                            y = column_start_ys[0];
                             place_deferred_top_container_rows!();
+                            column_index = 0;
+                            y = column_start_ys[0];
                         }
                     }
                     if y + required_height
@@ -4905,7 +5076,7 @@ pub fn build_page_display_lists(
                     {
                         if !full_width && column_index + 1 < column_count {
                             column_index += 1;
-                            y = column_start_y;
+                            place_deferred_top_container_rows_in_current_column!();
                         } else {
                             start_next_page!();
                         }
@@ -4927,7 +5098,8 @@ pub fn build_page_display_lists(
                 };
                 if full_width {
                     column_index = 0;
-                    column_start_y = image_y + required_height + logical.gap_after_pt;
+                    column_start_ys.fill(image_y + required_height + logical.gap_after_pt);
+                    deferred_top_float_columns.clear();
                 }
 
                 if !pending.text.is_empty() {
@@ -5069,8 +5241,9 @@ pub fn build_page_display_lists(
         finish_page(&mut pages, pending);
         pending = new_pending_page();
         column_index = 0;
-        column_start_y = options.margin_top_pt;
-        y = column_start_y;
+        column_start_ys.fill(options.margin_top_pt);
+        deferred_top_float_columns.clear();
+        y = column_start_ys[0];
     }
     while !deferred_top_container_rows.is_empty() {
         place_deferred_top_container_rows!();
@@ -5078,8 +5251,9 @@ pub fn build_page_display_lists(
             finish_page(&mut pages, pending);
             pending = new_pending_page();
             column_index = 0;
-            column_start_y = options.margin_top_pt;
-            y = column_start_y;
+            column_start_ys.fill(options.margin_top_pt);
+            deferred_top_float_columns.clear();
+            y = column_start_ys[0];
         }
     }
     drop(emit_due_destinations);
@@ -6626,6 +6800,221 @@ mod tests {
     }
 
     #[test]
+    fn wide_table_fallback_does_not_collapse_row_height() {
+        let source = SourceProvenance::file("main.tex", 0, 96);
+        let columns = (0..2)
+            .map(|_| TableColumnSpec {
+                alignment: TableColumnAlignment::Left,
+                rule_before: false,
+                rule_before_count: 0,
+                rule_after: false,
+                rule_after_count: 0,
+                separator_after: None,
+                width_pt_milli: None,
+                cell_prefix: None,
+                cell_suffix: None,
+            })
+            .collect::<Vec<_>>();
+        let row = |prefix: char| TableRow {
+            rule_above: false,
+            partial_rules_above: Vec::new(),
+            cells: [prefix.to_string().repeat(20), prefix.to_string().repeat(20)]
+                .into_iter()
+                .map(|text| TableCell {
+                    text,
+                    column_span: None,
+                    row_span: None,
+                    alignment: None,
+                    rule_before_count: 0,
+                    rule_after_count: 0,
+                    cell_prefix: None,
+                    cell_suffix: None,
+                })
+                .collect(),
+            rule_below: false,
+            partial_rules_below: Vec::new(),
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns,
+                rows: vec![row('A'), row('B')],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let baselines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.contains('A') || run.text.contains('B') => {
+                    Some(run.origin.y)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(baselines.len(), 2, "{baselines:?}");
+        assert!(
+            baselines[1] - baselines[0] >= 10.7,
+            "wide fallback table rows were vertically compressed: {baselines:?}"
+        );
+    }
+
+    #[test]
+    fn cvpr_tables_apply_profile_row_stretch() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let row = |text: &str| TableRow {
+            rule_above: false,
+            partial_rules_above: Vec::new(),
+            cells: vec![TableCell {
+                text: text.to_string(),
+                column_span: None,
+                row_span: None,
+                alignment: None,
+                rule_before_count: 0,
+                rule_after_count: 0,
+                cell_prefix: None,
+                cell_suffix: None,
+            }],
+            rule_below: false,
+            partial_rules_below: Vec::new(),
+        };
+        let mut document = DocumentIr::new(vec![IrBlock::Table(TableBlock {
+            environment: "tabular".to_string(),
+            width_spec: None,
+            columns: vec![TableColumnSpec {
+                alignment: TableColumnAlignment::Left,
+                rule_before: false,
+                rule_before_count: 0,
+                rule_after: false,
+                rule_after_count: 0,
+                separator_after: None,
+                width_pt_milli: None,
+                cell_prefix: None,
+                cell_suffix: None,
+            }],
+            rows: vec![row("first"), row("second")],
+            caption: None,
+            caption_source: None,
+            source,
+        })]);
+        document.layout = Some(DocumentLayoutIntent {
+            profile: Some("cvpr".to_string()),
+            ..DocumentLayoutIntent::default()
+        });
+        let display_lists = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let baselines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if matches!(run.text.as_str(), "first" | "second") => {
+                    Some(run.origin.y)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(baselines, [10.0, 21.0]);
+    }
+
+    #[test]
+    fn resizebox_table_uses_proportional_vertical_scale() {
+        let source = SourceProvenance::file("main.tex", 0, 96);
+        let columns = (0..2)
+            .map(|_| TableColumnSpec {
+                alignment: TableColumnAlignment::Left,
+                rule_before: false,
+                rule_before_count: 0,
+                rule_after: false,
+                rule_after_count: 0,
+                separator_after: None,
+                width_pt_milli: None,
+                cell_prefix: None,
+                cell_suffix: None,
+            })
+            .collect::<Vec<_>>();
+        let row = |prefix: char| TableRow {
+            rule_above: false,
+            partial_rules_above: Vec::new(),
+            cells: [prefix.to_string().repeat(40), prefix.to_string().repeat(40)]
+                .into_iter()
+                .map(|text| TableCell {
+                    text,
+                    column_span: None,
+                    row_span: None,
+                    alignment: None,
+                    rule_before_count: 0,
+                    rule_after_count: 0,
+                    cell_prefix: None,
+                    cell_suffix: None,
+                })
+                .collect(),
+            rule_below: false,
+            partial_rules_below: Vec::new(),
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::FullWidthTable(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: Some("0.5\\textwidth".to_string()),
+                columns,
+                rows: vec![row('A'), row('B')],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 600.0,
+                margin_left_pt: 50.0,
+                body_font_size_pt: 10.0,
+                line_height_pt: 12.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let baselines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.contains('A') || run.text.contains('B') => {
+                    Some(run.origin.y)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!baselines.is_empty(), "{baselines:?}");
+        assert!(
+            baselines.windows(2).all(|pair| pair[1] - pair[0] >= 7.0),
+            "resizebox fallback used monospaced width scale vertically: {baselines:?}"
+        );
+    }
+
+    #[test]
     fn resizebox_exact_fit_does_not_emit_blank_table_lines() {
         let source = SourceProvenance::file("main.tex", 0, 96);
         let first_row = "A".repeat(40);
@@ -6700,7 +7089,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![first_row.as_str(), second_row.as_str()]
         );
-        assert!((table_runs[1].origin.y - table_runs[0].origin.y - 7.0).abs() < 0.001);
+        assert!((table_runs[1].origin.y - table_runs[0].origin.y - 9.333_334).abs() < 0.001);
     }
 
     #[test]
@@ -9575,7 +9964,7 @@ mod tests {
                 column_count: Some(2),
                 column_gap_pt_milli: Some(22_500),
                 body_font_size_pt_milli: Some(10_000),
-                line_height_pt_milli: Some(10_500),
+                line_height_pt_milli: Some(12_000),
                 ..DocumentLayoutIntent::default()
             }),
             Vec::new(),
@@ -9584,7 +9973,7 @@ mod tests {
         let options = PageDisplayListOptions::for_document_ir(&document);
 
         assert_eq!(options.column_count, 2);
-        assert_eq!(options.line_height_pt, 10.5);
+        assert_eq!(options.line_height_pt, 12.0);
         assert_eq!(options.margin_left_pt, 58.5);
         assert_eq!(options.margin_top_pt, 72.0);
         assert_eq!(options.margin_bottom_pt, 81.0);
@@ -10476,6 +10865,197 @@ mod tests {
         );
         assert!(find_run(1, "first-float-caption").is_some());
         assert!(find_run(1, "second-float-1").is_some_and(|point| point.y >= 50.0));
+    }
+
+    #[test]
+    fn groups_deferred_top_floats_by_kind_across_two_column_tops() {
+        let source = SourceProvenance::file("main.tex", 0, 200);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let float = |label: &str, kind: FloatKind| {
+            IrBlock::Float(FloatBlock {
+                kind,
+                placement: FloatPlacement::Top,
+                full_width: false,
+                children: vec![paragraph(&format!("{label}-1\n{label}-2"))],
+                caption: Some(format!("{label}-caption")),
+                caption_source: Some(source.clone()),
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("before"),
+            float("first-table", FloatKind::Table),
+            float("second-table", FloatKind::Table),
+            float("right-figure", FloatKind::Figure),
+            IrBlock::PageBreak(PageBreakBlock {
+                kind: PageBreakKind::ClearPage,
+                source: source.clone(),
+            }),
+            paragraph("after"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(
+            find_run(1, "first-table-1"),
+            Some(Point { x: 10.0, y: 10.0 })
+        );
+        assert_eq!(
+            find_run(1, "second-table-1"),
+            Some(Point { x: 10.0, y: 50.0 })
+        );
+        assert_eq!(
+            find_run(1, "right-figure-1"),
+            Some(Point { x: 105.0, y: 10.0 })
+        );
+        assert_eq!(find_run(1, "after"), Some(Point { x: 105.0, y: 50.0 }));
+    }
+
+    #[test]
+    fn defers_mid_page_top_float_past_the_next_column() {
+        let source = SourceProvenance::file("main.tex", 0, 200);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("before-1\nbefore-2\nbefore-3\nbefore-4\nbefore-5"),
+            IrBlock::Float(FloatBlock {
+                kind: FloatKind::Table,
+                placement: FloatPlacement::Top,
+                full_width: false,
+                children: vec![paragraph("table-1\ntable-2")],
+                caption: Some("table-caption".to_string()),
+                caption_source: Some(source.clone()),
+                source: source.clone(),
+            }),
+            paragraph("after-1\nafter-2\nafter-3\nafter-4\nafter-5"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(pages.len(), 2);
+        assert!(find_run(0, "table-1").is_none());
+        assert_eq!(find_run(1, "table-1"), Some(Point { x: 10.0, y: 10.0 }));
+        assert_eq!(find_run(0, "after-4"), Some(Point { x: 105.0, y: 10.0 }));
+    }
+
+    #[test]
+    fn fills_complementary_column_top_with_a_new_float_kind() {
+        let source = SourceProvenance::file("main.tex", 0, 240);
+        let paragraph = |text: &str| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        };
+        let float = |kind, text: &str| {
+            IrBlock::Float(FloatBlock {
+                kind,
+                placement: FloatPlacement::Top,
+                full_width: false,
+                children: vec![paragraph(text)],
+                caption: Some(format!("{text}-caption")),
+                caption_source: Some(source.clone()),
+                source: source.clone(),
+            })
+        };
+        let document = DocumentIr::new(vec![
+            paragraph("page-zero-1\npage-zero-2\npage-zero-3\npage-zero-4\npage-zero-5"),
+            float(FloatKind::Table, "table"),
+            IrBlock::PageBreak(PageBreakBlock {
+                kind: PageBreakKind::ClearPage,
+                source: source.clone(),
+            }),
+            paragraph("left-1\nleft-2\nleft-3"),
+            float(FloatKind::Figure, "figure"),
+            paragraph("after-1\nafter-2\nafter-3\nafter-4\nafter-5"),
+        ]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                paragraph_gap_pt: Some(0.0),
+                max_chars_per_line: 100,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let find_run = |page_index: usize, text: &str| {
+            pages[page_index].ops.iter().find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == text => Some(run.origin),
+                _ => None,
+            })
+        };
+
+        assert_eq!(find_run(1, "table"), Some(Point { x: 10.0, y: 10.0 }));
+        assert_eq!(find_run(1, "figure"), Some(Point { x: 105.0, y: 10.0 }));
+        assert_eq!(find_run(1, "after-4"), Some(Point { x: 105.0, y: 30.0 }));
     }
 
     #[test]
@@ -11772,14 +12352,14 @@ mod tests {
             Some(DocumentLayoutIntent {
                 profile: Some("cvpr".to_string()),
                 body_font_size_pt_milli: Some(10_000),
-                line_height_pt_milli: Some(10_500),
+                line_height_pt_milli: Some(12_000),
                 ..DocumentLayoutIntent::default()
             }),
             Vec::new(),
         );
         let options = PageDisplayListOptions::for_document_ir(&document);
         assert_eq!(options.body_font_size_pt, 10.0);
-        assert_eq!(options.line_height_pt, 10.5);
+        assert_eq!(options.line_height_pt, 12.0);
         assert_eq!(options.bibliography_font_size_pt, Some(8.0));
         assert_eq!(options.bibliography_line_height_pt, Some(9.5));
         let display_lists = build_page_display_lists(&document, options);
@@ -11961,6 +12541,96 @@ mod tests {
                 .iter()
                 .any(|op| matches!(op, DrawOp::TextRun(run) if run.text == "Before"))
         );
+        assert!(
+            display_lists[1]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::TextRun(run) if run.text == "After"))
+        );
+    }
+
+    #[test]
+    fn newpage_advances_to_the_next_column_in_two_column_layout() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Bibliography(BibliographyBlock {
+                    items: vec![BibliographyItemIr {
+                        key: "one".to_string(),
+                        label: Some("1".to_string()),
+                        content: "Reference.".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::PageBreak(PageBreakBlock {
+                    kind: PageBreakKind::NewPage,
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Appendix".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions {
+                page_width_pt: 240.0,
+                margin_left_pt: 20.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_eq!(display_lists.len(), 1);
+        let reference_x = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text.contains("Reference") => Some(run.origin.x),
+            _ => None,
+        });
+        let appendix_x = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Appendix" => Some(run.origin.x),
+            _ => None,
+        });
+        assert_eq!(reference_x, Some(20.0));
+        assert_eq!(appendix_x, Some(130.0));
+    }
+
+    #[test]
+    fn clearpage_starts_a_physical_page_in_two_column_layout() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Before".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::PageBreak(PageBreakBlock {
+                    kind: PageBreakKind::ClearPage,
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "After".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions {
+                page_width_pt: 240.0,
+                margin_left_pt: 20.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_eq!(display_lists.len(), 2);
         assert!(
             display_lists[1]
                 .ops

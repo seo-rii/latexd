@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tex_render_model::{
-    AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
-    CitationLabelForm, CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent,
-    EnvironmentBlock, FloatBlock, FloatKind, FloatPlacement, FootnoteAnchor, FootnoteCommandKind,
-    FootnoteId, FootnoteIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
-    LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
-    PageBreakBlock, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
-    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
-    TableRulePosition, TitleBlock,
+    AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CaptionInlinePlaceholderEvent,
+    CitationInline, CitationLabelForm, CitationStyleHint, DocumentClassIr, DocumentIr,
+    DocumentLayoutIntent, EnvironmentBlock, FloatBlock, FloatKind, FloatPlacement, FootnoteAnchor,
+    FootnoteCommandKind, FootnoteId, FootnoteIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
+    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind,
+    MetadataField, PageBreakBlock, ParagraphBlock, ProvenanceSpan, ReferenceInline, RenderEvent,
+    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock,
+    TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
 use crate::math_ir::parse_display_math_structure;
@@ -65,6 +65,11 @@ impl ActiveFloat {
                     {
                         true
                     }
+                    IrBlock::Table(table) | IrBlock::FullWidthTable(table)
+                        if table.caption.is_none() =>
+                    {
+                        true
+                    }
                     _ => false,
                 })
                 .or_else(|| {
@@ -76,17 +81,27 @@ impl ActiveFloat {
                             {
                                 true
                             }
+                            IrBlock::Table(table) | IrBlock::FullWidthTable(table)
+                                if table.caption.is_none() =>
+                            {
+                                true
+                            }
                             _ => false,
                         })
                         .map(|index| preceding_end + index)
                 });
             if let Some(target_index) = target_index {
-                let graphic = match &mut self.children[target_index] {
-                    IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic) => graphic,
-                    _ => unreachable!("selected graphic child"),
-                };
-                graphic.caption = Some(caption.text);
-                graphic.caption_source = Some(caption.source);
+                match &mut self.children[target_index] {
+                    IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic) => {
+                        graphic.caption = Some(caption.text);
+                        graphic.caption_source = Some(caption.source);
+                    }
+                    IrBlock::Table(table) | IrBlock::FullWidthTable(table) => {
+                        table.caption = Some(caption.text);
+                        table.caption_source = Some(caption.source);
+                    }
+                    _ => unreachable!("selected captionable child"),
+                }
             } else {
                 self.children.push(IrBlock::Paragraph(ParagraphBlock {
                     content: vec![InlineNode::Text {
@@ -809,13 +824,18 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }));
                 }
                 RenderEvent::BibliographyItem(event) => {
+                    let sequential_label = self
+                        .bibliography_items
+                        .as_ref()
+                        .map(|(items, _)| (items.len() + 1).to_string());
                     let item = BibliographyItemIr {
                         key: event.key.clone(),
                         label: self
                             .aux
                             .citation_label(&event.key, CitationStyleHint::Numeric)
                             .map(|label| label.text)
-                            .or_else(|| event.label_hint.clone()),
+                            .or_else(|| event.label_hint.clone())
+                            .or(sequential_label),
                         content: event.text.clone(),
                         source: envelope.meta.source.clone(),
                     };
@@ -1125,11 +1145,112 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }));
                 }
                 RenderEvent::Caption(event) => {
+                    let mut caption_text = event.text.clone();
+                    for placeholder in &event.inline_placeholders {
+                        let replacement = match placeholder {
+                            CaptionInlinePlaceholderEvent::Reference(reference) => {
+                                let targets = reference
+                                    .keys
+                                    .iter()
+                                    .filter_map(|key| self.aux.label_target(key))
+                                    .collect::<Vec<_>>();
+                                if targets.len() != reference.keys.len() || targets.is_empty() {
+                                    if reference.command == "eqref" {
+                                        "(?)".to_string()
+                                    } else {
+                                        "[?]".to_string()
+                                    }
+                                } else if matches!(
+                                    reference.command.as_str(),
+                                    "pageref"
+                                        | "vpageref"
+                                        | "cpageref"
+                                        | "Cpageref"
+                                        | "autopageref"
+                                        | "labelcpageref"
+                                ) {
+                                    targets
+                                        .iter()
+                                        .filter_map(|target| target.page)
+                                        .map(|page| page.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(",")
+                                } else {
+                                    let target = targets
+                                        .iter()
+                                        .map(|target| target.number.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(",");
+                                    if reference.command == "eqref" {
+                                        format!("({target})")
+                                    } else {
+                                        target
+                                    }
+                                }
+                            }
+                            CaptionInlinePlaceholderEvent::Citation(citation) => {
+                                let labels = citation
+                                    .keys
+                                    .iter()
+                                    .filter_map(|key| {
+                                        self.aux.citation_label(key, citation.style_hint)
+                                    })
+                                    .collect::<Vec<_>>();
+                                if labels.len() != citation.keys.len() || labels.is_empty() {
+                                    "[?]".to_string()
+                                } else {
+                                    let texts = labels
+                                        .iter()
+                                        .map(|label| label.text.as_str())
+                                        .collect::<Vec<_>>();
+                                    match labels[0].form {
+                                        CitationLabelForm::Numeric => {
+                                            format!("[{}]", texts.join(","))
+                                        }
+                                        CitationLabelForm::Textual => texts.join("; "),
+                                        CitationLabelForm::Parenthetical => {
+                                            format!("({})", texts.join("; "))
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                        if let Some(start) = caption_text.find("[?]") {
+                            caption_text.replace_range(start..start + "[?]".len(), &replacement);
+                        }
+                    }
+                    if event.numbered {
+                        let invocation = envelope.meta.source.related.iter().find_map(|related| {
+                            (related.role == SourceSpanRole::Invocation)
+                                .then_some(&related.span)
+                                .and_then(|span| match span {
+                                    ProvenanceSpan::File(span) => Some(span),
+                                    ProvenanceSpan::Generated(_) => None,
+                                })
+                        });
+                        if let Some(invocation) = invocation
+                            && let Some(aux_caption) = self
+                                .aux
+                                .float_caption(&invocation.path, invocation.start_utf8)
+                            && !aux_caption.number.is_empty()
+                        {
+                            let kind = match aux_caption.kind.trim().to_ascii_lowercase().as_str() {
+                                "figure" => "Figure",
+                                "table" => "Table",
+                                "algorithm" => "Algorithm",
+                                _ => "",
+                            };
+                            if !kind.is_empty() {
+                                caption_text =
+                                    format!("{kind} {}. {caption_text}", aux_caption.number);
+                            }
+                        }
+                    }
                     if self.layout_container_stack.is_empty()
                         && let Some(active) = self.float_stack.last_mut()
                     {
                         active.captions.push(ActiveFloatCaption {
-                            text: event.text.clone(),
+                            text: caption_text,
                             source: envelope.meta.source.clone(),
                             after_child_count: active.children.len(),
                         });
@@ -1145,13 +1266,13 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         target_blocks.last_mut()
                         && block.caption.is_none()
                     {
-                        block.caption = Some(event.text.clone());
+                        block.caption = Some(caption_text);
                         block.caption_source = Some(envelope.meta.source.clone());
                     } else {
                         self.flush_paragraph();
                         self.push_block(IrBlock::Paragraph(ParagraphBlock {
                             content: vec![InlineNode::Text {
-                                text: event.text.clone(),
+                                text: caption_text,
                                 source: envelope.meta.source.clone(),
                             }],
                             source: envelope.meta.source.clone(),
@@ -1354,14 +1475,15 @@ mod tests {
 
     use tex_render_model::{
         BeginBlockEvent, BeginFootnoteEvent, BibliographyBlock, BibliographyItemEvent, BlockKind,
-        CaptionEvent, CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
-        DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, FloatKind, FloatPlacement,
-        FlushTitleBlockEvent, FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent,
-        HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent,
-        IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField,
-        PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
+        CaptionEvent, CaptionInlinePlaceholderEvent, CitationLabel, CitationLabelForm,
+        CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
+        EndFootnoteEvent, FloatCaptionView, FloatKind, FloatPlacement, FlushTitleBlockEvent,
+        FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
+        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
+        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
         RenderEvent, RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent,
-        SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -1830,6 +1952,62 @@ mod tests {
     }
 
     #[test]
+    fn bibliography_items_receive_sequential_labels_without_aux() {
+        let source = SourceProvenance::file("main.bbl", 0, 96);
+        let stream = RenderEventStream::new(
+            Some("sequential-bibliography-labels".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Bibliography,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::BibliographyItem(BibliographyItemEvent {
+                        key: "first".to_string(),
+                        label_hint: None,
+                        text: "First reference.".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::BibliographyItem(BibliographyItemEvent {
+                        key: "second".to_string(),
+                        label_hint: None,
+                        text: "Second reference.".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::Bibliography,
+                    }),
+                    source,
+                ),
+            ],
+        );
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::new(),
+                targets: BTreeMap::new(),
+            },
+        );
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Bibliography(BibliographyBlock { items, .. })]
+                if items[0].label.as_deref() == Some("1")
+                    && items[1].label.as_deref() == Some("2")
+        ));
+    }
+
+    #[test]
     fn resolved_author_year_citations_preserve_requested_delimiters() {
         let source = SourceProvenance::file("main.tex", 0, 30);
         let labels = FormattedLabels {
@@ -2100,9 +2278,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     2,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Plot caption.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 31, 52),
                 ),
             ],
@@ -2119,6 +2295,106 @@ mod tests {
                     && block.caption_source.is_some()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.");
+    }
+
+    #[test]
+    fn numbered_caption_resolves_aux_prefix_references_and_citations() {
+        struct CaptionAux;
+
+        impl tex_render_model::AuxView for CaptionAux {
+            fn citation_label(
+                &self,
+                key: &str,
+                _style: CitationStyleHint,
+            ) -> Option<CitationLabel> {
+                (key == "paper").then(|| CitationLabel {
+                    text: "3".to_string(),
+                    form: CitationLabelForm::Numeric,
+                })
+            }
+
+            fn bibliography_record(
+                &self,
+                _key: &str,
+            ) -> Option<tex_render_model::BibliographyRecordView> {
+                None
+            }
+
+            fn label_target(&self, key: &str) -> Option<LabelTargetView> {
+                (key == "fig:other").then(|| LabelTargetView {
+                    key: key.to_string(),
+                    number: "2".to_string(),
+                    page: Some(4),
+                })
+            }
+
+            fn float_caption(
+                &self,
+                path: &camino::Utf8Path,
+                offset_utf8: u32,
+            ) -> Option<FloatCaptionView> {
+                (path == "main.tex" && offset_utf8 == 20).then(|| FloatCaptionView {
+                    kind: "figure".to_string(),
+                    number: "1".to_string(),
+                })
+            }
+        }
+
+        let caption_source = SourceProvenance::file("main.tex", 29, 70).with_related(
+            SourceSpanRole::Invocation,
+            ProvenanceSpan::File(SourceSpan {
+                path: "main.tex".into(),
+                start_utf8: 20,
+                end_utf8: 71,
+            }),
+        );
+        let stream = RenderEventStream::new(
+            Some("resolved-caption".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 14),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "See [?] and [?].".to_string(),
+                        numbered: true,
+                        caption_kind: None,
+                        inline_placeholders: vec![
+                            CaptionInlinePlaceholderEvent::Citation(InlineCitationEvent {
+                                keys: vec!["paper".to_string()],
+                                command: "cite".to_string(),
+                                style_hint: CitationStyleHint::Numeric,
+                            }),
+                            CaptionInlinePlaceholderEvent::Reference(InlineReferenceEvent {
+                                keys: vec!["fig:other".to_string()],
+                                command: "ref".to_string(),
+                            }),
+                        ],
+                    }),
+                    caption_source,
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 71, 83),
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &CaptionAux);
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Float(float)]
+                if float.caption.as_deref() == Some("Figure 1. See [3] and 2.")
+        ));
     }
 
     #[test]
@@ -2147,9 +2423,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     3,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Plot caption.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 46, 67),
                 ),
                 RenderEventEnvelope::new(
@@ -2168,9 +2442,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     6,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Table caption.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Table caption.")),
                     SourceProvenance::file("main.tex", 95, 117),
                 ),
                 RenderEventEnvelope::new(
@@ -2224,9 +2496,7 @@ mod tests {
                 })),
                 event(graphic("figures/a.pdf")),
                 event(graphic("figures/b.pdf")),
-                event(RenderEvent::Caption(CaptionEvent {
-                    text: "Panels.".to_string(),
-                })),
+                event(RenderEvent::Caption(CaptionEvent::new("Panels."))),
                 event(RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Figure,
                 })),
@@ -2272,16 +2542,12 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     2,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Plot caption.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 31, 52),
                 ),
                 RenderEventEnvelope::new(
                     3,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Algorithm caption.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Algorithm caption.")),
                     SourceProvenance::file("main.tex", 53, 80),
                 ),
             ],
@@ -2317,9 +2583,9 @@ mod tests {
                         name: "algorithm".to_string(),
                     },
                 })),
-                event(RenderEvent::Caption(CaptionEvent {
-                    text: "Algorithm caption.".to_string(),
-                })),
+                event(RenderEvent::Caption(CaptionEvent::new(
+                    "Algorithm caption.",
+                ))),
                 event(RenderEvent::BeginBlock(BeginBlockEvent {
                     block: BlockKind::Environment {
                         name: "algorithmic".to_string(),
@@ -2404,9 +2670,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     3,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Wide figure.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Wide figure.")),
                     SourceProvenance::file("main.tex", 65, 87),
                 ),
                 RenderEventEnvelope::new(
@@ -2425,9 +2689,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     6,
-                    RenderEvent::Caption(CaptionEvent {
-                        text: "Wide table.".to_string(),
-                    }),
+                    RenderEvent::Caption(CaptionEvent::new("Wide table.")),
                     SourceProvenance::file("main.tex", 116, 137),
                 ),
                 RenderEventEnvelope::new(

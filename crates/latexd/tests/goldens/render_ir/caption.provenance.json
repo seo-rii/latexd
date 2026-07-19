@@ -35,6 +35,7 @@
   "event": {
     "event": {
       "kind": "caption",
+      "numbered": true,
       "text": "Plot caption."
     },
     "meta": {

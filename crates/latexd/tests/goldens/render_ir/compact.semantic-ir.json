@@ -98,6 +98,7 @@
         {
           "content": "Author. Title.",
           "key": "key",
+          "label": "1",
           "source": "<present>"
         }
       ],

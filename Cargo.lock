@@ -1564,6 +1564,7 @@ name = "tex-layout"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "camino",
  "hypher",
  "tex-fonts",
  "tex-render-model",

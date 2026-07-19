@@ -9,7 +9,7 @@ pub mod vector;
 
 pub use aux_view::{
     AuxView, BibliographyRecordView, CitationLabel, CitationLabelForm, CitationStyleHint,
-    LabelTargetView,
+    FloatCaptionView, LabelTargetView,
 };
 pub use display_list::{
     Destination, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
@@ -20,17 +20,18 @@ pub use display_list::{
 };
 pub use events::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
-    BlockKind, CaptionEvent, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
-    EndFootnoteEvent, EndLayoutContainerEvent, EventId, EventMeta, EventProducer, FallbackReason,
-    FlushTitleBlockEvent, FootnoteCommandKind, FootnoteId, FootnoteMarkEvent, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
-    ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
-    RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
-    TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
+    BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, DocumentClassEvent,
+    DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent, EventId,
+    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, FootnoteCommandKind,
+    FootnoteId, FootnoteMarkEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
+    GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent,
+    MetadataField, ModeHint, PageBreakEvent, PageBreakKind, ParagraphBreakEvent,
+    ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent,
+    RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
+    SpaceEvent, SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec,
+    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{

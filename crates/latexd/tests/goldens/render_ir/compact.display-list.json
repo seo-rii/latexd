@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "374501fd82cecc26a384c61143af0a80f99e87b5b0e6ffac389d88d5d9798d6e",
+    "page_id": "96e0dde7972509b9939a024839dd073c8cd27ab5f6944e0b2c45c47ec410fb9e",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -692,7 +692,7 @@
           "x": 72.0,
           "y": 253.925
         },
-        "text": "Author. Title.",
+        "text": "[1] Author. Title.",
         "font": {
           "family": "serif",
           "series": "regular",
@@ -701,13 +701,13 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 67.55854,
+        "approximate_advance_pt": 82.836365,
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 14,
+            "text_end_utf8": 18,
             "glyph_start": 0,
-            "glyph_end": 14
+            "glyph_end": 18
           }
         ],
         "source": {
@@ -843,6 +843,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "960a245841d950f09564466f496d064647b5d59d44f11c9372b232e3c1056c32"
+    "content_hash": "4fcb0def09c8378214df6046820ba5175af0e0dc21283516f8ad79a72559bdce"
   }
 ]

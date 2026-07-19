@@ -8,18 +8,18 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
-    BlockKind, CaptionEvent, CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent,
-    EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent, EventId, ExpansionFrame,
-    FallbackReason, FlushTitleBlockEvent, FootnoteCommandKind, FootnoteMarkEvent,
-    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
-    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
-    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellSpanEvent,
-    TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
-    TextEvent,
+    BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, CitationStyleHint,
+    DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent,
+    EndLayoutContainerEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
+    FootnoteCommandKind, FootnoteMarkEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
+    GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
+    InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, LayoutAlignment, LineBreakEvent,
+    LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField, ModeHint,
+    PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
+    TableRuleSpan, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
@@ -192,7 +192,7 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             column_count: Some(2),
             column_gap_pt_milli: Some(22_500),
             body_font_size_pt_milli: Some(10_000),
-            line_height_pt_milli: Some(10_500),
+            line_height_pt_milli: Some(12_000),
             heading_font_size_pt_milli: Some(12_000),
             title_font_size_pt_milli: Some(14_000),
             block_gap_pt_milli: Some(5_000),
@@ -3912,9 +3912,9 @@ impl<'i> Vm<'i> {
                                             );
                                         if !caption_text.is_empty() {
                                             self.emit_render_event(
-                                                RenderEvent::Caption(CaptionEvent {
-                                                    text: caption_text,
-                                                }),
+                                                RenderEvent::Caption(CaptionEvent::new(
+                                                    caption_text,
+                                                )),
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     caption_start as u32,
@@ -4049,8 +4049,12 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
-                                let end_marker = format!("\\end{{{environment}}}");
-                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                if let Some((body_end, raw_end)) = find_latex_environment_end(
+                                    source,
+                                    index,
+                                    source.len(),
+                                    environment,
+                                ) {
                                     let mut body_start = index;
                                     let option_index = skip_ascii_whitespace(source, body_start);
                                     if let Some((_, _, _, after_option)) =
@@ -4058,8 +4062,6 @@ impl<'i> Vm<'i> {
                                     {
                                         body_start = after_option;
                                     }
-                                    let body_end = index + relative_end;
-                                    let raw_end = body_end + end_marker.len();
                                     let mut body_index = body_start;
                                     let mut layout_container_depth = 0usize;
                                     while body_index < body_end {
@@ -4675,9 +4677,9 @@ impl<'i> Vm<'i> {
                                                             caption_end,
                                                         );
                                                         self.emit_render_event(
-                                                            RenderEvent::Caption(CaptionEvent {
-                                                                text: caption_text,
-                                                            }),
+                                                            RenderEvent::Caption(
+                                                                CaptionEvent::new(caption_text),
+                                                            ),
                                                             SourceProvenance::file(
                                                                 source_path.to_owned(),
                                                                 caption_start as u32,
@@ -4774,9 +4776,11 @@ impl<'i> Vm<'i> {
                                                             caption_end,
                                                         );
                                                         self.emit_render_event(
-                                                            RenderEvent::Caption(CaptionEvent {
-                                                                text: normalize_latex_text_with_inline_placeholders(caption),
-                                                            }),
+                                                            RenderEvent::Caption(
+                                                                CaptionEvent::new(
+                                                                    normalize_latex_text_with_inline_placeholders(caption),
+                                                                ),
+                                                            ),
                                                             SourceProvenance::file(
                                                                 source_path.to_owned(),
                                                                 caption_start as u32,
@@ -4907,9 +4911,9 @@ impl<'i> Vm<'i> {
                                                             if !caption_text.is_empty() {
                                                                 self.emit_render_event(
                                                                     RenderEvent::Caption(
-                                                                        CaptionEvent {
-                                                                            text: caption_text,
-                                                                        },
+                                                                        CaptionEvent::new(
+                                                                            caption_text,
+                                                                        ),
                                                                     ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
@@ -5162,9 +5166,9 @@ impl<'i> Vm<'i> {
                                                             if !caption_text.is_empty() {
                                                                 self.emit_render_event(
                                                                     RenderEvent::Caption(
-                                                                        CaptionEvent {
-                                                                            text: caption_text,
-                                                                        },
+                                                                        CaptionEvent::new(
+                                                                            caption_text,
+                                                                        ),
                                                                     ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
@@ -10301,7 +10305,7 @@ impl<'i> Vm<'i> {
                             scan_state.picins_pending_caption.take()
                         {
                             self.emit_render_event(
-                                RenderEvent::Caption(CaptionEvent { text: caption_text }),
+                                RenderEvent::Caption(CaptionEvent::new(caption_text)),
                                 caption_source,
                             );
                         }
@@ -12772,6 +12776,7 @@ impl<'i> Vm<'i> {
         table_body_start = skip_ascii_whitespace(body_source, table_body_start);
 
         let table_body = &body_source[table_body_start..];
+        const TABLE_CELL_LINE_BREAK_MARKER: &str = "\u{e000}";
         let mut rewritten = String::new();
         let mut table_rules = Vec::new();
         let mut table_cell_spans = Vec::new();
@@ -14278,8 +14283,28 @@ impl<'i> Vm<'i> {
                                         expanded =
                                             expanded.replace(&format!("#{}", index + 1), argument);
                                     }
-                                    let visible =
-                                        normalize_latex_text_with_inline_placeholders(&expanded);
+                                    let nested_cell = unwrap_nested_tabular_cell(&expanded);
+                                    let visible = if nested_cell != expanded {
+                                        nested_cell
+                                            .split("\\\\")
+                                            .filter_map(|row| {
+                                                let mut row = row.trim();
+                                                if let Some((_, _, _, after_spacing)) =
+                                                    read_bracket_source_argument(row, 0)
+                                                {
+                                                    row = row[after_spacing..].trim_start();
+                                                }
+                                                let visible =
+                                                    normalize_latex_text_with_inline_placeholders(
+                                                        row,
+                                                    );
+                                                (!visible.is_empty()).then_some(visible)
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join(TABLE_CELL_LINE_BREAK_MARKER)
+                                    } else {
+                                        normalize_latex_text_with_inline_placeholders(&expanded)
+                                    };
                                     if !visible.is_empty() {
                                         rewritten.push_str(&visible);
                                         row_has_visible_content = true;
@@ -14314,7 +14339,7 @@ impl<'i> Vm<'i> {
         let normalized_visible_text = normalize_latex_text_with_inline_placeholders(&rewritten)
             .trim_end_matches(';')
             .trim_end()
-            .to_string();
+            .replace(TABLE_CELL_LINE_BREAK_MARKER, "\n");
         let raw_fallback_source = &source[command_start..raw_end];
         let mut source_excerpt_end = raw_fallback_source.len().min(2048);
         while !raw_fallback_source.is_char_boundary(source_excerpt_end) {
@@ -15001,7 +15026,8 @@ impl<'i> Vm<'i> {
         limit: usize,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
-        if argument_index < limit && source[argument_index..].starts_with('*') {
+        let starred = argument_index < limit && source[argument_index..].starts_with('*');
+        if starred {
             argument_index += 1;
             argument_index = skip_ascii_whitespace(source, argument_index);
         }
@@ -15025,9 +15051,20 @@ impl<'i> Vm<'i> {
             content_start,
             content_end,
         );
+        let command = source
+            .get(command_start + 1..)
+            .and_then(|suffix| suffix.get(..suffix.find(|ch: char| !ch.is_ascii_alphabetic())?))
+            .unwrap_or("caption");
         self.emit_render_event(
             RenderEvent::Caption(CaptionEvent {
                 text: normalize_latex_text_with_inline_placeholders(caption),
+                numbered: !starred,
+                caption_kind: match command {
+                    "figcaption" => Some(CaptionKind::Figure),
+                    "tabcaption" => Some(CaptionKind::Table),
+                    _ => None,
+                },
+                inline_placeholders: caption_inline_placeholders(caption),
             }),
             SourceProvenance::file(
                 source_path.to_owned(),
@@ -15107,11 +15144,13 @@ impl<'i> Vm<'i> {
         limit: usize,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
-        if argument_index < limit && source[argument_index..].starts_with('*') {
+        let starred = argument_index < limit && source[argument_index..].starts_with('*');
+        if starred {
             argument_index += 1;
             argument_index = skip_ascii_whitespace(source, argument_index);
         }
-        let Some((_, _, _, after_type)) = read_braced_source_argument(source, argument_index)
+        let Some((caption_type, _, _, after_type)) =
+            read_braced_source_argument(source, argument_index)
         else {
             return None;
         };
@@ -15142,6 +15181,14 @@ impl<'i> Vm<'i> {
         self.emit_render_event(
             RenderEvent::Caption(CaptionEvent {
                 text: normalize_latex_text_with_inline_placeholders(caption),
+                numbered: !starred,
+                caption_kind: match caption_type.trim() {
+                    "figure" => Some(CaptionKind::Figure),
+                    "table" => Some(CaptionKind::Table),
+                    "algorithm" => Some(CaptionKind::Algorithm),
+                    _ => None,
+                },
+                inline_placeholders: caption_inline_placeholders(caption),
             }),
             SourceProvenance::file(
                 source_path.to_owned(),
@@ -23990,6 +24037,201 @@ fn normalize_author_metadata(source: &str) -> (String, Vec<(String, usize, usize
     )
 }
 
+fn caption_inline_placeholders(source: &str) -> Vec<CaptionInlinePlaceholderEvent> {
+    let stripped_comments;
+    let source = if source.as_bytes().contains(&b'%') {
+        stripped_comments = strip_latex_line_comments(source);
+        stripped_comments.as_str()
+    } else {
+        source
+    };
+    let mut placeholders = Vec::new();
+    let mut scan_index = 0usize;
+    while scan_index < source.len() {
+        let Some(relative_command_start) = source[scan_index..].find('\\') else {
+            break;
+        };
+        let command_start = scan_index + relative_command_start;
+        let command_name_start = command_start + 1;
+        if command_name_start >= source.len() {
+            break;
+        }
+        let mut command_name_end = command_name_start;
+        for ch in source[command_name_start..].chars() {
+            if ch.is_ascii_alphabetic() || ch == '@' {
+                command_name_end += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if command_name_end == command_name_start {
+            scan_index = command_name_start;
+            continue;
+        }
+        let command = &source[command_name_start..command_name_end];
+        let is_citation = matches!(
+            command,
+            "cite"
+                | "citet"
+                | "Citet"
+                | "citep"
+                | "Citep"
+                | "citealt"
+                | "Citealt"
+                | "citealp"
+                | "Citealp"
+                | "citeauthor"
+                | "citeyear"
+                | "citeyearpar"
+                | "parencite"
+                | "Parencite"
+                | "textcite"
+                | "Textcite"
+                | "autocite"
+                | "Autocite"
+                | "footcite"
+                | "supercite"
+                | "Citeauthor"
+                | "Citeyear"
+                | "Citeyearpar"
+                | "citetitle"
+                | "Citetitle"
+                | "citefullauthor"
+                | "Citefullauthor"
+                | "citedoi"
+                | "citeeprint"
+                | "citeisbn"
+                | "citeissn"
+                | "citeurl"
+                | "citenum"
+                | "citedate"
+                | "Citedate"
+                | "citeurldate"
+                | "Citeurldate"
+                | "onlinecite"
+                | "smartcite"
+                | "fullcite"
+                | "footfullcite"
+                | "bibentry"
+                | "citetalias"
+                | "citepalias"
+                | "Citetalias"
+        );
+        let is_reference = matches!(
+            command,
+            "ref"
+                | "eqref"
+                | "pageref"
+                | "autoref"
+                | "nameref"
+                | "cref"
+                | "Cref"
+                | "subref"
+                | "vref"
+                | "Vref"
+                | "vpageref"
+                | "fullref"
+                | "namecref"
+                | "labelcref"
+                | "cpageref"
+                | "Cpageref"
+                | "autopageref"
+                | "labelcpageref"
+                | "Fullref"
+                | "titleref"
+                | "Titleref"
+                | "nameCref"
+                | "lcnamecref"
+                | "namecrefs"
+                | "nameCrefs"
+                | "lcnamecrefs"
+                | "thmref"
+                | "Thmref"
+                | "subeqref"
+        );
+        let is_range_reference = matches!(
+            command,
+            "crefrange"
+                | "Crefrange"
+                | "cpagerefrange"
+                | "Cpagerefrange"
+                | "pagerefrange"
+                | "vpagerefrange"
+                | "vrefrange"
+                | "Vrefrange"
+        );
+        let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+        if argument_index < source.len() && source[argument_index..].starts_with('*') {
+            argument_index += 1;
+        }
+        if is_citation {
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+        }
+        if is_range_reference {
+            argument_index = skip_ascii_whitespace(source, argument_index);
+            if let Some((first, _, _, after_first)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                let second_index = skip_ascii_whitespace(source, after_first);
+                if let Some((second, _, _, command_after)) =
+                    read_braced_source_argument(source, second_index)
+                {
+                    placeholders.push(CaptionInlinePlaceholderEvent::Reference(
+                        InlineReferenceEvent {
+                            keys: vec![first.trim().to_string(), second.trim().to_string()],
+                            command: command.to_string(),
+                        },
+                    ));
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        } else if is_citation || is_reference {
+            argument_index = skip_ascii_whitespace(source, argument_index);
+            if let Some((keys, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                let keys = keys
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|key| !key.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                if !keys.is_empty() {
+                    if is_citation {
+                        placeholders.push(CaptionInlinePlaceholderEvent::Citation(
+                            InlineCitationEvent {
+                                keys,
+                                command: command.to_string(),
+                                style_hint: citation_style_hint_for_command(command),
+                            },
+                        ));
+                    } else {
+                        placeholders.push(CaptionInlinePlaceholderEvent::Reference(
+                            InlineReferenceEvent {
+                                keys,
+                                command: command.to_string(),
+                            },
+                        ));
+                    }
+                }
+                scan_index = command_after;
+                continue;
+            }
+        }
+        scan_index = command_name_end;
+    }
+    placeholders
+}
+
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     let stripped_comments;
     let source = if source.as_bytes().contains(&b'%') {
@@ -28850,13 +29092,13 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CitationStyleHint, EndBlockEvent,
-        EndLayoutContainerEvent, EventProducer, FootnoteCommandKind, GeneratedBy,
-        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
-        HeadingEvent, LayoutAlignment, ListKind, MetadataField, ModeHint, ParagraphBreakReason,
-        ProvenanceSpan, RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind,
-        TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent,
-        TableRulePosition, TableRuleSpan,
+        BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CaptionInlinePlaceholderEvent,
+        CitationStyleHint, EndBlockEvent, EndLayoutContainerEvent, EventProducer,
+        FootnoteCommandKind, GeneratedBy, GraphicAssetDensity, GraphicAssetDensityUnit,
+        GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, LayoutAlignment, ListKind,
+        MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
+        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
+        TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -34621,6 +34863,36 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_unwraps_nested_tabular_from_local_cell_macro() {
+        let source = r"\newcommand{\tabincell}[2]{\begin{tabular}{@{}#1@{}}#2\end{tabular}}\begin{document}\begin{tabular}{ll}\tabincell{c}{LOC \\ method} & \tabincell{c}{top-5 LOC error \\ on predicted CLS} \\ RPN & 13.3\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert!(visible_text.contains("LOC\nmethod"), "{visible_text:?}");
+        assert!(
+            visible_text.contains("top-5 LOC error\non predicted CLS"),
+            "{visible_text:?}"
+        );
+        assert!(!visible_text.contains("tabular@"), "{visible_text:?}");
+        assert!(visible_text.ends_with("; RPN | 13.3"), "{visible_text:?}");
+    }
+
+    #[test]
     fn render_event_capture_hides_multirow_optional_arguments() {
         let source = r"\begin{document}\begin{tabular}{ll}\multirow[t]{2}[1]{*}[.5ex]{Span} & A \\ B & C\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -37383,6 +37655,89 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_ignores_commented_starred_table_boundaries() {
+        let source = r"\begin{document}
+\begin{table*}[t]
+\begin{tabular}{ll}A & B\end{tabular}
+%\end{table*}
+%\begin{table*}[t]
+\begin{tabular}{ll}C & D\end{tabular}
+\end{table*}
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let begin_index = outcome
+            .render_events
+            .iter()
+            .position(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(block) if block.block == BlockKind::FullWidthTable
+                )
+            })
+            .expect("full-width table begin");
+        let end_index = outcome
+            .render_events
+            .iter()
+            .position(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::EndBlock(block) if block.block == BlockKind::FullWidthTable
+                )
+            })
+            .expect("full-width table end");
+        let table_indices = outcome
+            .render_events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                matches!(
+                    &event.event,
+                    RenderEvent::RawFallback(fallback)
+                        if fallback.environment.as_deref() == Some("tabular")
+                )
+                .then_some(index)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            outcome
+                .render_events
+                .iter()
+                .filter(|event| matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(block)
+                        if block.block == BlockKind::FullWidthTable
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcome
+                .render_events
+                .iter()
+                .filter(|event| matches!(
+                    &event.event,
+                    RenderEvent::EndBlock(block)
+                        if block.block == BlockKind::FullWidthTable
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(table_indices.len(), 2);
+        assert!(
+            table_indices
+                .iter()
+                .all(|index| begin_index < *index && *index < end_index),
+            "table events must remain inside the starred table: {table_indices:?}, begin={begin_index}, end={end_index}"
+        );
+    }
+
+    #[test]
     fn render_event_capture_records_sideways_floats_without_fallback() {
         let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{sidewaysfigure}\includegraphics[width=4cm]{figures/rotated.pdf}\caption{Rotated figure.}\label{fig:rot}\end{sidewaysfigure}\begin{sidewaystable}\caption{Rotated table.}\label{tab:rot}\end{sidewaystable}\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -38765,11 +39120,11 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let caption_text = outcome
+        let caption = outcome
             .render_events
             .iter()
             .find_map(|event| match &event.event {
-                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Caption(caption) => Some(caption),
                 _ => None,
             })
             .expect("caption event");
@@ -38786,7 +39141,8 @@ Fallback text.
             .collect::<Vec<_>>()
             .join("");
 
-        assert_eq!(caption_text, "Unnumbered Figure Caption");
+        assert_eq!(caption.text, "Unnumbered Figure Caption");
+        assert!(!caption.numbered);
         assert!(visible_text.contains("Unnumbered Figure Caption"));
         assert!(visible_text.contains("[?]"));
         for hidden in ["*", "fig:starred"] {
@@ -38802,20 +39158,31 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let caption_text = outcome
+        let caption = outcome
             .render_events
             .iter()
             .find_map(|event| match &event.event {
-                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Caption(caption) => Some(caption),
                 _ => None,
             })
             .expect("caption event");
 
-        assert_eq!(caption_text, "See [?] and [?].");
-        assert!(!caption_text.contains("key"));
-        assert!(!caption_text.contains("sec:intro"));
-        assert!(!caption_text.contains("cite"));
-        assert!(!caption_text.contains("ref"));
+        assert_eq!(caption.text, "See [?] and [?].");
+        assert!(caption.numbered);
+        assert!(matches!(
+            caption.inline_placeholders.as_slice(),
+            [
+                CaptionInlinePlaceholderEvent::Citation(citation),
+                CaptionInlinePlaceholderEvent::Reference(reference),
+            ] if citation.keys == ["key"]
+                && citation.command == "cite"
+                && reference.keys == ["sec:intro"]
+                && reference.command == "ref"
+        ));
+        assert!(!caption.text.contains("key"));
+        assert!(!caption.text.contains("sec:intro"));
+        assert!(!caption.text.contains("cite"));
+        assert!(!caption.text.contains("ref"));
     }
 
     #[test]
@@ -46856,6 +47223,9 @@ Fallback text.
             assert_eq!(layout.text_width_pt_milli, Some(text_width));
             assert_eq!(layout.margin_left_pt_milli, Some(margin_left));
             assert_eq!(layout.body_font_size_pt_milli, Some(body_font_size));
+            if matches!(package, "cvpr" | "wacv") {
+                assert_eq!(layout.line_height_pt_milli, Some(12_000));
+            }
             if package == "nips14submit_e" {
                 assert_eq!(layout.text_height_pt_milli, Some(638_038));
                 assert_eq!(layout.margin_top_pt_milli, Some(91_824));

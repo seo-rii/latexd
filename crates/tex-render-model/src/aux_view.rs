@@ -1,3 +1,4 @@
+use camino::Utf8Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,12 +41,22 @@ pub struct LabelTargetView {
     pub page: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FloatCaptionView {
+    pub kind: String,
+    pub number: String,
+}
+
 pub trait AuxView {
     fn citation_label(&self, key: &str, style: CitationStyleHint) -> Option<CitationLabel>;
 
     fn bibliography_record(&self, key: &str) -> Option<BibliographyRecordView>;
 
     fn label_target(&self, key: &str) -> Option<LabelTargetView>;
+
+    fn float_caption(&self, _path: &Utf8Path, _offset_utf8: u32) -> Option<FloatCaptionView> {
+        None
+    }
 }
 
 impl AuxView for () {

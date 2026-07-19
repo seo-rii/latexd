@@ -213,7 +213,7 @@ fn assert_internal_compiler_single_page_artifacts(
     let display_list_svg =
         fs::read_to_string(&display_list_svg_path).expect("read internal render-ir SVG");
 
-    assert_eq!(events_json["schema_version"], 2);
+    assert_eq!(events_json["schema_version"], 3);
     assert_eq!(document_ir_json["schema_version"], 2);
     let display_lists = page_display_list_json
         .as_array()
