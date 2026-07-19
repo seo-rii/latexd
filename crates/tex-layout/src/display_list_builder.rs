@@ -28,6 +28,7 @@ pub struct PageDisplayListOptions {
     pub bibliography_continuation_indent_pt: f32,
     pub bibliography_font_size_pt: Option<f32>,
     pub bibliography_line_height_pt: Option<f32>,
+    pub bibliography_item_gap_pt: f32,
     pub max_chars_per_line: usize,
     pub line_height_pt: f32,
     pub block_gap_pt: f32,
@@ -83,6 +84,7 @@ impl Default for PageDisplayListOptions {
             bibliography_continuation_indent_pt: 24.0,
             bibliography_font_size_pt: None,
             bibliography_line_height_pt: None,
+            bibliography_item_gap_pt: 0.0,
             max_chars_per_line: 72,
             line_height_pt: 14.0,
             block_gap_pt: 7.0,
@@ -382,6 +384,7 @@ impl PageDisplayListOptions {
             }
         }
         if layout_profile.as_deref() == Some("nips_2014") {
+            const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
             options.page_width_pt = 612.0;
             options.page_height_pt = 792.0;
             options.margin_left_pt = 108.0;
@@ -390,6 +393,10 @@ impl PageDisplayListOptions {
             options.front_matter_top_pt = Some(122.909);
             options.body_font_size_pt = 9.9626;
             options.line_height_pt = 10.9589;
+            options.bibliography_continuation_indent_pt = 20.0 * TEX_POINT_TO_PDF_POINT;
+            options.bibliography_font_size_pt = Some(9.0 * TEX_POINT_TO_PDF_POINT);
+            options.bibliography_line_height_pt = Some(10.0 * TEX_POINT_TO_PDF_POINT);
+            options.bibliography_item_gap_pt = 4.0 * TEX_POINT_TO_PDF_POINT;
             options.block_gap_pt = 5.9776;
             options.paragraph_first_line_indent_pt = 0.0;
             options.paragraph_gap_pt = Some(5.9776);
@@ -1738,7 +1745,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: if index + 1 == items.len() {
                             options.block_gap_pt
                         } else {
-                            0.0
+                            options.bibliography_item_gap_pt
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
@@ -11658,6 +11665,83 @@ mod tests {
         assert_eq!(bibliography_runs[1].size_pt, 8.0);
         assert!(
             (bibliography_runs[1].origin.y - bibliography_runs[0].origin.y - 9.5).abs() < 0.001
+        );
+    }
+
+    #[test]
+    fn nips_2014_profile_uses_small_bibliography_metrics_and_item_spacing() {
+        const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
+
+        let source = SourceProvenance::file("main.tex", 0, 40);
+        let document = DocumentIr::with_document_class_layout_and_labels(
+            vec![IrBlock::Bibliography(BibliographyBlock {
+                items: vec![
+                    BibliographyItemIr {
+                        key: "one".to_string(),
+                        label: Some("1".to_string()),
+                        content: "First.".to_string(),
+                        source: source.clone(),
+                    },
+                    BibliographyItemIr {
+                        key: "two".to_string(),
+                        label: Some("2".to_string()),
+                        content: "Second.".to_string(),
+                        source: source.clone(),
+                    },
+                ],
+                source: source.clone(),
+            })],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: Vec::new(),
+                source,
+            }),
+            Some(DocumentLayoutIntent {
+                profile: Some("nips_2014".to_string()),
+                text_font_family: Some("times".to_string()),
+                ..DocumentLayoutIntent::default()
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+
+        assert_eq!(
+            options.bibliography_font_size_pt,
+            Some(9.0 * TEX_POINT_TO_PDF_POINT)
+        );
+        assert_eq!(
+            options.bibliography_line_height_pt,
+            Some(10.0 * TEX_POINT_TO_PDF_POINT)
+        );
+        assert_eq!(
+            options.bibliography_continuation_indent_pt,
+            20.0 * TEX_POINT_TO_PDF_POINT
+        );
+        assert_eq!(
+            options.bibliography_item_gap_pt,
+            4.0 * TEX_POINT_TO_PDF_POINT
+        );
+
+        let pages = build_page_display_lists(&document, options.clone());
+        let bibliography_runs = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "[1] First." || run.text == "[2] Second." => {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(bibliography_runs.len(), 2);
+        assert_eq!(bibliography_runs[0].size_pt, 9.0 * TEX_POINT_TO_PDF_POINT);
+        assert!(
+            (bibliography_runs[1].origin.y
+                - bibliography_runs[0].origin.y
+                - 14.0 * TEX_POINT_TO_PDF_POINT)
+                .abs()
+                < 0.001
         );
     }
 
