@@ -326,6 +326,9 @@ struct RasterCacheKey {
     zoom_bucket: u16,
 }
 
+const RASTER_CACHE_ENTRY_BUDGET: usize = 32;
+const RETAINED_BUILD_REVISIONS: u64 = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct RenderSessionTileCacheKey {
     bucket: RasterCacheKey,
@@ -1329,6 +1332,13 @@ impl AppState {
                     let _ = self
                         .events
                         .send(ServerMsg::BuildFinished { rev, success: true });
+                    prune_old_build_revisions(&self.build_root, rev).await;
+                    let oldest_retained_rev =
+                        rev.saturating_sub(RETAINED_BUILD_REVISIONS.saturating_sub(1));
+                    self.raster_cache
+                        .write()
+                        .await
+                        .retain(|key, _| key.rev >= oldest_retained_rev);
                 }
                 Err(failure) => {
                     {
@@ -2116,7 +2126,16 @@ async fn update_source_file(
             );
         }
     }
-    if let Err(error) = tokio::fs::write(absolute_file.as_std_path(), &request.content).await {
+    let write_path = absolute_file.clone();
+    let write_content = request.content.clone();
+    let write_result = tokio::task::spawn_blocking(move || {
+        atomic_write_source_file(&write_path, write_content.as_bytes())
+    })
+    .await;
+    if let Err(error) = write_result
+        .map_err(|error| anyhow!("source writer task failed: {error}"))
+        .and_then(|result| result)
+    {
         return text_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to write source file: {error}"),
@@ -2128,6 +2147,28 @@ async fn update_source_file(
         byte_len: request.content.len() as u64,
     })
     .into_response()
+}
+
+fn atomic_write_source_file(path: &Utf8Path, contents: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("source file path has no parent: {path}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary source file beside {path}"))?;
+    temporary
+        .write_all(contents)
+        .with_context(|| format!("failed to write temporary source file for {path}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to sync temporary source file for {path}"))?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace source file {path}"))?;
+    Ok(())
 }
 
 async fn open_source(
@@ -4318,8 +4359,7 @@ async fn cache_raster_image(
                         rgba: image.into_raw(),
                     };
                     let mut cache = state.raster_cache.write().await;
-                    let cached = cache.entry(key.clone()).or_insert_with(|| restored.clone());
-                    return Ok(cached.clone());
+                    return Ok(insert_raster_cache_entry(&mut cache, key.clone(), restored));
                 }
                 Err(error) => {
                     warn!("failed to decode cached raster {}: {error}", cache_path);
@@ -4332,19 +4372,21 @@ async fn cache_raster_image(
             }
         }
 
-        let (notify, is_leader) = {
+        let (waiter, is_leader) = {
             let mut inflight = state.inflight_rasters.write().await;
             if let Some(notify) = inflight.get(&key) {
-                (notify.clone(), false)
+                let mut waiter = Box::pin(notify.clone().notified_owned());
+                waiter.as_mut().enable();
+                (Some(waiter), false)
             } else {
                 let notify = Arc::new(Notify::new());
                 inflight.insert(key.clone(), notify.clone());
-                (notify, true)
+                (None, true)
             }
         };
 
         if !is_leader {
-            notify.notified().await;
+            waiter.expect("follower waiter").await;
             continue;
         }
 
@@ -4364,8 +4406,7 @@ async fn cache_raster_image(
                 }
             }
             let mut cache = state.raster_cache.write().await;
-            let cached = cache.entry(key.clone()).or_insert_with(|| rendered.clone());
-            Ok(cached.clone())
+            Ok(insert_raster_cache_entry(&mut cache, key.clone(), rendered))
         }
         .await;
 
@@ -4376,6 +4417,62 @@ async fn cache_raster_image(
             notify.notify_waiters();
         }
         return result;
+    }
+}
+
+fn insert_raster_cache_entry(
+    cache: &mut BTreeMap<RasterCacheKey, tex_render_gs::RasterImage>,
+    key: RasterCacheKey,
+    image: tex_render_gs::RasterImage,
+) -> tex_render_gs::RasterImage {
+    if let Some(cached) = cache.get(&key) {
+        return cached.clone();
+    }
+    while cache.len() >= RASTER_CACHE_ENTRY_BUDGET {
+        let Some(oldest) = cache.keys().next().cloned() else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+    cache.insert(key, image.clone());
+    image
+}
+
+async fn prune_old_build_revisions(build_root: &Utf8Path, current_rev: u64) {
+    let oldest_retained_rev =
+        current_rev.saturating_sub(RETAINED_BUILD_REVISIONS.saturating_sub(1));
+    let mut entries = match tokio::fs::read_dir(build_root.as_std_path()).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            warn!("failed to scan build revisions in {build_root}: {error}");
+            return;
+        }
+    };
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(error) => {
+                warn!("failed to scan a build revision in {build_root}: {error}");
+                break;
+            }
+        };
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(rev) = name
+            .strip_prefix("rev-")
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if rev >= oldest_retained_rev {
+            continue;
+        }
+        if let Err(error) = tokio::fs::remove_dir_all(entry.path()).await {
+            warn!("failed to prune old build revision {name}: {error}");
+        }
     }
 }
 
@@ -4714,21 +4811,22 @@ mod tests {
     use super::{
         AppState, BuildCache, EditorBridgeConfig, EditorPreviewKind, LivePreviewState,
         OpenSourceRequest, OpenSourceResponse, PageSyncMapResponse, PreviewSnapshot,
-        RENDER_SESSION_ATTACHED_PAGE_BUDGET, RENDER_SESSION_ATTACHED_REVISION_WINDOW,
-        RENDER_SESSION_RECENT_EVENT_WINDOW, RENDER_SESSION_TILE_CACHE_BUDGET,
-        RENDER_SESSION_TILE_CACHE_PAGE_BUDGET, RENDER_SESSION_WARM_BUCKET_BUDGET,
-        RENDER_SESSION_WARM_BUCKET_PAGE_BUDGET, RasterCacheKey, RasterQuery, RenderIrArtifactUrls,
-        RenderSessionAttachedRevisionSnapshot, RenderSessionEvent, RenderSessionEventKind,
-        RenderSessionHandle, RenderSessionLatencySummary, RenderSessionMetrics,
-        RenderSessionRequest, RenderSessionTileCacheSnapshot, RenderSessionWarmBucketSnapshot,
-        RequiredTilesQuery, SourceFileQuery, SourceFileResponse, SourceFilesResponse,
-        SourceJumpQuery, SourceJumpResponse, TileManifestResponse, TileRendererConfig,
-        UpdateSourceFileRequest, UpdateSourceFileResponse, attach_render_revision, build_router,
-        build_router_with_base, cache_raster_image, detach_render_revision, hash_input,
+        RASTER_CACHE_ENTRY_BUDGET, RENDER_SESSION_ATTACHED_PAGE_BUDGET,
+        RENDER_SESSION_ATTACHED_REVISION_WINDOW, RENDER_SESSION_RECENT_EVENT_WINDOW,
+        RENDER_SESSION_TILE_CACHE_BUDGET, RENDER_SESSION_TILE_CACHE_PAGE_BUDGET,
+        RENDER_SESSION_WARM_BUCKET_BUDGET, RENDER_SESSION_WARM_BUCKET_PAGE_BUDGET, RasterCacheKey,
+        RasterQuery, RenderIrArtifactUrls, RenderSessionAttachedRevisionSnapshot,
+        RenderSessionEvent, RenderSessionEventKind, RenderSessionHandle,
+        RenderSessionLatencySummary, RenderSessionMetrics, RenderSessionRequest,
+        RenderSessionTileCacheSnapshot, RenderSessionWarmBucketSnapshot, RequiredTilesQuery,
+        SourceFileQuery, SourceFileResponse, SourceFilesResponse, SourceJumpQuery,
+        SourceJumpResponse, TileManifestResponse, TileRendererConfig, UpdateSourceFileRequest,
+        UpdateSourceFileResponse, attach_render_revision, build_router, build_router_with_base,
+        cache_raster_image, detach_render_revision, hash_input, insert_raster_cache_entry,
         load_revision_page_input, load_revision_page_metadata, load_revision_page_metadata_set,
         lookup_attached_page_input, normalize_viewer_base_path, open_source, page_syncmap,
         parse_png_path_suffix, parse_png_u32_path_suffix, prewarm_viewport_rasters,
-        raster_cache_path, render_session_handle, render_session_key,
+        prune_old_build_revisions, raster_cache_path, render_session_handle, render_session_key,
         render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
         revision_artifact, revision_page_png, revision_tile_png, snapshot, source_editor_uri,
         source_file, source_file_uri, source_files, source_jump, update_source_file,
@@ -5256,13 +5354,61 @@ mod tests {
             }
         });
 
-        let left = left.await.expect("left join");
-        let right = right.await.expect("right join");
+        let (left, right) = timeout(Duration::from_secs(2), async { tokio::join!(left, right) })
+            .await
+            .expect("concurrent raster requests must not hang");
+        let left = left.expect("left join");
+        let right = right.expect("right join");
 
         assert_eq!(left, right);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn raster_cache_evicts_oldest_entries_at_budget() {
+        let mut cache = BTreeMap::new();
+        let image = tex_render_gs::RasterImage {
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 0],
+        };
+        for rev in 1..=(RASTER_CACHE_ENTRY_BUDGET as u64 + 1) {
+            insert_raster_cache_entry(
+                &mut cache,
+                RasterCacheKey {
+                    rev,
+                    page_id: "page-1".to_string(),
+                    content_hash: format!("hash-{rev}"),
+                    zoom_bucket: 100,
+                },
+                image.clone(),
+            );
+        }
+
+        assert_eq!(cache.len(), RASTER_CACHE_ENTRY_BUDGET);
+        assert!(cache.keys().all(|key| key.rev >= 2));
+    }
+
+    #[tokio::test]
+    async fn build_revision_pruning_retains_only_the_recent_window() {
+        let tempdir = tempdir().expect("tempdir");
+        let build_root =
+            Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        for rev in 1..=10 {
+            fs::create_dir_all(build_root.join(format!("rev-{rev}"))).expect("revision dir");
+        }
+        fs::create_dir_all(build_root.join("not-a-revision")).expect("unrelated dir");
+
+        prune_old_build_revisions(&build_root, 10).await;
+
+        assert!(!build_root.join("rev-1").exists());
+        assert!(!build_root.join("rev-2").exists());
+        for rev in 3..=10 {
+            assert!(build_root.join(format!("rev-{rev}")).exists());
+        }
+        assert!(build_root.join("not-a-revision").exists());
     }
 
     #[tokio::test]
