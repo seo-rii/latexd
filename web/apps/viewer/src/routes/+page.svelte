@@ -45,6 +45,13 @@
     return `${file}:${Math.max(1, Math.round(line))}:${Math.max(1, Math.round(column))}`;
   }
 
+  function preferredInitialFile(files: string[]) {
+    return previewState.changedFiles.find((file) => files.includes(file) && file.endsWith(".tex"))
+      ?? files.find((file) => file.endsWith(".tex"))
+      ?? files[0]
+      ?? "";
+  }
+
   const mountWorkspace = (node: HTMLDivElement) => {
     apiClient = createLatexdApiClient();
     const realtime = createLatexdViewerRealtime();
@@ -101,8 +108,9 @@
           ...snapshotFiles,
           ...(activeFile ? [activeFile] : [])
         ])).sort((left, right) => left.localeCompare(right));
-        if (!activeFile && availableFiles[0]) {
-          await openFile(availableFiles[0]);
+        const initialFile = preferredInitialFile(availableFiles);
+        if (!activeFile && initialFile) {
+          await openFile(initialFile);
           return;
         }
       } else if (availableFiles.length === 0) {
@@ -209,8 +217,9 @@
         ...availableFiles,
         ...(activeFile ? [activeFile] : [])
       ])).sort((left, right) => left.localeCompare(right));
-      if (!activeFile && availableFiles[0]) {
-        await openFile(availableFiles[0]);
+      const initialFile = preferredInitialFile(availableFiles);
+      if (!activeFile && initialFile) {
+        await openFile(initialFile);
       }
     } catch (error) {
       if (availableFiles.length === 0) {

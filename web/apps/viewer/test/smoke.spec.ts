@@ -1,12 +1,23 @@
 import { expect, test } from "@playwright/test";
 
 test("viewer app renders the bundled sample without request failures", async ({ page }) => {
+  const failedApiResponses: Array<{ status: number; url: string }> = [];
+  page.on("response", (response) => {
+    if (response.status() >= 400 && response.url().includes("/api/")) {
+      failedApiResponses.push({
+        status: response.status(),
+        url: response.url()
+      });
+    }
+  });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("./", { waitUntil: "networkidle" });
 
   await expect(page.getByText("Latex Live Desk")).toBeVisible();
   await expect(page.getByText("last build ok")).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "LaTeX file" })).toBeVisible();
+  const fileSelector = page.getByRole("combobox", { name: "LaTeX file" });
+  await expect(fileSelector).toBeVisible();
+  await expect(fileSelector).toHaveValue("main.tex");
   await expect(page.getByPlaceholder("Type LaTeX here…")).toBeVisible();
   await expect(page.locator(".editor-status p")).toContainText("Editing");
   await expect(page.locator(".viewer-frame")).toContainText("Revision");
@@ -56,6 +67,45 @@ test("viewer app renders the bundled sample without request failures", async ({ 
   expect(viewerGeometry.previewStackOffsetTop).not.toBeNull();
   expect(viewerGeometry.frameScrollHeight ?? 0).toBeGreaterThan(viewerGeometry.frameClientHeight ?? 0);
   await expect(page.locator("body")).not.toContainText("latexd request failed");
+  expect(failedApiResponses).toEqual([]);
+});
+
+test("editor saves rebuild and apply a new preview revision", async ({ page }) => {
+  const failedApiResponses: Array<{ status: number; url: string }> = [];
+  page.on("response", (response) => {
+    if (response.status() >= 400 && response.url().includes("/api/")) {
+      failedApiResponses.push({
+        status: response.status(),
+        url: response.url()
+      });
+    }
+  });
+  await page.goto("./", { waitUntil: "networkidle" });
+
+  const fileSelector = page.getByRole("combobox", { name: "LaTeX file" });
+  await expect(fileSelector).toHaveValue("main.tex");
+  const editor = page.getByPlaceholder("Type LaTeX here…");
+  const original = await editor.inputValue();
+  const appliedBefore = await page.locator(".studio-hero__chips").evaluate((node) => {
+    const match = node.textContent?.match(/applied (\d+)/);
+    return match ? Number(match[1]) : 0;
+  });
+
+  await editor.fill(`${original}\n% viewer save integration check`);
+
+  await expect(page.locator(".editor-status")).toContainText("Saved main.tex", {
+    timeout: 15_000
+  });
+  await expect.poll(
+    () => page.locator(".studio-hero__chips").evaluate((node) => {
+      const match = node.textContent?.match(/applied (\d+)/);
+      return match ? Number(match[1]) : 0;
+    }),
+    { timeout: 30_000 }
+  ).toBeGreaterThan(appliedBefore);
+  await expect(page.locator(".studio-hero__chips")).toContainText("idle");
+  await expect(page.locator(".studio-hero__chips")).toContainText("last build ok");
+  expect(failedApiResponses).toEqual([]);
 });
 
 test("editor keeps document scrolling stable while typing", async ({ page }) => {
