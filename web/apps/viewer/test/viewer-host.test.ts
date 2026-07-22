@@ -281,6 +281,9 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
       body: init.body ?? null
     });
     if (url.pathname === "/api/state") {
+      const stateResponse = options.stateResponsePromise
+        ? await options.stateResponsePromise
+        : options.stateResponse;
       return jsonResponse({
         current_rev: 15,
         last_applied_rev: 15,
@@ -298,7 +301,7 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
         building: false,
         last_build_succeeded: true,
         editor_bridge_enabled: false,
-        ...(options.stateResponse ?? {})
+        ...(stateResponse ?? {})
       });
     }
     if (url.pathname === "/api/source-file/15") {
@@ -399,7 +402,14 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
   try {
     mountedViewer = mountTestHost();
     await flush();
-    return await run({ window: fakeWindow, fetchCalls, flush, sockets, elements });
+    return await run({
+      window: fakeWindow,
+      fetchCalls,
+      flush,
+      sockets,
+      elements,
+      viewer: mountedViewer
+    });
   } finally {
     mountedViewer?.destroy();
     globalThis.window = previousWindow;
@@ -550,8 +560,66 @@ test("viewer host can mount against an app-owned realtime socket", async () => {
     assert.equal(openCalls, 1);
   });
 
-  assert.equal(socketCloseCalls, 1);
+  assert.equal(socketCloseCalls, 0);
   assert.equal(realtimeDestroyCalls, 0);
+});
+
+test("viewer reconnects after the preview socket closes", async () => {
+  await withViewerBrowserHarness(async ({ sockets, flush }) => {
+    assert.equal(sockets.length, 1);
+    sockets[0].readyState = 3;
+    sockets[0].dispatchEvent(new Event("close"));
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await flush();
+
+    assert.equal(sockets.length, 2);
+  });
+});
+
+test("viewer ignores malformed websocket frames", async () => {
+  await withViewerBrowserHarness(async ({ sockets, viewer, flush }) => {
+    const initialRev = viewer.getState().currentRev;
+
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: "not-json" }));
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: new Blob(["binary"]) }));
+    sockets[0].dispatchEvent(new MessageEvent("message", {
+      data: JSON.stringify({ type: "patch_pages", rev: 16, ops: null })
+    }));
+    await flush();
+
+    assert.equal(viewer.getState().currentRev, 16);
+    assert.deepEqual(viewer.getState().pendingPagePatchOps, []);
+    assert.ok(viewer.getState().currentRev >= initialRev);
+  });
+});
+
+test("stale initial state cannot overwrite a newer websocket revision", async () => {
+  let resolveState;
+  const stateResponsePromise = new Promise((resolve) => {
+    resolveState = resolve;
+  });
+  await withViewerBrowserHarness({ stateResponsePromise }, async ({ sockets, viewer, flush }) => {
+    sockets[0].dispatchEvent(new MessageEvent("message", {
+      data: JSON.stringify({
+        type: "full_pdf_ready",
+        rev: 16,
+        pdf_url: "/artifacts/rev/16/main.pdf",
+        page_ids: ["page-new"],
+        page_artifacts: [{
+          page_id: "page-new",
+          pdf_url: "/artifacts/rev/16/pages/page-new.pdf",
+          svg_url: "/artifacts/rev/16/pages/page-new.svg"
+        }]
+      })
+    }));
+    await flush();
+    resolveState({});
+    await flush();
+
+    assert.equal(viewer.getState().currentRev, 16);
+    assert.deepEqual(viewer.getState().pageIds, ["page-new"]);
+  });
 });
 
 test("viewer next and prev buttons scroll the frame to the active page", async () => {

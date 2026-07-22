@@ -1,4 +1,4 @@
-import { readable, type Readable } from "svelte/store";
+import { readable, writable, type Readable } from "svelte/store";
 import type { ViewerSocket } from "@latexd/viewer-core";
 
 import {
@@ -45,64 +45,90 @@ export function createLatexdViewerRealtime(
     };
   }
 
-  const socket = openLatexdWebSocket(options) as ViewerSocket & EventTarget;
+  let socket: (ViewerSocket & EventTarget) | null = null;
+  let unbindSocket = () => {};
   let closed = false;
-  const status = readable<LatexdViewerSocketState>(initialState, (set) => {
+  const statusStore = writable<LatexdViewerSocketState>(initialState);
+  const messagesStore = writable<LatexdServerMessage | null>(null);
+
+  const bindSocket = (nextSocket: ViewerSocket & EventTarget) => {
     const handleOpen = () => {
-      set({
+      statusStore.set({
         phase: "open",
         url: socketUrl.toString()
       });
     };
     const handleClose = () => {
-      set({
+      statusStore.set({
         phase: "closed",
         url: socketUrl.toString()
       });
     };
-    socket.addEventListener("open", handleOpen);
-    socket.addEventListener("close", handleClose);
-    socket.addEventListener("error", handleClose);
-    set({
-      phase: socket.readyState === 1 ? "open" : initialState.phase,
-      url: socketUrl.toString()
-    });
-    return () => {
-      socket.removeEventListener("open", handleOpen);
-      socket.removeEventListener("close", handleClose);
-      socket.removeEventListener("error", handleClose);
-    };
-  });
-  const messages = readable<LatexdServerMessage | null>(null, (set) => {
     const handleMessage = (event: Event) => {
       const payload = (event as MessageEvent).data;
       if (typeof payload !== "string") {
         return;
       }
       try {
-        set(JSON.parse(payload) as LatexdServerMessage);
+        messagesStore.set(JSON.parse(payload) as LatexdServerMessage);
       } catch {
         // Ignore malformed websocket frames at the app boundary.
       }
     };
-    socket.addEventListener("message", handleMessage);
+    nextSocket.addEventListener("open", handleOpen);
+    nextSocket.addEventListener("close", handleClose);
+    nextSocket.addEventListener("error", handleClose);
+    nextSocket.addEventListener("message", handleMessage);
+    statusStore.set({
+      phase: nextSocket.readyState === 1
+        ? "open"
+        : nextSocket.readyState >= 2
+          ? "closed"
+          : "connecting",
+      url: socketUrl.toString()
+    });
     return () => {
-      socket.removeEventListener("message", handleMessage);
+      nextSocket.removeEventListener("open", handleOpen);
+      nextSocket.removeEventListener("close", handleClose);
+      nextSocket.removeEventListener("error", handleClose);
+      nextSocket.removeEventListener("message", handleMessage);
     };
-  });
+  };
+
+  const ensureSocket = () => {
+    if (socket && socket.readyState < 2) {
+      return socket;
+    }
+    unbindSocket();
+    socket = openLatexdWebSocket(options) as ViewerSocket & EventTarget;
+    unbindSocket = bindSocket(socket);
+    return socket;
+  };
+
+  ensureSocket();
 
   return {
     openWebSocket() {
-      return socket;
+      if (closed) {
+        throw new Error("latexd viewer realtime has been destroyed");
+      }
+      return ensureSocket();
     },
-    messages,
-    status,
+    messages: { subscribe: messagesStore.subscribe },
+    status: { subscribe: statusStore.subscribe },
     destroy() {
       if (closed) {
         return;
       }
       closed = true;
-      if (typeof socket.close === "function") {
+      if (!socket || socket.readyState < 2) {
+        statusStore.set({
+          phase: "closed",
+          url: socketUrl.toString()
+        });
+      }
+      unbindSocket();
+      if (socket && typeof socket.close === "function") {
         socket.close();
       }
     }

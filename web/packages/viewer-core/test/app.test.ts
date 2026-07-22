@@ -1953,7 +1953,7 @@ test("tile manifests merge new tiles into an existing page cache", () => {
   });
 });
 
-test("full preview refresh retains caches for unchanged page artifacts", () => {
+test("full preview refresh retains raster tiles but invalidates revision-specific sync maps", () => {
   let state = reduce(initialState, {
     type: "full_pdf_ready",
     rev: 8,
@@ -2014,12 +2014,12 @@ test("full preview refresh retains caches for unchanged page artifacts", () => {
       items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
     }
   });
-  assert.equal(state.syncMaps["page-a"]?.rev, 9);
-  assert.equal(state.selectedSource?.pageId, "page-a");
+  assert.deepEqual(state.syncMaps, {});
+  assert.equal(state.selectedSource, null);
   assert.equal(state.hoveredSource, null);
 });
 
-test("page patches retain caches for untouched pages", () => {
+test("page patches retain raster tiles but invalidate revision-specific sync maps", () => {
   let state = reduce(initialState, {
     type: "full_pdf_ready",
     rev: 8,
@@ -2082,10 +2082,21 @@ test("page patches retain caches for untouched pages", () => {
       items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
     }
   });
-  assert.equal(state.syncMaps["page-a"]?.rev, 9);
-  assert.equal(state.selectedSource?.pageId, "page-a");
+  assert.deepEqual(state.syncMaps, {});
+  assert.equal(state.selectedSource, null);
   assert.equal(state.syncMaps["page-b"], undefined);
   assert.equal(state.tileLayers["page-b"], undefined);
+});
+
+test("malformed page patch payloads are ignored without throwing", () => {
+  const state = reduce(initialState, {
+    type: "patch_pages",
+    rev: 1,
+    ops: null
+  });
+
+  assert.deepEqual(state.pageIds, []);
+  assert.deepEqual(state.pendingPagePatchOps, []);
 });
 
 test("stale tile manifests are ignored and zoom changes clear tile layers", () => {

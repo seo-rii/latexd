@@ -152,11 +152,18 @@ test("latexd viewer realtime exposes websocket lifecycle through a store", () =>
 
   socket.readyState = 1;
   socket.dispatchEvent(new Event("open"));
-  realtime.destroy();
   unsubscribe();
+  socket.close();
+  const phasesAfterResubscribe: string[] = [];
+  const unsubscribeAfterClose = realtime.status.subscribe((status) => {
+    phasesAfterResubscribe.push(status.phase);
+  });
+  realtime.destroy();
+  unsubscribeAfterClose();
 
   assert.equal(socket.url, "ws://example.test/viewer/ws");
-  assert.deepEqual(seenPhases, ["connecting", "open", "closed"]);
+  assert.deepEqual(seenPhases, ["connecting", "open"]);
+  assert.deepEqual(phasesAfterResubscribe, ["closed"]);
 });
 
 test("latexd viewer realtime exposes parsed websocket messages through a store", () => {

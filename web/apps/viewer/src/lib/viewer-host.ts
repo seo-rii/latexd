@@ -69,6 +69,7 @@ export function mountLatexdViewerHost(
   const viewer = mountViewer(root, {
     ...viewerOptions,
     window: viewerWindow,
+    closeSocketOnDestroy: false,
     transport: createLatexdViewerTransport({
       apiBase,
       fetch,

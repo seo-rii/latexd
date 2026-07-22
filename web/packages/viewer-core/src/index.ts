@@ -52,6 +52,7 @@ export interface ViewerMountOptions {
   window?: Window & typeof globalThis;
   document?: Document;
   onEvent?: (event: ViewerEvent) => void;
+  closeSocketOnDestroy?: boolean;
   transport: ViewerTransport;
 }
 
@@ -649,7 +650,7 @@ export function reduce(state, message) {
         return state;
       }
       {
-        const pageArtifacts = message.page_artifacts ?? [];
+        const pageArtifacts = Array.isArray(message.page_artifacts) ? message.page_artifacts : [];
         const pageIds = pageArtifacts.length > 0
           ? pageArtifacts.map((page) => page.page_id)
           : message.page_ids ?? state.pageIds;
@@ -660,12 +661,7 @@ export function reduce(state, message) {
             pdfUrl: page.pdf_url,
             svgUrl: page.svg_url ?? null
           }));
-        const syncMaps = retainPageEntries(
-          state.pages,
-          pages,
-          state.syncMaps,
-          (entry) => ({ ...entry, rev: message.rev })
-        );
+        const syncMaps = {};
         const tileLayers = retainPageEntries(state.pages, pages, state.tileLayers);
         const selectedSource = state.selectedSource?.pageId
           && Object.prototype.hasOwnProperty.call(syncMaps, state.selectedSource.pageId)
@@ -701,10 +697,11 @@ export function reduce(state, message) {
         return state;
       }
       {
+        const ops = Array.isArray(message.ops) ? message.ops : [];
         const pages = state.pages.length > 0
           ? state.pages.map((page) => ({ ...page }))
           : [];
-        for (const op of message.ops) {
+        for (const op of ops) {
           if (op.op === "replace_page") {
             if (op.index >= 0 && op.index < pages.length) {
               pages[op.index] = { pageId: op.page_id, pdfUrl: op.pdf_url };
@@ -725,12 +722,7 @@ export function reduce(state, message) {
           }
         }
         const pageIds = pages.map((page) => page.pageId);
-        const syncMaps = retainPageEntries(
-          state.pages,
-          pages,
-          state.syncMaps,
-          (entry) => ({ ...entry, rev: message.rev })
-        );
+        const syncMaps = {};
         const tileLayers = retainPageEntries(state.pages, pages, state.tileLayers);
         const selectedSource = state.selectedSource?.pageId
           && Object.prototype.hasOwnProperty.call(syncMaps, state.selectedSource.pageId)
@@ -747,7 +739,7 @@ export function reduce(state, message) {
           pages,
           syncMaps,
           tileLayers,
-          pendingPagePatchOps: [...state.pendingPagePatchOps, ...message.ops],
+          pendingPagePatchOps: [...state.pendingPagePatchOps, ...ops],
           currentPage: pageIds.length > 0
             ? Math.min(state.currentPage, pageIds.length)
             : state.currentPage,
@@ -1003,6 +995,10 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   let state = initialState;
+  let destroyed = false;
+  let socket: ViewerSocket | null = null;
+  let reconnectHandle: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempt = 0;
   const pageNodes = new Map();
   const pageMetrics = new Map();
   const TILE_SIZE = 256;
@@ -1039,12 +1035,12 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   const queueTileRefresh = () => {
-    if (tileRefreshHandle !== 0) {
+    if (destroyed || tileRefreshHandle !== 0) {
       return;
     }
     tileRefreshHandle = viewerWindow.requestAnimationFrame(() => {
       tileRefreshHandle = 0;
-      if (state.lastAppliedRev < 1) {
+      if (destroyed || state.lastAppliedRev < 1) {
         return;
       }
       const frameRect = elements.frame.getBoundingClientRect();
@@ -1158,7 +1154,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         scroll_top: elements.frame.scrollTop,
         visible_pages: visiblePages
       });
-      if (socket.readyState === 1 && payload !== lastViewportPayload) {
+      if (socket?.readyState === 1 && payload !== lastViewportPayload) {
         lastViewportPayload = payload;
         socket.send(payload);
       }
@@ -1935,6 +1931,15 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
 
   transport.fetchState()
     .then((snapshot) => {
+      if (destroyed) {
+        return;
+      }
+      if (
+        snapshot.current_rev < state.currentRev
+        || snapshot.last_applied_rev < state.lastAppliedRev
+      ) {
+        return;
+      }
       state = {
         ...state,
         currentRev: snapshot.current_rev,
@@ -1969,6 +1974,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       });
     })
     .catch(() => {
+      if (destroyed) {
+        return;
+      }
       render();
       emitEvent({
         type: "state-changed",
@@ -1976,15 +1984,42 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       });
     });
 
-  const socket = transport.openWebSocket();
-  socket.addEventListener("open", () => {
+  const handleSocketOpen = () => {
+    reconnectAttempt = 0;
     lastViewportPayload = null;
     queueTileRefresh();
-  });
-  socket.addEventListener("message", (event: any) => {
-    dispatch(JSON.parse(event.data));
-  });
-  socket.addEventListener("close", () => {
+  };
+  const handleSocketMessage = (event: any) => {
+    if (typeof event.data !== "string") {
+      return;
+    }
+    try {
+      const message = JSON.parse(event.data);
+      if (!message || typeof message !== "object" || typeof message.type !== "string") {
+        return;
+      }
+      dispatch(message);
+    } catch {
+      // Ignore malformed or structurally invalid realtime frames.
+    }
+  };
+  const detachSocket = (target: ViewerSocket | null) => {
+    target?.removeEventListener("open", handleSocketOpen);
+    target?.removeEventListener("message", handleSocketMessage);
+    target?.removeEventListener("close", handleSocketClose);
+  };
+  const scheduleSocketReconnect = () => {
+    if (destroyed || reconnectHandle !== null) {
+      return;
+    }
+    const delay = Math.min(5_000, 250 * (2 ** reconnectAttempt));
+    reconnectAttempt += 1;
+    reconnectHandle = setTimeout(() => {
+      reconnectHandle = null;
+      connectSocket();
+    }, delay);
+  };
+  const handleSocketClose = () => {
     lastViewportPayload = null;
     state = reduce(state, {
       type: "diagnostics",
@@ -2003,12 +2038,46 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       type: "state-changed",
       state
     });
-  });
+    detachSocket(socket);
+    scheduleSocketReconnect();
+  };
+  const connectSocket = () => {
+    if (destroyed) {
+      return;
+    }
+    let nextSocket: ViewerSocket;
+    try {
+      nextSocket = transport.openWebSocket();
+    } catch {
+      scheduleSocketReconnect();
+      return;
+    }
+    detachSocket(socket);
+    socket = nextSocket;
+    socket.addEventListener("open", handleSocketOpen);
+    socket.addEventListener("message", handleSocketMessage);
+    socket.addEventListener("close", handleSocketClose);
+    if (socket.readyState === 1) {
+      handleSocketOpen();
+    }
+  };
+  connectSocket();
 
 
   return {
     destroy() {
-      if (typeof socket?.close === "function") {
+      destroyed = true;
+      if (reconnectHandle !== null) {
+        clearTimeout(reconnectHandle);
+        reconnectHandle = null;
+      }
+      if (tileRefreshHandle !== 0) {
+        viewerWindow.cancelAnimationFrame(tileRefreshHandle);
+        tileRefreshHandle = 0;
+      }
+      viewerWindow.removeEventListener("resize", queueTileRefresh);
+      detachSocket(socket);
+      if (options.closeSocketOnDestroy !== false && typeof socket?.close === "function") {
         socket.close();
       }
       shadowRoot.innerHTML = "";

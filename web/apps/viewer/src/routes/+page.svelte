@@ -55,7 +55,9 @@
       if (!message) {
         return;
       }
-      void syncFromRealtimeMessage(message);
+      void syncFromRealtimeMessage(message).catch(() => {
+        // Ignore malformed realtime payloads without creating an unhandled rejection.
+      });
     });
     viewerController = mountLatexdViewerHost(node, {
       realtime,
@@ -173,6 +175,9 @@
       return;
     }
     if (message.type === "source_snapshot") {
+      if (!Array.isArray(message.files)) {
+        return;
+      }
       const snapshotFiles = message.files
         .map((entry) => entry.file)
         .filter((file) => typeof file === "string" && file.length > 0)
@@ -291,17 +296,23 @@
       return;
     }
     const requestId = ++saveSerial;
+    const sentContent = editorText;
     editorStatus = "saving";
     editorMessage = `Saving ${activeFile}…`;
     try {
       const response = await apiClient.updateSourceFile({
         file: activeFile,
-        content: editorText
+        content: sentContent
       });
       if (requestId !== saveSerial) {
         return;
       }
-      lastSavedContent = editorText;
+      lastSavedContent = sentContent;
+      if (editorText !== sentContent) {
+        editorStatus = "dirty";
+        editorMessage = `Unsaved edits in ${activeFile}`;
+        return;
+      }
       editorStatus = "saved";
       editorMessage = `Saved ${response.file}. Waiting for the next preview revision…`;
     } catch (error) {

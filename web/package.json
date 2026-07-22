@@ -4,10 +4,10 @@
   "packageManager": "pnpm@10.30.0",
   "scripts": {
     "build": "pnpm --filter @latexd/viewer-app build",
-    "clean": "pnpm -r exec rm -rf build dist .svelte-kit node_modules/.vite-temp",
+    "clean": "node scripts/clean.mjs",
     "check": "pnpm --filter @latexd/viewer-app check",
     "dev": "concurrently -k -n latexd,core,app -c yellow,cyan,magenta \"pnpm dev:latexd\" \"pnpm dev:viewer-core\" \"pnpm dev:viewer-app\"",
-    "dev:latexd": "sh -lc 'cd .. && cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal'",
+    "dev:latexd": "cargo run --manifest-path ../Cargo.toml -p latexd -- serve --root ../fixtures/arxiv-basic --compiler-bin internal",
     "dev:viewer-app": "pnpm --filter @latexd/viewer-app dev",
     "dev:viewer-core": "pnpm --filter @latexd/viewer-core dev",
     "test": "pnpm --filter @latexd/viewer-core test && pnpm --filter @latexd/viewer-app test",

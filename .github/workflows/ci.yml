@@ -57,11 +57,25 @@ jobs:
       - name: Install web workspace dependencies
         run: pnpm -C web install --frozen-lockfile
 
+      - name: Install Rust toolchain for viewer integration test
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore viewer integration Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: viewer-e2e
+
+      - name: Install Playwright Chromium
+        run: pnpm -C web --filter @latexd/viewer-app exec playwright install --with-deps chromium
+
       - name: Run web test suite
         run: pnpm -C web test
 
       - name: Build web workspace
         run: pnpm -C web build
+
+      - name: Run viewer end-to-end test
+        run: pnpm -C web test:e2e
 
   component-diff:
     name: External component PDF diff

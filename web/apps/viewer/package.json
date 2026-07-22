@@ -12,7 +12,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "pnpm check && pnpm test:runtime",
     "test:runtime": "pnpm --filter @latexd/viewer-core build && tsx --test test/latexd-client.test.ts && tsx --test test/viewer-host.test.ts",
-    "test:e2e": "LATEXD_VIEWER_BASE_PATH=/viewer pnpm build && LATEXD_VIEWER_BASE_PATH=/viewer playwright test"
+    "test:e2e": "node scripts/run-e2e.mjs"
   },
   "dependencies": {
     "@latexd/viewer-core": "workspace:*"
