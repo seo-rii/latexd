@@ -131,6 +131,9 @@ printf '%s\n' \
         }
     );
     if matches!(fls_case, ExternalOraclePdfLatexPdflatexFlsCase::MainOnly) {
+        let pass_count = fs::read_to_string(build_root.join("rev-1/main.pass-count"))
+            .expect("pdflatex pass count");
+        assert_eq!(pass_count.trim(), "3");
         assert_nonreplay_build_meta(&build_root, 1, &[Utf8PathBuf::from("main.tex")]);
     }
 }

@@ -302,6 +302,12 @@ while [ "$#" -gt 0 ]; do
 done
 stem="${main##*/}"
 stem="${stem%.tex}"
+count_file="$out_dir/$stem.pass-count"
+count=0
+if [ -f "$count_file" ]; then
+  IFS= read -r count < "$count_file"
+fi
+printf '%s\n' "$((count + 1))" > "$count_file"
 printf '%s\n' \
   '%PDF-1.4' \
   '1 0 obj' \

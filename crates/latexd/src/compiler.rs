@@ -2,6 +2,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
     fs,
+    process::Output,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -48,6 +50,14 @@ use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
 pub struct CompilerDriver {
     compiler_bin: Option<String>,
     compiler_args: Vec<String>,
+}
+
+const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Debug)]
+enum ExternalCommandError {
+    Spawn(std::io::Error),
+    Timeout,
 }
 
 #[derive(Debug, Clone)]
@@ -2567,6 +2577,7 @@ impl CompilerDriver {
                 materialized_args,
                 Some(pdf_path.clone()),
                 "PDF",
+                false,
             ));
         } else {
             match request.manifest.compiler {
@@ -2587,6 +2598,7 @@ impl CompilerDriver {
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
+                            false,
                         ));
                     } else if let Ok(program) = which::which("pdflatex") {
                         commands.push((
@@ -2601,6 +2613,7 @@ impl CompilerDriver {
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
+                            true,
                         ));
                     } else {
                         return Err(CompileFailure {
@@ -2628,6 +2641,7 @@ impl CompilerDriver {
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
+                            true,
                         ));
                     } else {
                         return Err(CompileFailure {
@@ -2681,72 +2695,56 @@ impl CompilerDriver {
                         ],
                         Some(dvi_path.clone()),
                         "DVI",
+                        true,
                     ));
                     commands.push((
                         dvips_program.to_string_lossy().into_owned(),
                         vec!["-o".to_string(), ps_path.to_string(), dvi_path.to_string()],
                         Some(ps_path.clone()),
                         "PostScript",
+                        false,
                     ));
                     commands.push((
                         ps2pdf_program.to_string_lossy().into_owned(),
                         vec![ps_path.to_string(), pdf_path.to_string()],
                         Some(pdf_path.clone()),
                         "PDF",
+                        false,
                     ));
                 }
             }
         }
 
+        copy_previous_external_aux_files(&request.build_root, request.rev, main_stem, &rev_dir);
+
         let mut diagnostics = Vec::new();
-        for (program, args, expected_output_path, expected_output_kind) in commands {
-            let output = tokio::process::Command::new(&program)
-                .args(&args)
-                .current_dir(request.root.as_std_path())
-                .output()
-                .await
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
-                        message: format!("failed to spawn compiler `{program}`: {error}"),
-                    }],
-                    message: format!("failed to spawn compiler `{program}`: {error}"),
-                })?;
+        for (program, args, expected_output_path, expected_output_kind, is_tex_engine) in commands {
+            let pass_count = if is_tex_engine { 3 } else { 1 };
+            for pass_index in 0..pass_count {
+                execute_external_command(
+                    &program,
+                    &args,
+                    &request.root,
+                    &request.toplevel,
+                    &mut diagnostics,
+                    EXTERNAL_COMMAND_TIMEOUT,
+                )
+                .await?;
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !output.status.success() {
-                let details = if stderr.trim().is_empty() {
-                    stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
-                } else {
-                    stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
-                };
-                return Err(CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
-                        message: if details.is_empty() {
-                            format!("compiler `{program}` exited with status {}", output.status)
-                        } else {
-                            details
-                        },
-                    }],
-                    message: format!("compiler `{program}` exited with status {}", output.status),
-                });
-            }
-
-            for line in stderr.lines().chain(stdout.lines()) {
-                let lower = line.to_ascii_lowercase();
-                if lower.contains("warning") {
-                    diagnostics.push(Diagnostic {
-                        level: DiagnosticLevel::Warning,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
-                        message: line.to_string(),
-                    });
+                if is_tex_engine && pass_index == 0 {
+                    if let Some((bibliography_program, bibliography_args)) =
+                        bibliography_command(&rev_dir, main_stem)
+                    {
+                        execute_external_command(
+                            &bibliography_program,
+                            &bibliography_args,
+                            &rev_dir,
+                            &request.toplevel,
+                            &mut diagnostics,
+                            EXTERNAL_COMMAND_TIMEOUT,
+                        )
+                        .await?;
+                    }
                 }
             }
 
@@ -2885,6 +2883,154 @@ impl CompilerDriver {
             page_patches: Vec::new(),
         })
     }
+}
+
+async fn run_external_command(
+    program: &str,
+    args: &[String],
+    current_dir: &Utf8Path,
+    timeout: Duration,
+) -> Result<Output, ExternalCommandError> {
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(args)
+        .current_dir(current_dir.as_std_path())
+        .kill_on_drop(true);
+    match tokio::time::timeout(timeout, command.output()).await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(ExternalCommandError::Spawn(error)),
+        Err(_) => Err(ExternalCommandError::Timeout),
+    }
+}
+
+async fn execute_external_command(
+    program: &str,
+    args: &[String],
+    current_dir: &Utf8Path,
+    toplevel: &Utf8Path,
+    diagnostics: &mut Vec<Diagnostic>,
+    timeout: Duration,
+) -> Result<Output, CompileFailure> {
+    let output = run_external_command(program, args, current_dir, timeout)
+        .await
+        .map_err(|error| {
+            let message = match error {
+                ExternalCommandError::Spawn(error) => {
+                    format!("failed to spawn compiler `{program}`: {error}")
+                }
+                ExternalCommandError::Timeout => format!(
+                    "compiler `{program}` timed out after {} seconds",
+                    timeout.as_secs_f32()
+                ),
+            };
+            CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(toplevel.to_string()),
+                    line: None,
+                    message: message.clone(),
+                }],
+                message,
+            }
+        })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        let details = if stderr.trim().is_empty() {
+            stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+        } else {
+            stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+        };
+        return Err(CompileFailure {
+            diagnostics: vec![Diagnostic {
+                level: DiagnosticLevel::Error,
+                file: Some(toplevel.to_string()),
+                line: None,
+                message: if details.is_empty() {
+                    format!("compiler `{program}` exited with status {}", output.status)
+                } else {
+                    details
+                },
+            }],
+            message: format!("compiler `{program}` exited with status {}", output.status),
+        });
+    }
+
+    for line in stderr.lines().chain(stdout.lines()) {
+        let line = line.trim();
+        if is_external_compiler_warning(line)
+            && !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == line)
+        {
+            diagnostics.push(Diagnostic {
+                level: DiagnosticLevel::Warning,
+                file: Some(toplevel.to_string()),
+                line: None,
+                message: line.to_string(),
+            });
+        }
+    }
+
+    Ok(output)
+}
+
+fn is_external_compiler_warning(line: &str) -> bool {
+    let lower = line.trim().to_ascii_lowercase();
+    lower.starts_with("warning:")
+        || lower.starts_with("latex warning:")
+        || lower.starts_with("package ") && lower.contains(" warning:")
+        || lower.starts_with("class ") && lower.contains(" warning:")
+        || lower
+            .split_once(" warning:")
+            .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+}
+
+fn copy_previous_external_aux_files(
+    build_root: &Utf8Path,
+    current_rev: u64,
+    main_stem: &str,
+    rev_dir: &Utf8Path,
+) {
+    if current_rev <= 1 {
+        return;
+    }
+    for suffix in ["aux", "toc", "out", "bbl", "bcf", "run.xml"] {
+        let file_name = format!("{main_stem}.{suffix}");
+        for rev in (1..current_rev).rev() {
+            let source = build_root.join(format!("rev-{rev}/{file_name}"));
+            if !source.exists() {
+                continue;
+            }
+            let destination = rev_dir.join(&file_name);
+            if let Err(error) = fs::copy(source.as_std_path(), destination.as_std_path()) {
+                tracing::warn!("failed to seed external compiler aux file {source}: {error}");
+            }
+            break;
+        }
+    }
+}
+
+fn bibliography_command(rev_dir: &Utf8Path, main_stem: &str) -> Option<(String, Vec<String>)> {
+    if rev_dir.join(format!("{main_stem}.bcf")).exists()
+        && let Ok(program) = which::which("biber")
+    {
+        return Some((
+            program.to_string_lossy().into_owned(),
+            vec![main_stem.to_string()],
+        ));
+    }
+    let aux_path = rev_dir.join(format!("{main_stem}.aux"));
+    let needs_bibtex = fs::read_to_string(aux_path.as_std_path())
+        .is_ok_and(|contents| contents.contains("\\bibdata"));
+    if needs_bibtex && let Ok(program) = which::which("bibtex") {
+        return Some((
+            program.to_string_lossy().into_owned(),
+            vec![main_stem.to_string()],
+        ));
+    }
+    None
 }
 
 fn internal_diagnostics_failure(toplevel: &Utf8Path, build: ProjectPdfBuild) -> CompileFailure {
@@ -4138,7 +4284,7 @@ fn plan_page_patches(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs};
+    use std::{collections::BTreeMap, fs, time::Duration};
 
     use camino::{Utf8Path, Utf8PathBuf};
     use hmr_protocol::{DiagnosticLevel, PagePatchOp, PagePreviewArtifact};
@@ -4169,16 +4315,75 @@ mod tests {
         StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
         annotate_display_list_image_diagnostics, build_renderer_page_state,
         capture_internal_render_ir, capture_internal_render_ir_from_project_root,
-        earliest_changed_offset, earliest_changed_rewrite_span_offset,
-        earliest_changed_rewrite_span_source_offset, has_fatal_internal_diagnostics,
-        included_pdf_pages, load_latest_previous_internal_build, map_internal_diagnostics,
+        copy_previous_external_aux_files, earliest_changed_offset,
+        earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
+        has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
+        load_latest_previous_internal_build, map_internal_diagnostics,
         materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
         rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         render_ir_display_list_svg_file_name, renderer_unchanged_tail,
-        replay_checkpoint_from_stored, resolve_graphic_asset_materializer, save_source_texts,
-        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
+        replay_checkpoint_from_stored, resolve_graphic_asset_materializer, run_external_command,
+        save_source_texts, select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
         shift_shipout_source_offset,
     };
+
+    #[test]
+    fn external_warning_detection_ignores_incidental_prose() {
+        for warning in [
+            "LaTeX Warning: Label(s) may have changed.",
+            "Package hyperref Warning: Token not allowed.",
+            "pdfLaTeX warning: destination with the same identifier",
+            "Warning: generic compiler warning",
+        ] {
+            assert!(is_external_compiler_warning(warning), "{warning}");
+        }
+        for ordinary in [
+            "This paragraph contains the word warning in ordinary prose.",
+            "warning signs were discussed",
+            "No warnings were emitted",
+        ] {
+            assert!(!is_external_compiler_warning(ordinary), "{ordinary}");
+        }
+    }
+
+    #[test]
+    fn external_aux_seed_skips_corrupt_or_missing_newer_revisions() {
+        let tempdir = tempdir().expect("tempdir");
+        let build_root =
+            Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(build_root.join("rev-1")).expect("rev1");
+        fs::create_dir_all(build_root.join("rev-2")).expect("rev2");
+        fs::create_dir_all(build_root.join("rev-3")).expect("rev3");
+        fs::write(build_root.join("rev-1/main.aux"), "older aux").expect("old aux");
+        fs::write(build_root.join("rev-2/main.toc"), "newer toc").expect("new toc");
+
+        copy_previous_external_aux_files(&build_root, 3, "main", &build_root.join("rev-3"));
+
+        assert_eq!(
+            fs::read_to_string(build_root.join("rev-3/main.aux")).expect("seeded aux"),
+            "older aux"
+        );
+        assert_eq!(
+            fs::read_to_string(build_root.join("rev-3/main.toc")).expect("seeded toc"),
+            "newer toc"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_command_timeout_terminates_a_hung_process() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let result = run_external_command(
+            "/bin/sh",
+            &["-c".to_string(), "sleep 5".to_string()],
+            &root,
+            Duration::from_millis(20),
+        )
+        .await;
+
+        assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
 
     #[test]
     fn internal_diagnostic_policy_warns_for_compatibility_definitions_but_not_resource_limits() {
