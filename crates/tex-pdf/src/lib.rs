@@ -442,6 +442,12 @@ fn render_display_list_pdf_with_font_mode(
                     ));
                 }
                 DrawOp::TextRun(run) => {
+                    if !run.size_pt.is_finite()
+                        || !run.origin.x.is_finite()
+                        || !run.origin.y.is_finite()
+                    {
+                        continue;
+                    }
                     let requested_tex_face = prefer_tex_fonts
                         .then(|| face_for_request(&run.font, run.size_pt))
                         .flatten();
@@ -3222,6 +3228,43 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
 
         assert!(text.contains("/Count 3"));
+    }
+
+    #[test]
+    fn skips_text_runs_with_non_finite_pdf_operands() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point {
+                    x: f32::NAN,
+                    y: f32::INFINITY,
+                },
+                text: "must-not-render".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: f32::NEG_INFINITY,
+                    role: FontRole::Body,
+                },
+                size_pt: f32::NEG_INFINITY,
+                approximate_advance_pt: 0.0,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 1),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+
+        let pdf = render_display_list_pdf(&[page]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(!text.contains("NaN"));
+        assert!(!text.contains("inf"));
+        assert!(!text.contains("must-not-render"));
     }
 
     #[test]

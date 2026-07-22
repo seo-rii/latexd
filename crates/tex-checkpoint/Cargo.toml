@@ -10,8 +10,6 @@ blake3.workspace = true
 camino.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 tex-tokens = { path = "../tex-tokens" }
 tex-vm = { path = "../tex-vm" }
-
-[dev-dependencies]
-tempfile.workspace = true

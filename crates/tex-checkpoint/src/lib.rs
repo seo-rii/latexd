@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, VmSnapshot};
@@ -277,7 +278,23 @@ pub fn build_checkpoint_bundle_with_shipouts(
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {
     let contents =
         serde_json::to_vec_pretty(bundle).context("failed to serialize checkpoint bundle")?;
-    fs::write(path, contents).with_context(|| format!("failed to write checkpoint bundle {path}"))
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary checkpoint bundle beside {path}"))?;
+    temporary
+        .write_all(&contents)
+        .with_context(|| format!("failed to write temporary checkpoint bundle for {path}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to sync temporary checkpoint bundle for {path}"))?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace checkpoint bundle {path}"))?;
+    Ok(())
 }
 
 pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
@@ -329,7 +346,9 @@ pub fn load_latest_reusable_preamble(
         if !path.exists() {
             continue;
         }
-        let bundle = load_checkpoint_bundle(&path)?;
+        let Ok(bundle) = load_checkpoint_bundle(&path) else {
+            continue;
+        };
         if let Some(checkpoint) =
             select_reusable_preamble(&bundle, changed_files, current_preamble_key)
         {
@@ -802,6 +821,35 @@ mod tests {
 
         assert_eq!(selected.meta.rev, 2);
         assert_eq!(selected.meta.kind, CheckpointKind::Preamble);
+    }
+
+    #[test]
+    fn skips_corrupt_newer_checkpoint_bundle_when_loading_reusable_preamble() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let tempdir = tempdir().expect("tempdir");
+        let build_root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8");
+        let preamble_key = preamble_key_for_source(r"\documentclass{article}");
+        fs::create_dir_all(build_root.join("rev-1")).expect("rev-1");
+        fs::create_dir_all(build_root.join("rev-2")).expect("rev-2");
+        save_checkpoint_bundle(
+            &build_root.join("rev-1/checkpoints.json"),
+            &build_checkpoint_bundle(1, &snapshot, &preamble_key, &[]).expect("bundle 1"),
+        )
+        .expect("save rev1");
+        fs::write(build_root.join("rev-2/checkpoints.json"), b"{truncated")
+            .expect("write corrupt rev2");
+
+        let selected = load_latest_reusable_preamble(
+            &build_root,
+            3,
+            &[Utf8PathBuf::from("main.tex")],
+            &preamble_key,
+        )
+        .expect("load older valid bundle")
+        .expect("selected");
+
+        assert_eq!(selected.meta.rev, 1);
     }
 
     #[test]

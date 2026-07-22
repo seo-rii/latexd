@@ -191,9 +191,11 @@ impl GsApiRuntime {
 
     pub fn render_full_page(&self, page: &PageRenderInput, scale: f32) -> Result<RasterImage> {
         ensure_pdf_path(page)?;
-        let output =
-            tempfile::NamedTempFile::new().context("failed to create temporary output png")?;
-        let output_path = output.path().with_extension("png");
+        let output = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .context("failed to create temporary output png")?;
+        let output_path = output.path();
         let output_path_text = output_path
             .to_str()
             .ok_or_else(|| anyhow!("temporary output path is not valid UTF-8"))?;

@@ -106,12 +106,18 @@ impl ProjectWorld {
 
     pub fn resolve_graphics(&self, base_file: &Utf8Path, target: &str) -> Result<Utf8PathBuf> {
         let resolved = self.resolve_path(base_file, target)?;
-        if resolved.extension().is_some() {
+        if resolved.extension().is_some_and(|resolved_extension| {
+            self.manifest
+                .supported_image_exts
+                .iter()
+                .any(|extension| extension.eq_ignore_ascii_case(resolved_extension))
+        }) || self.root.join(&resolved).exists()
+        {
             return Ok(resolved);
         }
 
         for extension in &self.manifest.supported_image_exts {
-            let candidate = resolved.with_extension(extension);
+            let candidate = Utf8PathBuf::from(format!("{resolved}.{extension}"));
             if self.root.join(&candidate).exists() {
                 return Ok(candidate);
             }
@@ -372,6 +378,32 @@ toplevel:
             .expect("resolved graphic");
 
         assert_eq!(resolved, Utf8PathBuf::from("figures/plot.pdf"));
+    }
+
+    #[test]
+    fn resolves_graphics_with_dotted_extensionless_names() {
+        let tempdir = tempdir().expect("tempdir");
+        let root =
+            Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+        fs::create_dir_all(root.join("figures")).expect("figures dir");
+        fs::write(root.join("main.tex"), b"\\documentclass{article}").expect("main tex");
+        fs::write(root.join("figures/plot.v2.png"), b"png").expect("plot png");
+        fs::write(root.join("figures/figure.old.pdf"), b"pdf").expect("figure pdf");
+
+        let world = ProjectWorld::load(root).expect("world");
+
+        assert_eq!(
+            world
+                .resolve_graphics("main.tex".into(), "figures/plot.v2")
+                .expect("dotted png"),
+            Utf8PathBuf::from("figures/plot.v2.png")
+        );
+        assert_eq!(
+            world
+                .resolve_graphics("main.tex".into(), "figures/figure.old")
+                .expect("dotted pdf"),
+            Utf8PathBuf::from("figures/figure.old.pdf")
+        );
     }
 
     #[test]
