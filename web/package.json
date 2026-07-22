@@ -3,7 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.30.0",
   "scripts": {
-    "build": "pnpm --filter @latexd/viewer-app build",
+    "build": "pnpm build:wasm && pnpm --filter @latexd/viewer-app build",
+    "build:wasm": "wasm-pack build ../crates/latexd-wasm --target web --out-dir ../../web/apps/viewer/static/wasm --release --no-pack --no-opt",
     "clean": "node scripts/clean.mjs",
     "check": "pnpm --filter @latexd/viewer-app check",
     "dev": "concurrently -k -n latexd,core,app -c yellow,cyan,magenta \"pnpm dev:latexd\" \"pnpm dev:viewer-core\" \"pnpm dev:viewer-app\"",
@@ -11,7 +12,8 @@
     "dev:viewer-app": "pnpm --filter @latexd/viewer-app dev",
     "dev:viewer-core": "pnpm --filter @latexd/viewer-core dev",
     "test": "pnpm --filter @latexd/viewer-core test && pnpm --filter @latexd/viewer-app test",
-    "test:e2e": "pnpm --filter @latexd/viewer-app test:e2e"
+    "test:e2e": "pnpm --filter @latexd/viewer-app test:e2e",
+    "test:e2e:wasm": "pnpm --filter @latexd/viewer-app test:e2e:wasm"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

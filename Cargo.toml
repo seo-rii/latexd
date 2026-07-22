@@ -3,6 +3,7 @@ members = [
     "crates/hmr-protocol",
     "crates/tex-world",
     "crates/latexd",
+    "crates/latexd-wasm",
     "crates/tex-aux",
     "crates/tex-tokens",
     "crates/tex-lexer",

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { ViewerEvent } from "@latexd/viewer-core";
   import {
     createLatexdApiClient,
@@ -7,6 +7,10 @@
     mountLatexdViewerHost,
     type LatexdServerMessage
   } from "$lib";
+  import {
+    compileInBrowser,
+    type BrowserCompilePage
+  } from "$lib/browser-compiler";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
   type EditorFocus = {
@@ -40,6 +44,41 @@
   let previewSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEditorSyncKey = "";
   let suppressEditorSyncUntil = 0;
+  const browserOnly = import.meta.env.VITE_LATEXD_BROWSER_ONLY === "true";
+  let browserMode = $state(browserOnly);
+  let browserPages = $state<BrowserCompilePage[]>([]);
+  let browserDiagnostics = $state<string[]>([]);
+  let browserEventCount = $state(0);
+  let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
+  let browserCompileSerial = 0;
+
+  const browserStarterSource = `\\documentclass{article}
+\\title{latexd in WebAssembly}
+\\author{Browser preview}
+\\date{}
+
+\\begin{document}
+\\maketitle
+
+\\begin{abstract}
+This document is compiled locally in your browser. No daemon is required.
+\\end{abstract}
+
+\\section{Try it}
+Edit this source and the preview will rebuild with latexd's TeX VM.
+
+Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
+
+\\begin{thebibliography}{1}
+\\bibitem{demo} The latexd browser compiler.
+\\end{thebibliography}
+\\end{document}`;
+
+  onMount(() => {
+    if (browserOnly) {
+      void activateBrowserMode();
+    }
+  });
 
   function focusKeyForPosition(file: string, line: number, column: number) {
     return `${file}:${Math.max(1, Math.round(line))}:${Math.max(1, Math.round(column))}`;
@@ -72,7 +111,13 @@
         void syncFromViewer(event);
       }
     });
+    const browserFallbackTimer = setTimeout(() => {
+      if (previewState.socketPhase !== "open" && !activeFile) {
+        void activateBrowserMode();
+      }
+    }, 900);
     return () => {
+      clearTimeout(browserFallbackTimer);
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
@@ -80,6 +125,10 @@
       if (previewSyncTimer) {
         clearTimeout(previewSyncTimer);
         previewSyncTimer = null;
+      }
+      if (browserCompileTimer) {
+        clearTimeout(browserCompileTimer);
+        browserCompileTimer = null;
       }
       unsubscribeSocketMessages();
       unsubscribeSocketStatus();
@@ -89,6 +138,63 @@
       apiClient = null;
     };
   };
+
+  async function activateBrowserMode() {
+    if (browserMode && activeFile) {
+      return;
+    }
+    browserMode = true;
+    availableFiles = ["main.tex"];
+    activeFile = "main.tex";
+    editorText = browserStarterSource;
+    lastSavedContent = browserStarterSource;
+    editorStatus = "loading";
+    editorMessage = "Loading the local WebAssembly compiler…";
+    await compileBrowserSource(browserStarterSource);
+  }
+
+  async function compileBrowserSource(source: string) {
+    const requestId = ++browserCompileSerial;
+    previewState.building = true;
+    editorStatus = "saving";
+    editorMessage = "Compiling main.tex locally with WebAssembly…";
+    try {
+      const result = await compileInBrowser(source);
+      if (requestId !== browserCompileSerial) {
+        return;
+      }
+      browserPages = result.pages;
+      browserDiagnostics = result.diagnostics;
+      browserEventCount = result.event_count;
+      previewState.currentRev += 1;
+      previewState.lastAppliedRev = previewState.currentRev;
+      previewState.lastBuildSucceeded = true;
+      lastSavedContent = source;
+      editorStatus = "saved";
+      editorMessage = `Compiled locally: ${result.pages.length} page(s), ${result.event_count} render events.`;
+    } catch (error) {
+      if (requestId !== browserCompileSerial) {
+        return;
+      }
+      previewState.lastBuildSucceeded = false;
+      editorStatus = "error";
+      editorMessage = error instanceof Error ? error.message : "WebAssembly compilation failed.";
+    } finally {
+      if (requestId === browserCompileSerial) {
+        previewState.building = false;
+      }
+    }
+  }
+
+  function queueBrowserCompile() {
+    if (browserCompileTimer) {
+      clearTimeout(browserCompileTimer);
+    }
+    browserCompileTimer = setTimeout(() => {
+      browserCompileTimer = null;
+      void compileBrowserSource(editorText);
+    }, 250);
+  }
 
   async function syncFromViewer(event: ViewerEvent) {
     if (event.type === "state-changed") {
@@ -232,6 +338,9 @@
   }
 
   async function openFile(file: string, focus: EditorFocus | null = null) {
+    if (browserMode) {
+      return;
+    }
     if (!apiClient || !file) {
       return;
     }
@@ -297,6 +406,12 @@
       clearTimeout(saveTimer);
       saveTimer = null;
     }
+    if (browserMode) {
+      if (editorText !== lastSavedContent) {
+        await compileBrowserSource(editorText);
+      }
+      return;
+    }
     if (!apiClient || !activeFile || editorText === lastSavedContent) {
       if (activeFile && editorStatus === "dirty") {
         editorStatus = "ready";
@@ -346,6 +461,10 @@
     }
     editorStatus = "dirty";
     editorMessage = `Unsaved edits in ${activeFile}`;
+    if (browserMode) {
+      queueBrowserCompile();
+      return;
+    }
     queueSave();
     queuePreviewSyncFromEditor();
   }
@@ -457,7 +576,11 @@
             : "last build failed"}
       </span>
       <span class="chip">
-        {previewState.editorBridgeEnabled ? "external editor bridge on" : "in-app editor active"}
+        {browserMode
+          ? "local WASM compiler"
+          : previewState.editorBridgeEnabled
+            ? "external editor bridge on"
+            : "in-app editor active"}
       </span>
       <span
         class:chip-good={previewState.socketPhase === "open"}
@@ -555,7 +678,37 @@
         {/if}
       </div>
 
-      <div class="viewer-frame" {@attach mountWorkspace}></div>
+      {#if browserMode}
+        <div class="browser-preview" aria-label="WebAssembly document preview">
+          <div class="browser-preview__meta">
+            <span>{browserPages.length} page(s)</span>
+            <span>{browserEventCount} events</span>
+            <span>{browserDiagnostics.length} diagnostics</span>
+          </div>
+          {#each browserPages as page, index (page.page_id)}
+            <article
+              class="browser-page"
+              aria-label={`Page ${index + 1}`}
+              style={`aspect-ratio: ${page.width_pt} / ${page.height_pt}`}
+            >
+              {#each page.lines as line}
+                <p class:browser-page__blank={line.length === 0}>{line || "\u00a0"}</p>
+              {/each}
+              <span class="browser-page__number">{index + 1}</span>
+            </article>
+          {/each}
+          {#if browserDiagnostics.length > 0}
+            <details class="browser-diagnostics">
+              <summary>Compiler diagnostics</summary>
+              {#each browserDiagnostics as diagnostic}
+                <p>{diagnostic}</p>
+              {/each}
+            </details>
+          {/if}
+        </div>
+      {:else}
+        <div class="viewer-frame" {@attach mountWorkspace}></div>
+      {/if}
     </section>
   </div>
 </div>
@@ -857,6 +1010,70 @@
     overflow: hidden;
     border-radius: 1.25rem;
     background: white;
+  }
+
+  .browser-preview {
+    display: grid;
+    justify-items: center;
+    gap: 1.25rem;
+    overflow: auto;
+    min-height: 0;
+    padding: 1rem;
+    border-radius: 1rem;
+    background: #cbd1d8;
+  }
+
+  .browser-preview__meta {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.88);
+    color: #f8f2e5;
+    font-size: 0.75rem;
+    backdrop-filter: blur(12px);
+  }
+
+  .browser-page {
+    position: relative;
+    box-sizing: border-box;
+    width: min(100%, 46rem);
+    min-height: 48rem;
+    margin: 0;
+    padding: 4.75rem 4.5rem;
+    background: #fffef9;
+    color: #161616;
+    box-shadow: 0 12px 36px rgba(15, 23, 42, 0.24);
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    font-size: 0.98rem;
+    line-height: 1.48;
+  }
+
+  .browser-page p {
+    min-height: 1.48em;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .browser-page__blank {
+    height: 0.7em;
+  }
+
+  .browser-page__number {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #6b7280;
+    font-size: 0.8rem;
+  }
+
+  .browser-diagnostics {
+    width: min(100%, 46rem);
+    color: #111827;
   }
 
   .preview-panel .preview-focus {

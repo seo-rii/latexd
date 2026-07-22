@@ -65,6 +65,14 @@ jobs:
         with:
           shared-key: viewer-e2e
 
+      - name: Install WebAssembly target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.14.0
+
       - name: Install Playwright Chromium
         run: pnpm -C web --filter @latexd/viewer-app exec playwright install --with-deps chromium
 
@@ -76,6 +84,11 @@ jobs:
 
       - name: Run viewer end-to-end test
         run: pnpm -C web test:e2e
+
+      - name: Run static WebAssembly viewer end-to-end test
+        env:
+          LATEXD_VIEWER_BASE_PATH: /latexd
+        run: pnpm -C web test:e2e:wasm
 
   component-diff:
     name: External component PDF diff

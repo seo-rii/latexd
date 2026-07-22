@@ -13,6 +13,7 @@ const baseURL = `${serverOrigin}${viewerBasePath || ""}/`;
 export default defineConfig({
   testDir: "./test",
   testMatch: "*.spec.ts",
+  testIgnore: "browser-mode.spec.ts",
   timeout: 30_000,
   workers: 1,
   use: {
