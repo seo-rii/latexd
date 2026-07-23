@@ -168,7 +168,7 @@ fn render_display_list_pdf_with_font_mode(
 ) -> Vec<u8> {
     let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
-    let font_resource_count = if prefer_tex_fonts { 20 } else { 13 };
+    let font_resource_count = if prefer_tex_fonts { 21 } else { 13 };
     let first_content_object_id = 3 + font_resource_count;
     let content_object_id = |index: usize| first_content_object_id + index * 2;
     let page_object_id = |index: usize| first_content_object_id + 1 + index * 2;
@@ -368,13 +368,13 @@ fn render_display_list_pdf_with_font_mode(
         "Times-Bold",
         "Times-Italic",
         "Times-BoldItalic",
+        "Symbol",
     ];
     for slot in 1..=font_resource_count {
         let object_id = slot + 2;
         let tex_font_face = if prefer_tex_fonts {
             match slot {
                 1 => Some(TexFontFace::Roman10),
-                13 => Some(TexFontFace::MathExtension10),
                 14 => Some(TexFontFace::MathItalic10),
                 15 => Some(TexFontFace::MathItalic7),
                 16 => Some(TexFontFace::Roman7),
@@ -382,6 +382,7 @@ fn render_display_list_pdf_with_font_mode(
                 18 => Some(TexFontFace::TimesBold),
                 19 => Some(TexFontFace::TimesItalic),
                 20 => Some(TexFontFace::TimesBoldItalic),
+                21 => Some(TexFontFace::MathExtension10),
                 _ => None,
             }
         } else {
@@ -408,10 +409,20 @@ fn render_display_list_pdf_with_font_mode(
             extra_objects.push(build_to_unicode_cmap(to_unicode_id, font.face));
         } else {
             let base_font = base_fonts[slot - 1];
-            objects.push(format!(
-                "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
-            )
-            .into_bytes());
+            if base_font == "Symbol" {
+                let to_unicode_id = next_extra_object_id;
+                next_extra_object_id += 1;
+                objects.push(format!(
+                    "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} /ToUnicode {to_unicode_id} 0 R >> endobj\n"
+                )
+                .into_bytes());
+                extra_objects.push(build_symbol_to_unicode_cmap(to_unicode_id));
+            } else {
+                objects.push(format!(
+                    "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
+                )
+                .into_bytes());
+            }
         }
     }
 
@@ -456,7 +467,7 @@ fn render_display_list_pdf_with_font_mode(
                     let font_resource = if let Some(face) = requested_tex_face {
                         match face {
                             TexFontFace::Roman10 => "F1",
-                            TexFontFace::MathExtension10 => "F13",
+                            TexFontFace::MathExtension10 => "F21",
                             TexFontFace::MathItalic10 => "F14",
                             TexFontFace::MathItalic7 => "F15",
                             TexFontFace::Roman7 => "F16",
@@ -518,6 +529,13 @@ fn render_display_list_pdf_with_font_mode(
                             }
                             (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Italic) => "F12",
                             (FontFamilyRequest::Symbol, _, _) => "F13",
+                            (FontFamilyRequest::MathExtension, _, _) => {
+                                if prefer_tex_fonts {
+                                    "F21"
+                                } else {
+                                    "F13"
+                                }
+                            }
                         }
                     };
                     stream.push_str("BT ");
@@ -531,7 +549,10 @@ fn render_display_list_pdf_with_font_mode(
                         stream.push_str(&tex_font_text_operator(face, &run.text));
                     } else {
                         stream.push('(');
-                        if run.font.family == FontFamilyRequest::Symbol {
+                        if matches!(
+                            run.font.family,
+                            FontFamilyRequest::Symbol | FontFamilyRequest::MathExtension
+                        ) {
                             stream.push_str(&escape_pdf_symbol_text(&run.text));
                         } else {
                             stream.push_str(&escape_pdf_visible_text(&run.text));
@@ -2394,6 +2415,7 @@ pub fn render_display_list_svg_with_materialized_assets(
                     tex_render_model::FontFamilyRequest::Mono => "monospace",
                     tex_render_model::FontFamilyRequest::Math => "serif",
                     tex_render_model::FontFamilyRequest::Symbol => "Symbol",
+                    tex_render_model::FontFamilyRequest::MathExtension => "Symbol",
                     tex_render_model::FontFamilyRequest::Named(name) => name.as_str(),
                 };
                 let weight = match run.font.series {
@@ -3034,6 +3056,18 @@ fn build_to_unicode_cmap(object_id: usize, face: TexFontFace) -> Vec<u8> {
     .into_bytes()
 }
 
+fn build_symbol_to_unicode_cmap(object_id: usize) -> Vec<u8> {
+    let mappings = "6 beginbfchar\n<A3> <2264>\n<B3> <2265>\n<B9> <2260>\n<D5> <220F>\n<E5> <2211>\n<F2> <222B>\nendbfchar";
+    let stream = format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Symbol-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n{mappings}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"
+    );
+    format!(
+        "{object_id} 0 obj << /Length {} >> stream\n{stream}\nendstream\nendobj\n",
+        stream.len()
+    )
+    .into_bytes()
+}
+
 fn tex_font_text_operator(face: TexFontFace, text: &str) -> String {
     if text.chars().all(char::is_whitespace) {
         return "() Tj".to_string();
@@ -3083,6 +3117,9 @@ fn escape_pdf_symbol_text(text: &str) -> String {
             '∑' => encoded.push_str("\\345"),
             '∏' => encoded.push_str("\\325"),
             '∫' => encoded.push_str("\\362"),
+            '≤' => encoded.push_str("\\243"),
+            '≥' => encoded.push_str("\\263"),
+            '≠' => encoded.push_str("\\271"),
             _ => encoded.push('?'),
         }
     }
@@ -3706,6 +3743,50 @@ mod tests {
 
         assert!(text.contains("/BaseFont /Symbol"));
         assert!(text.contains(r"/F13 14 Tf 1 0 0 1 72 720 Tm (\345\325\362) Tj"));
+    }
+
+    #[test]
+    fn preferred_tex_fonts_keep_relation_symbols_visible() {
+        let pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(
+            &[PageDisplayList {
+                page_id: "page-1".to_string(),
+                width_pt: 612.0,
+                height_pt: 792.0,
+                ops: vec![DrawOp::TextRun(PositionedTextRun {
+                    origin: Point { x: 72.0, y: 72.0 },
+                    text: "≤≥≠".to_string(),
+                    font: FontRequest {
+                        family: FontFamilyRequest::Symbol,
+                        series: FontSeries::Regular,
+                        shape: FontShape::Upright,
+                        size_pt: 14.0,
+                        role: FontRole::Math,
+                    },
+                    size_pt: 14.0,
+                    approximate_advance_pt: 31.5,
+                    glyphs: None,
+                    clusters: None,
+                    source: SourceProvenance::file("main.tex", 0, 3),
+                })],
+                source_spans: Vec::new(),
+                content_hash: "hash".to_string(),
+            }],
+            |_| None,
+        );
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/BaseFont /Symbol"), "{text}");
+        assert!(
+            text.contains("15 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode"),
+            "F13 must remain the Symbol font resource: {text}"
+        );
+        assert!(text.contains("/CMapName /Symbol-UCS"), "{text}");
+        assert!(text.contains("<A3> <2264>"), "{text}");
+        assert!(
+            text.contains(r"/F13 14 Tf 1 0 0 1 72 720 Tm (\243\263\271) Tj"),
+            "{text}"
+        );
+        assert!(!text.contains("(?) Tj"), "{text}");
     }
 
     #[test]

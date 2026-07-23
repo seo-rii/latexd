@@ -1,4 +1,6 @@
-use tex_render_model::{MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement};
+use tex_render_model::{
+    MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement, latex_math_symbol,
+};
 
 pub(crate) fn parse_display_math_structure(source: &str) -> Option<MathNode> {
     let mut parser = MathParser { source, index: 0 };
@@ -42,6 +44,12 @@ impl MathParser<'_> {
         }
         if ch == '\\' {
             let command = self.read_command()?;
+            if let Some(symbol) = latex_math_symbol(&command) {
+                return Some(MathNode::Atom {
+                    text: symbol.text.to_string(),
+                    atom_kind: symbol.atom_kind,
+                });
+            }
             return match command.as_str() {
                 "frac" | "dfrac" | "tfrac" => Some(MathNode::Fraction {
                     numerator: Box::new(self.parse_required_group()?),
@@ -308,5 +316,47 @@ mod tests {
     #[test]
     fn rejects_unsupported_commands_without_partial_structure() {
         assert!(parse_display_math_structure(r"x + \unknown{y}").is_none());
+    }
+
+    #[test]
+    fn parses_named_relation_symbols_as_relation_atoms() {
+        let parsed = parse_display_math_structure(r"a \le b \ge c \neq d")
+            .expect("standard relation commands should be structured");
+
+        assert_eq!(
+            parsed,
+            MathNode::Row {
+                children: vec![
+                    MathNode::Atom {
+                        text: "a".to_string(),
+                        atom_kind: MathAtomKind::Identifier,
+                    },
+                    MathNode::Atom {
+                        text: "≤".to_string(),
+                        atom_kind: MathAtomKind::Relation,
+                    },
+                    MathNode::Atom {
+                        text: "b".to_string(),
+                        atom_kind: MathAtomKind::Identifier,
+                    },
+                    MathNode::Atom {
+                        text: "≥".to_string(),
+                        atom_kind: MathAtomKind::Relation,
+                    },
+                    MathNode::Atom {
+                        text: "c".to_string(),
+                        atom_kind: MathAtomKind::Identifier,
+                    },
+                    MathNode::Atom {
+                        text: "≠".to_string(),
+                        atom_kind: MathAtomKind::Relation,
+                    },
+                    MathNode::Atom {
+                        text: "d".to_string(),
+                        atom_kind: MathAtomKind::Identifier,
+                    },
+                ],
+            }
+        );
     }
 }

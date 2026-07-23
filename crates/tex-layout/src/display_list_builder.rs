@@ -755,6 +755,20 @@ pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
 ) -> Vec<PageDisplayList> {
+    let is_core_relation_text =
+        |text: &str| !text.is_empty() && text.chars().all(|ch| matches!(ch, '≤' | '≥' | '≠'));
+    let text_advance_for_segment = |text: &str, font: &FontRequest, size_pt: f32| {
+        if is_core_relation_text(text) {
+            let mut symbol_font = font.clone();
+            symbol_font.family = FontFamilyRequest::Symbol;
+            symbol_font.series = FontSeries::Regular;
+            symbol_font.shape = FontShape::Upright;
+            symbol_font.role = FontRole::Math;
+            text_advance_pt(text, &symbol_font, size_pt)
+        } else {
+            text_advance_pt(text, font, size_pt)
+        }
+    };
     let uses_nips_2014_metrics = document_ir
         .layout
         .as_ref()
@@ -977,17 +991,46 @@ pub fn build_page_display_lists(
                     normalized_text,
                     source,
                 } => {
-                    segments.push(LogicalTextSegment {
-                        text: normalized_text
-                            .clone()
-                            .unwrap_or_else(|| raw_source.clone()),
-                        source: source.clone(),
-                        link_target: None,
-                        table_rule: false,
-                        table_rule_trim_start_pt: None,
-                        table_rule_trim_end_pt: None,
-                        table_vertical_rule_offsets: Vec::new(),
-                    });
+                    let text = normalized_text.as_ref().unwrap_or(raw_source);
+                    let mut chunk_start = 0usize;
+                    for (index, ch) in text.char_indices() {
+                        if !matches!(ch, '≤' | '≥' | '≠') {
+                            continue;
+                        }
+                        if chunk_start < index {
+                            segments.push(LogicalTextSegment {
+                                text: text[chunk_start..index].to_string(),
+                                source: source.clone(),
+                                link_target: None,
+                                table_rule: false,
+                                table_rule_trim_start_pt: None,
+                                table_rule_trim_end_pt: None,
+                                table_vertical_rule_offsets: Vec::new(),
+                            });
+                        }
+                        let end = index + ch.len_utf8();
+                        segments.push(LogicalTextSegment {
+                            text: text[index..end].to_string(),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        });
+                        chunk_start = end;
+                    }
+                    if chunk_start < text.len() {
+                        segments.push(LogicalTextSegment {
+                            text: text[chunk_start..].to_string(),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        });
+                    }
                 }
                 InlineNode::RawFallback(fallback) => {
                     segments.push(LogicalTextSegment {
@@ -3795,7 +3838,11 @@ pub fn build_page_display_lists(
                             let current_width_pt = current_line
                                 .iter()
                                 .map(|segment| {
-                                    text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                                    text_advance_for_segment(
+                                        &segment.text,
+                                        &logical.font,
+                                        logical.size_pt,
+                                    )
                                 })
                                 .sum::<f32>();
                             let available_width_pt =
@@ -3809,7 +3856,7 @@ pub fn build_page_display_lists(
                                 .char_indices()
                                 .scan(0.0, |width, (index, ch)| {
                                     let next_width = *width
-                                        + text_advance_pt(
+                                        + text_advance_for_segment(
                                             &text[index..index + ch.len_utf8()],
                                             &logical.font,
                                             logical.size_pt,
@@ -3844,7 +3891,7 @@ pub fn build_page_display_lists(
                                     && line_ends_with_whitespace
                                     && first_word_chars > take_chars
                                     && first_word_chars <= max_chars_per_line
-                                    && text_advance_pt(
+                                    && text_advance_for_segment(
                                         &text[..text
                                             .char_indices()
                                             .nth(first_word_chars)
@@ -3913,7 +3960,11 @@ pub fn build_page_display_lists(
                             let current_width_pt = current_line
                                 .iter()
                                 .map(|segment| {
-                                    text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                                    text_advance_for_segment(
+                                        &segment.text,
+                                        &logical.font,
+                                        logical.size_pt,
+                                    )
                                 })
                                 .sum::<f32>();
                             if wrap_after_chunk
@@ -4011,6 +4062,7 @@ pub fn build_page_display_lists(
                     && logical.segments.iter().all(|segment| {
                         !segment.table_rule
                             && segment.table_vertical_rule_offsets.is_empty()
+                            && !is_core_relation_text(&segment.text)
                             && !segment.text.contains(['\n', '\r'])
                             && !(segment.text.is_empty()
                                 && segment
@@ -4232,7 +4284,7 @@ pub fn build_page_display_lists(
                         .iter()
                         .filter(|segment| !segment.table_rule)
                         .map(|segment| {
-                            text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                            text_advance_for_segment(&segment.text, &logical.font, logical.size_pt)
                         })
                         .sum::<f32>()
                         + line_space_adjustment_pt
@@ -4321,6 +4373,12 @@ pub fn build_page_display_lists(
                         };
                         let mut segment_font = logical.font.clone();
                         segment_font.size_pt = segment_size_pt;
+                        if is_core_relation_text(&segment.text) {
+                            segment_font.family = FontFamilyRequest::Symbol;
+                            segment_font.series = FontSeries::Regular;
+                            segment_font.shape = FontShape::Upright;
+                            segment_font.role = FontRole::Math;
+                        }
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance =
                             text_advance_pt(&segment.text, &segment_font, segment_size_pt);
@@ -9317,6 +9375,45 @@ mod tests {
         assert!(text.contains("beta"));
         assert!(!text.contains("\\alpha"));
         assert!(!text.contains("\\beta"));
+    }
+
+    #[test]
+    fn inline_relation_symbols_use_separate_symbol_text_runs() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::InlineMath {
+                    raw_source: r"a\le b\ge c\neq d".to_string(),
+                    normalized_text: Some("a ≤ b ≥ c ≠ d".to_string()),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for relation in ["≤", "≥", "≠"] {
+            let run = runs
+                .iter()
+                .find(|run| run.text == relation)
+                .unwrap_or_else(|| panic!("missing relation run {relation}"));
+            assert_eq!(run.font.family, FontFamilyRequest::Symbol);
+            assert_eq!(run.font.role, FontRole::Math);
+            assert_eq!(run.font.shape, FontShape::Upright);
+        }
+        assert!(
+            runs.iter()
+                .filter(|run| !["≤", "≥", "≠"].contains(&run.text.as_str()))
+                .all(|run| run.font.family != FontFamilyRequest::Symbol)
+        );
     }
 
     #[test]

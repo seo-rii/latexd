@@ -3,6 +3,7 @@ pub mod display_list;
 pub mod events;
 pub mod golden;
 pub mod ir;
+pub mod math_symbols;
 pub mod pdf_asset;
 pub mod provenance;
 pub mod vector;
@@ -42,6 +43,7 @@ pub use ir::{
     MathNode, MathScriptPlacement, PageBreakBlock, ParagraphBlock, RawFallbackIr, ReferenceInline,
     TableBlock, TableCell, TableRow, TitleBlock,
 };
+pub use math_symbols::{MathSymbol, latex_math_symbol};
 pub use pdf_asset::{
     PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,
 };

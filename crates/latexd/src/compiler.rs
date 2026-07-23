@@ -4284,7 +4284,7 @@ fn plan_page_patches(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, time::Duration};
+    use std::{collections::BTreeMap, fs, process::Command, time::Duration};
 
     use camino::{Utf8Path, Utf8PathBuf};
     use hmr_protocol::{DiagnosticLevel, PagePatchOp, PagePreviewArtifact};
@@ -4674,6 +4674,43 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[test]
+    fn internal_render_ir_keeps_core_relations_visible_in_inline_and_display_math() {
+        let capture = capture_internal_render_ir(
+            "main.tex",
+            r"\begin{document}Inline \(a\le b\ge c\neq d\).\[x\le y\ge z\neq 0\]\end{document}",
+            &SemanticAux::default(),
+        );
+        let pdf = String::from_utf8_lossy(&capture.display_list_pdf);
+
+        for encoded in [r"(\243) Tj", r"(\263) Tj", r"(\271) Tj"] {
+            assert!(pdf.contains(encoded), "missing {encoded} in generated PDF");
+        }
+        assert!(
+            !pdf.contains("(?) Tj"),
+            "relation expression collapsed to ?"
+        );
+
+        if let Ok(pdftotext) = which::which("pdftotext") {
+            let tempdir = tempdir().expect("tempdir");
+            let pdf_path = tempdir.path().join("relations.pdf");
+            fs::write(&pdf_path, &capture.display_list_pdf).expect("write relation PDF");
+            let output = Command::new(pdftotext)
+                .arg(&pdf_path)
+                .arg("-")
+                .output()
+                .expect("run pdftotext");
+            assert!(output.status.success(), "pdftotext failed: {output:?}");
+            let extracted = String::from_utf8_lossy(&output.stdout);
+            for relation in ['≤', '≥', '≠'] {
+                assert!(
+                    extracted.contains(relation),
+                    "missing {relation} in extracted text: {extracted:?}"
+                );
+            }
+        }
     }
 
     #[test]

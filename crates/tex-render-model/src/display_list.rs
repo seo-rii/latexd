@@ -458,6 +458,7 @@ pub enum FontFamilyRequest {
     Mono,
     Math,
     Symbol,
+    MathExtension,
     Named(String),
 }
 

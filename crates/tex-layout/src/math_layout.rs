@@ -33,6 +33,9 @@ fn layout_math_node_with_spacing(
         MathNode::Atom { text, atom_kind } => {
             let mut font = math_font.clone();
             font.size_pt = size_pt;
+            if *atom_kind == MathAtomKind::Relation {
+                font.family = FontFamilyRequest::Symbol;
+            }
             font.shape = if *atom_kind == MathAtomKind::Identifier {
                 FontShape::Italic
             } else {
@@ -63,7 +66,7 @@ fn layout_math_node_with_spacing(
             };
             let operator_size_pt = size_pt;
             let font = FontRequest {
-                family: FontFamilyRequest::Symbol,
+                family: FontFamilyRequest::MathExtension,
                 series: FontSeries::Regular,
                 shape: FontShape::Upright,
                 size_pt: operator_size_pt,
@@ -299,5 +302,67 @@ fn math_atom_spacing_pt(left: &MathNode, right: &MathNode, size_pt: f32) -> f32 
         3.0 * mu_pt
     } else {
         0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tex_render_model::{
+        DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, MathAtomKind,
+        MathNode, SourceProvenance,
+    };
+
+    use super::layout_math_node;
+
+    #[test]
+    fn relation_atoms_use_symbol_font_and_relation_spacing() {
+        let node = MathNode::Row {
+            children: vec![
+                MathNode::Atom {
+                    text: "a".to_string(),
+                    atom_kind: MathAtomKind::Identifier,
+                },
+                MathNode::Atom {
+                    text: "≤".to_string(),
+                    atom_kind: MathAtomKind::Relation,
+                },
+                MathNode::Atom {
+                    text: "b".to_string(),
+                    atom_kind: MathAtomKind::Identifier,
+                },
+            ],
+        };
+        let math_font = FontRequest {
+            family: FontFamilyRequest::Math,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 10.0,
+            role: FontRole::Math,
+        };
+
+        let layout = layout_math_node(
+            &node,
+            10.0,
+            &SourceProvenance::generated("test", "relation layout"),
+            &math_font,
+        );
+        let runs = layout
+            .ops
+            .iter()
+            .map(|op| match op {
+                DrawOp::TextRun(run) => run,
+                other => panic!("unexpected relation draw op: {other:?}"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(runs[1].font.family, FontFamilyRequest::Symbol);
+        assert!(
+            runs[1].origin.x > runs[0].origin.x + runs[0].approximate_advance_pt,
+            "relation must have thick math spacing before it"
+        );
+        assert!(
+            runs[2].origin.x > runs[1].origin.x + runs[1].approximate_advance_pt,
+            "relation must have thick math spacing after it"
+        );
     }
 }

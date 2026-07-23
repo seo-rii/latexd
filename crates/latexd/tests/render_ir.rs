@@ -11644,7 +11644,7 @@ fn split_math_negation_relations_use_normalized_text_in_ir_and_display_list() {
             } if raw_source
                 == r"x\not\in A + a\not\le b + p\not\equiv q + r\not\rightarrow s + y\not= z"
                 && normalized_text.as_deref()
-                    == Some("x not in A + a not <= b + p not equiv q + r not -> s + y not = z")
+                    == Some("x not in A + a not ≤ b + p not equiv q + r not -> s + y not = z")
         )
     }));
 
@@ -11663,7 +11663,7 @@ fn split_math_negation_relations_use_normalized_text_in_ir_and_display_list() {
         .join(" ");
     assert!(
         normalized_display_list_text
-            .contains("x not in A + a not <= b + p not equiv q + r not -> s + y not = z"),
+            .contains("x not in A + a not ≤ b + p not equiv q + r not -> s + y not = z"),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains(r"\not\in"));
@@ -11696,7 +11696,7 @@ fn math_order_relation_operators_use_normalized_text_in_ir_and_display_list() {
                 == r"a\leqslant b \geqslant c \lesssim d \gtrsim e \prec f \preceq g \succ h \succeq i \npreceq j \sqsubseteq K \sqsupseteq L \triangleq M"
                 && normalized_text.as_deref()
                     == Some(
-                        "a <= b >= c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j sqsubseteq K sqsupseteq L triangleq M"
+                        "a ≤ b ≥ c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j sqsubseteq K sqsupseteq L triangleq M"
                     )
         )
     }));
@@ -11715,9 +11715,8 @@ fn math_order_relation_operators_use_normalized_text_in_ir_and_display_list() {
         .collect::<Vec<_>>()
         .join(" ");
     assert!(
-        normalized_display_list_text.contains(
-            "a <= b >= c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j"
-        ),
+        normalized_display_list_text
+            .contains("a ≤ b ≥ c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j"),
         "{display_list_text}"
     );
     assert!(
@@ -11912,7 +11911,7 @@ fn math_comparison_relation_aliases_use_normalized_text_in_ir_and_display_list()
             _ => None,
         })
         .expect("paragraph");
-    let expected = "a <= b + c >= d + e lessgtr f + g gtrless h";
+    let expected = "a ≤ b + c ≥ d + e lessgtr f + g gtrless h";
 
     assert!(paragraph.content.iter().any(|node| {
         matches!(
@@ -25449,13 +25448,13 @@ fn tabular_inline_math_delimiters_normalize_in_ir_and_display_list() {
         .expect("tabular table");
 
     assert_eq!(table.rows[0].cells[0].text, "t_2 in 1, ..., c_max - 1");
-    assert_eq!(table.rows[0].cells[1].text, "t_1 != binom(a,d - 1)");
+    assert_eq!(table.rows[0].cells[1].text, "t_1 ≠ binom(a,d - 1)");
     assert_eq!(table.rows[0].cells[2].text, "|100> otimes |000>");
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
         extracted_text
-            .contains("t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000>"),
+            .contains("t_2 in 1, ..., c_max - 1 | t_1 ≠ binom(a,d - 1) | |100> otimes |000>"),
         "{extracted_text}"
     );
 
@@ -25470,7 +25469,7 @@ fn tabular_inline_math_delimiters_normalize_in_ir_and_display_list() {
         .join("\n");
     for visible in [
         "t_2 in 1, ..., c_max - 1",
-        "t_1 != binom(a,d - 1)",
+        "t_1 ≠ binom(a,d - 1)",
         "|100> otimes |000>",
     ] {
         assert!(display_list_text.contains(visible), "{display_list_text:?}");

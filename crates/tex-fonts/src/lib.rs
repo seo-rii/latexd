@@ -223,7 +223,8 @@ pub fn face_for_request(request: &FontRequest, size_pt: f32) -> Option<TexFontFa
         (FontFamilyRequest::Math, FontSeries::Regular, FontShape::Upright) => {
             Some(TexFontFace::Roman10)
         }
-        (FontFamilyRequest::Symbol, _, _) => Some(TexFontFace::MathExtension10),
+        (FontFamilyRequest::MathExtension, _, _) => Some(TexFontFace::MathExtension10),
+        (FontFamilyRequest::Symbol, _, _) => None,
         _ => None,
     }
 }
@@ -466,6 +467,26 @@ mod tests {
             role: FontRole::Body,
         };
         assert_eq!(face_for_request(&serif, 10.0), Some(TexFontFace::Roman10));
+    }
+
+    #[test]
+    fn symbol_requests_stay_renderer_fonts_while_extensions_use_cmex() {
+        let request = |family| FontRequest {
+            family,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 10.0,
+            role: FontRole::Math,
+        };
+
+        assert_eq!(
+            face_for_request(&request(FontFamilyRequest::Symbol), 10.0),
+            None
+        );
+        assert_eq!(
+            face_for_request(&request(FontFamilyRequest::MathExtension), 10.0),
+            Some(TexFontFace::MathExtension10)
+        );
     }
 
     #[test]

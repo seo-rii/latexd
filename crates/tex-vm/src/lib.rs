@@ -19,7 +19,7 @@ use tex_render_model::{
     RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
-    TableRuleSpan, TextEvent,
+    TableRuleSpan, TextEvent, latex_math_symbol,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
@@ -26034,6 +26034,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         command_index += 1;
                         &source[start..command_index]
                     };
+                if let Some(symbol) = latex_math_symbol(command) {
+                    push_operator!(symbol.text);
+                    index = command_index;
+                    continue;
+                }
                 match command {
                     "label" => {
                         if let Some((_, _, _, after_label)) =
@@ -39854,7 +39859,7 @@ Fallback text.
         );
         assert_eq!(
             math.normalized_text.as_deref(),
-            Some("x not in A + a not <= b + p not equiv q + r not -> s + y not = z")
+            Some("x not in A + a not ≤ b + p not equiv q + r not -> s + y not = z")
         );
     }
 
@@ -39883,9 +39888,29 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some(
-                "a <= b >= c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j sqsubseteq K sqsupseteq L triangleq M"
+                "a ≤ b ≥ c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j sqsubseteq K sqsupseteq L triangleq M"
             )
         );
+    }
+
+    #[test]
+    fn render_event_capture_preserves_core_relation_glyphs() {
+        let source = r"\begin{document}Order \(a\le b\ge c\neq d\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(math.normalized_text.as_deref(), Some("a ≤ b ≥ c ≠ d"));
     }
 
     #[test]
@@ -45049,7 +45074,7 @@ Fallback text.
 
         assert_eq!(
             visible_text,
-            "t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000> | |100> otimes |000> | |010> otimes |111>"
+            "t_2 in 1, ..., c_max - 1 | t_1 ≠ binom(a,d - 1) | |100> otimes |000> | |100> otimes |000> | |010> otimes |111>"
         );
         for hidden in [
             "$",

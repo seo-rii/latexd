@@ -23,7 +23,7 @@ pub(crate) fn fallback_char_advance_pt(ch: char, font: &FontRequest, size_pt: f3
                 0.62
             }
         }
-        FontFamilyRequest::Symbol => 0.75,
+        FontFamilyRequest::Symbol | FontFamilyRequest::MathExtension => 0.75,
         FontFamilyRequest::Serif | FontFamilyRequest::Sans | FontFamilyRequest::Named(_) => {
             if ch.is_whitespace() {
                 0.25
