@@ -3,8 +3,9 @@
   "private": true,
   "packageManager": "pnpm@10.30.0",
   "scripts": {
-    "build": "pnpm build:wasm && pnpm --filter @latexd/viewer-app build",
+    "build": "pnpm build:wasm && pnpm build:wasi && pnpm --filter @latexd/viewer-app build",
     "build:wasm": "wasm-pack build ../crates/latexd-wasm --target web --out-dir ../../web/apps/viewer/static/wasm --release --no-pack --no-opt",
+    "build:wasi": "node scripts/build-wasi.mjs",
     "clean": "node scripts/clean.mjs",
     "check": "pnpm --filter @latexd/viewer-app check",
     "dev": "concurrently -k -n latexd,core,app -c yellow,cyan,magenta \"pnpm dev:latexd\" \"pnpm dev:viewer-core\" \"pnpm dev:viewer-app\"",

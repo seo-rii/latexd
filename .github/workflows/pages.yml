@@ -48,7 +48,7 @@ jobs:
       - name: Install Rust toolchain with WebAssembly target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,wasm32-wasip1
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0

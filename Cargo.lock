@@ -880,6 +880,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "latexd-wasi"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "serde",
+ "serde_json",
+ "tex-layout",
+ "tex-pdf",
+ "tex-render-model",
+ "tex-tokens",
+ "tex-vm",
+]
+
+[[package]]
 name = "latexd-wasm"
 version = "0.1.0"
 dependencies = [

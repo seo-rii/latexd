@@ -4,6 +4,7 @@ members = [
     "crates/tex-world",
     "crates/latexd",
     "crates/latexd-wasm",
+    "crates/latexd-wasi",
     "crates/tex-aux",
     "crates/tex-tokens",
     "crates/tex-lexer",

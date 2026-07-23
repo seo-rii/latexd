@@ -9,6 +9,7 @@
   } from "$lib";
   import {
     compileInBrowser,
+    compileProjectInBrowser,
     type BrowserCompilePage
   } from "$lib/browser-compiler";
 
@@ -51,6 +52,9 @@
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
   let browserCompileSerial = 0;
+  let browserFiles = $state<Record<string, Uint8Array>>({});
+  let browserTextFiles = $state<Record<string, string>>({});
+  let browserPdfUrl = $state("");
 
   const browserStarterSource = `\\documentclass{article}
 \\title{latexd in WebAssembly}
@@ -130,6 +134,10 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
         clearTimeout(browserCompileTimer);
         browserCompileTimer = null;
       }
+      if (browserPdfUrl) {
+        URL.revokeObjectURL(browserPdfUrl);
+        browserPdfUrl = "";
+      }
       unsubscribeSocketMessages();
       unsubscribeSocketStatus();
       viewerController?.destroy();
@@ -147,6 +155,8 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     availableFiles = ["main.tex"];
     activeFile = "main.tex";
     editorText = browserStarterSource;
+    browserFiles = { "main.tex": new TextEncoder().encode(browserStarterSource) };
+    browserTextFiles = { "main.tex": browserStarterSource };
     lastSavedContent = browserStarterSource;
     editorStatus = "loading";
     editorMessage = "Loading the local WebAssembly compiler…";
@@ -159,13 +169,29 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     editorStatus = "saving";
     editorMessage = "Compiling main.tex locally with WebAssembly…";
     try {
-      const result = await compileInBrowser(source);
+      const encoder = new TextEncoder();
+      const projectFiles = {
+        ...browserFiles,
+        [activeFile || "main.tex"]: encoder.encode(source)
+      };
+      const entry = projectFiles["main.tex"] ? "main.tex" : activeFile;
+      const result = Object.keys(projectFiles).length === 1 && entry === "main.tex"
+        ? await compileInBrowser(source)
+        : await compileProjectInBrowser(projectFiles, entry);
       if (requestId !== browserCompileSerial) {
         return;
       }
       browserPages = result.pages;
       browserDiagnostics = result.diagnostics;
       browserEventCount = result.event_count;
+      browserFiles = projectFiles;
+      browserTextFiles = { ...browserTextFiles, [activeFile]: source };
+      if (browserPdfUrl) {
+        URL.revokeObjectURL(browserPdfUrl);
+      }
+      browserPdfUrl = URL.createObjectURL(new Blob([result.pdf as BlobPart], {
+        type: "application/pdf"
+      }));
       previewState.currentRev += 1;
       previewState.lastAppliedRev = previewState.currentRev;
       previewState.lastBuildSucceeded = true;
@@ -339,6 +365,21 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
 
   async function openFile(file: string, focus: EditorFocus | null = null) {
     if (browserMode) {
+      if (!file || file === activeFile) {
+        return;
+      }
+      if (activeFile) {
+        browserTextFiles = { ...browserTextFiles, [activeFile]: editorText };
+        browserFiles = {
+          ...browserFiles,
+          [activeFile]: new TextEncoder().encode(editorText)
+        };
+      }
+      activeFile = file;
+      editorText = browserTextFiles[file] ?? "";
+      lastSavedContent = editorText;
+      editorStatus = "ready";
+      editorMessage = `Editing ${file} in browser memfs`;
       return;
     }
     if (!apiClient || !file) {
@@ -467,6 +508,45 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     }
     queueSave();
     queuePreviewSyncFromEditor();
+  }
+
+  async function loadBrowserProject(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const selected = Array.from(input.files ?? []);
+    if (selected.length === 0) {
+      return;
+    }
+    editorStatus = "loading";
+    editorMessage = `Loading ${selected.length} project files into memfs…`;
+    const nextFiles: Record<string, Uint8Array> = {};
+    const nextTextFiles: Record<string, string> = {};
+    for (const file of selected) {
+      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath
+        || file.name;
+      const path = relativePath.split("/").slice(relativePath.includes("/") ? 1 : 0).join("/");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      nextFiles[path] = bytes;
+      if (/\.(tex|sty|cls|cfg|def|bbl)$/i.test(path)) {
+        nextTextFiles[path] = new TextDecoder().decode(bytes);
+      }
+    }
+    const sourceFiles = Object.keys(nextTextFiles).sort((left, right) => left.localeCompare(right));
+    const entry = sourceFiles.includes("main.tex")
+      ? "main.tex"
+      : sourceFiles.find((file) => file.endsWith(".tex"));
+    if (!entry) {
+      editorStatus = "error";
+      editorMessage = "The selected project does not contain a TeX entry file.";
+      return;
+    }
+    browserFiles = nextFiles;
+    browserTextFiles = nextTextFiles;
+    availableFiles = sourceFiles;
+    activeFile = entry;
+    editorText = nextTextFiles[entry];
+    lastSavedContent = editorText;
+    await compileBrowserSource(editorText);
+    input.value = "";
   }
 
   async function focusEditorLine(line: number, column = 1) {
@@ -610,6 +690,12 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       </div>
 
       <div class="editor-toolbar">
+        {#if browserMode}
+          <label class="project-button">
+            Open project directory
+            <input type="file" multiple webkitdirectory onchange={loadBrowserProject} />
+          </label>
+        {/if}
         <label class="field">
           <span>LaTeX file</span>
           <select
@@ -684,6 +770,9 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
             <span>{browserPages.length} page(s)</span>
             <span>{browserEventCount} events</span>
             <span>{browserDiagnostics.length} diagnostics</span>
+            {#if browserPdfUrl}
+              <a href={browserPdfUrl} download="latexd-output.pdf">Download PDF</a>
+            {/if}
           </div>
           {#each browserPages as page, index (page.page_id)}
             <article
@@ -868,6 +957,25 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     gap: 0.45rem;
   }
 
+  .project-button {
+    display: inline-flex;
+    justify-content: center;
+    padding: 0.72rem 0.9rem;
+    border: 1px solid rgba(247, 200, 115, 0.5);
+    border-radius: 0.9rem;
+    color: #f7c873;
+    cursor: pointer;
+    font-size: 0.83rem;
+  }
+
+  .project-button input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
   .field span {
     font-size: 0.83rem;
     color: rgba(248, 242, 229, 0.72);
@@ -1035,6 +1143,10 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     color: #f8f2e5;
     font-size: 0.75rem;
     backdrop-filter: blur(12px);
+  }
+
+  .browser-preview__meta a {
+    color: #f7c873;
   }
 
   .browser-page {

@@ -16,6 +16,7 @@
     "test:e2e:wasm": "LATEXD_VIEWER_BASE_PATH=/latexd VITE_LATEXD_BROWSER_ONLY=true pnpm build && playwright test --config playwright.wasm.config.ts"
   },
   "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.2",
     "@latexd/viewer-core": "workspace:*"
   },
   "devDependencies": {
