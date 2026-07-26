@@ -21,6 +21,12 @@ pub(crate) struct ReferenceCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LinkCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) has_separate_text_argument: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -234,4 +240,5 @@ pub(crate) enum Primitive {
     IncludeOnly,
     Citation,
     Reference(ReferenceCommand),
+    Link(LinkCommand),
 }

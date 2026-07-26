@@ -1,23 +1,42 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     mem,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent,
+    CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent, InlineLinkEvent,
     InlineReferenceEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance,
     SourceSpan, SourceSpanRole,
 };
+use tex_tokens::{ControlSequenceId, Token};
 
-use crate::{Vm, citation_style_hint_for_command};
+use crate::{Vm, citation_style_hint_for_command, input::QueueItem};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticInlineState {
     scanner_citation_event_ids: HashSet<EventId>,
     scanner_reference_event_ids: HashSet<EventId>,
+    scanner_link_event_ids: HashSet<EventId>,
     executed_citations: Vec<RenderEventEnvelope>,
     executed_references: Vec<RenderEventEnvelope>,
+    executed_links: Vec<RenderEventEnvelope>,
+    link_marker_actions: HashMap<ControlSequenceId, ExecutedLinkCapture>,
+    next_link_marker_id: u64,
+}
+
+#[derive(Debug)]
+struct ExecutedLinkCapture {
+    command: String,
+    target: String,
+    source: SourceProvenance,
+    producer: EventProducer,
+    output_start: usize,
+    text_event_mark: usize,
+    citation_event_mark: usize,
+    reference_event_mark: usize,
+    link_event_mark: usize,
+    math_event_mark: usize,
 }
 
 impl Vm<'_> {
@@ -31,6 +50,10 @@ impl Vm<'_> {
         self.semantic_inline
             .scanner_reference_event_ids
             .insert(event_id);
+    }
+
+    pub(super) fn mark_scanner_link_event(&mut self, event_id: EventId) {
+        self.semantic_inline.scanner_link_event_ids.insert(event_id);
     }
 
     pub(super) fn emit_executed_citation(
@@ -83,6 +106,144 @@ impl Vm<'_> {
         self.mark_executed_inline_content();
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn queue_executed_link(
+        &mut self,
+        command: String,
+        target: String,
+        invocation_start_utf8: u32,
+        invocation_end_utf8: u32,
+        target_start_utf8: u32,
+        target_end_utf8: u32,
+        visible_start_utf8: u32,
+        visible_end_utf8: u32,
+        visible_tokens: Vec<Token>,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            for token in visible_tokens.into_iter().rev() {
+                self.push_token_front(queue, token);
+            }
+            return;
+        }
+
+        self.flush_executed_text_capture();
+        let (mut source, producer) =
+            self.executed_inline_source(visible_start_utf8, visible_end_utf8);
+        let path = self.current_execution_source_path();
+        source.related.retain(|related| {
+            related.role != SourceSpanRole::Invocation
+                || !matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path == path
+                            && span.start_utf8 == visible_start_utf8
+                            && span.end_utf8 == visible_end_utf8
+                )
+        });
+        source = source
+            .with_related(
+                SourceSpanRole::ArgumentContent,
+                ProvenanceSpan::File(SourceSpan {
+                    path: path.clone(),
+                    start_utf8: visible_start_utf8,
+                    end_utf8: visible_end_utf8,
+                }),
+            )
+            .with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(SourceSpan {
+                    path: path.clone(),
+                    start_utf8: invocation_start_utf8,
+                    end_utf8: invocation_end_utf8,
+                }),
+            )
+            .with_related(
+                SourceSpanRole::Argument,
+                ProvenanceSpan::File(SourceSpan {
+                    path,
+                    start_utf8: target_start_utf8,
+                    end_utf8: target_end_utf8,
+                }),
+            );
+        let marker_id = self.semantic_inline.next_link_marker_id;
+        self.semantic_inline.next_link_marker_id += 1;
+        let marker_name = self
+            .interner
+            .intern(&format!("latexd@semantic@link@end@{marker_id}"));
+        let text_event_mark = self.executed_text_event_mark();
+        let citation_event_mark = self.semantic_inline.executed_citations.len();
+        let reference_event_mark = self.semantic_inline.executed_references.len();
+        let link_event_mark = self.semantic_inline.executed_links.len();
+        let math_event_mark = self.executed_math_events.len();
+        self.semantic_inline.link_marker_actions.insert(
+            marker_name,
+            ExecutedLinkCapture {
+                command,
+                target,
+                source,
+                producer,
+                output_start: self.output.len(),
+                text_event_mark,
+                citation_event_mark,
+                reference_event_mark,
+                link_event_mark,
+                math_event_mark,
+            },
+        );
+
+        self.push_token_front(
+            queue,
+            Token::control_sequence(
+                marker_name,
+                invocation_start_utf8 as usize,
+                invocation_end_utf8 as usize,
+            ),
+        );
+        for token in visible_tokens.into_iter().rev() {
+            self.push_token_front(queue, token);
+        }
+    }
+
+    pub(super) fn execute_semantic_link_marker(&mut self, name: ControlSequenceId) -> bool {
+        let Some(capture) = self.semantic_inline.link_marker_actions.remove(&name) else {
+            return false;
+        };
+        self.flush_executed_text_capture();
+        let text = self
+            .output
+            .get(capture.output_start..)
+            .unwrap_or_default()
+            .to_string();
+        self.rollback_executed_text_events(capture.text_event_mark);
+        self.semantic_inline
+            .executed_citations
+            .truncate(capture.citation_event_mark);
+        self.semantic_inline
+            .executed_references
+            .truncate(capture.reference_event_mark);
+        self.semantic_inline
+            .executed_links
+            .truncate(capture.link_event_mark);
+        self.executed_math_events.truncate(capture.math_event_mark);
+
+        let event_id = self.next_render_event_id;
+        self.next_render_event_id += 1;
+        let mut envelope = RenderEventEnvelope::new(
+            event_id,
+            RenderEvent::InlineLink(InlineLinkEvent {
+                target: capture.target,
+                text,
+                command: capture.command,
+            }),
+            capture.source,
+        );
+        envelope.meta.producer = capture.producer;
+        self.semantic_inline.executed_links.push(envelope);
+        self.mark_executed_inline_content();
+        true
+    }
+
     pub(super) fn reconcile_executed_inline_events(&mut self) {
         let citation_ids = mem::take(&mut self.semantic_inline.scanner_citation_event_ids);
         let citations = mem::take(&mut self.semantic_inline.executed_citations);
@@ -91,6 +252,10 @@ impl Vm<'_> {
         let reference_ids = mem::take(&mut self.semantic_inline.scanner_reference_event_ids);
         let references = mem::take(&mut self.semantic_inline.executed_references);
         self.reconcile_scanner_inline_events(reference_ids, references);
+
+        let link_ids = mem::take(&mut self.semantic_inline.scanner_link_event_ids);
+        let links = mem::take(&mut self.semantic_inline.executed_links);
+        self.reconcile_scanner_inline_events(link_ids, links);
     }
 
     fn reconcile_scanner_inline_events(
@@ -118,13 +283,19 @@ impl Vm<'_> {
                 executed_event.meta.event_id = scanner_event.meta.event_id;
                 let executed_source = executed_event.meta.source;
                 let mut source = scanner_event.meta.source;
-                source.related.extend(
-                    executed_source
-                        .related
-                        .iter()
-                        .filter(|related| related.role == SourceSpanRole::Invocation)
-                        .cloned(),
-                );
+                if !source
+                    .related
+                    .iter()
+                    .any(|related| related.role == SourceSpanRole::Invocation)
+                {
+                    source.related.extend(
+                        executed_source
+                            .related
+                            .iter()
+                            .filter(|related| related.role == SourceSpanRole::Invocation)
+                            .cloned(),
+                    );
+                }
                 if source.expansion_stack.is_empty() {
                     source.expansion_stack = executed_source.expansion_stack;
                     source.expansion_stack_truncated = executed_source.expansion_stack_truncated;
@@ -147,7 +318,9 @@ impl Vm<'_> {
         for event in self.render_events.drain(..) {
             if matches!(
                 event.event,
-                RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_)
+                RenderEvent::InlineCitation(_)
+                    | RenderEvent::InlineReference(_)
+                    | RenderEvent::InlineLink(_)
             ) && matches!(
                 event.meta.producer,
                 EventProducer::Primitive | EventProducer::Macro
@@ -203,22 +376,45 @@ impl Vm<'_> {
             let mut replacements = BTreeMap::new();
             let mut consumed = Vec::new();
             for (index, event) in executed.iter().enumerate() {
-                let Some((event_path, event_start, event_end)) = event_anchor(event) else {
+                let Some((event_path, event_start, event_end)) = embedded_event_anchor(event)
+                else {
                     continue;
                 };
                 if event_path != path || event_start < start_utf8 || event_end > end_utf8 {
                     continue;
                 }
                 let prefix_end = (event_start - start_utf8) as usize;
-                let placeholder_ordinal =
-                    crate::caption_inline_placeholders(&raw_source[..prefix_end]).len();
-                let Some(placeholder_offset) =
-                    placeholder_offsets.get(placeholder_ordinal).copied()
-                else {
+                let replacement = match &event.event {
+                    RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => {
+                        let placeholder_ordinal =
+                            crate::caption_inline_placeholders(&raw_source[..prefix_end]).len();
+                        placeholder_offsets
+                            .get(placeholder_ordinal)
+                            .copied()
+                            .map(|offset| (offset, "[?]".len()))
+                    }
+                    RenderEvent::InlineLink(link) => {
+                        let visible_prefix = crate::normalize_latex_text_with_inline_placeholders(
+                            &raw_source[..prefix_end],
+                        );
+                        let search_start = visible_prefix.len().min(text.text.len());
+                        text.text
+                            .get(search_start..)
+                            .and_then(|suffix| suffix.find(&link.text))
+                            .map(|relative| (search_start + relative, link.text.len()))
+                            .or_else(|| {
+                                text.text
+                                    .rfind(&link.text)
+                                    .map(|offset| (offset, link.text.len()))
+                            })
+                    }
+                    _ => None,
+                };
+                let Some((replacement_offset, replacement_len)) = replacement else {
                     continue;
                 };
-                if !replacements.contains_key(&placeholder_offset) {
-                    replacements.insert(placeholder_offset, event.clone());
+                if !replacements.contains_key(&replacement_offset) {
+                    replacements.insert(replacement_offset, (replacement_len, event.clone()));
                     consumed.push(index);
                 }
             }
@@ -231,14 +427,14 @@ impl Vm<'_> {
             }
 
             let mut cursor = 0;
-            for (placeholder_offset, event) in replacements {
+            for (replacement_offset, (replacement_len, event)) in replacements {
                 push_text_fragment(
                     &mut reconciled,
                     &scanner_event,
-                    &text.text[cursor..placeholder_offset],
+                    &text.text[cursor..replacement_offset],
                 );
                 reconciled.push(event);
-                cursor = placeholder_offset + "[?]".len();
+                cursor = replacement_offset + replacement_len;
             }
             push_text_fragment(&mut reconciled, &scanner_event, &text.text[cursor..]);
         }
@@ -283,6 +479,9 @@ fn inline_payload_matches(left: &RenderEventEnvelope, right: &RenderEventEnvelop
         (RenderEvent::InlineReference(left), RenderEvent::InlineReference(right)) => {
             left.keys == right.keys && left.command == right.command
         }
+        (RenderEvent::InlineLink(left), RenderEvent::InlineLink(right)) => {
+            left.target == right.target && left.text == right.text && left.command == right.command
+        }
         _ => false,
     }
 }
@@ -292,13 +491,18 @@ fn recovery_container_represents(
     inline_event: &RenderEventEnvelope,
 ) -> bool {
     events.iter().any(|event| {
-        matches!(
+        (matches!(
             event.meta.producer,
             EventProducer::ScannerRecovery | EventProducer::Fallback
-        ) && event_anchor_is_contained_by(inline_event, &event.meta.source)
+        ) || matches!(event.event, RenderEvent::InlineLink(_)))
+            && event_anchor_is_contained_by(inline_event, &event.meta.source)
             && match &event.event {
-                RenderEvent::Text(text) => text.text.contains("[?]"),
-                RenderEvent::Heading(heading) => heading.text.contains("[?]"),
+                RenderEvent::Text(text) => {
+                    inline_container_text_represents(&text.text, inline_event)
+                }
+                RenderEvent::Heading(heading) => {
+                    inline_container_text_represents(&heading.text, inline_event)
+                }
                 RenderEvent::InlineLink(link) => link.text.contains("[?]"),
                 RenderEvent::BibliographyItem(item) => item.text.contains("[?]"),
                 RenderEvent::Caption(caption) => {
@@ -373,10 +577,52 @@ fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> boo
     })
 }
 
+fn inline_container_text_represents(text: &str, inline_event: &RenderEventEnvelope) -> bool {
+    match &inline_event.event {
+        RenderEvent::InlineLink(link) => text.contains(&link.text),
+        RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => text.contains("[?]"),
+        _ => false,
+    }
+}
+
+fn embedded_event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
+    if matches!(event.event, RenderEvent::InlineLink(_))
+        && let Some(span) = event.meta.source.related.iter().find_map(|related| {
+            (related.role == SourceSpanRole::ArgumentContent)
+                .then_some(&related.span)
+                .and_then(|span| match span {
+                    ProvenanceSpan::File(span) => Some(span),
+                    ProvenanceSpan::Generated(_) => None,
+                })
+        })
+    {
+        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
+    }
+    if matches!(event.event, RenderEvent::InlineLink(_))
+        && let ProvenanceSpan::File(span) = &event.meta.source.primary
+    {
+        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
+    }
+    event_anchor(event)
+}
+
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
+    if event.meta.producer == EventProducer::Macro
+        && matches!(event.event, RenderEvent::InlineLink(_))
+        && let Some(ProvenanceSpan::File(span)) = event
+            .meta
+            .source
+            .expansion_stack
+            .last()
+            .map(|frame| &frame.call_span)
+    {
+        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
+    }
     if matches!(
         event.event,
-        RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_)
+        RenderEvent::InlineCitation(_)
+            | RenderEvent::InlineReference(_)
+            | RenderEvent::InlineLink(_)
     ) && let Some(span) = event.meta.source.related.iter().find_map(|related| {
         if related.role != SourceSpanRole::Invocation {
             return None;

@@ -330,6 +330,16 @@ impl Vm<'_> {
         self.semantic_text.executed_events.push(envelope);
     }
 
+    pub(super) fn executed_text_event_mark(&mut self) -> usize {
+        self.flush_executed_text_capture();
+        self.semantic_text.executed_events.len()
+    }
+
+    pub(super) fn rollback_executed_text_events(&mut self, mark: usize) {
+        self.flush_executed_text_capture();
+        self.semantic_text.executed_events.truncate(mark);
+    }
+
     pub(super) fn mark_executed_inline_content(&mut self) {
         if self.render_event_capture && self.execution_in_document {
             self.flush_executed_text_capture();
@@ -482,7 +492,7 @@ impl Vm<'_> {
             && self.executed_math_capture.is_none()
     }
 
-    fn current_execution_source_path(&self) -> Utf8PathBuf {
+    pub(super) fn current_execution_source_path(&self) -> Utf8PathBuf {
         self.source_stack
             .last()
             .map(|frame| frame.path.clone())

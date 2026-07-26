@@ -34,7 +34,7 @@ mod semantic_math;
 mod semantic_text;
 mod snapshot;
 
-use command::{MacroDefinition, Meaning, Primitive, ReferenceCommand};
+use command::{LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
@@ -897,6 +897,7 @@ pub struct Vm<'i> {
     semantic_inline: SemanticInlineState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
+    execution_no_hyper_depth: usize,
     next_render_event_id: EventId,
     transcript: Vec<String>,
     diagnostics: Vec<VmDiagnostic>,
@@ -961,6 +962,7 @@ impl<'i> Vm<'i> {
             semantic_inline: SemanticInlineState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
+            execution_no_hyper_depth: 0,
             next_render_event_id: 1,
             transcript: Vec::new(),
             diagnostics: Vec::new(),
@@ -14943,6 +14945,7 @@ impl<'i> Vm<'i> {
         });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
+        let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
@@ -14953,6 +14956,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_reference {
             self.mark_scanner_reference_event(event_id);
+        }
+        if scanner_link {
+            self.mark_scanner_link_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15667,7 +15673,9 @@ impl<'i> Vm<'i> {
                 }
             }
             TokenKind::ControlSequence { name } => {
-                if self.execute_semantic_expansion_marker(name) {
+                if self.execute_semantic_expansion_marker(name)
+                    || self.execute_semantic_link_marker(name)
+                {
                     return;
                 }
                 self.separate_executed_inline_content();
@@ -15840,6 +15848,101 @@ impl<'i> Vm<'i> {
                         self.last_token_end_utf8.max(source_end_utf8),
                     );
                     self.output.push_str("[?]");
+                }
+            }
+            Primitive::Link(link_command) => {
+                self.skip_optional_spaces(queue);
+                let target_tokens = if link_command.has_separate_text_argument {
+                    let Some(tokens) = self.read_macro_argument(queue) else {
+                        return;
+                    };
+                    tokens
+                } else {
+                    let Some(opening) = self.pop_next_token(queue) else {
+                        return;
+                    };
+                    if matches!(
+                        &opening.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        }
+                    ) {
+                        self.push_token_front(queue, opening);
+                        let Some(tokens) = self.read_balanced_group(queue) else {
+                            return;
+                        };
+                        tokens
+                    } else if let TokenKind::Character {
+                        ch: delimiter,
+                        catcode: delimiter_catcode,
+                    } = &opening.kind
+                    {
+                        let delimiter = *delimiter;
+                        let delimiter_catcode = *delimiter_catcode;
+                        let mut tokens = Vec::new();
+                        loop {
+                            let Some(token) = self.pop_next_token(queue) else {
+                                return;
+                            };
+                            if matches!(
+                                token.kind,
+                                TokenKind::Character { ch, catcode }
+                                    if ch == delimiter && catcode == delimiter_catcode
+                            ) {
+                                break;
+                            }
+                            tokens.push(token);
+                        }
+                        tokens
+                    } else {
+                        vec![opening]
+                    }
+                };
+                let target = self
+                    .tokens_to_text(target_tokens.clone())
+                    .trim()
+                    .to_string();
+                let target_start_utf8 = target_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let target_end_utf8 = target_tokens
+                    .last()
+                    .map_or(target_start_utf8, |token| token.span.end);
+                let visible_tokens = if link_command.has_separate_text_argument {
+                    self.skip_optional_spaces(queue);
+                    let Some(tokens) = self.read_macro_argument(queue) else {
+                        return;
+                    };
+                    tokens
+                } else {
+                    target_tokens
+                };
+                let visible_start_utf8 = visible_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let visible_end_utf8 = visible_tokens
+                    .last()
+                    .map_or(visible_start_utf8, |token| token.span.end);
+                let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+
+                if !self.render_event_capture || self.execution_no_hyper_depth > 0 {
+                    for token in visible_tokens.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                } else {
+                    self.queue_executed_link(
+                        link_command.canonical_name.to_string(),
+                        target,
+                        source_offset_utf8,
+                        invocation_end_utf8,
+                        target_start_utf8,
+                        target_end_utf8,
+                        visible_start_utf8,
+                        visible_end_utf8,
+                        visible_tokens,
+                        queue,
+                    );
                 }
             }
             Primitive::NewRead => {
@@ -16440,6 +16543,9 @@ impl<'i> Vm<'i> {
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
+                if environment == "NoHyper" {
+                    self.execution_no_hyper_depth += 1;
+                }
                 if matches!(
                     environment,
                     "equation"
@@ -16523,6 +16629,9 @@ impl<'i> Vm<'i> {
                 let environment = environment.trim();
                 if environment == "document" {
                     self.execution_in_document = false;
+                    self.execution_no_hyper_depth = 0;
+                } else if environment == "NoHyper" {
+                    self.execution_no_hyper_depth = self.execution_no_hyper_depth.saturating_sub(1);
                 }
                 if matches!(
                     environment,
@@ -22862,6 +22971,14 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "Vrefrange",
             key_argument_count: 2,
         })),
+        "href" => Some(Primitive::Link(LinkCommand {
+            canonical_name: "href",
+            has_separate_text_argument: true,
+        })),
+        "url" => Some(Primitive::Link(LinkCommand {
+            canonical_name: "url",
+            has_separate_text_argument: false,
+        })),
         "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "Citealt" | "citealp"
         | "Citealp" | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
         | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
@@ -23088,6 +23205,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::IncludeOnly => "includeonly",
         Primitive::Citation => "cite",
         Primitive::Reference(reference) => reference.canonical_name,
+        Primitive::Link(link) => link.canonical_name,
     }
 }
 
@@ -29650,6 +29768,7 @@ mod tests {
                 RenderEvent::Text(text) => Some(text.text.as_str()),
                 RenderEvent::Space(_) => Some(" "),
                 RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => Some("[?]"),
+                RenderEvent::InlineLink(link) => Some(link.text.as_str()),
                 _ => None,
             })
             .collect()

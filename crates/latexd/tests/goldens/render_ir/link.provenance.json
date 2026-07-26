@@ -54,10 +54,10 @@
           "text": "paper link"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "event_id": 3,
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -172,10 +172,10 @@
           "text": "https://example.test/raw"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "event_id": 6,
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -272,10 +272,10 @@
           "text": "https://example.test/delimited"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "event_id": 11,
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

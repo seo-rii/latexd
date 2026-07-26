@@ -91,10 +91,10 @@
           "text": "paper"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "event_id": 5,
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -234,10 +234,10 @@
           "text": "https://shown.test"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "event_id": 9,
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

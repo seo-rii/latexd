@@ -552,6 +552,181 @@ fn reference_aliases_preserve_canonical_semantics_and_arity() {
 }
 
 #[test]
+fn false_conditional_does_not_emit_link_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\href{https://wrong.test}{wrong}
+\fi
+\href{https://right.test}{right}
+\end{document}",
+    );
+    let links = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineLink(link) => Some((
+                link.target.as_str(),
+                link.text.as_str(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        links,
+        vec![(
+            "https://right.test",
+            "right",
+            EventProducer::Primitive,
+            SemanticConfidence::High,
+        )]
+    );
+}
+
+#[test]
+fn macro_generated_link_emits_at_the_invocation() {
+    let outcome = capture(
+        r"\def\emitlink#1{\href{https://example.test/#1}{Read #1}}
+\begin{document}
+\emitlink{paper}
+\end{document}",
+    );
+    let link = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::InlineLink(_)))
+        .expect("macro-generated link");
+    let RenderEvent::InlineLink(link_event) = &link.event else {
+        unreachable!();
+    };
+
+    assert_eq!(link_event.command, "href");
+    assert_eq!(link_event.target, "https://example.test/paper");
+    assert_eq!(link_event.text, "Read paper");
+    assert_eq!(link.meta.producer, EventProducer::Macro);
+    assert_eq!(link.meta.confidence, SemanticConfidence::High);
+    assert_eq!(
+        link.meta
+            .source
+            .expansion_stack
+            .last()
+            .and_then(|frame| frame.command_name.as_deref()),
+        Some("emitlink")
+    );
+}
+
+#[test]
+fn link_aliases_preserve_canonical_semantics() {
+    let outcome = capture(
+        r"\let\myhref\href
+\let\myurl\url
+\begin{document}
+\myhref{https://example.test/paper}{paper} \myurl|https://example.test/raw|
+\end{document}",
+    );
+    let links = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineLink(link) => Some((
+                link.command.as_str(),
+                link.target.as_str(),
+                link.text.as_str(),
+                event.meta.producer,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        links,
+        vec![
+            (
+                "href",
+                "https://example.test/paper",
+                "paper",
+                EventProducer::Primitive,
+            ),
+            (
+                "url",
+                "https://example.test/raw",
+                "https://example.test/raw",
+                EventProducer::Primitive,
+            ),
+        ],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn link_visible_content_executes_and_is_folded_into_the_link() {
+    let outcome = capture(
+        r"\begin{document}
+\href{https://hidden.test}{See \ref{sec:intro} and \cite{paper}.}
+\end{document}",
+    );
+    let links = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineLink(link) => Some((link, event.meta.producer)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(links.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(links[0].0.target, "https://hidden.test");
+    assert_eq!(links[0].0.text, "See [?] and [?].");
+    assert_eq!(links[0].1, EventProducer::Primitive);
+    assert!(!outcome.render_events.iter().any(|event| matches!(
+        event.event,
+        RenderEvent::InlineReference(_) | RenderEvent::InlineCitation(_)
+    )));
+    assert!(!outcome.render_events.iter().any(
+        |event| matches!(&event.event, RenderEvent::Text(text) if text.text.contains("sec:intro") || text.text.contains("paper"))
+    ));
+}
+
+#[test]
+fn macro_wrapper_link_replaces_its_visible_text_in_place() {
+    let outcome = capture(
+        r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}
+\begin{document}
+A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.
+\end{document}",
+    );
+    let visible = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => Some("[?]"),
+            RenderEvent::InlineLink(link) => Some(link.text.as_str()),
+            _ => None,
+        })
+        .collect::<String>();
+    let links = outcome
+        .render_events
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::InlineLink(_)))
+        .count();
+
+    assert_eq!(
+        visible.trim_end(),
+        "A TODO: check [?], [?], and paper B.",
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(links, 1, "{:#?}", outcome.render_events);
+}
+
+#[test]
 fn executed_paragraph_breaks_preserve_their_reason() {
     let outcome = capture(
         r"\begin{document}
