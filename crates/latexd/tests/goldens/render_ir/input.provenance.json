@@ -41,10 +41,10 @@
       "text": "Included"
     },
     "meta": {
-      "confidence": "medium",
+      "confidence": "high",
       "event_id": 3,
       "mode_hint": "vertical",
-      "producer": "scanner_recovery",
+      "producer": "primitive",
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

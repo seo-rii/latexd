@@ -56,10 +56,10 @@
       "text": "From Preamble"
     },
     "meta": {
-      "confidence": "medium",
+      "confidence": "high",
       "event_id": 1,
       "mode_hint": "vertical",
-      "producer": "scanner_recovery",
+      "producer": "macro",
       "source": {
         "expansion_stack": [
           {

@@ -29,12 +29,13 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_heading;
 mod semantic_inline;
 mod semantic_math;
 mod semantic_text;
 mod snapshot;
 
-use command::{LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand};
+use command::{HeadingCommand, LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
@@ -43,6 +44,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
 use semantic_math::ExecutedMathCapture;
 use semantic_text::SemanticTextState;
@@ -246,9 +248,7 @@ const ARTICLE_CLASS_SHIM: &str = r##"
 \def\~#1{#1}
 \def\=#1{#1}
 \def\.#1{#1}
-\def\part#1{#1}
 \def\thepart{}
-\def\chapter#1{#1}
 \def\thechapter{}
 \def\chaptermark#1{}
 \def\partmark#1{}
@@ -894,6 +894,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
@@ -959,6 +960,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
@@ -14946,6 +14948,7 @@ impl<'i> Vm<'i> {
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
+        let scanner_heading = matches!(&event, RenderEvent::Heading(_));
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
@@ -14959,6 +14962,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_link {
             self.mark_scanner_link_event(event_id);
+        }
+        if scanner_heading {
+            self.mark_scanner_heading_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15044,6 +15050,7 @@ impl<'i> Vm<'i> {
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
             self.reconcile_executed_math_events();
+            self.reconcile_executed_heading_events();
             self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
             self.reconcile_embedded_executed_inline_events();
@@ -15675,6 +15682,7 @@ impl<'i> Vm<'i> {
             TokenKind::ControlSequence { name } => {
                 if self.execute_semantic_expansion_marker(name)
                     || self.execute_semantic_link_marker(name)
+                    || self.execute_semantic_heading_marker(name)
                 {
                     return;
                 }
@@ -15944,6 +15952,47 @@ impl<'i> Vm<'i> {
                         queue,
                     );
                 }
+            }
+            Primitive::Heading(heading_command) => {
+                self.skip_optional_spaces(queue);
+                let numbered = if let Some(token) = self.pop_next_token(queue) {
+                    if matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            ch: '*',
+                            catcode: CatCode::Other | CatCode::Letter | CatCode::Active
+                        }
+                    ) {
+                        false
+                    } else {
+                        self.push_token_front(queue, token);
+                        true
+                    }
+                } else {
+                    true
+                };
+                self.skip_optional_spaces(queue);
+                let _ = self.read_optional_bracket_tokens(queue);
+                self.skip_optional_spaces(queue);
+                let Some(title_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let title_start_utf8 = title_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let title_end_utf8 = title_tokens
+                    .last()
+                    .map_or(title_start_utf8, |token| token.span.end);
+                self.queue_executed_heading(
+                    heading_command.level,
+                    numbered,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                    title_start_utf8,
+                    title_end_utf8,
+                    title_tokens,
+                    queue,
+                );
             }
             Primitive::NewRead => {
                 let force_global = mem::take(&mut self.global_prefix);
@@ -22971,6 +23020,34 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "Vrefrange",
             key_argument_count: 2,
         })),
+        "part" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "part",
+            level: 0,
+        })),
+        "chapter" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "chapter",
+            level: 0,
+        })),
+        "section" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "section",
+            level: 1,
+        })),
+        "subsection" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "subsection",
+            level: 2,
+        })),
+        "subsubsection" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "subsubsection",
+            level: 3,
+        })),
+        "paragraph" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "paragraph",
+            level: 4,
+        })),
+        "subparagraph" => Some(Primitive::Heading(HeadingCommand {
+            canonical_name: "subparagraph",
+            level: 5,
+        })),
         "href" => Some(Primitive::Link(LinkCommand {
             canonical_name: "href",
             has_separate_text_argument: true,
@@ -23206,6 +23283,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Citation => "cite",
         Primitive::Reference(reference) => reference.canonical_name,
         Primitive::Link(link) => link.canonical_name,
+        Primitive::Heading(heading) => heading.canonical_name,
     }
 }
 

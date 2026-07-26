@@ -27,6 +27,12 @@ pub(crate) struct LinkCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HeadingCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) level: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -241,4 +247,5 @@ pub(crate) enum Primitive {
     Citation,
     Reference(ReferenceCommand),
     Link(LinkCommand),
+    Heading(HeadingCommand),
 }

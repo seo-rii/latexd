@@ -39,6 +39,13 @@ struct ExecutedLinkCapture {
     math_event_mark: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ExecutedInlineEventMark {
+    citations: usize,
+    references: usize,
+    links: usize,
+}
+
 impl Vm<'_> {
     pub(super) fn mark_scanner_citation_event(&mut self, event_id: EventId) {
         self.semantic_inline
@@ -54,6 +61,24 @@ impl Vm<'_> {
 
     pub(super) fn mark_scanner_link_event(&mut self, event_id: EventId) {
         self.semantic_inline.scanner_link_event_ids.insert(event_id);
+    }
+
+    pub(super) fn executed_inline_event_mark(&self) -> ExecutedInlineEventMark {
+        ExecutedInlineEventMark {
+            citations: self.semantic_inline.executed_citations.len(),
+            references: self.semantic_inline.executed_references.len(),
+            links: self.semantic_inline.executed_links.len(),
+        }
+    }
+
+    pub(super) fn rollback_executed_inline_events(&mut self, mark: ExecutedInlineEventMark) {
+        self.semantic_inline
+            .executed_citations
+            .truncate(mark.citations);
+        self.semantic_inline
+            .executed_references
+            .truncate(mark.references);
+        self.semantic_inline.executed_links.truncate(mark.links);
     }
 
     pub(super) fn emit_executed_citation(

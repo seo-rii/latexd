@@ -101,11 +101,24 @@ impl Vm<'_> {
         if !self.render_event_capture || end_utf8 <= start_utf8 {
             return;
         }
+        let expansion_call_range =
+            self.semantic_text
+                .expansion_stack
+                .last()
+                .and_then(|expansion| match &expansion.source.primary {
+                    ProvenanceSpan::File(span) => {
+                        Some((span.path.clone(), span.start_utf8, span.end_utf8))
+                    }
+                    ProvenanceSpan::Generated(_) => None,
+                });
         self.record_suppressed_source_range_for_path(
             self.current_execution_source_path(),
             start_utf8,
             end_utf8,
         );
+        if let Some((path, start_utf8, end_utf8)) = expansion_call_range {
+            self.record_suppressed_source_range_for_path(path, start_utf8, end_utf8);
+        }
     }
 
     pub(super) fn record_suppressed_source_range_for_path(
@@ -350,6 +363,12 @@ impl Vm<'_> {
 
     pub(super) fn separate_executed_inline_content(&mut self) {
         self.flush_executed_text_capture();
+        self.semantic_text.space_run_active = false;
+    }
+
+    pub(super) fn finish_executed_block_content(&mut self) {
+        self.flush_executed_text_capture();
+        self.semantic_text.paragraph_has_content = false;
         self.semantic_text.space_run_active = false;
     }
 

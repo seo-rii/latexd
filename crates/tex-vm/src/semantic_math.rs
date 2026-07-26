@@ -168,6 +168,14 @@ impl Vm<'_> {
         }
     }
 
+    pub(super) fn executed_math_event_mark(&self) -> usize {
+        self.executed_math_events.len()
+    }
+
+    pub(super) fn rollback_executed_math_events(&mut self, mark: usize) {
+        self.executed_math_events.truncate(mark);
+    }
+
     pub(super) fn reconcile_executed_math_events(&mut self) {
         let scanner_dollar_ids = mem::take(&mut self.scanner_dollar_math_event_ids);
         let executed_invocations = mem::take(&mut self.executed_math_invocations);

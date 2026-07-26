@@ -16,23 +16,6 @@ fn capture(source: &str) -> tex_vm::VmOutcome {
 }
 
 #[test]
-fn source_scanner_events_are_explicitly_marked_as_recovery() {
-    let outcome = capture(
-        r"\begin{document}
-\section{Recovered heading}
-\end{document}",
-    );
-    let heading = outcome
-        .render_events
-        .iter()
-        .find(|envelope| matches!(envelope.event, RenderEvent::Heading(_)))
-        .expect("scanner should recover the heading");
-
-    assert_eq!(heading.meta.producer, EventProducer::ScannerRecovery);
-    assert_eq!(heading.meta.confidence, SemanticConfidence::Medium);
-}
-
-#[test]
 fn group_local_count_assignment_is_restored() {
     let outcome = run(r"\count0=1{\count0=2}\the\count0");
 
