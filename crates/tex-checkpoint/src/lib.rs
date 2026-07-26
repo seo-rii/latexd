@@ -4,7 +4,11 @@ use std::io::Write;
 use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
-use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, VmSnapshot};
+use tex_vm::{
+    VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpointKind, VmReplayFrame, VmSnapshot,
+};
+
+pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -32,6 +36,8 @@ pub struct CheckpointMeta {
     pub boundary_hash: String,
     pub vm_state_hash: String,
     pub snapshot_attached: bool,
+    #[serde(default)]
+    pub continuation_safety: VmContinuationSafety,
     #[serde(default)]
     pub source_offset_utf8: u32,
     #[serde(default)]
@@ -66,6 +72,13 @@ pub struct TailRealignment {
     pub previous_page_start: usize,
     pub current_page_start: usize,
     pub page_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckpointReuseDiagnostic {
+    pub code: &'static str,
+    pub checkpoint_id: String,
+    pub blockers: Vec<VmContinuationBlocker>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +169,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
     let snapshot_json =
         serde_json::to_vec(preamble_snapshot).context("failed to serialize preamble snapshot")?;
     let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
+    let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
+    let preamble_snapshot_attached = preamble_continuation_safety.is_safe();
     let mut checkpoints = vec![StoredCheckpoint {
         meta: CheckpointMeta {
             checkpoint_id: checkpoint_id(
@@ -170,7 +185,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
             page_index_after: 0,
             boundary_hash: preamble_key.to_string(),
             vm_state_hash: vm_state_hash.clone(),
-            snapshot_attached: true,
+            snapshot_attached: preamble_snapshot_attached,
+            continuation_safety: preamble_continuation_safety,
             source_offset_utf8: preamble_source_offset_utf8,
             resume_path: None,
             continuation_stack: Vec::new(),
@@ -178,7 +194,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
             input_boundary_kind: None,
             output_start_utf8: 0,
         },
-        snapshot: Some(preamble_snapshot.clone()),
+        snapshot: preamble_snapshot_attached.then(|| preamble_snapshot.clone()),
     }];
 
     for (index, page) in pages.iter().enumerate() {
@@ -193,6 +209,10 @@ pub fn build_checkpoint_bundle_with_shipouts(
             .context("failed to serialize shipout snapshot")?
             .map(|json| blake3::hash(&json).to_hex().to_string())
             .unwrap_or_else(|| vm_state_hash.clone());
+        let continuation_safety = shipout_checkpoint
+            .map(|checkpoint| checkpoint.snapshot.continuation_safety.clone())
+            .unwrap_or_default();
+        let snapshot_attached = shipout_checkpoint.is_some() && continuation_safety.is_safe();
         checkpoints.push(StoredCheckpoint {
             meta: CheckpointMeta {
                 checkpoint_id: checkpoint_id(
@@ -207,7 +227,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 page_index_after: page.index + 1,
                 boundary_hash,
                 vm_state_hash: vm_state_hash.clone(),
-                snapshot_attached: shipout_checkpoint.is_some(),
+                snapshot_attached,
+                continuation_safety,
                 source_offset_utf8,
                 resume_path: shipout_checkpoint
                     .and_then(|checkpoint| checkpoint.resume_path.clone()),
@@ -218,7 +239,12 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 input_boundary_kind: None,
                 output_start_utf8: page.text_start_utf8,
             },
-            snapshot: shipout_checkpoint.map(|checkpoint| checkpoint.snapshot.clone()),
+            snapshot: snapshot_attached.then(|| {
+                shipout_checkpoint
+                    .expect("attached shipout snapshot")
+                    .snapshot
+                    .clone()
+            }),
         });
     }
 
@@ -226,6 +252,13 @@ pub fn build_checkpoint_bundle_with_shipouts(
         let snapshot_json = serde_json::to_vec(&boundary.snapshot)
             .context("failed to serialize input-boundary snapshot")?;
         let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
+        let mut continuation_safety = boundary.snapshot.continuation_safety.clone();
+        if boundary.resume_path.is_some() {
+            continuation_safety
+                .blockers
+                .retain(|blocker| *blocker != VmContinuationBlocker::ActiveInput);
+        }
+        let snapshot_attached = continuation_safety.is_safe();
         let boundary_hash = blake3::hash(
             format!(
                 "{}:{}:{}:{}:{}:{}",
@@ -257,7 +290,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 page_index_after: boundary.page_index_after,
                 boundary_hash,
                 vm_state_hash,
-                snapshot_attached: true,
+                snapshot_attached,
+                continuation_safety,
                 source_offset_utf8: boundary.source_offset_utf8,
                 resume_path: boundary.resume_path.clone(),
                 continuation_stack: boundary.continuation_stack.clone(),
@@ -265,7 +299,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 input_boundary_kind: Some(boundary.kind),
                 output_start_utf8: boundary.output_start_utf8,
             },
-            snapshot: Some(boundary.snapshot.clone()),
+            snapshot: snapshot_attached.then(|| boundary.snapshot.clone()),
         });
     }
 
@@ -327,8 +361,48 @@ pub fn select_reusable_preamble(
         .find(|checkpoint| {
             checkpoint.meta.kind == CheckpointKind::Preamble
                 && checkpoint.meta.boundary_hash == current_preamble_key
+                && checkpoint_is_replay_safe(checkpoint)
         })
         .cloned()
+}
+
+pub fn checkpoint_is_replay_safe(checkpoint: &StoredCheckpoint) -> bool {
+    checkpoint.meta.snapshot_attached
+        && checkpoint.meta.continuation_safety.is_safe()
+        && checkpoint.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.continuation_safety.is_safe()
+                || (checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.resume_path.is_some()
+                    && snapshot.continuation_safety.schema_version
+                        == tex_vm::VM_CONTINUATION_SAFETY_SCHEMA_VERSION
+                    && snapshot
+                        .continuation_safety
+                        .blockers
+                        .iter()
+                        .all(|blocker| *blocker == VmContinuationBlocker::ActiveInput))
+        })
+}
+
+pub fn checkpoint_reuse_diagnostic(
+    checkpoint: &StoredCheckpoint,
+) -> Option<CheckpointReuseDiagnostic> {
+    if checkpoint_is_replay_safe(checkpoint) {
+        return None;
+    }
+    let blockers = if checkpoint.meta.continuation_safety.blockers.is_empty() {
+        checkpoint
+            .snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.continuation_safety.blockers.clone())
+            .unwrap_or_else(|| vec![VmContinuationBlocker::UnverifiedSnapshot])
+    } else {
+        checkpoint.meta.continuation_safety.blockers.clone()
+    };
+    Some(CheckpointReuseDiagnostic {
+        code: CHECKPOINT_UNSAFE_STATE,
+        checkpoint_id: checkpoint.meta.checkpoint_id.clone(),
+        blockers,
+    })
 }
 
 pub fn load_latest_reusable_preamble(

@@ -986,8 +986,44 @@ enum Primitive {
     Citation,
 }
 
+pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VmContinuationBlocker {
+    UnverifiedSnapshot,
+    OpenGroup,
+    OpenConditional,
+    ActiveInput,
+    PendingGlobalPrefix,
+    RenderEventSink,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmContinuationSafety {
+    pub schema_version: u32,
+    pub blockers: Vec<VmContinuationBlocker>,
+}
+
+impl VmContinuationSafety {
+    pub fn is_safe(&self) -> bool {
+        self.schema_version == VM_CONTINUATION_SAFETY_SCHEMA_VERSION && self.blockers.is_empty()
+    }
+}
+
+impl Default for VmContinuationSafety {
+    fn default() -> Self {
+        Self {
+            schema_version: VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
+            blockers: vec![VmContinuationBlocker::UnverifiedSnapshot],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSnapshot {
+    #[serde(default)]
+    pub continuation_safety: VmContinuationSafety,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
@@ -15400,6 +15436,7 @@ impl<'i> Vm<'i> {
 
     pub fn snapshot(&self) -> VmSnapshot {
         VmSnapshot {
+            continuation_safety: self.continuation_safety(),
             scopes: self
                 .scopes
                 .iter()
@@ -15489,6 +15526,29 @@ impl<'i> Vm<'i> {
                 .next_back()
                 .or(self.legacy_output_last_char),
             legacy_text_script_boundary_pending: self.legacy_text_script_boundary_pending,
+        }
+    }
+
+    fn continuation_safety(&self) -> VmContinuationSafety {
+        let mut blockers = Vec::new();
+        if self.scopes.len() != 1 || self.aftergroup_tokens.len() != 1 {
+            blockers.push(VmContinuationBlocker::OpenGroup);
+        }
+        if !self.conditionals.is_empty() {
+            blockers.push(VmContinuationBlocker::OpenConditional);
+        }
+        if !self.source_stack.is_empty() {
+            blockers.push(VmContinuationBlocker::ActiveInput);
+        }
+        if self.global_prefix {
+            blockers.push(VmContinuationBlocker::PendingGlobalPrefix);
+        }
+        if self.render_event_capture {
+            blockers.push(VmContinuationBlocker::RenderEventSink);
+        }
+        VmContinuationSafety {
+            schema_version: VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
+            blockers,
         }
     }
 

@@ -24,8 +24,8 @@ use tex_bootstrap::{
 };
 use tex_checkpoint::{
     CheckpointBundle, CheckpointKind, CheckpointPage, InputBoundaryCheckpoint, ShipoutCheckpoint,
-    StoredCheckpoint, build_checkpoint_bundle_with_shipouts, find_unchanged_tail,
-    load_checkpoint_bundle, preamble_key_for_source, save_checkpoint_bundle,
+    StoredCheckpoint, build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe,
+    find_unchanged_tail, load_checkpoint_bundle, preamble_key_for_source, save_checkpoint_bundle,
     select_reusable_preamble,
 };
 use tex_pdf::{
@@ -3220,6 +3220,9 @@ fn replay_checkpoint_from_stored(
     checkpoint: &StoredCheckpoint,
     toplevel: &Utf8Path,
 ) -> Option<ProjectReplayCheckpoint> {
+    if !checkpoint_is_replay_safe(checkpoint) {
+        return None;
+    }
     checkpoint
         .snapshot
         .as_ref()
@@ -3263,29 +3266,15 @@ fn select_shipout_replay_plan_with_spans(
     force_conservative_files: Option<&[Utf8PathBuf]>,
 ) -> anyhow::Result<Option<ShipoutReplayPlan>> {
     let cp0_plan = || -> anyhow::Result<ShipoutReplayPlan> {
+        let stored_checkpoint = previous
+            .bundle
+            .checkpoints
+            .first()
+            .context("missing preamble checkpoint")?;
         Ok(ShipoutReplayPlan {
-            checkpoint: ProjectReplayCheckpoint {
-                snapshot: previous
-                    .bundle
-                    .checkpoints
-                    .first()
-                    .and_then(|checkpoint| checkpoint.snapshot.clone())
-                    .context("missing preamble snapshot")?,
-                resume_path: toplevel.to_path_buf(),
-                source_offset_utf8: previous
-                    .bundle
-                    .checkpoints
-                    .first()
-                    .map(|checkpoint| checkpoint.meta.source_offset_utf8)
-                    .unwrap_or_default(),
-                continuation_stack: Vec::new(),
-            },
-            checkpoint_id: previous
-                .bundle
-                .checkpoints
-                .first()
-                .map(|checkpoint| checkpoint.meta.checkpoint_id.clone())
-                .unwrap_or_default(),
+            checkpoint: replay_checkpoint_from_stored(stored_checkpoint, toplevel)
+                .context("preamble checkpoint is unsafe for continuation replay")?,
+            checkpoint_id: stored_checkpoint.meta.checkpoint_id.clone(),
             start_page_index: 0,
             output_prefix: String::new(),
             specificity_rank: 0,
