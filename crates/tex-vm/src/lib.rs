@@ -4,7 +4,7 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
-use tex_lexer::{CatCodeTable, Lexer, lex_plain};
+use tex_lexer::{CatCodeTable, Lexer, Mouth, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
     BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, CitationStyleHint,
@@ -1232,11 +1232,8 @@ impl<'i> Vm<'i> {
             scan_state.hidden_environments.insert("comment".to_string());
             self.capture_render_events_from_source(&source_path, source, false, 0, &mut scan_state);
         }
-        let tokens = {
-            let interner = &mut *self.interner;
-            lex_plain(source, interner)
-        };
-        self.run(tokens)
+        let queue = VecDeque::from([QueueItem::CharacterSource(Mouth::new(source))]);
+        self.run_queue(queue, source.len())
     }
 
     fn capture_jobname_bbl_render_events(
@@ -14897,11 +14894,20 @@ impl<'i> Vm<'i> {
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
-        let mut queue = tokens
+        let initial_queue_weight = tokens.len();
+        let queue = tokens
             .into_iter()
             .map(QueueItem::Token)
             .collect::<VecDeque<_>>();
-        let pending_queue_limit = queue.len().saturating_add(MAX_PENDING_QUEUE_ITEMS);
+        self.run_queue(queue, initial_queue_weight)
+    }
+
+    fn run_queue(
+        &mut self,
+        mut queue: VecDeque<QueueItem>,
+        initial_queue_weight: usize,
+    ) -> VmOutcome {
+        let pending_queue_limit = initial_queue_weight.saturating_add(MAX_PENDING_QUEUE_ITEMS);
         let mut executed_tokens = 0usize;
         let pushed_root_source = self.entry_source_path.clone().map(|path| {
             self.source_stack.push(ActiveSourceFrame {
@@ -14996,6 +15002,7 @@ impl<'i> Vm<'i> {
                     )
                 })
                 .collect(),
+            catcodes: self.eqtb.catcode_values(),
             next_count_register: self.next_count_register,
             next_dimen_register: self.next_dimen_register,
             next_skip_register: self.next_skip_register,
@@ -15115,6 +15122,7 @@ impl<'i> Vm<'i> {
             snapshot.dimen_registers.clone(),
             snapshot.skip_registers.clone(),
             token_registers,
+            snapshot.catcodes.clone(),
         );
         vm.save_stack = SaveStack::default();
         vm.next_count_register = snapshot.next_count_register;
@@ -16128,7 +16136,30 @@ impl<'i> Vm<'i> {
                     self.legacy_math_output_active = false;
                 }
             }
-            Primitive::MakeAtLetter | Primitive::MakeAtOther => {}
+            Primitive::MakeAtLetter | Primitive::MakeAtOther => {
+                let requested_global = mem::take(&mut self.global_prefix);
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                let catcode = if primitive == Primitive::MakeAtLetter {
+                    CatCode::Letter
+                } else {
+                    CatCode::Other
+                };
+                self.eqtb.assign_catcode(
+                    '@',
+                    catcode,
+                    assignment_scope,
+                    self.scopes.len().saturating_sub(1),
+                    &mut self.save_stack,
+                );
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::IfTrue => {
                 self.skip_optional_spaces(queue);
                 self.start_conditional(true, queue);
@@ -16218,6 +16249,70 @@ impl<'i> Vm<'i> {
                     force_global,
                 );
                 self.transcript.push(format!("chardef \\{name}={value}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CatCode => {
+                let requested_global = mem::take(&mut self.global_prefix);
+                let Some(character_code) = self.read_integer(queue) else {
+                    return;
+                };
+                let Ok(character_code) = u32::try_from(character_code) else {
+                    return;
+                };
+                let Some(ch) = char::from_u32(character_code) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let Some(value) = self.read_integer(queue) else {
+                    return;
+                };
+                let catcode = match value {
+                    0 => CatCode::Escape,
+                    1 => CatCode::BeginGroup,
+                    2 => CatCode::EndGroup,
+                    3 => CatCode::MathShift,
+                    4 => CatCode::AlignmentTab,
+                    5 => CatCode::EndOfLine,
+                    6 => CatCode::Parameter,
+                    7 => CatCode::Superscript,
+                    8 => CatCode::Subscript,
+                    9 => CatCode::Ignored,
+                    10 => CatCode::Space,
+                    11 => CatCode::Letter,
+                    12 => CatCode::Other,
+                    13 => CatCode::Active,
+                    14 => CatCode::Comment,
+                    15 => CatCode::Invalid,
+                    _ => return,
+                };
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                self.eqtb.assign_catcode(
+                    ch,
+                    catcode,
+                    assignment_scope,
+                    self.scopes.len().saturating_sub(1),
+                    &mut self.save_stack,
+                );
+                self.transcript.push(format!("catcode `{ch}`={value}"));
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
                 }
@@ -19578,7 +19673,7 @@ impl<'i> Vm<'i> {
                             });
                             break;
                         }
-                        QueueItem::Token(_) => {}
+                        QueueItem::Token(_) | QueueItem::CharacterSource(_) => {}
                     }
                 }
             }
@@ -19750,21 +19845,53 @@ impl<'i> Vm<'i> {
     }
 
     fn pop_next_token(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Token> {
-        self.flush_module_end_markers(queue);
+        if !self.materialize_front_token(queue) {
+            return None;
+        }
         match queue.pop_front()? {
             QueueItem::Token(token) => {
                 self.last_token_end_utf8 = token.span.end;
                 Some(token)
             }
-            QueueItem::ModuleEnd { .. } => unreachable!("module end markers are flushed first"),
+            QueueItem::CharacterSource(_) | QueueItem::ModuleEnd { .. } => {
+                unreachable!("front input item must be materialized as a token")
+            }
         }
     }
 
     fn peek_next_token(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Token> {
-        self.flush_module_end_markers(queue);
+        if !self.materialize_front_token(queue) {
+            return None;
+        }
         match queue.front()? {
             QueueItem::Token(token) => Some(token.clone()),
-            QueueItem::ModuleEnd { .. } => unreachable!("module end markers are flushed first"),
+            QueueItem::CharacterSource(_) | QueueItem::ModuleEnd { .. } => {
+                unreachable!("front input item must be materialized as a token")
+            }
+        }
+    }
+
+    fn materialize_front_token(&mut self, queue: &mut VecDeque<QueueItem>) -> bool {
+        loop {
+            self.flush_module_end_markers(queue);
+            match queue.front() {
+                Some(QueueItem::Token(_)) => return true,
+                Some(QueueItem::CharacterSource(_)) => {
+                    let Some(QueueItem::CharacterSource(mut mouth)) = queue.pop_front() else {
+                        unreachable!()
+                    };
+                    let token = mouth.next_token(self.eqtb.catcodes(), &mut *self.interner);
+                    if let Some(token) = token {
+                        queue.push_front(QueueItem::CharacterSource(mouth));
+                        queue.push_front(QueueItem::Token(token));
+                        return true;
+                    }
+                }
+                Some(QueueItem::ModuleEnd { .. }) => {
+                    unreachable!("module end markers are flushed first")
+                }
+                None => return false,
+            }
         }
     }
 
@@ -20711,10 +20838,7 @@ impl<'i> Vm<'i> {
     fn consume_text_keyword(&mut self, queue: &mut VecDeque<QueueItem>, keyword: &str) -> bool {
         let mut local_queue = queue.clone();
         for expected in keyword.chars() {
-            let Some(token) = local_queue.pop_front().and_then(|item| match item {
-                QueueItem::Token(token) => Some(token),
-                QueueItem::ModuleEnd { .. } => None,
-            }) else {
+            let Some(token) = self.pop_next_token(&mut local_queue) else {
                 return false;
             };
             let TokenKind::Character {
@@ -21938,6 +22062,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "iffalse" => Some(Primitive::IfFalse),
         "newif" => Some(Primitive::NewIf),
         "chardef" => Some(Primitive::CharDef),
+        "catcode" => Some(Primitive::CatCode),
         "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
         "ProvidesFile" => Some(Primitive::ProvidesFile),
         "ProvidesPackage" => Some(Primitive::ProvidesPackage),
@@ -22167,6 +22292,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::IfFalse => "iffalse",
         Primitive::NewIf => "newif",
         Primitive::CharDef => "chardef",
+        Primitive::CatCode => "catcode",
         Primitive::NeedsTeXFormat => "NeedsTeXFormat",
         Primitive::ProvidesFile => "ProvidesFile",
         Primitive::ProvidesPackage => "ProvidesPackage",
@@ -29355,6 +29481,21 @@ mod tests {
             outcome.module_traces[0].output_end_utf8,
             "from-input".len() as u32
         );
+    }
+
+    #[test]
+    fn glue_at_input_end_closes_the_module_once_after_keyword_lookahead() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("defs.tex", r"\skip0=1pt");
+
+        let outcome = vm.run_plain(r"\input{defs}X");
+
+        assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.module_traces.len(), 1);
+        assert_eq!(outcome.module_traces[0].path, Utf8PathBuf::from("defs.tex"));
+        assert_eq!(outcome.module_traces[0].output_end_utf8, 0);
     }
 
     #[test]

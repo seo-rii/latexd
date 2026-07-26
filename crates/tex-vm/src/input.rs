@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
+use tex_lexer::Mouth;
 use tex_tokens::Token;
 
 use crate::snapshot::VmReplayFrame;
@@ -8,6 +9,7 @@ use crate::snapshot::VmReplayFrame;
 #[derive(Debug, Clone)]
 pub(crate) enum QueueItem {
     Token(Token),
+    CharacterSource(Mouth),
     ModuleEnd {
         path: Utf8PathBuf,
         source_start_utf8: u32,

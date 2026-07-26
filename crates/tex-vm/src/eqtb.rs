@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use tex_tokens::Token;
+use tex_lexer::CatCodeTable;
+use tex_tokens::{CatCode, Token};
 
 use crate::save_stack::SaveStack;
 
@@ -10,6 +11,7 @@ pub(crate) enum EqKey {
     Dimen(u32),
     Skip(u32),
     Toks(u32),
+    CatCode(char),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +20,7 @@ pub(crate) enum EqValue {
     Dimension(i32),
     Glue(i32),
     TokenList(Vec<Token>),
+    CatCode(CatCode),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,9 +35,22 @@ pub(crate) enum AssignmentScope {
     Global,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Eqtb {
     entries: BTreeMap<EqKey, EqEntry>,
+    base_catcodes: CatCodeTable,
+    catcodes: CatCodeTable,
+}
+
+impl Default for Eqtb {
+    fn default() -> Self {
+        let base_catcodes = CatCodeTable::plain_tex();
+        Self {
+            entries: BTreeMap::new(),
+            catcodes: base_catcodes.clone(),
+            base_catcodes,
+        }
+    }
 }
 
 impl Eqtb {
@@ -43,6 +59,7 @@ impl Eqtb {
         dimen_values: BTreeMap<u32, i32>,
         skip_values: BTreeMap<u32, i32>,
         token_values: BTreeMap<u32, Vec<Token>>,
+        catcode_values: BTreeMap<char, CatCode>,
     ) -> Self {
         let mut eqtb = Self::default();
         for (index, value) in count_values {
@@ -81,6 +98,16 @@ impl Eqtb {
                 },
             );
         }
+        for (ch, value) in catcode_values {
+            eqtb.entries.insert(
+                EqKey::CatCode(ch),
+                EqEntry {
+                    value: EqValue::CatCode(value),
+                    level: 0,
+                },
+            );
+            eqtb.catcodes.set(ch, value);
+        }
         eqtb
     }
 
@@ -89,7 +116,10 @@ impl Eqtb {
             .get(&EqKey::Count(index))
             .map(|entry| match &entry.value {
                 EqValue::Integer(value) => *value,
-                EqValue::Dimension(_) | EqValue::Glue(_) | EqValue::TokenList(_) => {
+                EqValue::Dimension(_)
+                | EqValue::Glue(_)
+                | EqValue::TokenList(_)
+                | EqValue::CatCode(_) => {
                     unreachable!("count entry must contain an integer")
                 }
             })
@@ -100,7 +130,10 @@ impl Eqtb {
             .get(&EqKey::Dimen(index))
             .map(|entry| match &entry.value {
                 EqValue::Dimension(value) => *value,
-                EqValue::Integer(_) | EqValue::Glue(_) | EqValue::TokenList(_) => {
+                EqValue::Integer(_)
+                | EqValue::Glue(_)
+                | EqValue::TokenList(_)
+                | EqValue::CatCode(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
             })
@@ -111,7 +144,10 @@ impl Eqtb {
             .get(&EqKey::Skip(index))
             .map(|entry| match &entry.value {
                 EqValue::Glue(value) => *value,
-                EqValue::Integer(_) | EqValue::Dimension(_) | EqValue::TokenList(_) => {
+                EqValue::Integer(_)
+                | EqValue::Dimension(_)
+                | EqValue::TokenList(_)
+                | EqValue::CatCode(_) => {
                     unreachable!("skip entry must contain glue")
                 }
             })
@@ -122,10 +158,17 @@ impl Eqtb {
             .get(&EqKey::Toks(index))
             .map(|entry| match &entry.value {
                 EqValue::TokenList(tokens) => tokens.as_slice(),
-                EqValue::Integer(_) | EqValue::Dimension(_) | EqValue::Glue(_) => {
+                EqValue::Integer(_)
+                | EqValue::Dimension(_)
+                | EqValue::Glue(_)
+                | EqValue::CatCode(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
             })
+    }
+
+    pub(crate) fn catcodes(&self) -> &CatCodeTable {
+        &self.catcodes
     }
 
     pub(crate) fn contains_count(&self, index: u32) -> bool {
@@ -240,6 +283,24 @@ impl Eqtb {
         );
     }
 
+    pub(crate) fn assign_catcode(
+        &mut self,
+        ch: char,
+        value: CatCode,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::CatCode(ch),
+            EqValue::CatCode(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+        self.catcodes.set(ch, value);
+    }
+
     fn assign(
         &mut self,
         key: EqKey,
@@ -269,10 +330,25 @@ impl Eqtb {
             return;
         };
         for (key, previous) in restores {
+            let restored_catcode = matches!(key, EqKey::CatCode(_));
             if let Some(previous) = previous {
                 self.entries.insert(key, previous);
             } else {
                 self.entries.remove(&key);
+            }
+            if restored_catcode {
+                let EqKey::CatCode(ch) = key else {
+                    unreachable!()
+                };
+                let value = self
+                    .entries
+                    .get(&key)
+                    .map(|entry| match &entry.value {
+                        EqValue::CatCode(value) => *value,
+                        _ => unreachable!("catcode entry must contain a catcode"),
+                    })
+                    .unwrap_or_else(|| self.base_catcodes.catcode(ch));
+                self.catcodes.set(ch, value);
             }
         }
     }
@@ -312,6 +388,16 @@ impl Eqtb {
             .iter()
             .filter_map(|(key, entry)| match (key, &entry.value) {
                 (EqKey::Toks(index), EqValue::TokenList(value)) => Some((*index, value.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn catcode_values(&self) -> BTreeMap<char, CatCode> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::CatCode(ch), EqValue::CatCode(value)) => Some((*ch, *value)),
                 _ => None,
             })
             .collect()
@@ -403,5 +489,25 @@ mod tests {
         eqtb.end_group(&mut save_stack);
 
         assert_eq!(eqtb.tokens(0), Some(outer.as_slice()));
+    }
+
+    #[test]
+    fn catcode_assignment_updates_the_mouth_view_and_restores_groups() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        save_stack.begin_group();
+
+        eqtb.assign_catcode(
+            '@',
+            CatCode::Letter,
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.catcodes().catcode('@'), CatCode::Letter);
+
+        eqtb.end_group(&mut save_stack);
+
+        assert_eq!(eqtb.catcodes().catcode('@'), CatCode::Other);
     }
 }

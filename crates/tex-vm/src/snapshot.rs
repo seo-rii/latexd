@@ -75,6 +75,8 @@ pub struct VmSnapshot {
     pub skip_registers: BTreeMap<u32, i32>,
     #[serde(default)]
     pub token_registers: BTreeMap<u32, Vec<SnapshotToken>>,
+    #[serde(default)]
+    pub catcodes: BTreeMap<char, CatCode>,
     #[serde(default = "default_next_count_register")]
     pub next_count_register: u32,
     #[serde(default = "default_next_dimen_register")]

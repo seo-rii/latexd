@@ -208,12 +208,41 @@ fn macro_generated_math_emits_an_event() {
 }
 
 #[test]
-#[ignore = "known divergence: the VM eagerly tokenizes before catcode assignment"]
 fn runtime_catcode_change_affects_unread_characters() {
     let outcome = run(r"\catcode`\@=11
 \def\foo@bar{ok}
 \foo@bar");
 
     assert_eq!(outcome.output.trim(), "ok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn catcode_assignments_follow_local_and_global_group_scope() {
+    let local = run(r"{\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");
+    let global = run(r"{\global\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");
+
+    assert_ne!(local.output, "ok");
+    assert!(
+        local
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.detail == "foo")
+    );
+    assert_eq!(global.output, "ok");
+    assert!(global.diagnostics.is_empty());
+}
+
+#[test]
+fn snapshot_restore_preserves_runtime_catcodes() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.run_plain(r"\catcode`\@=11\gdef\foo@bar{ok}");
+    let snapshot = vm.snapshot();
+    let mut restored = Vm::restore(&mut interner, &snapshot);
+
+    let outcome = restored.run_plain(r"\foo@bar");
+
+    assert_eq!(outcome.output, "ok");
     assert!(outcome.diagnostics.is_empty());
 }
