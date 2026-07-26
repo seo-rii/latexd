@@ -861,7 +861,6 @@ pub struct Vm<'i> {
     scopes: Vec<HashMap<String, Meaning>>,
     eqtb: Eqtb,
     save_stack: SaveStack,
-    token_registers: BTreeMap<u32, Vec<Token>>,
     conditionals: Vec<ConditionalState>,
     file_root: Option<Utf8PathBuf>,
     mounted_files: HashMap<Utf8PathBuf, String>,
@@ -917,7 +916,6 @@ impl<'i> Vm<'i> {
             scopes: vec![HashMap::new()],
             eqtb: Eqtb::default(),
             save_stack: SaveStack::default(),
-            token_registers: BTreeMap::new(),
             conditionals: Vec::new(),
             file_root: None,
             mounted_files: HashMap::new(),
@@ -14985,11 +14983,12 @@ impl<'i> Vm<'i> {
             dimen_registers: self.eqtb.dimen_values(),
             skip_registers: self.eqtb.skip_values(),
             token_registers: self
-                .token_registers
-                .iter()
+                .eqtb
+                .token_values()
+                .into_iter()
                 .map(|(index, tokens)| {
                     (
-                        *index,
+                        index,
                         tokens
                             .iter()
                             .map(|token| self.token_to_snapshot(token))
@@ -15098,13 +15097,7 @@ impl<'i> Vm<'i> {
                     .collect()
             })
             .collect();
-        vm.eqtb = Eqtb::from_register_values(
-            snapshot.registers.clone(),
-            snapshot.dimen_registers.clone(),
-            snapshot.skip_registers.clone(),
-        );
-        vm.save_stack = SaveStack::default();
-        vm.token_registers = snapshot
+        let token_registers = snapshot
             .token_registers
             .iter()
             .map(|(index, tokens)| {
@@ -15117,6 +15110,13 @@ impl<'i> Vm<'i> {
                 )
             })
             .collect();
+        vm.eqtb = Eqtb::from_register_values(
+            snapshot.registers.clone(),
+            snapshot.dimen_registers.clone(),
+            snapshot.skip_registers.clone(),
+            token_registers,
+        );
+        vm.save_stack = SaveStack::default();
         vm.next_count_register = snapshot.next_count_register;
         vm.next_dimen_register = snapshot.next_dimen_register;
         vm.next_skip_register = snapshot.next_skip_register;
@@ -17078,12 +17078,12 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                while self.token_registers.contains_key(&self.next_toks_register) {
+                while self.eqtb.contains_tokens(self.next_toks_register) {
                     self.next_toks_register += 1;
                 }
                 let register_index = self.next_toks_register;
                 self.next_toks_register += 1;
-                self.token_registers.entry(register_index).or_default();
+                self.eqtb.ensure_tokens(register_index);
                 let toks_id = self.interner.intern("toks");
                 let mut body = vec![Token::control_sequence(toks_id, 0, 0)];
                 body.extend(
@@ -17130,7 +17130,7 @@ impl<'i> Vm<'i> {
                 else {
                     return;
                 };
-                self.token_registers.entry(register_index).or_default();
+                self.eqtb.ensure_tokens(register_index);
                 let toks_id = self.interner.intern("toks");
                 let mut body = vec![Token::control_sequence(toks_id, 0, 0)];
                 body.extend(
@@ -19440,7 +19440,20 @@ impl<'i> Vm<'i> {
                 } else {
                     Vec::new()
                 };
-                self.token_registers.insert(index, value);
+                let requested_global = mem::take(&mut self.global_prefix);
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                self.eqtb.assign_tokens(
+                    index,
+                    value,
+                    assignment_scope,
+                    self.scopes.len().saturating_sub(1),
+                    &mut self.save_stack,
+                );
                 self.transcript.push(format!("toks{index}=..."));
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
@@ -19463,7 +19476,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_toks_register_index(&mut local_queue) {
                     *queue = local_queue;
-                    if let Some(tokens) = self.token_registers.get(&index) {
+                    if let Some(tokens) = self.eqtb.tokens(index) {
                         for token in tokens.iter().cloned().rev() {
                             self.push_token_front(queue, token);
                         }
@@ -19825,9 +19838,9 @@ impl<'i> Vm<'i> {
                         let mut local_queue = queue.clone();
                         if let Some(index) = self.read_toks_register_index(&mut local_queue) {
                             *queue = local_queue;
-                            self.token_registers
-                                .get(&index)
-                                .cloned()
+                            self.eqtb
+                                .tokens(index)
+                                .map(|tokens| tokens.to_vec())
                                 .unwrap_or_default()
                         } else {
                             let mut local_queue = queue.clone();
@@ -28987,9 +29000,9 @@ mod tests {
 
         assert_eq!(outcome.output, "[AB][CD][CD]");
         assert_eq!(
-            vm.token_registers
-                .get(&0)
-                .map(|tokens| vm.tokens_to_text(tokens.clone()))
+            vm.eqtb
+                .tokens(0)
+                .map(|tokens| vm.tokens_to_text(tokens.to_vec()))
                 .as_deref(),
             Some("AB")
         );

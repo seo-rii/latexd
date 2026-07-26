@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use tex_tokens::Token;
+
 use crate::save_stack::SaveStack;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -7,16 +9,18 @@ pub(crate) enum EqKey {
     Count(u32),
     Dimen(u32),
     Skip(u32),
+    Toks(u32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EqValue {
     Integer(i32),
     Dimension(i32),
     Glue(i32),
+    TokenList(Vec<Token>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EqEntry {
     value: EqValue,
     level: usize,
@@ -38,6 +42,7 @@ impl Eqtb {
         count_values: BTreeMap<u32, i32>,
         dimen_values: BTreeMap<u32, i32>,
         skip_values: BTreeMap<u32, i32>,
+        token_values: BTreeMap<u32, Vec<Token>>,
     ) -> Self {
         let mut eqtb = Self::default();
         for (index, value) in count_values {
@@ -67,15 +72,24 @@ impl Eqtb {
                 },
             );
         }
+        for (index, value) in token_values {
+            eqtb.entries.insert(
+                EqKey::Toks(index),
+                EqEntry {
+                    value: EqValue::TokenList(value),
+                    level: 0,
+                },
+            );
+        }
         eqtb
     }
 
     pub(crate) fn count(&self, index: u32) -> Option<i32> {
         self.entries
             .get(&EqKey::Count(index))
-            .map(|entry| match entry.value {
-                EqValue::Integer(value) => value,
-                EqValue::Dimension(_) | EqValue::Glue(_) => {
+            .map(|entry| match &entry.value {
+                EqValue::Integer(value) => *value,
+                EqValue::Dimension(_) | EqValue::Glue(_) | EqValue::TokenList(_) => {
                     unreachable!("count entry must contain an integer")
                 }
             })
@@ -84,9 +98,9 @@ impl Eqtb {
     pub(crate) fn dimen(&self, index: u32) -> Option<i32> {
         self.entries
             .get(&EqKey::Dimen(index))
-            .map(|entry| match entry.value {
-                EqValue::Dimension(value) => value,
-                EqValue::Integer(_) | EqValue::Glue(_) => {
+            .map(|entry| match &entry.value {
+                EqValue::Dimension(value) => *value,
+                EqValue::Integer(_) | EqValue::Glue(_) | EqValue::TokenList(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
             })
@@ -95,10 +109,21 @@ impl Eqtb {
     pub(crate) fn skip(&self, index: u32) -> Option<i32> {
         self.entries
             .get(&EqKey::Skip(index))
-            .map(|entry| match entry.value {
-                EqValue::Glue(value) => value,
-                EqValue::Integer(_) | EqValue::Dimension(_) => {
+            .map(|entry| match &entry.value {
+                EqValue::Glue(value) => *value,
+                EqValue::Integer(_) | EqValue::Dimension(_) | EqValue::TokenList(_) => {
                     unreachable!("skip entry must contain glue")
+                }
+            })
+    }
+
+    pub(crate) fn tokens(&self, index: u32) -> Option<&[Token]> {
+        self.entries
+            .get(&EqKey::Toks(index))
+            .map(|entry| match &entry.value {
+                EqValue::TokenList(tokens) => tokens.as_slice(),
+                EqValue::Integer(_) | EqValue::Dimension(_) | EqValue::Glue(_) => {
+                    unreachable!("toks entry must contain a token list")
                 }
             })
     }
@@ -113,6 +138,10 @@ impl Eqtb {
 
     pub(crate) fn contains_skip(&self, index: u32) -> bool {
         self.entries.contains_key(&EqKey::Skip(index))
+    }
+
+    pub(crate) fn contains_tokens(&self, index: u32) -> bool {
+        self.entries.contains_key(&EqKey::Toks(index))
     }
 
     pub(crate) fn ensure_count(&mut self, index: u32) {
@@ -132,6 +161,13 @@ impl Eqtb {
     pub(crate) fn ensure_skip(&mut self, index: u32) {
         self.entries.entry(EqKey::Skip(index)).or_insert(EqEntry {
             value: EqValue::Glue(0),
+            level: 0,
+        });
+    }
+
+    pub(crate) fn ensure_tokens(&mut self, index: u32) {
+        self.entries.entry(EqKey::Toks(index)).or_insert(EqEntry {
+            value: EqValue::TokenList(Vec::new()),
             level: 0,
         });
     }
@@ -187,6 +223,23 @@ impl Eqtb {
         );
     }
 
+    pub(crate) fn assign_tokens(
+        &mut self,
+        index: u32,
+        value: Vec<Token>,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::Toks(index),
+            EqValue::TokenList(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
     fn assign(
         &mut self,
         key: EqKey,
@@ -201,7 +254,7 @@ impl Eqtb {
             return;
         }
 
-        save_stack.save_if_absent(key, self.entries.get(&key).copied());
+        save_stack.save_if_absent(key, self.entries.get(&key).cloned());
         self.entries.insert(
             key,
             EqEntry {
@@ -227,8 +280,8 @@ impl Eqtb {
     pub(crate) fn count_values(&self) -> BTreeMap<u32, i32> {
         self.entries
             .iter()
-            .filter_map(|(key, entry)| match (key, entry.value) {
-                (EqKey::Count(index), EqValue::Integer(value)) => Some((*index, value)),
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::Count(index), EqValue::Integer(value)) => Some((*index, *value)),
                 _ => None,
             })
             .collect()
@@ -237,8 +290,8 @@ impl Eqtb {
     pub(crate) fn dimen_values(&self) -> BTreeMap<u32, i32> {
         self.entries
             .iter()
-            .filter_map(|(key, entry)| match (key, entry.value) {
-                (EqKey::Dimen(index), EqValue::Dimension(value)) => Some((*index, value)),
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::Dimen(index), EqValue::Dimension(value)) => Some((*index, *value)),
                 _ => None,
             })
             .collect()
@@ -247,8 +300,18 @@ impl Eqtb {
     pub(crate) fn skip_values(&self) -> BTreeMap<u32, i32> {
         self.entries
             .iter()
-            .filter_map(|(key, entry)| match (key, entry.value) {
-                (EqKey::Skip(index), EqValue::Glue(value)) => Some((*index, value)),
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::Skip(index), EqValue::Glue(value)) => Some((*index, *value)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn token_values(&self) -> BTreeMap<u32, Vec<Token>> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::Toks(index), EqValue::TokenList(value)) => Some((*index, value.clone())),
                 _ => None,
             })
             .collect()
@@ -259,6 +322,7 @@ impl Eqtb {
 mod tests {
     use super::{AssignmentScope, Eqtb};
     use crate::save_stack::SaveStack;
+    use tex_tokens::{CatCode, Token};
 
     #[test]
     fn local_count_assignment_restores_the_first_value_at_group_end() {
@@ -318,5 +382,26 @@ mod tests {
 
         assert_eq!(eqtb.dimen(0), Some(10));
         assert_eq!(eqtb.skip(0), Some(20));
+    }
+
+    #[test]
+    fn token_list_assignment_restores_owned_values() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        let outer = vec![Token::character('A', CatCode::Letter, 0, 1)];
+        let inner = vec![Token::character('B', CatCode::Letter, 1, 2)];
+        eqtb.assign_tokens(
+            0,
+            outer.clone(),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+
+        eqtb.assign_tokens(0, inner, AssignmentScope::Local, 1, &mut save_stack);
+        eqtb.end_group(&mut save_stack);
+
+        assert_eq!(eqtb.tokens(0), Some(outer.as_slice()));
     }
 }

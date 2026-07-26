@@ -132,6 +132,24 @@ fn latex_length_helpers_use_the_same_assignment_scope() {
 }
 
 #[test]
+fn group_local_token_register_assignment_is_restored() {
+    let outcome = run(r"\toks0={outer}{\toks0={inner}}\the\toks0");
+
+    assert_eq!(outcome.output, "outer");
+}
+
+#[test]
+fn global_and_globaldefs_control_token_register_assignment_scope() {
+    let explicit = run(r"\toks0={outer}{\global\toks0={global}}\the\toks0");
+    let positive = run(r"\toks0={outer}{\globaldefs=1\toks0={global}}\the\toks0");
+    let negative = run(r"\toks0={outer}{\globaldefs=-1\global\toks0={local}}\the\toks0");
+
+    assert_eq!(explicit.output, "global");
+    assert_eq!(positive.output, "global");
+    assert_eq!(negative.output, "outer");
+}
+
+#[test]
 #[ignore = "known divergence: macro definitions discard delimited parameter text"]
 fn delimited_macro_arguments_follow_parameter_text() {
     let outcome = run(r"\def\pair#1,#2;{#2/#1}\pair a,b;");
