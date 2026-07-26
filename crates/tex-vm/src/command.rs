@@ -1,3 +1,4 @@
+use tex_render_model::CaptionKind;
 use tex_tokens::Token;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +31,13 @@ pub(crate) struct LinkCommand {
 pub(crate) struct HeadingCommand {
     pub(crate) canonical_name: &'static str,
     pub(crate) level: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CaptionCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) fixed_kind: Option<CaptionKind>,
+    pub(crate) reads_kind_argument: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,4 +257,5 @@ pub(crate) enum Primitive {
     Reference(ReferenceCommand),
     Link(LinkCommand),
     Heading(HeadingCommand),
+    Caption(CaptionCommand),
 }

@@ -29,6 +29,7 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_caption;
 mod semantic_environment;
 mod semantic_heading;
 mod semantic_inline;
@@ -37,7 +38,10 @@ mod semantic_math;
 mod semantic_text;
 mod snapshot;
 
-use command::{HeadingCommand, LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand};
+use command::{
+    CaptionCommand, HeadingCommand, LinkCommand, MacroDefinition, Meaning, Primitive,
+    ReferenceCommand,
+};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
@@ -46,6 +50,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_caption::SemanticCaptionState;
 use semantic_environment::SemanticEnvironmentState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
@@ -898,6 +903,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_caption: SemanticCaptionState,
     semantic_environment: SemanticEnvironmentState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
@@ -966,6 +972,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_caption: SemanticCaptionState::default(),
             semantic_environment: SemanticEnvironmentState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
@@ -14964,6 +14971,7 @@ impl<'i> Vm<'i> {
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
         let scanner_heading = matches!(&event, RenderEvent::Heading(_));
+        let scanner_caption = matches!(&event, RenderEvent::Caption(_));
         let scanner_list_item = matches!(&event, RenderEvent::ListItem(_));
         let scanner_environment = matches!(
             &event,
@@ -14985,6 +14993,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_heading {
             self.mark_scanner_heading_event(event_id);
+        }
+        if scanner_caption {
+            self.mark_scanner_caption_event(event_id);
         }
         if scanner_list_item {
             self.mark_scanner_list_item_event(event_id);
@@ -15077,6 +15088,7 @@ impl<'i> Vm<'i> {
         if self.render_event_capture {
             self.reconcile_executed_math_events();
             self.reconcile_executed_heading_events();
+            self.reconcile_executed_caption_events();
             self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
             self.reconcile_executed_list_events();
@@ -15712,6 +15724,7 @@ impl<'i> Vm<'i> {
                 if self.execute_semantic_expansion_marker(name)
                     || self.execute_semantic_link_marker(name)
                     || self.execute_semantic_heading_marker(name)
+                    || self.execute_semantic_caption_marker(name)
                 {
                     return;
                 }
@@ -16020,6 +16033,62 @@ impl<'i> Vm<'i> {
                     title_start_utf8,
                     title_end_utf8,
                     title_tokens,
+                    queue,
+                );
+            }
+            Primitive::Caption(caption_command) => {
+                self.skip_optional_spaces(queue);
+                let numbered = if let Some(token) = self.pop_next_token(queue) {
+                    if matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            ch: '*',
+                            catcode: CatCode::Other | CatCode::Letter | CatCode::Active
+                        }
+                    ) {
+                        false
+                    } else {
+                        self.push_token_front(queue, token);
+                        true
+                    }
+                } else {
+                    true
+                };
+                let caption_kind = if caption_command.reads_kind_argument {
+                    self.skip_optional_spaces(queue);
+                    let Some(kind_tokens) = self.read_macro_argument(queue) else {
+                        return;
+                    };
+                    let expanded_kind_tokens = self.fully_expand_tokens(kind_tokens);
+                    match self.tokens_to_text(expanded_kind_tokens).trim() {
+                        "figure" => Some(CaptionKind::Figure),
+                        "table" => Some(CaptionKind::Table),
+                        "algorithm" => Some(CaptionKind::Algorithm),
+                        _ => None,
+                    }
+                } else {
+                    caption_command.fixed_kind
+                };
+                self.skip_optional_spaces(queue);
+                let _ = self.read_optional_bracket_tokens(queue);
+                self.skip_optional_spaces(queue);
+                let Some(content_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let content_start_utf8 = content_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let content_end_utf8 = content_tokens
+                    .last()
+                    .map_or(content_start_utf8, |token| token.span.end);
+                self.queue_executed_caption(
+                    numbered,
+                    caption_kind,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                    content_start_utf8,
+                    content_end_utf8,
+                    content_tokens,
                     queue,
                 );
             }
@@ -23128,6 +23197,34 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "url",
             has_separate_text_argument: false,
         })),
+        "caption" | "subcaption" | "captionabove" | "captionbelow" => {
+            Some(Primitive::Caption(CaptionCommand {
+                canonical_name: match name {
+                    "caption" => "caption",
+                    "subcaption" => "subcaption",
+                    "captionabove" => "captionabove",
+                    "captionbelow" => "captionbelow",
+                    _ => unreachable!(),
+                },
+                fixed_kind: None,
+                reads_kind_argument: false,
+            }))
+        }
+        "figcaption" => Some(Primitive::Caption(CaptionCommand {
+            canonical_name: "figcaption",
+            fixed_kind: Some(CaptionKind::Figure),
+            reads_kind_argument: false,
+        })),
+        "tabcaption" => Some(Primitive::Caption(CaptionCommand {
+            canonical_name: "tabcaption",
+            fixed_kind: Some(CaptionKind::Table),
+            reads_kind_argument: false,
+        })),
+        "captionof" => Some(Primitive::Caption(CaptionCommand {
+            canonical_name: "captionof",
+            fixed_kind: None,
+            reads_kind_argument: true,
+        })),
         "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "Citealt" | "citealp"
         | "Citealp" | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
         | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
@@ -23357,6 +23454,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Reference(reference) => reference.canonical_name,
         Primitive::Link(link) => link.canonical_name,
         Primitive::Heading(heading) => heading.canonical_name,
+        Primitive::Caption(caption) => caption.canonical_name,
     }
 }
 

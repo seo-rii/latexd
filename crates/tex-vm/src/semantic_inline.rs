@@ -21,6 +21,7 @@ pub(super) struct SemanticInlineState {
     executed_citations: Vec<RenderEventEnvelope>,
     executed_references: Vec<RenderEventEnvelope>,
     executed_links: Vec<RenderEventEnvelope>,
+    caption_placeholders: Vec<CaptionInlinePlaceholderEvent>,
     link_marker_actions: HashMap<ControlSequenceId, ExecutedLinkCapture>,
     next_link_marker_id: u64,
 }
@@ -44,6 +45,7 @@ pub(super) struct ExecutedInlineEventMark {
     citations: usize,
     references: usize,
     links: usize,
+    caption_placeholders: usize,
 }
 
 impl Vm<'_> {
@@ -68,6 +70,7 @@ impl Vm<'_> {
             citations: self.semantic_inline.executed_citations.len(),
             references: self.semantic_inline.executed_references.len(),
             links: self.semantic_inline.executed_links.len(),
+            caption_placeholders: self.semantic_inline.caption_placeholders.len(),
         }
     }
 
@@ -79,6 +82,16 @@ impl Vm<'_> {
             .executed_references
             .truncate(mark.references);
         self.semantic_inline.executed_links.truncate(mark.links);
+        self.semantic_inline
+            .caption_placeholders
+            .truncate(mark.caption_placeholders);
+    }
+
+    pub(super) fn caption_inline_placeholders_since(
+        &self,
+        mark: ExecutedInlineEventMark,
+    ) -> Vec<CaptionInlinePlaceholderEvent> {
+        self.semantic_inline.caption_placeholders[mark.caption_placeholders..].to_vec()
     }
 
     pub(super) fn emit_executed_citation(
@@ -94,17 +107,21 @@ impl Vm<'_> {
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
+        let citation = InlineCitationEvent {
+            keys,
+            style_hint: citation_style_hint_for_command(&command),
+            command,
+        };
         let mut envelope = RenderEventEnvelope::new(
             event_id,
-            RenderEvent::InlineCitation(InlineCitationEvent {
-                keys,
-                style_hint: citation_style_hint_for_command(&command),
-                command,
-            }),
+            RenderEvent::InlineCitation(citation.clone()),
             source,
         );
         envelope.meta.producer = producer;
         self.semantic_inline.executed_citations.push(envelope);
+        self.semantic_inline
+            .caption_placeholders
+            .push(CaptionInlinePlaceholderEvent::Citation(citation));
         self.mark_executed_inline_content();
     }
 
@@ -121,13 +138,17 @@ impl Vm<'_> {
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
+        let reference = InlineReferenceEvent { keys, command };
         let mut envelope = RenderEventEnvelope::new(
             event_id,
-            RenderEvent::InlineReference(InlineReferenceEvent { keys, command }),
+            RenderEvent::InlineReference(reference.clone()),
             source,
         );
         envelope.meta.producer = producer;
         self.semantic_inline.executed_references.push(envelope);
+        self.semantic_inline
+            .caption_placeholders
+            .push(CaptionInlinePlaceholderEvent::Reference(reference));
         self.mark_executed_inline_content();
     }
 
@@ -281,6 +302,7 @@ impl Vm<'_> {
         let link_ids = mem::take(&mut self.semantic_inline.scanner_link_event_ids);
         let links = mem::take(&mut self.semantic_inline.executed_links);
         self.reconcile_scanner_inline_events(link_ids, links);
+        self.semantic_inline.caption_placeholders.clear();
     }
 
     fn reconcile_scanner_inline_events(
