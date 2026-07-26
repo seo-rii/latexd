@@ -29,6 +29,7 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_environment;
 mod semantic_heading;
 mod semantic_inline;
 mod semantic_math;
@@ -44,6 +45,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_environment::SemanticEnvironmentState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
 use semantic_math::ExecutedMathCapture;
@@ -894,6 +896,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_environment: SemanticEnvironmentState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
     semantic_text: SemanticTextState,
@@ -960,6 +963,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_environment: SemanticEnvironmentState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
             semantic_text: SemanticTextState::default(),
@@ -10715,6 +10719,7 @@ impl<'i> Vm<'i> {
                             let text =
                                 normalize_latex_text_with_inline_placeholders(&visible_source);
                             if !text.is_empty() {
+                                let first_event_id = self.next_render_event_id;
                                 self.emit_render_event(
                                     RenderEvent::Text(TextEvent { text }),
                                     SourceProvenance::file(
@@ -10746,6 +10751,12 @@ impl<'i> Vm<'i> {
                                             command_name: Some(command.to_string()),
                                         },
                                     ),
+                                );
+                                self.record_scanner_text_slot(
+                                    source_path,
+                                    command_start as u32,
+                                    after as u32,
+                                    first_event_id,
                                 );
                             }
                             index = after;
@@ -14949,6 +14960,10 @@ impl<'i> Vm<'i> {
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
         let scanner_heading = matches!(&event, RenderEvent::Heading(_));
+        let scanner_environment = matches!(
+            &event,
+            RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
+        );
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
@@ -14965,6 +14980,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_heading {
             self.mark_scanner_heading_event(event_id);
+        }
+        if scanner_environment {
+            self.mark_scanner_environment_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15053,6 +15071,8 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_heading_events();
             self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
+            self.reconcile_executed_environment_events();
+            self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.render_event_sources.clear();
         }
@@ -16585,13 +16605,21 @@ impl<'i> Vm<'i> {
             }
             Primitive::EndCsName => {}
             Primitive::BeginEnvironment => {
-                let Some(environment) = self.read_argument_text(queue) else {
+                let Some((environment, environment_end_utf8)) =
+                    self.read_executed_environment_name(queue)
+                else {
                     return;
                 };
                 let environment = environment.trim();
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
+                self.emit_executed_environment_boundary(
+                    environment,
+                    true,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
                 }
@@ -16672,10 +16700,18 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::EndEnvironment => {
-                let Some(environment) = self.read_argument_text(queue) else {
+                let Some((environment, environment_end_utf8)) =
+                    self.read_executed_environment_name(queue)
+                else {
                     return;
                 };
                 let environment = environment.trim();
+                self.emit_executed_environment_boundary(
+                    environment,
+                    false,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 if environment == "document" {
                     self.execution_in_document = false;
                     self.execution_no_hyper_depth = 0;

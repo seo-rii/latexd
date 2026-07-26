@@ -122,8 +122,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -220,8 +220,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -426,8 +426,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -477,8 +477,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {

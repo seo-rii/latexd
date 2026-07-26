@@ -34,7 +34,7 @@ struct ScannerTextSlot {
     event_ids: Vec<EventId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SuppressedSourceRange {
     path: Utf8PathBuf,
     start_utf8: u32,
@@ -394,9 +394,10 @@ impl Vm<'_> {
     pub(super) fn reconcile_executed_text_events(&mut self) {
         self.flush_executed_text_capture();
         let slots = mem::take(&mut self.semantic_text.scanner_slots);
-        let suppressed_ranges = mem::take(&mut self.semantic_text.suppressed_ranges);
+        let suppressed_ranges = self.semantic_text.suppressed_ranges.clone();
         let executed = mem::take(&mut self.semantic_text.executed_events);
         if slots.is_empty() {
+            insert_unmatched_macro_events(&mut self.render_events, executed);
             return;
         }
 
@@ -413,6 +414,13 @@ impl Vm<'_> {
             }
         }
         for (slot, replacements) in slots.iter().zip(events_by_slot.iter_mut()) {
+            if self.executed_environment_covers_source_range(
+                &slot.path,
+                slot.start_utf8,
+                slot.end_utf8,
+            ) {
+                continue;
+            }
             let originals = self
                 .render_events
                 .iter()
@@ -473,11 +481,11 @@ impl Vm<'_> {
             }
         }
         insert_unmatched_macro_events(&mut reconciled, unmatched);
-        for (index, event) in reconciled.iter_mut().enumerate() {
-            event.meta.event_id = index as EventId + 1;
-        }
-        self.next_render_event_id = reconciled.len() as EventId + 1;
         self.render_events = reconciled;
+    }
+
+    pub(super) fn clear_semantic_suppression_ranges(&mut self) {
+        self.semantic_text.suppressed_ranges.clear();
     }
 
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {

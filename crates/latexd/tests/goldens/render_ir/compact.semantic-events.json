@@ -63,10 +63,10 @@
         "kind": "begin_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 5,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -117,10 +117,10 @@
         "kind": "end_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 9,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -216,10 +216,10 @@
         "kind": "begin_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 16,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -245,10 +245,10 @@
         "kind": "end_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 18,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
