@@ -19,17 +19,17 @@ fn capture(source: &str) -> tex_vm::VmOutcome {
 fn source_scanner_events_are_explicitly_marked_as_recovery() {
     let outcome = capture(
         r"\begin{document}
-Recovered text.
+\section{Recovered heading}
 \end{document}",
     );
-    let text = outcome
+    let heading = outcome
         .render_events
         .iter()
-        .find(|envelope| matches!(envelope.event, RenderEvent::Text(_)))
-        .expect("scanner should recover visible text");
+        .find(|envelope| matches!(envelope.event, RenderEvent::Heading(_)))
+        .expect("scanner should recover the heading");
 
-    assert_eq!(text.meta.producer, EventProducer::ScannerRecovery);
-    assert_eq!(text.meta.confidence, SemanticConfidence::Medium);
+    assert_eq!(heading.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(heading.meta.confidence, SemanticConfidence::Medium);
 }
 
 #[test]
@@ -208,6 +208,152 @@ fn macro_generated_math_emits_an_event() {
         .collect::<Vec<_>>();
 
     assert_eq!(math, vec![("x^2", EventProducer::Primitive)]);
+}
+
+#[test]
+fn false_conditional_does_not_emit_text_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+wrong
+\fi
+right
+\end{document}",
+    );
+    let visible_text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(!visible_text.contains("wrong"), "{visible_text:?}");
+    assert!(visible_text.contains("right"), "{visible_text:?}");
+}
+
+#[test]
+fn unselected_else_branch_does_not_emit_text_events() {
+    let outcome = capture(
+        r"\count0=1
+\begin{document}
+\ifnum\count0>0
+selected
+\else
+wrong
+\fi
+\end{document}",
+    );
+    let visible_text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(visible_text.contains("selected"), "{visible_text:?}");
+    assert!(!visible_text.contains("wrong"), "{visible_text:?}");
+}
+
+#[test]
+#[ignore = "next execution slice: macro-expanded tokens need invocation provenance"]
+fn macro_generated_text_emits_execution_events() {
+    let outcome = capture(
+        r"\def\emittext{Generated text.}
+\begin{document}
+\emittext
+\end{document}",
+    );
+    let generated = outcome
+        .render_events
+        .iter()
+        .filter(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Text(text)
+                    if text.text.contains("Generated") || text.text.contains("text.")
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(!generated.is_empty());
+    assert!(generated.iter().all(|event| {
+        event.meta.confidence == SemanticConfidence::High
+            && event.meta.producer != EventProducer::ScannerRecovery
+    }));
+}
+
+#[test]
+fn executed_paragraph_breaks_preserve_their_reason() {
+    let outcome = capture(
+        r"\begin{document}
+First\par Second
+
+Third
+\end{document}",
+    );
+    let breaks = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::ParagraphBreak(paragraph) => Some((paragraph.reason, event.meta.producer)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        breaks,
+        vec![
+            (
+                tex_render_model::ParagraphBreakReason::ParCommand,
+                EventProducer::Primitive,
+            ),
+            (
+                tex_render_model::ParagraphBreakReason::BlankLine,
+                EventProducer::Primitive,
+            ),
+        ],
+        "{:#?}",
+        outcome.render_events,
+    );
+    assert!(!outcome.render_events.windows(2).any(|events| {
+        matches!(events[0].event, RenderEvent::Space(_))
+            && matches!(events[1].event, RenderEvent::ParagraphBreak(_))
+    }));
+}
+
+#[test]
+fn executed_text_keeps_semantic_event_order() {
+    let outcome = capture(r"\begin{document}A \cite{k} B $x$ C\end{document}");
+    let position = |predicate: &dyn Fn(&RenderEvent) -> bool| {
+        outcome
+            .render_events
+            .iter()
+            .position(|event| predicate(&event.event))
+            .expect("expected render event")
+    };
+    let a = position(&|event| matches!(event, RenderEvent::Text(text) if text.text == "A"));
+    let citation = position(&|event| matches!(event, RenderEvent::InlineCitation(_)));
+    let b = position(&|event| matches!(event, RenderEvent::Text(text) if text.text == "B"));
+    let math = position(&|event| matches!(event, RenderEvent::InlineMath(_)));
+    let c = position(&|event| matches!(event, RenderEvent::Text(text) if text.text == "C"));
+
+    assert!(a < citation && citation < b && b < math && math < c);
+    assert!(
+        outcome.render_events.iter().all(|event| {
+            !matches!(event.event, RenderEvent::Text(_))
+                || (event.meta.confidence == SemanticConfidence::High
+                    && event.meta.producer == EventProducer::Primitive)
+        }),
+        "{:#?}",
+        outcome.render_events
+    );
 }
 
 #[test]

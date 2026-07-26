@@ -32,6 +32,7 @@ impl Vm<'_> {
         }
 
         if self.executed_math_capture.is_none() {
+            self.mark_executed_inline_content();
             let source_path = self
                 .source_stack
                 .last()

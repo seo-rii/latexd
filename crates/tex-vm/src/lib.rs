@@ -30,6 +30,7 @@ mod input;
 mod outcome;
 mod save_stack;
 mod semantic_math;
+mod semantic_text;
 mod snapshot;
 
 use command::{MacroDefinition, Meaning, Primitive};
@@ -42,6 +43,7 @@ use input::{
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
 use semantic_math::ExecutedMathCapture;
+use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
@@ -890,6 +892,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_text: SemanticTextState,
     execution_in_document: bool,
     next_render_event_id: EventId,
     transcript: Vec<String>,
@@ -952,6 +955,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             next_render_event_id: 1,
             transcript: Vec::new(),
@@ -10118,15 +10122,24 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "par" if in_document => {
-                    self.emit_render_event(
-                        RenderEvent::ParagraphBreak(ParagraphBreakEvent {
-                            reason: ParagraphBreakReason::ParCommand,
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                                reason: ParagraphBreakReason::ParCommand,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .event_id;
+                    self.record_scanner_par_event(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        event_id,
                     );
                 }
                 _ if in_document => {
@@ -14798,6 +14811,7 @@ impl<'i> Vm<'i> {
         if !in_document || start >= end {
             return;
         }
+        let first_event_id = self.next_render_event_id;
         let mut pending_word = String::new();
         let mut pending_space = None;
         let mut emitted_any = false;
@@ -14892,6 +14906,7 @@ impl<'i> Vm<'i> {
                 SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
             );
         }
+        self.record_scanner_text_slot(source_path, start as u32, end as u32, first_event_id);
     }
 
     fn emit_render_event(
@@ -15004,6 +15019,7 @@ impl<'i> Vm<'i> {
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
             self.reconcile_executed_math_events();
+            self.reconcile_executed_text_events();
         }
 
         VmOutcome {
@@ -15582,13 +15598,23 @@ impl<'i> Vm<'i> {
                             self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
                         }
                     }
-                    CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
+                    CatCode::Space => {
+                        self.capture_executed_space(token_span.start, token_span.end);
+                        self.push_legacy_output_char(ch);
+                    }
+                    CatCode::Letter | CatCode::Other => {
+                        self.capture_executed_text_character(ch, token_span.start, token_span.end);
+                        self.push_legacy_output_char(ch);
+                    }
+                    CatCode::Active => {
                         self.push_legacy_output_char(ch);
                     }
                     CatCode::MathShift => {
+                        self.flush_executed_text_capture();
                         self.execute_math_shift(ch, token_span.start, token_span.end, queue);
                     }
                     CatCode::Superscript | CatCode::Subscript => {
+                        self.capture_executed_text_character(ch, token_span.start, token_span.end);
                         self.legacy_math_pending_word_boundary = false;
                         self.output.push(ch);
                         self.legacy_output_last_char = Some(ch);
@@ -15619,6 +15645,7 @@ impl<'i> Vm<'i> {
                 }
             }
             TokenKind::ControlSequence { name } => {
+                self.separate_executed_inline_content();
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
                 let meaning = self
                     .lookup_meaning(&control_sequence)
@@ -15677,6 +15704,7 @@ impl<'i> Vm<'i> {
         queue: &mut VecDeque<QueueItem>,
     ) {
         let source_offset_utf8 = primitive_token.span.start;
+        let source_end_utf8 = primitive_token.span.end;
         let input_enter_snapshot = matches!(
             primitive,
             Primitive::Input
@@ -15691,6 +15719,9 @@ impl<'i> Vm<'i> {
         });
         match primitive {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
+            Primitive::Par => {
+                self.capture_executed_paragraph_break(source_offset_utf8, source_end_utf8);
+            }
             Primitive::LegacyMathWordBoundary => {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
             }
@@ -16464,11 +16495,11 @@ impl<'i> Vm<'i> {
             }
             Primitive::IfTrue => {
                 self.skip_optional_spaces(queue);
-                self.start_conditional(true, queue);
+                self.start_conditional(true, source_offset_utf8, queue);
             }
             Primitive::IfFalse => {
                 self.skip_optional_spaces(queue);
-                self.start_conditional(false, queue);
+                self.start_conditional(false, source_offset_utf8, queue);
             }
             Primitive::NewIf => {
                 let force_global = mem::take(&mut self.global_prefix);
@@ -17870,7 +17901,7 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let at_eof = self.read_stream_eof.get(&stream).copied().unwrap_or(true);
-                self.start_conditional(at_eof, queue);
+                self.start_conditional(at_eof, source_offset_utf8, queue);
             }
             Primitive::IfFileExists => {
                 let Some(path_text) = self.read_argument_text(queue) else {
@@ -18028,7 +18059,7 @@ impl<'i> Vm<'i> {
             }
             Primitive::IfInAt => {
                 self.skip_optional_spaces(queue);
-                self.start_conditional(self.in_at, queue);
+                self.start_conditional(self.in_at, source_offset_utf8, queue);
             }
             Primitive::TempSwaTrue => {
                 self.tempswa = true;
@@ -18038,7 +18069,7 @@ impl<'i> Vm<'i> {
             }
             Primitive::IfTempSwa => {
                 self.skip_optional_spaces(queue);
-                self.start_conditional(self.tempswa, queue);
+                self.start_conditional(self.tempswa, source_offset_utf8, queue);
             }
             Primitive::FileswTrue => {
                 self.filesw = true;
@@ -18048,7 +18079,7 @@ impl<'i> Vm<'i> {
             }
             Primitive::IfFilesw => {
                 self.skip_optional_spaces(queue);
-                self.start_conditional(self.filesw, queue);
+                self.start_conditional(self.filesw, source_offset_utf8, queue);
             }
             Primitive::Loop => {
                 let Some(body) = self.read_loop_body(queue) else {
@@ -18578,14 +18609,14 @@ impl<'i> Vm<'i> {
                 let is_defined =
                     self.lookup_meaning(&name).is_some() || builtin_primitive(&name).is_some();
                 self.skip_optional_spaces(queue);
-                self.start_conditional(is_defined, queue);
+                self.start_conditional(is_defined, source_offset_utf8, queue);
             }
             Primitive::IfOdd => {
                 let Some(value) = self.read_number_expression(queue) else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
-                self.start_conditional(value % 2 != 0, queue);
+                self.start_conditional(value % 2 != 0, source_offset_utf8, queue);
             }
             Primitive::IfChar => {
                 self.skip_optional_spaces(queue);
@@ -18616,7 +18647,7 @@ impl<'i> Vm<'i> {
                     (Some(left), Some(right)) => left == right,
                     _ => false,
                 };
-                self.start_conditional(matches, queue);
+                self.start_conditional(matches, source_offset_utf8, queue);
             }
             Primitive::IfCat => {
                 self.skip_optional_spaces(queue);
@@ -18636,7 +18667,7 @@ impl<'i> Vm<'i> {
                     ) => left == right,
                     _ => false,
                 };
-                self.start_conditional(same_category, queue);
+                self.start_conditional(same_category, source_offset_utf8, queue);
             }
             Primitive::IfCase => {
                 let Some(case_index) = self.read_number_expression(queue) else {
@@ -18706,7 +18737,7 @@ impl<'i> Vm<'i> {
                         TokenKind::Character { .. } => false,
                     });
                 self.skip_optional_spaces(queue);
-                self.start_conditional(is_defined, queue);
+                self.start_conditional(is_defined, source_offset_utf8, queue);
             }
             Primitive::IfUndefined => {
                 let Some(name) = self.read_argument_text(queue) else {
@@ -19648,7 +19679,11 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 self.skip_optional_spaces(queue);
-                self.start_conditional(self.ifx_tokens_equal(&left, &right), queue);
+                self.start_conditional(
+                    self.ifx_tokens_equal(&left, &right),
+                    source_offset_utf8,
+                    queue,
+                );
             }
             Primitive::IfNum => {
                 let Some(left) = self.read_number_expression(queue) else {
@@ -19671,7 +19706,7 @@ impl<'i> Vm<'i> {
                     _ => return,
                 };
                 self.skip_optional_spaces(queue);
-                self.start_conditional(result, queue);
+                self.start_conditional(result, source_offset_utf8, queue);
             }
             Primitive::IfDim => {
                 let Some(left) = self.read_dimension_expression(queue) else {
@@ -19694,11 +19729,15 @@ impl<'i> Vm<'i> {
                     _ => return,
                 };
                 self.skip_optional_spaces(queue);
-                self.start_conditional(result, queue);
+                self.start_conditional(result, source_offset_utf8, queue);
             }
             Primitive::Else => {
                 if self.conditionals.pop() == Some(ConditionalState::ThenExecuted) {
                     self.skip_to_fi(queue);
+                    self.record_suppressed_source_range(
+                        source_offset_utf8,
+                        self.last_token_end_utf8,
+                    );
                 }
             }
             Primitive::Fi => {
@@ -22223,7 +22262,12 @@ impl<'i> Vm<'i> {
         token_meaning(left) == token_meaning(right)
     }
 
-    fn start_conditional(&mut self, condition: bool, queue: &mut VecDeque<QueueItem>) {
+    fn start_conditional(
+        &mut self,
+        condition: bool,
+        source_start_utf8: u32,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
         let condition = if mem::take(&mut self.negate_next_conditional) {
             !condition
         } else {
@@ -22234,6 +22278,7 @@ impl<'i> Vm<'i> {
         } else if self.skip_to_else_or_fi(queue) {
             self.conditionals.push(ConditionalState::ElseExecuted);
         }
+        self.record_suppressed_source_range(source_start_utf8, self.last_token_end_utf8);
     }
 
     fn is_conditional_name(&self, name: &str) -> bool {
@@ -22355,6 +22400,7 @@ impl<'i> Vm<'i> {
 fn builtin_primitive(name: &str) -> Option<Primitive> {
     match name {
         "relax" => Some(Primitive::Relax),
+        "par" => Some(Primitive::Par),
         "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
         "latexdtextscriptboundary" => Some(Primitive::LegacyTextScriptBoundary),
         "def" => Some(Primitive::Def),
@@ -22592,6 +22638,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
 fn primitive_name(primitive: Primitive) -> &'static str {
     match primitive {
         Primitive::Relax => "relax",
+        Primitive::Par => "par",
         Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
         Primitive::LegacyTextScriptBoundary => "latexdtextscriptboundary",
         Primitive::Def => "def",

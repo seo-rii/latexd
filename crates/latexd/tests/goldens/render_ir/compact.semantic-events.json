@@ -76,10 +76,10 @@
         "text": "Short"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 6,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -89,10 +89,10 @@
         "space_kind": "interword"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 7,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -102,10 +102,10 @@
         "text": "abstract."
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 8,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -188,10 +188,10 @@
         "text": "."
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 14,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
