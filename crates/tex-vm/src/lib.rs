@@ -29,6 +29,7 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_math;
 mod snapshot;
 
 use command::{MacroDefinition, Meaning, Primitive};
@@ -40,6 +41,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_math::ExecutedMathCapture;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
@@ -883,6 +885,12 @@ pub struct Vm<'i> {
     output: String,
     render_event_capture: bool,
     render_events: Vec<RenderEventEnvelope>,
+    scanner_dollar_math_event_ids: HashSet<EventId>,
+    render_event_sources: HashMap<Utf8PathBuf, String>,
+    executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
+    executed_math_events: Vec<RenderEventEnvelope>,
+    executed_math_capture: Option<ExecutedMathCapture>,
+    execution_in_document: bool,
     next_render_event_id: EventId,
     transcript: Vec<String>,
     diagnostics: Vec<VmDiagnostic>,
@@ -939,6 +947,12 @@ impl<'i> Vm<'i> {
             output: String::new(),
             render_event_capture: false,
             render_events: Vec::new(),
+            scanner_dollar_math_event_ids: HashSet::new(),
+            render_event_sources: HashMap::new(),
+            executed_math_invocations: HashSet::new(),
+            executed_math_events: Vec::new(),
+            executed_math_capture: None,
+            execution_in_document: false,
             next_render_event_id: 1,
             transcript: Vec::new(),
             diagnostics: Vec::new(),
@@ -1279,6 +1293,8 @@ impl<'i> Vm<'i> {
         include_depth: usize,
         scan_state: &mut RenderEventScanState,
     ) {
+        self.render_event_sources
+            .insert(source_path.to_owned(), source.to_string());
         let bytes = source.as_bytes();
         let mut index = 0usize;
         let mut text_start = 0usize;
@@ -14885,8 +14901,25 @@ impl<'i> Vm<'i> {
     ) -> &mut RenderEventEnvelope {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
+        let scanner_dollar_math = matches!(
+            &event,
+            RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_)
+        ) && source.related.iter().any(|related| {
+            let ProvenanceSpan::File(span) = &related.span else {
+                return false;
+            };
+            related.role == SourceSpanRole::Invocation
+                && self
+                    .render_event_sources
+                    .get(&span.path)
+                    .and_then(|source| source.as_bytes().get(span.start_utf8 as usize))
+                    == Some(&b'$')
+        });
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
+        if scanner_dollar_math {
+            self.scanner_dollar_math_event_ids.insert(event_id);
+        }
         self.render_events
             .last_mut()
             .expect("just pushed render event")
@@ -14969,6 +15002,9 @@ impl<'i> Vm<'i> {
             .chars()
             .next_back()
             .or(self.legacy_output_last_char);
+        if self.render_event_capture {
+            self.reconcile_executed_math_events();
+        }
 
         VmOutcome {
             output: mem::take(&mut self.output),
@@ -15511,69 +15547,77 @@ impl<'i> Vm<'i> {
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
         let token_span = token.span;
         match token.kind {
-            TokenKind::Character { ch, catcode } => match catcode {
-                CatCode::BeginGroup => self.begin_group(queue),
-                CatCode::EndGroup => {
-                    if self.scopes.len() > 1 {
-                        let group_level = self.scopes.len() - 1;
-                        self.eqtb.end_group(&mut self.save_stack);
-                        self.restore_source_catcode_overrides(group_level);
-                        self.scopes.pop();
-                        if let Some(tokens) = self.aftergroup_tokens.pop() {
-                            for token in tokens.into_iter().rev() {
-                                self.push_token_front(queue, token);
+            TokenKind::Character { ch, catcode } => {
+                if catcode != CatCode::MathShift {
+                    self.capture_executed_math_character(ch);
+                }
+                match catcode {
+                    CatCode::BeginGroup => self.begin_group(queue),
+                    CatCode::EndGroup => {
+                        if self.scopes.len() > 1 {
+                            let group_level = self.scopes.len() - 1;
+                            self.eqtb.end_group(&mut self.save_stack);
+                            self.restore_source_catcode_overrides(group_level);
+                            self.scopes.pop();
+                            if let Some(tokens) = self.aftergroup_tokens.pop() {
+                                for token in tokens.into_iter().rev() {
+                                    self.push_token_front(queue, token);
+                                }
                             }
                         }
-                    }
-                    if self.legacy_math_text_wrapper_restore_scope_depth == Some(self.scopes.len())
-                    {
-                        self.legacy_math_text_wrapper_restore_scope_depth = None;
-                        self.legacy_math_output_active = true;
-                        self.legacy_math_pending_word_boundary = false;
-                        self.push_legacy_output_char(' ');
-                    }
-                    while self
-                        .legacy_math_script_boundary_scope_depths
-                        .last()
-                        .is_some_and(|depth| *depth == self.scopes.len())
-                    {
-                        self.legacy_math_script_boundary_scope_depths.pop();
-                        self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
-                    }
-                }
-                CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
-                    self.push_legacy_output_char(ch);
-                }
-                CatCode::MathShift => self.push_legacy_math_shift(ch),
-                CatCode::Superscript | CatCode::Subscript => {
-                    self.legacy_math_pending_word_boundary = false;
-                    self.output.push(ch);
-                    self.legacy_output_last_char = Some(ch);
-                    if self.legacy_math_output_active
-                        && let Some(argument) = self.read_macro_argument(queue)
-                    {
-                        self.push_token_front(
-                            queue,
-                            Token::character('}', CatCode::EndGroup, 0, 0),
-                        );
-                        self.legacy_math_script_boundary_scope_depths
-                            .push(self.scopes.len());
-                        for token in argument.into_iter().rev() {
-                            self.push_token_front(queue, token);
+                        if self.legacy_math_text_wrapper_restore_scope_depth
+                            == Some(self.scopes.len())
+                        {
+                            self.legacy_math_text_wrapper_restore_scope_depth = None;
+                            self.legacy_math_output_active = true;
+                            self.legacy_math_pending_word_boundary = false;
+                            self.push_legacy_output_char(' ');
                         }
-                        self.push_token_front(
-                            queue,
-                            Token::character('{', CatCode::BeginGroup, 0, 0),
-                        );
+                        while self
+                            .legacy_math_script_boundary_scope_depths
+                            .last()
+                            .is_some_and(|depth| *depth == self.scopes.len())
+                        {
+                            self.legacy_math_script_boundary_scope_depths.pop();
+                            self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
+                        }
                     }
+                    CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
+                        self.push_legacy_output_char(ch);
+                    }
+                    CatCode::MathShift => {
+                        self.execute_math_shift(ch, token_span.start, token_span.end, queue);
+                    }
+                    CatCode::Superscript | CatCode::Subscript => {
+                        self.legacy_math_pending_word_boundary = false;
+                        self.output.push(ch);
+                        self.legacy_output_last_char = Some(ch);
+                        if self.legacy_math_output_active
+                            && let Some(argument) = self.read_macro_argument(queue)
+                        {
+                            self.push_token_front(
+                                queue,
+                                Token::character('}', CatCode::EndGroup, 0, 0),
+                            );
+                            self.legacy_math_script_boundary_scope_depths
+                                .push(self.scopes.len());
+                            for token in argument.into_iter().rev() {
+                                self.push_token_front(queue, token);
+                            }
+                            self.push_token_front(
+                                queue,
+                                Token::character('{', CatCode::BeginGroup, 0, 0),
+                            );
+                        }
+                    }
+                    CatCode::AlignmentTab | CatCode::Parameter | CatCode::Invalid => {
+                        self.legacy_math_pending_word_boundary = false;
+                        self.output.push(ch);
+                        self.legacy_output_last_char = Some(ch);
+                    }
+                    CatCode::Escape | CatCode::EndOfLine | CatCode::Ignored | CatCode::Comment => {}
                 }
-                CatCode::AlignmentTab | CatCode::Parameter | CatCode::Invalid => {
-                    self.legacy_math_pending_word_boundary = false;
-                    self.output.push(ch);
-                    self.legacy_output_last_char = Some(ch);
-                }
-                CatCode::Escape | CatCode::EndOfLine | CatCode::Ignored | CatCode::Comment => {}
-            },
+            }
             TokenKind::ControlSequence { name } => {
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
                 let meaning = self
@@ -15588,6 +15632,7 @@ impl<'i> Vm<'i> {
                     }
                     Some(Meaning::Token(token)) => self.push_token_front(queue, token),
                     Some(Meaning::Primitive(primitive)) => {
+                        self.capture_executed_math_control_sequence(&control_sequence);
                         self.execute_primitive(
                             primitive,
                             Token {
@@ -15598,6 +15643,7 @@ impl<'i> Vm<'i> {
                         );
                     }
                     None => {
+                        self.capture_executed_math_control_sequence(&control_sequence);
                         self.diagnostics.push(VmDiagnostic {
                             kind: VmDiagnosticKind::UndefinedControlSequence,
                             detail: control_sequence.clone(),
@@ -16269,6 +16315,9 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let environment = environment.trim();
+                if environment == "document" {
+                    self.execution_in_document = true;
+                }
                 if matches!(
                     environment,
                     "equation"
@@ -16349,8 +16398,12 @@ impl<'i> Vm<'i> {
                 let Some(environment) = self.read_argument_text(queue) else {
                     return;
                 };
+                let environment = environment.trim();
+                if environment == "document" {
+                    self.execution_in_document = false;
+                }
                 if matches!(
-                    environment.trim(),
+                    environment,
                     "equation"
                         | "equation*"
                         | "displaymath"

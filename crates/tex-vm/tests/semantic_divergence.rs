@@ -159,7 +159,6 @@ fn delimited_macro_arguments_follow_parameter_text() {
 }
 
 #[test]
-#[ignore = "known divergence: source recovery scans false conditional bodies"]
 fn false_conditional_does_not_emit_math_events() {
     let outcome = capture(
         r"\count0=0
@@ -174,18 +173,22 @@ $right$
         .render_events
         .iter()
         .filter_map(|envelope| match &envelope.event {
-            RenderEvent::InlineMath(math) | RenderEvent::DisplayMath(math) => {
-                Some((math.raw_source.as_str(), envelope.meta.confidence))
-            }
+            RenderEvent::InlineMath(math) | RenderEvent::DisplayMath(math) => Some((
+                math.raw_source.as_str(),
+                envelope.meta.confidence,
+                envelope.meta.producer,
+            )),
             _ => None,
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(math, vec![("right", SemanticConfidence::High)]);
+    assert_eq!(
+        math,
+        vec![("right", SemanticConfidence::High, EventProducer::Primitive)]
+    );
 }
 
 #[test]
-#[ignore = "known divergence: source recovery does not observe VM macro expansion"]
 fn macro_generated_math_emits_an_event() {
     let outcome = capture(
         r"\def\emitmath{$x^2$}
@@ -198,13 +201,13 @@ fn macro_generated_math_emits_an_event() {
         .iter()
         .filter_map(|envelope| match &envelope.event {
             RenderEvent::InlineMath(math) | RenderEvent::DisplayMath(math) => {
-                Some(math.raw_source.as_str())
+                Some((math.raw_source.as_str(), envelope.meta.producer))
             }
             _ => None,
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(math, vec!["x^2"]);
+    assert_eq!(math, vec![("x^2", EventProducer::Primitive)]);
 }
 
 #[test]
