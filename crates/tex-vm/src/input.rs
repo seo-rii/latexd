@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use camino::Utf8PathBuf;
 use tex_lexer::Mouth;
-use tex_tokens::Token;
+use tex_tokens::{CatCode, Token};
 
 use crate::snapshot::VmReplayFrame;
 
@@ -32,6 +32,8 @@ pub(crate) struct ActiveSourceFrame {
     pub(crate) return_to_parent: Option<VmReplayFrame>,
     pub(crate) global_definition_base_scope: Option<usize>,
     pub(crate) module_kind: Option<ActiveModuleKind>,
+    pub(crate) catcode_overrides: BTreeMap<char, CatCode>,
+    pub(crate) suppressed_catcode_overrides: BTreeMap<char, usize>,
     pub(crate) end_hooks: Vec<Vec<Token>>,
     pub(crate) module_options: Option<ActiveModuleOptions>,
 }

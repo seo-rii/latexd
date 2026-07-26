@@ -242,6 +242,67 @@ fn mounted_input_catcode_changes_apply_to_its_unread_characters() {
 }
 
 #[test]
+fn package_catcode_changes_apply_to_its_unread_characters() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file(
+        "runtime-catcode.sty",
+        r"\catcode`\!=11\def\pkg!mark{ok}\pkg!mark",
+    );
+
+    let outcome = vm.run_plain(r"\usepackage{runtime-catcode}");
+
+    assert_eq!(outcome.output, "ok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn package_catcode_assignment_replaces_the_loader_at_letter_overlay() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("runtime-at.sty", r"\catcode`\@=12 \foo@bar");
+
+    let outcome = vm.run_plain(r"\usepackage{runtime-at}");
+
+    assert_eq!(
+        outcome
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.detail.as_str())
+            .collect::<Vec<_>>(),
+        vec!["foo"]
+    );
+}
+
+#[test]
+fn package_loader_catcode_overlay_returns_after_local_assignment_scope() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file(
+        "scoped-at.sty",
+        r"{\catcode`\@=12 }\def\pkg@mark{ok}\pkg@mark",
+    );
+
+    let outcome = vm.run_plain(r"\usepackage{scoped-at}");
+
+    assert_eq!(outcome.output.trim(), "ok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn package_end_hooks_keep_the_source_catcode_overlay_after_eof() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("hooked.sty", r"\AtEndOfPackage{\input{hooked-nested}}");
+    vm.mount_file("hooked-nested.tex", r"\def\pkg@mark{ok}\pkg@mark");
+
+    let outcome = vm.run_plain(r"\usepackage{hooked}");
+
+    assert_eq!(outcome.output, "ok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
 fn catcode_assignments_follow_local_and_global_group_scope() {
     let local = run(r"{\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");
     let global = run(r"{\global\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");

@@ -4,7 +4,7 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
-use tex_lexer::{CatCodeTable, Lexer, Mouth, lex_plain};
+use tex_lexer::{Mouth, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
     BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, CitationStyleHint,
@@ -52,12 +52,6 @@ use snapshot::{
 const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
 const MAX_GROUP_DEPTH: usize = 1_000;
-
-fn lex_plain_at_letter(input: &str, interner: &mut ControlSequenceInterner) -> Vec<Token> {
-    let mut catcodes = CatCodeTable::plain_tex();
-    catcodes.set('@', CatCode::Letter);
-    Lexer::new(input, catcodes, interner).tokenize()
-}
 
 fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static str> {
     let file_name = path.file_name().unwrap_or(path.as_str());
@@ -14915,6 +14909,8 @@ impl<'i> Vm<'i> {
                 return_to_parent: None,
                 global_definition_base_scope: None,
                 module_kind: None,
+                catcode_overrides: BTreeMap::new(),
+                suppressed_catcode_overrides: BTreeMap::new(),
                 end_hooks: Vec::new(),
                 module_options: None,
             });
@@ -15299,13 +15295,23 @@ impl<'i> Vm<'i> {
         self.aftergroup_tokens.push(Vec::new());
     }
 
+    fn restore_source_catcode_overrides(&mut self, group_level: usize) {
+        for frame in &mut self.source_stack {
+            frame
+                .suppressed_catcode_overrides
+                .retain(|_, level| *level != group_level);
+        }
+    }
+
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
         match token.kind {
             TokenKind::Character { ch, catcode } => match catcode {
                 CatCode::BeginGroup => self.begin_group(queue),
                 CatCode::EndGroup => {
                     if self.scopes.len() > 1 {
+                        let group_level = self.scopes.len() - 1;
                         self.eqtb.end_group(&mut self.save_stack);
+                        self.restore_source_catcode_overrides(group_level);
                         self.scopes.pop();
                         if let Some(tokens) = self.aftergroup_tokens.pop() {
                             for token in tokens.into_iter().rev() {
@@ -15665,7 +15671,9 @@ impl<'i> Vm<'i> {
             Primitive::BeginGroupCommand => self.begin_group(queue),
             Primitive::EndGroupCommand => {
                 if self.scopes.len() > 1 {
+                    let group_level = self.scopes.len() - 1;
                     self.eqtb.end_group(&mut self.save_stack);
+                    self.restore_source_catcode_overrides(group_level);
                     self.scopes.pop();
                     if let Some(tokens) = self.aftergroup_tokens.pop() {
                         for token in tokens.into_iter().rev() {
@@ -16156,6 +16164,21 @@ impl<'i> Vm<'i> {
                     self.scopes.len().saturating_sub(1),
                     &mut self.save_stack,
                 );
+                let group_level = self.scopes.len().saturating_sub(1);
+                for frame in self.source_stack.iter_mut().rev() {
+                    if assignment_scope == AssignmentScope::Global || group_level == 0 {
+                        frame.catcode_overrides.remove(&'@');
+                        frame.suppressed_catcode_overrides.remove(&'@');
+                    } else if frame.catcode_overrides.contains_key(&'@') {
+                        frame
+                            .suppressed_catcode_overrides
+                            .entry('@')
+                            .or_insert(group_level);
+                    }
+                    if frame.module_kind.is_some() {
+                        break;
+                    }
+                }
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
                 }
@@ -16312,6 +16335,21 @@ impl<'i> Vm<'i> {
                     self.scopes.len().saturating_sub(1),
                     &mut self.save_stack,
                 );
+                let group_level = self.scopes.len().saturating_sub(1);
+                for frame in self.source_stack.iter_mut().rev() {
+                    if assignment_scope == AssignmentScope::Global || group_level == 0 {
+                        frame.catcode_overrides.remove(&ch);
+                        frame.suppressed_catcode_overrides.remove(&ch);
+                    } else if frame.catcode_overrides.contains_key(&ch) {
+                        frame
+                            .suppressed_catcode_overrides
+                            .entry(ch)
+                            .or_insert(group_level);
+                    }
+                    if frame.module_kind.is_some() {
+                        break;
+                    }
+                }
                 self.transcript.push(format!("catcode `{ch}`={value}"));
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
@@ -19880,7 +19918,23 @@ impl<'i> Vm<'i> {
                     let Some(QueueItem::CharacterSource(mut mouth)) = queue.pop_front() else {
                         unreachable!()
                     };
-                    let token = mouth.next_token(self.eqtb.catcodes(), &mut *self.interner);
+                    let active_overrides = self.source_stack.last().filter(|frame| {
+                        frame
+                            .catcode_overrides
+                            .iter()
+                            .any(|(ch, _)| !frame.suppressed_catcode_overrides.contains_key(ch))
+                    });
+                    let token = if let Some(frame) = active_overrides {
+                        let mut catcodes = self.eqtb.catcodes().clone();
+                        for (ch, catcode) in &frame.catcode_overrides {
+                            if !frame.suppressed_catcode_overrides.contains_key(ch) {
+                                catcodes.set(*ch, *catcode);
+                            }
+                        }
+                        mouth.next_token(&catcodes, &mut *self.interner)
+                    } else {
+                        mouth.next_token(self.eqtb.catcodes(), &mut *self.interner)
+                    };
                     if let Some(token) = token {
                         queue.push_front(QueueItem::CharacterSource(mouth));
                         queue.push_front(QueueItem::Token(token));
@@ -21776,14 +21830,26 @@ impl<'i> Vm<'i> {
                 .iter()
                 .rev()
                 .any(|frame| frame.module_kind.is_some());
-        let eager_tokens = (label != "input" || input_inherits_module_catcodes).then(|| {
-            let interner = &mut *self.interner;
-            if label == "class" || label == "package" || input_inherits_module_catcodes {
-                lex_plain_at_letter(&source, interner)
-            } else {
-                lex_plain(&source, interner)
-            }
-        });
+        let inherited_at_catcode = self.source_stack.last().map_or_else(
+            || self.eqtb.catcodes().catcode('@'),
+            |frame| {
+                if frame.suppressed_catcode_overrides.contains_key(&'@') {
+                    self.eqtb.catcodes().catcode('@')
+                } else {
+                    frame
+                        .catcode_overrides
+                        .get(&'@')
+                        .copied()
+                        .unwrap_or_else(|| self.eqtb.catcodes().catcode('@'))
+                }
+            },
+        );
+        let mut catcode_overrides = BTreeMap::new();
+        if label == "class" || label == "package" {
+            catcode_overrides.insert('@', CatCode::Letter);
+        } else if input_inherits_module_catcodes {
+            catcode_overrides.insert('@', inherited_at_catcode);
+        }
         self.source_stack.push(ActiveSourceFrame {
             path: path.clone(),
             return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
@@ -21802,6 +21868,8 @@ impl<'i> Vm<'i> {
                 "class" => Some(ActiveModuleKind::Class),
                 _ => None,
             },
+            catcode_overrides,
+            suppressed_catcode_overrides: BTreeMap::new(),
             end_hooks: Vec::new(),
             module_options: (label == "package" || label == "class").then(|| ActiveModuleOptions {
                 default_options: Vec::new(),
@@ -21822,13 +21890,7 @@ impl<'i> Vm<'i> {
                 continuation_stack,
             }),
         });
-        if let Some(tokens) = eager_tokens {
-            for token in tokens.into_iter().rev() {
-                self.push_token_front(queue, token);
-            }
-        } else {
-            queue.push_front(QueueItem::CharacterSource(Mouth::new(&source)));
-        }
+        queue.push_front(QueueItem::CharacterSource(Mouth::new(&source)));
     }
 
     fn ifx_tokens_equal(&self, left: &Token, right: &Token) -> bool {
