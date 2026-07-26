@@ -43,10 +43,10 @@
           "text": "Long Figure Title"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 1,
           "mode_hint": "vertical",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -191,10 +191,10 @@
           "text": "Long Table Title"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 7,
           "mode_hint": "vertical",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

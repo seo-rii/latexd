@@ -8,10 +8,10 @@
         "value": "A Paper"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 1,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -22,10 +22,10 @@
         "value": "Ada Lovelace"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 2,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -36,10 +36,10 @@
         "value": "May 1843"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 3,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -48,10 +48,10 @@
         "kind": "flush_title_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 4,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -63,10 +63,10 @@
         "kind": "begin_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 5,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -76,10 +76,10 @@
         "text": "Short"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 6,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -89,10 +89,10 @@
         "space_kind": "interword"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 7,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -102,10 +102,10 @@
         "text": "abstract."
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 8,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -117,10 +117,10 @@
         "kind": "end_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 9,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -132,10 +132,10 @@
         "text": "Intro"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 10,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -145,10 +145,10 @@
         "text": "Hello"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 11,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -158,10 +158,10 @@
         "space_kind": "interword"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 12,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -175,10 +175,10 @@
         "style_hint": "numeric"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 13,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -188,10 +188,10 @@
         "text": "."
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 14,
         "mode_hint": "horizontal",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -201,10 +201,10 @@
         "raw_source": "x^2"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 15,
         "mode_hint": "math",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -216,10 +216,10 @@
         "kind": "begin_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 16,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -230,10 +230,10 @@
         "text": "Author. Title."
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 17,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -245,10 +245,10 @@
         "kind": "end_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 18,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": "<present>"
       }
     },
@@ -272,5 +272,5 @@
       }
     }
   ],
-  "schema_version": 3
+  "schema_version": 4
 }

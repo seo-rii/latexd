@@ -40,10 +40,10 @@
       "text": "Intro"
     },
     "meta": {
-      "confidence": "high",
+      "confidence": "medium",
       "event_id": 10,
       "mode_hint": "vertical",
-      "producer": "command",
+      "producer": "scanner_recovery",
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

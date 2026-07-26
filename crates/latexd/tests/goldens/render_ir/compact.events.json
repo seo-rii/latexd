@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "case": "main.tex",
   "events": [
     {
@@ -23,8 +23,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -48,8 +48,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -73,8 +73,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -96,8 +96,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -122,8 +122,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -146,8 +146,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -170,8 +170,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -194,8 +194,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -220,8 +220,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -256,8 +256,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -280,8 +280,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -304,8 +304,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -342,8 +342,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -366,8 +366,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -400,8 +400,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "math",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -426,8 +426,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -451,8 +451,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {
@@ -477,8 +477,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "medium",
+        "producer": "scanner_recovery"
       }
     },
     {

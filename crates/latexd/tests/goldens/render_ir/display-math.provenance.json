@@ -101,10 +101,10 @@
       "raw_source": "x^2"
     },
     "meta": {
-      "confidence": "high",
+      "confidence": "medium",
       "event_id": 15,
       "mode_hint": "math",
-      "producer": "command",
+      "producer": "scanner_recovery",
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

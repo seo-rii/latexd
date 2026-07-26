@@ -42,10 +42,10 @@
           "text": "important"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 3,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -136,10 +136,10 @@
           "text": "bold text"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 7,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -230,10 +230,10 @@
           "text": "code_path"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 11,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

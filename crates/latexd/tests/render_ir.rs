@@ -29537,7 +29537,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(
         fs::read_to_string(paths.events)
             .expect("events json")
-            .contains("\"schema_version\": 3")
+            .contains("\"schema_version\": 4")
     );
     assert!(
         fs::read_to_string(paths.document_ir)

@@ -5,7 +5,7 @@ use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 pub type EventId = u64;
 pub type FootnoteId = u64;
 
-pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 3;
+pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventStream {
@@ -58,6 +58,22 @@ impl RenderEventEnvelope {
         self.meta.mode_hint = mode_hint;
         self
     }
+
+    pub fn from_scanner_recovery(
+        event_id: EventId,
+        event: RenderEvent,
+        source: SourceProvenance,
+    ) -> Self {
+        let mut envelope = Self::new(event_id, event, source);
+        if !matches!(
+            envelope.event,
+            RenderEvent::RawFallback(_) | RenderEvent::Diagnostic(_)
+        ) {
+            envelope.meta.confidence = SemanticConfidence::Medium;
+            envelope.meta.producer = EventProducer::ScannerRecovery;
+        }
+        envelope
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +112,7 @@ pub enum EventProducer {
     Command,
     Shim,
     BblParser,
+    ScannerRecovery,
     Fallback,
     Unknown,
 }
@@ -869,6 +886,20 @@ mod tests {
         assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(envelope.meta.producer, EventProducer::Command);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
+    }
+
+    #[test]
+    fn scanner_recovery_envelope_has_explicit_origin_and_confidence() {
+        let envelope = RenderEventEnvelope::from_scanner_recovery(
+            1,
+            RenderEvent::Text(TextEvent {
+                text: "Recovered".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 9),
+        );
+
+        assert_eq!(envelope.meta.producer, EventProducer::ScannerRecovery);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Medium);
     }
 
     #[test]

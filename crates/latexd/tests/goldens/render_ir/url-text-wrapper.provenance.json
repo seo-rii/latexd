@@ -42,10 +42,10 @@
           "text": "https://example.test/paper"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 3,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -136,10 +136,10 @@
           "text": "https://example.test/delimited"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 6,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -230,10 +230,10 @@
           "text": "/tmp/archive"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 11,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -324,10 +324,10 @@
           "text": "/var/tmp"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 15,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -418,10 +418,10 @@
           "text": "\\foo+*"
         },
         "meta": {
-          "confidence": "high",
+          "confidence": "medium",
           "event_id": 19,
           "mode_hint": "horizontal",
-          "producer": "command",
+          "producer": "scanner_recovery",
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

@@ -40,10 +40,10 @@
         "value": "Ada Lovelace"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 2,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -65,10 +65,10 @@
         "value": "May 1843"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 3,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -88,10 +88,10 @@
         "kind": "flush_title_block"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 4,
         "mode_hint": "vertical",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -113,10 +113,10 @@
         "value": "A Paper"
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "medium",
         "event_id": 1,
         "mode_hint": "preamble",
-        "producer": "command",
+        "producer": "scanner_recovery",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,

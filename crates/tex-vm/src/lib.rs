@@ -14883,7 +14883,7 @@ impl<'i> Vm<'i> {
     ) -> &mut RenderEventEnvelope {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
-        let envelope = RenderEventEnvelope::new(event_id, event, source);
+        let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         self.render_events
             .last_mut()

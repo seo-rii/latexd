@@ -56,10 +56,10 @@
       "text": "From Package"
     },
     "meta": {
-      "confidence": "high",
+      "confidence": "medium",
       "event_id": 1,
       "mode_hint": "vertical",
-      "producer": "command",
+      "producer": "scanner_recovery",
       "source": {
         "expansion_stack": [
           {

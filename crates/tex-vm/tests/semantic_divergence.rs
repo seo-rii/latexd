@@ -1,4 +1,4 @@
-use tex_render_model::{RenderEvent, SemanticConfidence};
+use tex_render_model::{EventProducer, RenderEvent, SemanticConfidence};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::Vm;
 
@@ -13,6 +13,23 @@ fn capture(source: &str) -> tex_vm::VmOutcome {
     let mut vm = Vm::new(&mut interner);
     vm.enable_render_event_capture();
     vm.run_plain(source)
+}
+
+#[test]
+fn source_scanner_events_are_explicitly_marked_as_recovery() {
+    let outcome = capture(
+        r"\begin{document}
+Recovered text.
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .find(|envelope| matches!(envelope.event, RenderEvent::Text(_)))
+        .expect("scanner should recover visible text");
+
+    assert_eq!(text.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(text.meta.confidence, SemanticConfidence::Medium);
 }
 
 #[test]
