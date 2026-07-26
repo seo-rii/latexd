@@ -4,6 +4,14 @@ This document defines the path from the current internal `latexd` PDF scaffold t
 real preview renderer. It focuses on practical arXiv paper rendering, not on
 implementing every TeX primitive before useful output is possible.
 
+The original math workstream in this document targeted readable normalized
+text. That work remains historical compatibility scaffolding. The active plan
+first makes VM execution authoritative for events, IR, and checkpoints in
+[`vm-semantic-foundation-plan.md`](./vm-semantic-foundation-plan.md). The
+dependent actual browser delivery, TeX-executed math lists, classic/OpenType
+math fonts, formula layout, and persistent browser compilation are tracked in
+[`math-rendering-plan.md`](./math-rendering-plan.md).
+
 ## Why This Exists
 
 The current internal compiler can now build representative CC0 arXiv papers with
@@ -1060,64 +1068,63 @@ Remaining table work:
 
 ### G. Math Rendering
 
-Purpose: make common paper math readable without requiring full TeX math layout
-up front.
+Purpose: replace the historical normalized-string path with TeX-executed math
+and renderer-neutral formula layout.
 
-Tasks:
+Verified current state:
 
-- represent inline and display math distinctly;
-- map Greek symbols and common operators to renderable glyphs;
-- support superscript/subscript runs;
-- support fractions, roots, hats/bars/vectors, delimiters, sums/products,
-  integrals, and matrices as staged subsets;
-- keep raw math source as fallback for unsupported constructs;
-- normalize math text in oracle metrics so ASCII stubs and Unicode glyphs do not
-  create misleading failures.
+- source delimiters are captured before full TeX math execution and produce
+  `MathSourceEvent { raw_source, normalized_text }`;
+- inline math remains primarily text while display math has a narrow
+  raw-source reparser;
+- unsupported display syntax can discard partial structure and return to a
+  whole-formula text fallback;
+- current symbol/font handling is sufficient for selected readability tests,
+  not TeX-compatible family/slot, script, fraction, accent, or delimiter
+  geometry;
+- the browser hides even the available PDF geometry by displaying synthetic
+  extracted-text pages.
 
-Current status:
+Accepted target:
 
-- inline/display math events preserve raw TeX source and carry optional
-  readable `normalized_text`;
-- the first normalized-text subset covers common Greek names, comparison and
-  arithmetic operators, relation/equivalence/order operators including split
-  `\not` negation forms, set/logical operators, fractions, binomial coefficients,
-  common binary operators such as `oplus`,
-  `otimes`, and `odot`,
-  roots,
-  text/operator wrappers, simple
-  superscript/subscript braces, large-operator scripts including `substack` and
-  `bigcup` / `bigcap` / `bigoplus`-style operators,
-  style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
-  stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
-  operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, `Im`, `prime`,
-  `dagger`, `bigcirc`, and `backslash`, common
-  extended arrows such as `xrightarrow` and `xleftarrow`, and arrow variants
-  such as `Longrightarrow`, `leftrightarrow`, and `hookrightarrow`,
-  common math alphabet wrappers, accent wrappers, brace grouping wrappers,
-  delimiter commands including invisible `left.` / `right.` delimiters,
-  `middle` / `bigm` delimiter controls, `\|` double-bar delimiters, and `lceil`
-  / `lfloor` pairs, punctuation/remainder symbols such as `colon`, `mod`,
-  `gets`, `nleftrightarrow`, and `triangleright`, ellipsis commands such as
-  `ldots`, `cdots`, and `dots`, matrix/cases/array-style
-  environments, alignment markers,
-  and multiline row separators, plus nested amsmath environments such as
-  `split`, `gathered`, and `alignedat`;
-- document IR and page display lists already prefer normalized math text when
-  present while keeping raw source available as fallback.
-- unsupported math commands intentionally leave `normalized_text` empty so raw
-  source remains visible instead of producing lossy ASCII stubs.
+```text
+expanded TeX math execution
+  -> MathList / noads
+  -> Document IR wrapper
+  -> fixed-point math list-to-box layout
+  -> positioned glyph/rule PageDisplayList
+  -> PDF/SVG/browser renderer
+```
 
-Remaining math work:
+Rules:
 
-- richer math grouping and nested environment fidelity remain subset work;
-- renderer-level glyph shaping and true math layout are intentionally deferred;
-- corpus metrics still need math-heavy fixture gates once the subset expands.
+- production events come from commands reached by actual VM execution;
+- the whole-source scanner is bounded recovery/debug input, not an
+  authoritative parallel interpreter;
+- the VM builds `MathList`, not Document IR;
+- `tex-layout` never reparses raw source on the authoritative path;
+- inline and display math share one execution and layout path;
+- classic math preserves family and glyph slot through layout;
+- Unicode math preserves logical text, glyph IDs, and clusters;
+- `normalized_text` remains derived search/accessibility/debug text only;
+- unsupported commands produce local error nodes and structured diagnostics;
+- renderer backends do not own math metrics or layout.
+
+The implementation order, data model, compatibility profiles, font contract,
+formula atlas, differential metrics, browser page protocol, and incremental
+session design are maintained in
+[`math-rendering-plan.md`](./math-rendering-plan.md).
 
 Done when:
 
-- math-heavy papers no longer lose large vocabulary sets;
-- formulas are readable enough for preview;
-- unsupported math degrades locally instead of corrupting the whole paragraph.
+- the browser shows actual compiler pages rather than extracted-text pages;
+- classic TeX/LaTeX/AMS atlas cases pass model, geometry, display-list, and
+  registered raster gates;
+- native and WASI use the same bundled test fonts and produce equivalent
+  display lists;
+- unsupported constructs degrade locally without flattening neighboring math;
+- Unicode/OpenType math is tracked and gated as a separate compatibility
+  profile.
 
 ### H. Class And Package Semantic Shims
 
@@ -1507,19 +1514,29 @@ Exit criteria:
 - tables are readable in raster output;
 - extracted caption/table text is present.
 
-### Phase 4: Math Subset
+### Phase 4: Browser-Visible TeX Math
 
-Scope:
+The former "Math Subset" phase is complete only as historical readable-text
+normalization. It is not a completed formula-rendering phase.
 
-- inline/display math IR;
-- common symbols and operators, with first normalized-text slice implemented;
-- superscript/subscript/fraction/root/accent/delimiter subset;
-- math fallback policy.
+Revised scope:
+
+- expose the existing WASI PDF as the browser bootstrap preview;
+- export compiler-owned page/display-list artifacts and remove visible
+  synthetic extracted-text pages;
+- provide hermetic classic math fonts and complete TFM metric data;
+- build inline/display `MathList` during VM math execution;
+- implement fixed-point TeX math list-to-box layout;
+- add LaTeX/AMS alignments and a separate Unicode/OpenType MATH profile;
+- retire raw-source reparsing and renderer-level Unicode symbol special cases.
 
 Exit criteria:
 
-- math-heavy cases improve normalized text and raster smoke;
-- unsupported math is visibly bounded and reported.
+- see the P0-P5 gates in
+  [`math-rendering-plan.md`](./math-rendering-plan.md);
+- classic formula atlas crops pass registered IoU >= 0.90 plus geometry
+  tolerances;
+- native/WASI display-list parity is enforced for the hermetic test bundle.
 
 ### Phase 5: Incremental Real Rendering
 
@@ -1529,6 +1546,14 @@ Scope:
 - preserve stable block/page ids;
 - keep replay invalidation conservative but useful;
 - measure warm edit latency against current scaffold path.
+- move browser compilation to a Web Worker with revision cancellation and
+  coalescing;
+- replace repeated WASI `_start`/fresh-VM builds with a persistent
+  `CompilerSession` ABI;
+- stop replay only when VM state, dependency read set, semantic aux, and page
+  output have all stabilized.
+- require continuation snapshot and transactional sink equivalence before the
+  persistent session is promoted.
 
 Current status:
 
@@ -1542,6 +1567,9 @@ Exit criteria:
 - body edit reuses unaffected pages;
 - source sync still lands on the expected page/block;
 - preview latency remains acceptable for arXiv-scale papers.
+- browser build metadata distinguishes full, replayed, and reused work;
+- page-hash equality alone is never used as proof that the remaining VM state
+  is reusable.
 
 ## Testing Plan
 
@@ -1617,20 +1645,24 @@ classify unsupported assets.
 
 Risk: full math layout stalls the project.
 
-Mitigation: render a useful subset first and keep raw math fallback visible.
+Mitigation: define classic and Unicode compatibility profiles, deliver one
+TeX construct family at a time behind model/geometry/raster gates, and retain
+the external TeX path for final output. Do not substitute string normalization
+for implementation progress.
 
 ## Recommended Immediate Next Tasks
 
-1. Run the CC0 oracle with `ir_structure_slices` and use the lowest front
-   matter, caption, reference, and fallback slice ratios to pick the next
-   semantic recovery fixes.
-2. Implement front matter capture and `\maketitle` output for `article`, `llncs`,
-   `IEEEtran`, `revtex4-2`, and `wacv` semantic shims.
-3. Change citation rendering so raw citation keys never enter visible PDF text.
-4. Add `.bbl` bibliography rendering into internal output.
-5. Introduce a minimal `Document IR` crate/module behind the current string
-   output path, initially mirroring paragraphs/headings/title blocks only.
-
-This order is intentionally front-loaded with measurable text recovery before
-large layout work. It should raise oracle quality quickly while creating the
-interfaces needed for real page layout.
+1. Add VM divergence characterization for local register scope, delimited
+   macros, conditional events, macro-generated math, and runtime catcodes.
+2. Conservatively reject checkpoint reuse where complete continuation state is
+   not represented and proven safe.
+3. Split `tex-vm/src/lib.rs` mechanically without changing behavior, then
+   quarantine the source scanner and require explicit event origin/confidence.
+4. Implement Eqtb/SaveStack, streaming Mouth, macro parameter text/prefixes,
+   and VM-owned SemanticSink in that dependency order.
+5. Add FormatSnapshot/ContinuationCheckpoint and transactional sink
+   equivalence before persistent browser sessions.
+6. In disjoint lanes, show the existing WASI PDF in the browser, export
+   compiler-owned page artifacts, and add the hermetic classic font resolver.
+7. Start authoritative `MathList` only after VM execution owns math-boundary
+   events; then build formula atlas geometry and raster gates.

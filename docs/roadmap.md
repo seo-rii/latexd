@@ -568,6 +568,76 @@ arXiv는 intermediate files를 일반적으로 제거하지만 `.bbl`과 `.ind`�
 * 그에 맞춰 local package/class/toolchain preamble에서 자주 나오는 `\NeedsTeXFormat`, `\ProvidesFile`, `\ProvidesPackage`, `\ProvidesClass`, `\PassOptionsToPackage`, `\PassOptionsToClass`, `\DeclareOption`, `\DeclareOption*`, `\ExecuteOptions`, `\ProcessOptions`, `\ProcessOptions*`, `\relax`, `\RequirePackage`, `\RequirePackageWithOptions`, `\LoadClass`, `\LoadClassWithOptions`, `\AtBeginDocument`, `\AtEndDocument`, `\AtEndOfPackage`, `\AtEndOfClass`, `\global`, `\long`, `\protected`, `\outer`, `\futurelet`, `\string`, `\protect`, `\meaning`, `\detokenize`, `\strip@prefix`, `\ignorespaces`, `\jobname`, `\makeatletter`-scoped `\@currname/\@currext/\@currpath`, `\filename@parse`, `\filename@area`, `\filename@base`, `\filename@ext`, `\newcommand`, `\renewcommand`, `\providecommand`, `\DeclareRobustCommand`와 그 starred forms, optional first-argument defaults(`[2][default]`), `\IfFileExists`, `\InputIfFileExists`, `\newread`, `\openin`, `\closein`, `\ifeof`, plain `\read`, plain `\readline`, `\newwrite`, `\openout`, `\closeout`, `\immediate`, `\write`, `\protected@write`, `\newtoks`, `\toksdef`, plain `\toks`, `\newdimen`, `\dimendef`, plain `\dimen`, public `\newlength`, `\setlength`, `\addtolength`, `\endinput`, `\unless`, `\aftergroup`, `\afterassignment`, `\advance`, `\multiply`, `\divide`, `\newcount`, `\countdef`, `\setcounter`, `\addtocounter`, `\stepcounter`, `\refstepcounter`, `\value`, `\the`, `\number`, `\romannumeral`, public `\arabic`, `\roman`, `\Roman`, `\alph`, `\Alph`, `\@arabic`, `\@roman`, `\@Roman`, `\@alph`, `\@Alph`, `\@addtoreset`, builtin `\space`, `\@backslashchar`, `\@percentchar`, `\@hashchar`, scratch count aliases(`\count@`, `\@tempcnta`, `\@tempcntb`), scratch dimen aliases(`\dimen@`, `\@tempdima`, `\@tempdimb`), numeric constant macros(`\z@`, `\@ne`, `\tw@`, `\thr@@`, `\m@ne`), and `\p@`의 좁은 scaffold가 internal VM/compiler 경로에 들어가 있다. 이 중 `\PassOptionsToPackage`, `\PassOptionsToClass`, `\DeclareOption`, `\DeclareOption*`, `\ExecuteOptions`, `\ProcessOptions`, `\ProcessOptions*`, `\RequirePackageWithOptions`, `\LoadClassWithOptions`는 이제 local package/class chain에서 narrow option propagation을 실제로 수행하고, `\CurrentOption`도 package/class wrapper의 default-option과 declared-option body 양쪽에서 좁게 해석하며, `\ProcessOptions` 이후에도 nested `\RequirePackageWithOptions`/`\LoadClassWithOptions`가 원래 전달된 option set을 계속 볼 수 있고, default와 explicit이 같은 option을 반복할 때는 `\ProcessOptions`가 body를 한 번만 실행한다. `\global`은 grouped definition helpers를 바깥 scope로 승격하는 narrow prefix로 처리되고, `\long`/`\protected`/`\outer`는 declaration prefix no-op로 처리되며, `\futurelet`은 looked-ahead token을 소비하지 않은 채 다음 helper로 넘기는 narrow lookahead primitive로, `\string`은 다음 control sequence name이나 character token을 확장 없이 그대로 출력하는 narrow token-stringifier로, `\protect`는 plain execution에서는 non-visible no-op로, `\edef`/`\xdef` full-expansion loop 안에서는 literal control sequence를 runtime까지 보존하는 `\noexpand` alias로 처리되며, `\meaning`은 primitive/macro/character/undefined token meaning을 conservative text로 materialize 하는 narrow inspector로, `\detokenize`는 balanced-group token list를 expansion 없이 conservative character payload로 materialize 하는 narrow detokenizer로, `\strip@prefix`는 `\meaning` output의 leading prefix를 first-`>` delimiter까지 제거하는 narrow helper로, `\ignorespaces`는 바로 뒤의 space token run만 한 번 소비하고 첫 non-space token은 그대로 두는 narrow whitespace-trimmer로, `\jobname`은 top-level entry source stem을 conservative token list로 materialize 하고 entry source가 없을 때만 `texput`으로 fallback 하는 narrow job-name helper로, `\@currname`/`\@currext`는 current active source frame의 stem/extension을 conservative token list로 materialize 하고 `\@currpath`는 그 parent path를 trailing slash와 함께 materialize 하는 narrow current-module helpers로, `\filename@parse`는 given path token list를 area/base/ext로 좁게 split 해서 `\filename@area`, `\filename@base`, `\filename@ext` macro에 채우는 narrow filename parser로, `\the`와 `\number`는 count register / scratch counter value뿐 아니라 token-register payload와 dimen/length payload도 conservative token list로 materialize 하는 narrow inspector로, `\newtoks`와 `\toksdef`는 stable token-register alias definition을 제공하고 plain `\toks` assignment는 grouped token list를 snapshot-aware register state에 저장하는 narrow token-register helpers로, public `\arabic`, `\roman`, `\Roman`, `\alph`, `\Alph`와 low-level `\@arabic`, `\@roman`, `\@Roman`, `\@alph`, `\@Alph`는 `\newcount\c@...`-style counter state와 count-like macro arguments를 common LaTeX counter text로 materialize 하는 narrow counter-format helpers로, `\@addtoreset`는 step/refstep-driven child-counter reset 관계를 snapshot-aware state에 저장하는 narrow counter-reset helper로, builtin `\space`, `\@backslashchar`, `\@percentchar`, `\@hashchar`는 common package-internal text/meta characters를 direct macro payload로 materialize 하는 narrow zero-arg helpers로, `\romannumeral`은 positive integer expression을 lowercase Roman numeral token list로 바꾸고 nonpositive value는 비우는 narrow numeric expander로, `\unless`는 다음 low-level conditional helper의 truth value를 one-shot으로 뒤집는 narrow conditional prefix로, `\aftergroup`는 현재 group이 닫힌 직후 pending token을 reinject 하는 narrow group-exit helper로, `\afterassignment`는 다음 narrow assignment primitive가 성공적으로 끝난 직후 one-shot token을 reinject 하는 assignment-complete helper로 처리된다. `\InputIfFileExists`는 optional config/asset input을 실제로 수행하면서 success/fallback branch를 함께 고르고, `\IfFileExists`/`\InputIfFileExists`는 normalized found path를 `\@filef@und`에 좁게 남기고 miss 때는 이를 비우며, `\newread`는 distinct read-stream alias macro를 좁게 정의하고 `\openin`/`\closein`은 stream plus filename payload를 non-visibly 소비하며 `\ifeof`는 unopened/missing/open/closed state를 snapshot-aware conditional로 읽고 plain `\read ... to ...`와 plain `\readline ... to ...`는 next line을 control sequence body로 narrow-materialize 하되 EOF에서는 target을 `\relax` meaning으로 내려놓고, `\newwrite`는 distinct stream alias macro를 좁게 정의하고 `\openout`/`\closeout`는 stream plus filename payload를 non-visibly 소비하며, plain `\write`는 aux-style stream/body pair를 non-visibly 소비하면서 write payload를 same full-expansion helper 위에서 좁게 전개하고 `\immediate`는 그 path 앞에서 narrow no-op prefix로 동작하며, `\protected@write`는 aux-style stream/prefix/body triple을 non-visibly 소비하면서 같은 write payload expansion path를 재사용하고, `\newtoks`는 distinct token-register alias macro를 좁게 정의하고 `\toksdef`는 explicit token-register alias를 바인딩하며 plain `\toks`는 grouped token list payload를 snapshot-aware token-register state에 저장하고 `\the`는 그 stored token list를 direct output과 `\edef` capture 양쪽에서 재사용하며, `\newdimen`과 `\newlength`는 stable dimen-register alias를 좁게 할당하고 `\dimendef`는 explicit dimen-register alias를 바인딩하며 plain `\dimen`, `\setlength`, `\addtolength`는 grouped or bare `pt`/`sp` payload를 snapshot-aware dimen state에 저장하고 `\the`는 그 stored dimen payload를 direct output과 `\edef` capture 양쪽에서 `pt` text로 재사용하고, `\endinput`은 current input/package/class file에서 trailing token을 더 읽지 않고 같은 module end marker로 바로 떨어지게 하며, `\ProvidesFile`/`\ProvidesPackage`/`\ProvidesClass`는 local cfg/package/class header에서 `\filedate` / `\fileversion` / `\fileinfo`도 좁게 채우고, `\AtEndDocument`는 balanced-group token hook을 snapshot-aware VM state에 쌓아 두었다가 main token queue가 비는 시점에 reinject 하며, `\AtEndOfPackage`/`\AtEndOfClass`는 active module frame에 balanced-group token hook을 쌓아 두었다가 module end marker 직전에 reinject 하며, scratch counter helper cluster는 `\advance`/`\multiply`/`\divide`뿐 아니라 `\newcount`/`\countdef`/`\setcounter`/`\addtocounter`/`\stepcounter`/`\refstepcounter`/`\value`/public counter-format helper/`\@addtoreset`까지 wrapper preamble에서 common numeric-state setup과 reset/readback을 later option-only revisions까지 유지하는 dedicated corpus fixture로, scratch dimen/length helper cluster는 `\newdimen`/`\dimendef`/plain `\dimen`/`\newlength`/`\setlength`/`\addtolength`/`\the`/`\p@`/scratch dimen aliases까지 같은 wrapper preamble에서 common length-state setup과 readback을 later option-only revisions까지 유지하는 dedicated corpus fixture로 고정돼 있다.
 * 따라서 지금 상태는 “M12 완료 bar는 충족했고, 남는 건 wider engine-profile hardening, artifact-driven invalidation tightening, richer renderer/display-list ownership, stronger external editor integration 같은 post-M12 follow-on”이라고 보는 것이 맞다.
 
+---
+
+### M13. 단일 VM 실행 의미
+
+**목표:** RenderEvent, semantic IR, checkpoint가 모두 같은 VM 실행에서
+파생되게 하고 whole-source scanner를 bounded recovery로 격하한다.
+
+**상태:** `2026-07-26` 기준 계획 확정, 구현 전.
+
+직접 작업 순서:
+
+* semantic divergence characterization
+* 불완전 continuation checkpoint reuse의 보수 차단
+* behavior-preserving `tex-vm` module split
+* scanner quarantine, explicit producer/confidence, sequence/stable ID 분리
+* Eqtb + SaveStack와 공통 assignment scope
+* runtime catcode를 사용하는 streaming Mouth와 실제 TokenOrigin
+* full macro parameter text, prefix scanner, expandable/unexpandable command,
+  explicit execution mode/nest
+* VM-owned transactional SemanticSink
+* FormatSnapshot/ContinuationCheckpoint와 restore/replay equivalence
+* stable IrMeta/frame builder를 가진 SemanticDocumentIr와 별도 LayoutIr
+
+완료 조건:
+
+* false conditional content는 production event에 나타나지 않는다.
+* macro-generated structure와 actual expansion provenance가 event에 남는다.
+* 모든 local/global assignment가 공통 Eqtb/SaveStack 의미를 따른다.
+* eager whole-file tokenization이 production VM path에서 제거된다.
+* full build와 checkpoint restore+replay의 event/IR/diagnostic/trace/aux/
+  display-list 결과가 같다.
+
+상세 상태 모델과 batch별 TDD 기준은
+[`docs/vm-semantic-foundation-plan.md`](./vm-semantic-foundation-plan.md)에
+둔다.
+
+### M14. 실제 브라우저 출력과 Native TeX Math
+
+브라우저 PDF/pages lane과 hermetic font lane은 M13 core와 파일 소유권이
+겹치지 않는 범위에서 먼저 병렬 진행할 수 있다. authoritative MathList는
+M13의 Eqtb/Mouth/macro/SemanticSink 완료 이후 시작한다.
+
+* actual PDF preview와 compiler-owned page artifacts
+* bundled classic font와 complete TFM/VF metrics
+* VM-owned inline/display 공통 MathList
+* fixed-point TeX math list-to-box
+* LaTeX/AMS alignment와 equation tags
+* Unicode/OpenType MATH profile
+* Snapshot v2 이후 persistent browser CompilerSession과 stable-tail replay
+
+완료 판정:
+
+* model/geometry/display-list goldens
+* hermetic native/WASI parity
+* formula crop registered IoU `>= 0.90`
+* baseline/axis/rule/glyph/source mapping tolerance
+* multi-revision checkpoint/page reuse metadata
+
+상세 math/browser 계획은
+[`docs/math-rendering-plan.md`](./math-rendering-plan.md)에 둔다.
+
+### M15. 일반 문서 조판
+
+같은 LayoutIr/font/page 모델을 사용해 일반 H/V box, text-table alignment,
+graphics transform, color/link/annotation, footnote/float/column/page builder,
+behavior-based package compatibility를 확장한다. 별도 문자열 scaffold를
+추가하지 않는다.
+
+M13~M15의 실제 작업 순서와 병렬 lane은 [`PLAN.md`](../PLAN.md)에 둔다.
+
 ## Related Notes
 
 - Contributor-oriented implementation sequencing and pitfalls:

@@ -30,7 +30,10 @@ Current focus:
 
 See [`PROGRESS.md`](./PROGRESS.md), [`PLAN.md`](./PLAN.md), and
 [`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md) for the current
-engineering plan.
+engineering plan. The single-execution VM migration is tracked in
+[`docs/vm-semantic-foundation-plan.md`](./docs/vm-semantic-foundation-plan.md);
+the dependent browser-delivery, TeX math, font, and persistent-session work is
+tracked in [`docs/math-rendering-plan.md`](./docs/math-rendering-plan.md).
 
 ## Features
 
@@ -159,6 +162,8 @@ measurements remain diagnostic consistency data.
 - Roadmap: [`docs/roadmap.md`](./docs/roadmap.md)
 - Testing strategy: [`docs/testing-strategy.md`](./docs/testing-strategy.md)
 - Real rendering plan: [`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md)
+- VM semantic foundation plan: [`docs/vm-semantic-foundation-plan.md`](./docs/vm-semantic-foundation-plan.md)
+- Native math and browser delivery plan: [`docs/math-rendering-plan.md`](./docs/math-rendering-plan.md)
 - Real rendering accepted structure: [`docs/real-rendering-accepted-structure.md`](./docs/real-rendering-accepted-structure.md)
 - Rendering design question: [`docs/real-rendering-design-question.md`](./docs/real-rendering-design-question.md)
 - HMR protocol: [`docs/hmr-protocol.md`](./docs/hmr-protocol.md)
