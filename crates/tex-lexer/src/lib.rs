@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use serde::{Deserialize, Serialize};
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +23,15 @@ pub struct Mouth {
     state: ScannerState,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MouthSnapshot {
+    input: String,
+    position_utf8: u64,
+    state: ScannerState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum ScannerState {
     NewLine,
     MidLine,
@@ -118,6 +127,26 @@ impl Mouth {
             position: 0,
             state: ScannerState::NewLine,
         }
+    }
+
+    pub fn snapshot(&self) -> MouthSnapshot {
+        MouthSnapshot {
+            input: self.input.to_string(),
+            position_utf8: self.position as u64,
+            state: self.state,
+        }
+    }
+
+    pub fn restore(snapshot: &MouthSnapshot) -> Option<Self> {
+        let position = usize::try_from(snapshot.position_utf8).ok()?;
+        if position > snapshot.input.len() || !snapshot.input.is_char_boundary(position) {
+            return None;
+        }
+        Some(Self {
+            input: Arc::from(snapshot.input.as_str()),
+            position,
+            state: snapshot.state,
+        })
     }
 
     pub fn next_token(
@@ -374,6 +403,48 @@ mod tests {
         assert_eq!(
             render(&[first, second], &interner),
             vec!["cs:switch", "cs:foo@bar"]
+        );
+    }
+
+    #[test]
+    fn mouth_snapshot_roundtrip_resumes_utf8_input_and_scanner_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut catcodes = CatCodeTable::plain_tex();
+        let mut mouth = Mouth::new("é  \\foo@bar\nz");
+
+        let first = mouth
+            .next_token(&catcodes, &mut interner)
+            .expect("leading character");
+        let space = mouth
+            .next_token(&catcodes, &mut interner)
+            .expect("interword space");
+        assert_eq!(
+            render(&[first, space], &interner),
+            vec!["char:Other:é", "char:Space: "]
+        );
+
+        let snapshot_json =
+            serde_json::to_vec(&mouth.snapshot()).expect("serialize mouth snapshot");
+        let snapshot = serde_json::from_slice(&snapshot_json).expect("deserialize mouth snapshot");
+        let mut restored = Mouth::restore(&snapshot).expect("restore mouth snapshot");
+        catcodes.set('@', CatCode::Letter);
+
+        let mut original_tail = Vec::new();
+        while let Some(token) = mouth.next_token(&catcodes, &mut interner) {
+            original_tail.push(token);
+        }
+        let mut restored_tail = Vec::new();
+        while let Some(token) = restored.next_token(&catcodes, &mut interner) {
+            restored_tail.push(token);
+        }
+
+        assert_eq!(
+            render(&original_tail, &interner),
+            render(&restored_tail, &interner)
+        );
+        assert_eq!(
+            render(&restored_tail, &interner),
+            vec!["cs:foo@bar", "char:Letter:z"]
         );
     }
 
