@@ -126,6 +126,22 @@ fn semantic_block_for_environment(environment: &str) -> Option<BlockKind> {
     if let Some(list_kind) = list_kind_for_environment(environment) {
         return Some(BlockKind::List { list_kind });
     }
+    let float_block = match environment {
+        "figwindow" | "figure" | "wrapfigure" | "wrapfigure*" | "SCfigure" | "floatingfigure"
+        | "marginfigure" | "measuredfigure" => Some(BlockKind::Figure),
+        "figure*" | "sidewaysfigure" | "sidewaysfigure*" | "SCfigure*" | "marginfigure*" => {
+            Some(BlockKind::FullWidthFigure)
+        }
+        "tabwindow" | "table" | "wraptable" | "wraptable*" | "SCtable" | "floatingtable"
+        | "margintable" => Some(BlockKind::Table),
+        "table*" | "sidewaystable" | "sidewaystable*" | "SCtable*" | "margintable*" => {
+            Some(BlockKind::FullWidthTable)
+        }
+        _ => None,
+    };
+    if float_block.is_some() {
+        return float_block;
+    }
     match environment {
         "abstract" | "abstract*" | "onecolabstract" => Some(BlockKind::Abstract),
         "thebibliography" => Some(BlockKind::Bibliography),
