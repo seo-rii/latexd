@@ -218,6 +218,30 @@ fn runtime_catcode_change_affects_unread_characters() {
 }
 
 #[test]
+fn runtime_catcodes_apply_to_mounted_input_characters() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("defs.tex", r"\def\foo@bar{ok}\foo@bar");
+
+    let outcome = vm.run_plain(r"\catcode`\@=11\input{defs}");
+
+    assert_eq!(outcome.output, "ok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn mounted_input_catcode_changes_apply_to_its_unread_characters() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("defs.tex", r"\catcode`\@=11\gdef\foo@bar{ok}\foo@bar");
+
+    let outcome = vm.run_plain(r"\input{defs}\foo@bar");
+
+    assert_eq!(outcome.output, "okok");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
 fn catcode_assignments_follow_local_and_global_group_scope() {
     let local = run(r"{\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");
     let global = run(r"{\global\catcode`\@=11\gdef\foo@bar{ok}}\foo@bar");

@@ -21776,14 +21776,14 @@ impl<'i> Vm<'i> {
                 .iter()
                 .rev()
                 .any(|frame| frame.module_kind.is_some());
-        let tokens = {
+        let eager_tokens = (label != "input" || input_inherits_module_catcodes).then(|| {
             let interner = &mut *self.interner;
             if label == "class" || label == "package" || input_inherits_module_catcodes {
                 lex_plain_at_letter(&source, interner)
             } else {
                 lex_plain(&source, interner)
             }
-        };
+        });
         self.source_stack.push(ActiveSourceFrame {
             path: path.clone(),
             return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
@@ -21822,8 +21822,12 @@ impl<'i> Vm<'i> {
                 continuation_stack,
             }),
         });
-        for token in tokens.into_iter().rev() {
-            self.push_token_front(queue, token);
+        if let Some(tokens) = eager_tokens {
+            for token in tokens.into_iter().rev() {
+                self.push_token_front(queue, token);
+            }
+        } else {
+            queue.push_front(QueueItem::CharacterSource(Mouth::new(&source)));
         }
     }
 
