@@ -2889,6 +2889,54 @@ mod tests {
     }
 
     #[test]
+    fn replay_input_enter_checkpoint_loads_the_current_child_source() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("child.tex"), "C").expect("child");
+        fs::write(
+            root.join("resume.sty"),
+            r"\def\resume{\input{child}\def\pkg@tail{B}\pkg@tail}A\resume",
+        )
+        .expect("package");
+        fs::write(root.join("paper.tex"), r"\usepackage{resume}Z").expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let previous = run_project(&world).expect("previous run");
+        let child_enter = previous
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == tex_vm::VmModuleCheckpointKind::Enter
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child enter checkpoint");
+        fs::write(root.join("child.tex"), "D").expect("updated child");
+        let current = run_project(&world).expect("current run");
+
+        let replayed = run_project_from_checkpoint(
+            &world,
+            &super::ProjectReplayCheckpoint {
+                snapshot: child_enter.snapshot.clone(),
+                resume_path: child_enter.resume_path.clone().expect("resume path"),
+                source_offset_utf8: child_enter.source_offset_utf8,
+                continuation_stack: child_enter.continuation_stack.clone(),
+            },
+            &previous.output[..child_enter.output_start_utf8 as usize],
+        )
+        .expect("replayed run");
+
+        assert_eq!(previous.output, "ACBZ");
+        assert_eq!(current.output, "ADBZ");
+        assert_eq!(replayed.output, current.output);
+        assert!(replayed.diagnostics.is_empty());
+    }
+
+    #[test]
     fn capture_page_checkpoints_tracks_nested_replay_frames() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

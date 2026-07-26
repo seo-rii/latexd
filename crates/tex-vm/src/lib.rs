@@ -15509,6 +15509,7 @@ impl<'i> Vm<'i> {
     }
 
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
+        let token_span = token.span;
         match token.kind {
             TokenKind::Character { ch, catcode } => match catcode {
                 CatCode::BeginGroup => self.begin_group(queue),
@@ -15587,7 +15588,14 @@ impl<'i> Vm<'i> {
                     }
                     Some(Meaning::Token(token)) => self.push_token_front(queue, token),
                     Some(Meaning::Primitive(primitive)) => {
-                        self.execute_primitive(primitive, token.span.start, queue);
+                        self.execute_primitive(
+                            primitive,
+                            Token {
+                                kind: TokenKind::ControlSequence { name },
+                                span: token_span,
+                            },
+                            queue,
+                        );
                     }
                     None => {
                         self.diagnostics.push(VmDiagnostic {
@@ -15619,9 +15627,22 @@ impl<'i> Vm<'i> {
     fn execute_primitive(
         &mut self,
         primitive: Primitive,
-        source_offset_utf8: u32,
+        primitive_token: Token,
         queue: &mut VecDeque<QueueItem>,
     ) {
+        let source_offset_utf8 = primitive_token.span.start;
+        let input_enter_snapshot = matches!(
+            primitive,
+            Primitive::Input
+                | Primitive::Include
+                | Primitive::AtInput
+                | Primitive::InputIfFileExists
+        )
+        .then(|| {
+            let mut continuation_queue = queue.clone();
+            continuation_queue.push_front(QueueItem::Token(primitive_token));
+            self.snapshot_with_input_queue(Some(&continuation_queue))
+        });
         match primitive {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
             Primitive::LegacyMathWordBoundary => {
@@ -17869,7 +17890,8 @@ impl<'i> Vm<'i> {
                     for token in then_body.into_iter().rev() {
                         self.push_token_front(queue, token);
                     }
-                    let checkpoint_snapshot = self.snapshot();
+                    let checkpoint_snapshot =
+                        input_enter_snapshot.expect("input primitive snapshot");
                     let output_start_utf8 = self.output.len() as u32;
                     let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
                     let continuation_stack = self.current_continuation_stack();
@@ -17899,7 +17921,7 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::AtInput => {
-                let checkpoint_snapshot = self.snapshot();
+                let checkpoint_snapshot = input_enter_snapshot.expect("input primitive snapshot");
                 let output_start_utf8 = self.output.len() as u32;
                 let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
                 let continuation_stack = self.current_continuation_stack();
@@ -19921,7 +19943,7 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Input => {
-                let checkpoint_snapshot = self.snapshot();
+                let checkpoint_snapshot = input_enter_snapshot.expect("input primitive snapshot");
                 let output_start_utf8 = self.output.len() as u32;
                 let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
                 let continuation_stack = self.current_continuation_stack();
@@ -19950,7 +19972,7 @@ impl<'i> Vm<'i> {
                 );
             }
             Primitive::Include => {
-                let checkpoint_snapshot = self.snapshot();
+                let checkpoint_snapshot = input_enter_snapshot.expect("input primitive snapshot");
                 let output_start_utf8 = self.output.len() as u32;
                 let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
                 let continuation_stack = self.current_continuation_stack();

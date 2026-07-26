@@ -96,7 +96,7 @@ fn render_event_capture_snapshot_records_sink_state_as_a_replay_blocker() {
 }
 
 #[test]
-fn module_checkpoint_records_active_input_as_a_replay_blocker() {
+fn module_enter_checkpoint_serializes_active_input_as_a_continuation() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.set_entry_source_path("main.tex");
@@ -108,18 +108,15 @@ fn module_checkpoint_records_active_input_as_a_replay_blocker() {
         .first()
         .expect("input checkpoint");
 
-    assert!(
-        checkpoint
-            .snapshot
-            .continuation_safety
-            .blockers
-            .contains(&VmContinuationBlocker::ActiveInput)
-    );
+    assert!(checkpoint.snapshot.input_continuation.is_some());
+    assert!(checkpoint.snapshot.continuation_safety.is_safe());
 }
 
 #[test]
-fn input_enter_metadata_does_not_certify_missing_continuation_state() {
+fn input_enter_with_serialized_pre_execution_continuation_is_replay_safe() {
     let checkpoint = capture_input_checkpoint(r"\input{child.tex}", VmModuleCheckpointKind::Enter);
+    assert!(checkpoint.snapshot.input_continuation.is_some());
+    assert!(checkpoint.snapshot.continuation_safety.is_safe());
     let bundle = bundle_with_input_checkpoint(checkpoint);
     let stored = bundle
         .checkpoints
@@ -127,10 +124,25 @@ fn input_enter_metadata_does_not_certify_missing_continuation_state() {
         .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
         .expect("stored input checkpoint");
 
-    assert_eq!(
-        stored.meta.continuation_safety.blockers,
-        vec![VmContinuationBlocker::ActiveInput]
-    );
+    assert!(stored.meta.continuation_safety.is_safe());
+    assert!(stored.meta.snapshot_attached);
+    assert!(checkpoint_is_replay_safe(stored));
+}
+
+#[test]
+fn input_enter_metadata_without_serialized_continuation_is_not_replay_safe() {
+    let mut checkpoint =
+        capture_input_checkpoint(r"\input{child.tex}", VmModuleCheckpointKind::Enter);
+    checkpoint.snapshot.input_continuation = None;
+    checkpoint.snapshot.continuation_safety.blockers = vec![VmContinuationBlocker::ActiveInput];
+
+    let bundle = bundle_with_input_checkpoint(checkpoint);
+    let stored = bundle
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
+        .expect("stored input checkpoint");
+
     assert!(!stored.meta.snapshot_attached);
     assert!(!checkpoint_is_replay_safe(stored));
 }
@@ -198,12 +210,9 @@ fn input_boundary_metadata_does_not_certify_an_open_group() {
             .blockers
             .contains(&VmContinuationBlocker::OpenGroup)
     );
-    assert!(
-        stored
-            .meta
-            .continuation_safety
-            .blockers
-            .contains(&VmContinuationBlocker::ActiveInput)
+    assert_eq!(
+        stored.meta.continuation_safety.blockers,
+        vec![VmContinuationBlocker::OpenGroup]
     );
     assert!(!stored.meta.snapshot_attached);
     assert!(!checkpoint_is_replay_safe(stored));

@@ -152,6 +152,12 @@ pub struct VmInputContinuationSnapshot {
 impl VmInputContinuationSnapshot {
     pub fn is_restorable(&self) -> bool {
         !self.source_stack.is_empty()
+            && self
+                .queue
+                .iter()
+                .filter(|item| matches!(item, VmQueueItemSnapshot::CharacterSource { .. }))
+                .count()
+                == self.source_stack.len()
             && self.queue.iter().all(|item| match item {
                 VmQueueItemSnapshot::Token { token } => token.start_utf8 <= token.end_utf8,
                 VmQueueItemSnapshot::CharacterSource { mouth } => Mouth::restore(mouth).is_some(),
