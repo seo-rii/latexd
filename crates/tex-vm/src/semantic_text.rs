@@ -1,15 +1,17 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     mem,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventId, EventProducer, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
+    EventId, EventProducer, ExpansionFrame, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SpaceEvent,
+    SpaceKind, TextEvent,
 };
+use tex_tokens::{ControlSequenceId, Token};
 
-use crate::Vm;
+use crate::{Vm, input::QueueItem};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticTextState {
@@ -19,6 +21,9 @@ pub(super) struct SemanticTextState {
     capture: Option<ExecutedTextCapture>,
     paragraph_has_content: bool,
     space_run_active: bool,
+    marker_actions: HashMap<ControlSequenceId, ExpansionMarkerAction>,
+    expansion_stack: Vec<ExpansionContext>,
+    next_marker_id: u64,
 }
 
 #[derive(Debug)]
@@ -39,9 +44,22 @@ struct SuppressedSourceRange {
 #[derive(Debug)]
 struct ExecutedTextCapture {
     text: String,
-    path: Utf8PathBuf,
-    start_utf8: u32,
+    source: SourceProvenance,
+    producer: EventProducer,
+    literal_path: Option<Utf8PathBuf>,
     end_utf8: u32,
+}
+
+#[derive(Debug, Clone)]
+struct ExpansionContext {
+    id: u64,
+    source: SourceProvenance,
+}
+
+#[derive(Debug)]
+enum ExpansionMarkerAction {
+    Begin(ExpansionContext),
+    End(u64),
 }
 
 impl Vm<'_> {
@@ -92,27 +110,122 @@ impl Vm<'_> {
             });
     }
 
+    pub(super) fn queue_macro_expansion(
+        &mut self,
+        command_name: &str,
+        call_start_utf8: u32,
+        call_end_utf8: u32,
+        expanded: Vec<Token>,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            for token in expanded.into_iter().rev() {
+                self.push_token_front(queue, token);
+            }
+            return;
+        }
+
+        self.separate_executed_inline_content();
+        let path = self.current_execution_source_path();
+        let call_span = ProvenanceSpan::File(SourceSpan {
+            path: path.clone(),
+            start_utf8: call_start_utf8,
+            end_utf8: call_end_utf8,
+        });
+        let expansion_frame = ExpansionFrame {
+            call_span,
+            definition_span: None,
+            command_name: Some(command_name.to_string()),
+        };
+        let source = self
+            .semantic_text
+            .expansion_stack
+            .last()
+            .map(|context| context.source.clone())
+            .unwrap_or_else(|| SourceProvenance::file(path, call_start_utf8, call_end_utf8))
+            .with_expansion_frame(expansion_frame);
+        let marker_id = self.semantic_text.next_marker_id;
+        self.semantic_text.next_marker_id += 1;
+        let begin_name = self
+            .interner
+            .intern(&format!("latexd@semantic@begin@{marker_id}"));
+        let end_name = self
+            .interner
+            .intern(&format!("latexd@semantic@end@{marker_id}"));
+        self.semantic_text.marker_actions.insert(
+            begin_name,
+            ExpansionMarkerAction::Begin(ExpansionContext {
+                id: marker_id,
+                source,
+            }),
+        );
+        self.semantic_text
+            .marker_actions
+            .insert(end_name, ExpansionMarkerAction::End(marker_id));
+
+        self.push_token_front(
+            queue,
+            Token::control_sequence(end_name, call_start_utf8 as usize, call_end_utf8 as usize),
+        );
+        for token in expanded.into_iter().rev() {
+            self.push_token_front(queue, token);
+        }
+        self.push_token_front(
+            queue,
+            Token::control_sequence(begin_name, call_start_utf8 as usize, call_end_utf8 as usize),
+        );
+    }
+
+    pub(super) fn execute_semantic_expansion_marker(&mut self, name: ControlSequenceId) -> bool {
+        let Some(action) = self.semantic_text.marker_actions.remove(&name) else {
+            return false;
+        };
+        self.separate_executed_inline_content();
+        match action {
+            ExpansionMarkerAction::Begin(context) => {
+                self.semantic_text.expansion_stack.push(context);
+            }
+            ExpansionMarkerAction::End(id) => {
+                if self
+                    .semantic_text
+                    .expansion_stack
+                    .last()
+                    .is_some_and(|context| context.id == id)
+                {
+                    self.semantic_text.expansion_stack.pop();
+                }
+            }
+        }
+        true
+    }
+
     pub(super) fn capture_executed_text_character(
         &mut self,
         ch: char,
         start_utf8: u32,
         end_utf8: u32,
     ) {
-        if !self.can_capture_executed_text() || (start_utf8 == 0 && end_utf8 == 0) {
+        if !self.can_capture_executed_text()
+            || (start_utf8 == 0 && end_utf8 == 0 && self.semantic_text.expansion_stack.is_empty())
+        {
             return;
         }
-        let path = self.current_execution_source_path();
-        let can_extend = self
-            .semantic_text
-            .capture
-            .as_ref()
-            .is_some_and(|capture| capture.path == path && start_utf8 >= capture.end_utf8);
+        let (source, producer, literal_path) = self.executed_text_source(start_utf8, end_utf8);
+        let can_extend = self.semantic_text.capture.as_ref().is_some_and(|capture| {
+            capture.producer == producer
+                && if let Some(path) = &literal_path {
+                    capture.literal_path.as_ref() == Some(path) && start_utf8 >= capture.end_utf8
+                } else {
+                    capture.source == source
+                }
+        });
         if !can_extend {
             self.flush_executed_text_capture();
             self.semantic_text.capture = Some(ExecutedTextCapture {
                 text: String::new(),
-                path,
-                start_utf8,
+                source,
+                producer,
+                literal_path,
                 end_utf8,
             });
         }
@@ -123,6 +236,11 @@ impl Vm<'_> {
             .expect("text capture was initialized");
         capture.text.push(ch);
         capture.end_utf8 = end_utf8;
+        if capture.literal_path.is_some()
+            && let ProvenanceSpan::File(span) = &mut capture.source.primary
+        {
+            span.end_utf8 = end_utf8;
+        }
         self.semantic_text.paragraph_has_content = true;
         self.semantic_text.space_run_active = false;
     }
@@ -190,9 +308,9 @@ impl Vm<'_> {
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::Text(TextEvent { text: capture.text }),
-            SourceProvenance::file(capture.path, capture.start_utf8, capture.end_utf8),
+            capture.source,
         );
-        envelope.meta.producer = EventProducer::Primitive;
+        envelope.meta.producer = capture.producer;
         self.semantic_text.executed_events.push(envelope);
     }
 
@@ -219,12 +337,15 @@ impl Vm<'_> {
         }
 
         let mut events_by_slot = vec![Vec::<RenderEventEnvelope>::new(); slots.len()];
+        let mut unmatched = Vec::new();
         for event in executed {
             if let Some(index) = slots
                 .iter()
                 .position(|slot| event_belongs_to_slot(&event, slot))
             {
                 events_by_slot[index].push(event);
+            } else {
+                unmatched.push(event);
             }
         }
         for (slot, replacements) in slots.iter().zip(events_by_slot.iter_mut()) {
@@ -287,6 +408,7 @@ impl Vm<'_> {
                 reconciled.push(event);
             }
         }
+        insert_unmatched_macro_events(&mut reconciled, unmatched);
         for (index, event) in reconciled.iter_mut().enumerate() {
             event.meta.event_id = index as EventId + 1;
         }
@@ -297,13 +419,26 @@ impl Vm<'_> {
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
-            event,
-            SourceProvenance::file(self.current_execution_source_path(), start_utf8, end_utf8),
-        );
-        envelope.meta.producer = EventProducer::Primitive;
+        let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
+        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
+        envelope.meta.producer = producer;
         self.semantic_text.executed_events.push(envelope);
+    }
+
+    fn executed_text_source(
+        &self,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> (SourceProvenance, EventProducer, Option<Utf8PathBuf>) {
+        if let Some(expansion) = self.semantic_text.expansion_stack.last() {
+            return (expansion.source.clone(), EventProducer::Macro, None);
+        }
+        let path = self.current_execution_source_path();
+        (
+            SourceProvenance::file(path.clone(), start_utf8, end_utf8),
+            EventProducer::Primitive,
+            Some(path),
+        )
     }
 
     fn can_capture_executed_text(&self) -> bool {
@@ -346,4 +481,84 @@ fn event_payloads_match(
             .iter()
             .zip(replacements)
             .all(|(original, replacement)| original.event == replacement.event)
+}
+
+fn insert_unmatched_macro_events(
+    events: &mut Vec<RenderEventEnvelope>,
+    unmatched: Vec<RenderEventEnvelope>,
+) {
+    let mut index = 0;
+    while index < unmatched.len() {
+        let Some(anchor) = event_anchor(&unmatched[index]) else {
+            index += 1;
+            continue;
+        };
+        if unmatched[index].meta.producer != EventProducer::Macro {
+            index += 1;
+            continue;
+        }
+        let mut end = index + 1;
+        while end < unmatched.len()
+            && unmatched[end].meta.producer == EventProducer::Macro
+            && event_anchor(&unmatched[end]).as_ref() == Some(&anchor)
+        {
+            end += 1;
+        }
+        let has_scanner_semantics = events.iter().any(|event| {
+            event_overlaps_anchor(event, &anchor.0, anchor.1, anchor.2)
+                && !matches!(event.event, RenderEvent::RawFallback(_))
+                && matches!(
+                    event.meta.producer,
+                    EventProducer::ScannerRecovery | EventProducer::Fallback
+                )
+        });
+        if has_scanner_semantics {
+            index = end;
+            continue;
+        }
+        events.retain(|event| {
+            !matches!(event.event, RenderEvent::RawFallback(_))
+                || !event_starts_at(event, &anchor.0, anchor.1)
+        });
+        let insertion = events
+            .iter()
+            .position(|event| {
+                event_anchor(event)
+                    .is_some_and(|(path, start, _)| path == anchor.0 && start >= anchor.1)
+            })
+            .unwrap_or(events.len());
+        events.splice(insertion..insertion, unmatched[index..end].iter().cloned());
+        index = end;
+    }
+}
+
+fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
+    match &event.meta.source.primary {
+        ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
+        ProvenanceSpan::Generated(_) => None,
+    }
+}
+
+fn event_overlaps_anchor(
+    event: &RenderEventEnvelope,
+    path: &Utf8Path,
+    start_utf8: u32,
+    end_utf8: u32,
+) -> bool {
+    provenance_spans(&event.meta.source)
+        .any(|span| span.path == path && span.start_utf8 < end_utf8 && start_utf8 < span.end_utf8)
+}
+
+fn event_starts_at(event: &RenderEventEnvelope, path: &Utf8Path, start_utf8: u32) -> bool {
+    provenance_spans(&event.meta.source)
+        .any(|span| span.path == path && span.start_utf8 == start_utf8)
+}
+
+fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
+    std::iter::once(&source.primary)
+        .chain(source.related.iter().map(|related| &related.span))
+        .filter_map(|span| match span {
+            ProvenanceSpan::File(span) => Some(span),
+            ProvenanceSpan::Generated(_) => None,
+        })
 }

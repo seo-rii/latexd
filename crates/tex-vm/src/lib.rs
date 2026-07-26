@@ -15645,6 +15645,9 @@ impl<'i> Vm<'i> {
                 }
             }
             TokenKind::ControlSequence { name } => {
+                if self.execute_semantic_expansion_marker(name) {
+                    return;
+                }
                 self.separate_executed_inline_content();
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
                 let meaning = self
@@ -15653,9 +15656,15 @@ impl<'i> Vm<'i> {
 
                 match meaning {
                     Some(Meaning::Macro(definition)) => {
-                        for token in self.expand_macro(definition, queue).into_iter().rev() {
-                            self.push_token_front(queue, token);
-                        }
+                        let expanded = self.expand_macro(definition, queue);
+                        let invocation_end_utf8 = self.last_token_end_utf8.max(token_span.end);
+                        self.queue_macro_expansion(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                            expanded,
+                            queue,
+                        );
                     }
                     Some(Meaning::Token(token)) => self.push_token_front(queue, token),
                     Some(Meaning::Primitive(primitive)) => {

@@ -262,12 +262,11 @@ wrong
 }
 
 #[test]
-#[ignore = "next execution slice: macro-expanded tokens need invocation provenance"]
 fn macro_generated_text_emits_execution_events() {
     let outcome = capture(
         r"\def\emittext{Generated text.}
 \begin{document}
-\emittext
+Before \emittext, After
 \end{document}",
     );
     let generated = outcome
@@ -285,8 +284,30 @@ fn macro_generated_text_emits_execution_events() {
     assert!(!generated.is_empty());
     assert!(generated.iter().all(|event| {
         event.meta.confidence == SemanticConfidence::High
-            && event.meta.producer != EventProducer::ScannerRecovery
+            && event.meta.producer == EventProducer::Macro
+            && event
+                .meta
+                .source
+                .expansion_stack
+                .last()
+                .and_then(|frame| frame.command_name.as_deref())
+                == Some("emittext")
     }));
+    let visible_text = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect::<String>();
+
+    assert!(
+        visible_text.contains("Before Generated text., After"),
+        "{visible_text:?}\n{:#?}",
+        outcome.render_events
+    );
 }
 
 #[test]
