@@ -87,6 +87,51 @@ fn count_arithmetic_uses_the_same_assignment_scope() {
 }
 
 #[test]
+fn group_local_dimen_and_skip_assignments_are_restored() {
+    let outcome = run(r"\dimen0=1pt\skip0=2pt{\dimen0=3pt\skip0=4pt}\the\dimen0|\the\skip0");
+
+    assert_eq!(outcome.output, "1pt|2pt");
+}
+
+#[test]
+fn global_and_globaldefs_control_dimen_and_skip_assignment_scope() {
+    let explicit =
+        run(r"\dimen0=1pt\skip0=2pt{\global\dimen0=3pt\global\skip0=4pt}\the\dimen0|\the\skip0");
+    let positive =
+        run(r"\dimen0=1pt\skip0=2pt{\globaldefs=1\dimen0=3pt\skip0=4pt}\the\dimen0|\the\skip0");
+    let negative = run(
+        r"\dimen0=1pt\skip0=2pt{\globaldefs=-1\global\dimen0=3pt\global\skip0=4pt}\the\dimen0|\the\skip0",
+    );
+
+    assert_eq!(explicit.output, "3pt|4pt");
+    assert_eq!(positive.output, "3pt|4pt");
+    assert_eq!(negative.output, "1pt|2pt");
+}
+
+#[test]
+fn dimen_and_skip_arithmetic_uses_the_same_assignment_scope() {
+    let local = run(
+        r"\dimen0=2pt\skip0=3pt{\advance\dimen0 by 1pt\multiply\skip0 by 2}\the\dimen0|\the\skip0",
+    );
+    let global = run(
+        r"\dimen0=2pt\skip0=3pt{\global\advance\dimen0 by 1pt\global\multiply\skip0 by 2}\the\dimen0|\the\skip0",
+    );
+
+    assert_eq!(local.output, "2pt|3pt");
+    assert_eq!(global.output, "3pt|6pt");
+}
+
+#[test]
+fn latex_length_helpers_use_the_same_assignment_scope() {
+    let local = run(r"\newlength{\foo}\setlength{\foo}{1pt}{\addtolength{\foo}{2pt}}\the\foo");
+    let global =
+        run(r"\newlength{\foo}\setlength{\foo}{1pt}{\global\addtolength{\foo}{2pt}}\the\foo");
+
+    assert_eq!(local.output, "1pt");
+    assert_eq!(global.output, "3pt");
+}
+
+#[test]
 #[ignore = "known divergence: macro definitions discard delimited parameter text"]
 fn delimited_macro_arguments_follow_parameter_text() {
     let outcome = run(r"\def\pair#1,#2;{#2/#1}\pair a,b;");

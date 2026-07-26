@@ -861,8 +861,6 @@ pub struct Vm<'i> {
     scopes: Vec<HashMap<String, Meaning>>,
     eqtb: Eqtb,
     save_stack: SaveStack,
-    dimen_registers: BTreeMap<u32, i32>,
-    skip_registers: BTreeMap<u32, i32>,
     token_registers: BTreeMap<u32, Vec<Token>>,
     conditionals: Vec<ConditionalState>,
     file_root: Option<Utf8PathBuf>,
@@ -919,8 +917,6 @@ impl<'i> Vm<'i> {
             scopes: vec![HashMap::new()],
             eqtb: Eqtb::default(),
             save_stack: SaveStack::default(),
-            dimen_registers: BTreeMap::new(),
-            skip_registers: BTreeMap::new(),
             token_registers: BTreeMap::new(),
             conditionals: Vec::new(),
             file_root: None,
@@ -14986,8 +14982,8 @@ impl<'i> Vm<'i> {
                 })
                 .collect(),
             registers: self.eqtb.count_values(),
-            dimen_registers: self.dimen_registers.clone(),
-            skip_registers: self.skip_registers.clone(),
+            dimen_registers: self.eqtb.dimen_values(),
+            skip_registers: self.eqtb.skip_values(),
             token_registers: self
                 .token_registers
                 .iter()
@@ -15102,10 +15098,12 @@ impl<'i> Vm<'i> {
                     .collect()
             })
             .collect();
-        vm.eqtb = Eqtb::from_count_values(snapshot.registers.clone());
+        vm.eqtb = Eqtb::from_register_values(
+            snapshot.registers.clone(),
+            snapshot.dimen_registers.clone(),
+            snapshot.skip_registers.clone(),
+        );
         vm.save_stack = SaveStack::default();
-        vm.dimen_registers = snapshot.dimen_registers.clone();
-        vm.skip_registers = snapshot.skip_registers.clone();
         vm.token_registers = snapshot
             .token_registers
             .iter()
@@ -16715,12 +16713,12 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                while self.dimen_registers.contains_key(&self.next_dimen_register) {
+                while self.eqtb.contains_dimen(self.next_dimen_register) {
                     self.next_dimen_register += 1;
                 }
                 let register_index = self.next_dimen_register;
                 self.next_dimen_register += 1;
-                self.dimen_registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_dimen(register_index);
                 let dimen_id = self.interner.intern("dimen");
                 let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
                 body.extend(
@@ -16749,12 +16747,12 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                while self.skip_registers.contains_key(&self.next_skip_register) {
+                while self.eqtb.contains_skip(self.next_skip_register) {
                     self.next_skip_register += 1;
                 }
                 let register_index = self.next_skip_register;
                 self.next_skip_register += 1;
-                self.skip_registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_skip(register_index);
                 let skip_id = self.interner.intern("skip");
                 let mut body = vec![Token::control_sequence(skip_id, 0, 0)];
                 body.extend(
@@ -16848,7 +16846,7 @@ impl<'i> Vm<'i> {
                 else {
                     return;
                 };
-                self.dimen_registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_dimen(register_index);
                 let dimen_id = self.interner.intern("dimen");
                 let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
                 body.extend(
@@ -16895,7 +16893,7 @@ impl<'i> Vm<'i> {
                 else {
                     return;
                 };
-                self.skip_registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_skip(register_index);
                 let skip_id = self.interner.intern("skip");
                 let mut body = vec![Token::control_sequence(skip_id, 0, 0)];
                 body.extend(
@@ -17016,12 +17014,12 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_macro_target(queue) else {
                     return;
                 };
-                while self.dimen_registers.contains_key(&self.next_dimen_register) {
+                while self.eqtb.contains_dimen(self.next_dimen_register) {
                     self.next_dimen_register += 1;
                 }
                 let register_index = self.next_dimen_register;
                 self.next_dimen_register += 1;
-                self.dimen_registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_dimen(register_index);
                 let dimen_id = self.interner.intern("dimen");
                 let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
                 body.extend(
@@ -17043,6 +17041,7 @@ impl<'i> Vm<'i> {
                     .push(format!("newlength \\{name}={register_index}"));
             }
             Primitive::SetLength | Primitive::AddToLength => {
+                let requested_global = mem::take(&mut self.global_prefix);
                 let Some(name) = self.read_macro_target(queue) else {
                     return;
                 };
@@ -17055,12 +17054,24 @@ impl<'i> Vm<'i> {
                 let Some(value) = self.read_dimension_expression_from_tokens(argument) else {
                     return;
                 };
-                let register = self.dimen_registers.entry(register_index).or_insert(0);
-                if primitive == Primitive::SetLength {
-                    *register = value;
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                let next = if primitive == Primitive::SetLength {
+                    value
                 } else {
-                    *register += value;
-                }
+                    self.eqtb.dimen(register_index).unwrap_or(0) + value
+                };
+                self.eqtb.assign_dimen(
+                    register_index,
+                    next,
+                    assignment_scope,
+                    self.scopes.len().saturating_sub(1),
+                    &mut self.save_stack,
+                );
             }
             Primitive::NewToks => {
                 let force_global = mem::take(&mut self.global_prefix);
@@ -18868,6 +18879,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_dimen_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -18904,8 +18916,20 @@ impl<'i> Vm<'i> {
                     let Some(delta) = self.read_dimension_expression(queue) else {
                         return;
                     };
-                    let next = self.dimen_registers.get(&index).copied().unwrap_or(0) + delta;
-                    self.dimen_registers.insert(index, next);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let next = self.eqtb.dimen(index).unwrap_or(0) + delta;
+                    self.eqtb.assign_dimen(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript
                         .push(format!("dimen{index}+={}", format_dimension_value(delta)));
                     if let Some(token) = self.after_assignment_token.take() {
@@ -18917,6 +18941,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_skip_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -18953,8 +18978,20 @@ impl<'i> Vm<'i> {
                     let Some(delta) = self.read_glue_expression(queue) else {
                         return;
                     };
-                    let next = self.skip_registers.get(&index).copied().unwrap_or(0) + delta;
-                    self.skip_registers.insert(index, next);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let next = self.eqtb.skip(index).unwrap_or(0) + delta;
+                    self.eqtb.assign_skip(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript
                         .push(format!("skip{index}+={}", format_dimension_value(delta)));
                     if let Some(token) = self.after_assignment_token.take() {
@@ -19042,6 +19079,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_dimen_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -19078,7 +19116,13 @@ impl<'i> Vm<'i> {
                     let Some(factor) = self.read_number_expression(queue) else {
                         return;
                     };
-                    let current = self.dimen_registers.get(&index).copied().unwrap_or(0);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let current = self.eqtb.dimen(index).unwrap_or(0);
                     let next = match primitive {
                         Primitive::Multiply => current.saturating_mul(factor),
                         Primitive::Divide => {
@@ -19089,7 +19133,13 @@ impl<'i> Vm<'i> {
                         }
                         _ => unreachable!(),
                     };
-                    self.dimen_registers.insert(index, next);
+                    self.eqtb.assign_dimen(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript.push(match primitive {
                         Primitive::Multiply => format!("dimen{index}*={factor}"),
                         Primitive::Divide => format!("dimen{index}/={factor}"),
@@ -19104,6 +19154,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_skip_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -19140,7 +19191,13 @@ impl<'i> Vm<'i> {
                     let Some(factor) = self.read_number_expression(queue) else {
                         return;
                     };
-                    let current = self.skip_registers.get(&index).copied().unwrap_or(0);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let current = self.eqtb.skip(index).unwrap_or(0);
                     let next = match primitive {
                         Primitive::Multiply => current.saturating_mul(factor),
                         Primitive::Divide => {
@@ -19151,7 +19208,13 @@ impl<'i> Vm<'i> {
                         }
                         _ => unreachable!(),
                     };
-                    self.skip_registers.insert(index, next);
+                    self.eqtb.assign_skip(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript.push(match primitive {
                         Primitive::Multiply => format!("skip{index}*={factor}"),
                         Primitive::Divide => format!("skip{index}/={factor}"),
@@ -19283,7 +19346,22 @@ impl<'i> Vm<'i> {
                 {
                     self.pop_next_token(queue);
                     if let Some(value) = self.read_dimension_expression(queue) {
-                        self.dimen_registers.insert(index, value);
+                        let requested_global = mem::take(&mut self.global_prefix);
+                        let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                            std::cmp::Ordering::Greater => AssignmentScope::Global,
+                            std::cmp::Ordering::Less => AssignmentScope::Local,
+                            std::cmp::Ordering::Equal if requested_global => {
+                                AssignmentScope::Global
+                            }
+                            std::cmp::Ordering::Equal => AssignmentScope::Local,
+                        };
+                        self.eqtb.assign_dimen(
+                            index,
+                            value,
+                            assignment_scope,
+                            self.scopes.len().saturating_sub(1),
+                            &mut self.save_stack,
+                        );
                         self.transcript
                             .push(format!("dimen{index}={}", format_dimension_value(value)));
                         if let Some(token) = self.after_assignment_token.take() {
@@ -19308,7 +19386,22 @@ impl<'i> Vm<'i> {
                 {
                     self.pop_next_token(queue);
                     if let Some(value) = self.read_glue_expression(queue) {
-                        self.skip_registers.insert(index, value);
+                        let requested_global = mem::take(&mut self.global_prefix);
+                        let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                            std::cmp::Ordering::Greater => AssignmentScope::Global,
+                            std::cmp::Ordering::Less => AssignmentScope::Local,
+                            std::cmp::Ordering::Equal if requested_global => {
+                                AssignmentScope::Global
+                            }
+                            std::cmp::Ordering::Equal => AssignmentScope::Local,
+                        };
+                        self.eqtb.assign_skip(
+                            index,
+                            value,
+                            assignment_scope,
+                            self.scopes.len().saturating_sub(1),
+                            &mut self.save_stack,
+                        );
                         self.transcript
                             .push(format!("skip{index}={}", format_dimension_value(value)));
                         if let Some(token) = self.after_assignment_token.take() {
@@ -19380,7 +19473,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_skip_register_index(&mut local_queue) {
                     *queue = local_queue;
-                    let value = *self.skip_registers.get(&index).unwrap_or(&0);
+                    let value = self.eqtb.skip(index).unwrap_or(0);
                     for token in render_dimension_tokens(value).into_iter().rev() {
                         self.push_token_front(queue, token);
                     }
@@ -19740,9 +19833,7 @@ impl<'i> Vm<'i> {
                             let mut local_queue = queue.clone();
                             if let Some(index) = self.read_skip_register_index(&mut local_queue) {
                                 *queue = local_queue;
-                                render_dimension_tokens(
-                                    *self.skip_registers.get(&index).unwrap_or(&0),
-                                )
+                                render_dimension_tokens(self.eqtb.skip(index).unwrap_or(0))
                             } else {
                                 let mut local_queue = queue.clone();
                                 if let Some(value) =
@@ -20428,17 +20519,17 @@ impl<'i> Vm<'i> {
                 let name = self.interner.resolve(name).unwrap_or("").to_string();
                 if name == "dimen" {
                     let index = self.read_integer(queue)? as u32;
-                    return Some(*self.dimen_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.dimen(index).unwrap_or(0));
                 }
                 if name == "skip" {
                     let index = self.read_integer(queue)? as u32;
-                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.skip(index).unwrap_or(0));
                 }
                 if let Some(index) = self.resolve_dimen_register_name(&name) {
-                    return Some(*self.dimen_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.dimen(index).unwrap_or(0));
                 }
                 if let Some(index) = self.resolve_skip_register_name(&name) {
-                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.skip(index).unwrap_or(0));
                 }
                 match self.lookup_meaning(&name) {
                     Some(Meaning::Macro(definition))
@@ -20473,10 +20564,10 @@ impl<'i> Vm<'i> {
                 let name = self.interner.resolve(name).unwrap_or("").to_string();
                 if name == "skip" {
                     let index = self.read_integer(queue)? as u32;
-                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.skip(index).unwrap_or(0));
                 }
                 if let Some(index) = self.resolve_skip_register_name(&name) {
-                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.skip(index).unwrap_or(0));
                 }
                 match self.lookup_meaning(&name) {
                     Some(Meaning::Macro(definition))
