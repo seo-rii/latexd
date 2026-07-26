@@ -32,6 +32,7 @@ mod save_stack;
 mod semantic_environment;
 mod semantic_heading;
 mod semantic_inline;
+mod semantic_list;
 mod semantic_math;
 mod semantic_text;
 mod snapshot;
@@ -48,6 +49,7 @@ use save_stack::SaveStack;
 use semantic_environment::SemanticEnvironmentState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
+use semantic_list::SemanticListState;
 use semantic_math::ExecutedMathCapture;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
@@ -899,6 +901,7 @@ pub struct Vm<'i> {
     semantic_environment: SemanticEnvironmentState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
+    semantic_list: SemanticListState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     execution_no_hyper_depth: usize,
@@ -966,6 +969,7 @@ impl<'i> Vm<'i> {
             semantic_environment: SemanticEnvironmentState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
+            semantic_list: SemanticListState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             execution_no_hyper_depth: 0,
@@ -14960,6 +14964,7 @@ impl<'i> Vm<'i> {
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
         let scanner_heading = matches!(&event, RenderEvent::Heading(_));
+        let scanner_list_item = matches!(&event, RenderEvent::ListItem(_));
         let scanner_environment = matches!(
             &event,
             RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
@@ -14980,6 +14985,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_heading {
             self.mark_scanner_heading_event(event_id);
+        }
+        if scanner_list_item {
+            self.mark_scanner_list_item_event(event_id);
         }
         if scanner_environment {
             self.mark_scanner_environment_event(event_id);
@@ -15071,6 +15079,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_heading_events();
             self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
+            self.reconcile_executed_list_events();
             self.reconcile_executed_environment_events();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
@@ -16620,6 +16629,7 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
+                self.begin_executed_list(environment);
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
                 }
@@ -16660,13 +16670,16 @@ impl<'i> Vm<'i> {
                     let _ = self.read_optional_bracket_tokens(queue);
                     let _ = self.read_macro_argument(queue);
                 }
-                if matches!(
+                if matches!(environment, "enumerate" | "itemize" | "description") {
+                    for _ in 0..3 {
+                        if self.read_optional_bracket_tokens(queue).is_none() {
+                            break;
+                        }
+                    }
+                } else if matches!(
                     environment,
-                    "enumerate"
-                        | "enumerate*"
-                        | "itemize"
+                    "enumerate*"
                         | "itemize*"
-                        | "description"
                         | "description*"
                         | "algorithm"
                         | "algorithm*"
@@ -16712,6 +16725,7 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
+                self.end_executed_list(environment);
                 if environment == "document" {
                     self.execution_in_document = false;
                     self.execution_no_hyper_depth = 0;
@@ -16738,6 +16752,27 @@ impl<'i> Vm<'i> {
                 ) {
                     self.legacy_math_output_active = false;
                 }
+            }
+            Primitive::Item => {
+                self.skip_optional_spaces(queue);
+                let marker = self.read_optional_bracket_tokens(queue).map(|tokens| {
+                    let mut source = String::new();
+                    for token in self.fully_expand_tokens(tokens) {
+                        match token.kind {
+                            TokenKind::Character { ch, .. } => source.push(ch),
+                            TokenKind::ControlSequence { name } => {
+                                source.push('\\');
+                                source.push_str(self.interner.resolve(name).unwrap_or(""));
+                            }
+                        }
+                    }
+                    normalize_latex_text(&source)
+                });
+                self.emit_executed_list_item(
+                    marker,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                );
             }
             Primitive::MakeAtLetter | Primitive::MakeAtOther => {
                 let requested_global = mem::take(&mut self.global_prefix);
@@ -22735,6 +22770,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "endcsname" => Some(Primitive::EndCsName),
         "begin" => Some(Primitive::BeginEnvironment),
         "end" => Some(Primitive::EndEnvironment),
+        "item" => Some(Primitive::Item),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -23152,6 +23188,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::EndCsName => "endcsname",
         Primitive::BeginEnvironment => "begin",
         Primitive::EndEnvironment => "end",
+        Primitive::Item => "item",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

@@ -9,7 +9,7 @@ use tex_render_model::{
     RenderEventEnvelope, SourceProvenance, SourceSpan,
 };
 
-use crate::{Vm, input::QueueItem};
+use crate::{Vm, input::QueueItem, semantic_list::list_kind_for_environment};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticEnvironmentState {
@@ -123,6 +123,9 @@ impl Vm<'_> {
 }
 
 fn semantic_block_for_environment(environment: &str) -> Option<BlockKind> {
+    if let Some(list_kind) = list_kind_for_environment(environment) {
+        return Some(BlockKind::List { list_kind });
+    }
     match environment {
         "abstract" | "abstract*" | "onecolabstract" => Some(BlockKind::Abstract),
         "thebibliography" => Some(BlockKind::Bibliography),

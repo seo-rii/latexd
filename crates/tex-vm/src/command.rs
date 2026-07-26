@@ -76,6 +76,7 @@ pub(crate) enum Primitive {
     EndCsName,
     BeginEnvironment,
     EndEnvironment,
+    Item,
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,

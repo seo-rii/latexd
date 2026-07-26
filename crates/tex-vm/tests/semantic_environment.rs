@@ -356,7 +356,7 @@ fn nested_macro_environment_anchors_to_the_outer_invocation() {
 }
 
 #[test]
-fn unmigrated_list_and_dynamic_theorem_keep_scanner_recovery() {
+fn migrated_list_is_authoritative_while_dynamic_theorem_uses_scanner_recovery() {
     let outcome = capture(
         r"\newtheorem{claim}{Claim}
 \begin{document}
@@ -372,8 +372,8 @@ fn unmigrated_list_and_dynamic_theorem_keep_scanner_recovery() {
             BlockKind::List {
                 list_kind: tex_render_model::ListKind::Unordered
             }
-        ) && *producer == EventProducer::ScannerRecovery
-            && *confidence == SemanticConfidence::Medium
+        ) && *producer == EventProducer::Primitive
+            && *confidence == SemanticConfidence::High
     }));
     assert!(blocks.iter().any(|(_, block, producer, confidence)| {
         block
