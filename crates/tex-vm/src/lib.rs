@@ -29,12 +29,12 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
-mod semantic_citation;
+mod semantic_inline;
 mod semantic_math;
 mod semantic_text;
 mod snapshot;
 
-use command::{MacroDefinition, Meaning, Primitive};
+use command::{MacroDefinition, Meaning, Primitive, ReferenceCommand};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
@@ -43,7 +43,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
-use semantic_citation::SemanticCitationState;
+use semantic_inline::SemanticInlineState;
 use semantic_math::ExecutedMathCapture;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
@@ -894,7 +894,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
-    semantic_citation: SemanticCitationState,
+    semantic_inline: SemanticInlineState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     next_render_event_id: EventId,
@@ -958,7 +958,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
-            semantic_citation: SemanticCitationState::default(),
+            semantic_inline: SemanticInlineState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             next_render_event_id: 1,
@@ -14942,6 +14942,7 @@ impl<'i> Vm<'i> {
                     == Some(&b'$')
         });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
+        let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
@@ -14949,6 +14950,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_citation {
             self.mark_scanner_citation_event(event_id);
+        }
+        if scanner_reference {
+            self.mark_scanner_reference_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15034,9 +15038,9 @@ impl<'i> Vm<'i> {
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
             self.reconcile_executed_math_events();
-            self.reconcile_executed_citation_events();
+            self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
-            self.reconcile_embedded_executed_citations();
+            self.reconcile_embedded_executed_inline_events();
             self.render_event_sources.clear();
         }
 
@@ -15790,6 +15794,47 @@ impl<'i> Vm<'i> {
                         .collect::<Vec<_>>();
                     self.emit_executed_citation(
                         primitive_command_name,
+                        keys,
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                    );
+                    self.output.push_str("[?]");
+                }
+            }
+            Primitive::Reference(reference_command) => {
+                self.skip_optional_spaces(queue);
+                if let Some(token) = self.pop_next_token(queue) {
+                    if !matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            ch: '*',
+                            catcode: CatCode::Other | CatCode::Letter | CatCode::Active
+                        }
+                    ) {
+                        self.push_token_front(queue, token);
+                    }
+                }
+                loop {
+                    self.skip_optional_spaces(queue);
+                    if self.read_optional_bracket_tokens(queue).is_none() {
+                        break;
+                    }
+                }
+                if let Some(key_tokens) = self.read_macro_argument(queue) {
+                    let mut keys = self
+                        .tokens_to_text(key_tokens)
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|key| !key.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>();
+                    if reference_command.key_argument_count == 2
+                        && let Some(key_tokens) = self.read_macro_argument(queue)
+                    {
+                        keys.push(self.tokens_to_text(key_tokens).trim().to_string());
+                    }
+                    self.emit_executed_reference(
+                        reference_command.canonical_name.to_string(),
                         keys,
                         source_offset_utf8,
                         self.last_token_end_utf8.max(source_end_utf8),
@@ -22669,6 +22714,154 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "input" => Some(Primitive::Input),
         "include" => Some(Primitive::Include),
         "includeonly" => Some(Primitive::IncludeOnly),
+        "ref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "ref",
+            key_argument_count: 1,
+        })),
+        "eqref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "eqref",
+            key_argument_count: 1,
+        })),
+        "pageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "pageref",
+            key_argument_count: 1,
+        })),
+        "autoref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "autoref",
+            key_argument_count: 1,
+        })),
+        "nameref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "nameref",
+            key_argument_count: 1,
+        })),
+        "cref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "cref",
+            key_argument_count: 1,
+        })),
+        "Cref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Cref",
+            key_argument_count: 1,
+        })),
+        "subref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "subref",
+            key_argument_count: 1,
+        })),
+        "vref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "vref",
+            key_argument_count: 1,
+        })),
+        "Vref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Vref",
+            key_argument_count: 1,
+        })),
+        "vpageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "vpageref",
+            key_argument_count: 1,
+        })),
+        "fullref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "fullref",
+            key_argument_count: 1,
+        })),
+        "namecref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "namecref",
+            key_argument_count: 1,
+        })),
+        "labelcref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "labelcref",
+            key_argument_count: 1,
+        })),
+        "cpageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "cpageref",
+            key_argument_count: 1,
+        })),
+        "Cpageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Cpageref",
+            key_argument_count: 1,
+        })),
+        "autopageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "autopageref",
+            key_argument_count: 1,
+        })),
+        "labelcpageref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "labelcpageref",
+            key_argument_count: 1,
+        })),
+        "Fullref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Fullref",
+            key_argument_count: 1,
+        })),
+        "titleref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "titleref",
+            key_argument_count: 1,
+        })),
+        "Titleref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Titleref",
+            key_argument_count: 1,
+        })),
+        "nameCref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "nameCref",
+            key_argument_count: 1,
+        })),
+        "lcnamecref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "lcnamecref",
+            key_argument_count: 1,
+        })),
+        "namecrefs" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "namecrefs",
+            key_argument_count: 1,
+        })),
+        "nameCrefs" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "nameCrefs",
+            key_argument_count: 1,
+        })),
+        "lcnamecrefs" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "lcnamecrefs",
+            key_argument_count: 1,
+        })),
+        "thmref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "thmref",
+            key_argument_count: 1,
+        })),
+        "Thmref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Thmref",
+            key_argument_count: 1,
+        })),
+        "subeqref" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "subeqref",
+            key_argument_count: 1,
+        })),
+        "crefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "crefrange",
+            key_argument_count: 2,
+        })),
+        "Crefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Crefrange",
+            key_argument_count: 2,
+        })),
+        "cpagerefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "cpagerefrange",
+            key_argument_count: 2,
+        })),
+        "Cpagerefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Cpagerefrange",
+            key_argument_count: 2,
+        })),
+        "pagerefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "pagerefrange",
+            key_argument_count: 2,
+        })),
+        "vpagerefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "vpagerefrange",
+            key_argument_count: 2,
+        })),
+        "vrefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "vrefrange",
+            key_argument_count: 2,
+        })),
+        "Vrefrange" => Some(Primitive::Reference(ReferenceCommand {
+            canonical_name: "Vrefrange",
+            key_argument_count: 2,
+        })),
         "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "Citealt" | "citealp"
         | "Citealp" | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
         | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
@@ -22894,6 +23087,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Include => "include",
         Primitive::IncludeOnly => "includeonly",
         Primitive::Citation => "cite",
+        Primitive::Reference(reference) => reference.canonical_name,
     }
 }
 
@@ -29455,7 +29649,7 @@ mod tests {
             .filter_map(|event| match &event.event {
                 RenderEvent::Text(text) => Some(text.text.as_str()),
                 RenderEvent::Space(_) => Some(" "),
-                RenderEvent::InlineCitation(_) => Some("[?]"),
+                RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => Some("[?]"),
                 _ => None,
             })
             .collect()
@@ -47110,7 +47304,8 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::InlineReference(reference)
-                if reference.command == "ref" && reference.keys == vec!["sec:intro".to_string()]
+                if reference.command == "ref"
+                    && reference.keys == vec!["sec:intro".to_string()]
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,

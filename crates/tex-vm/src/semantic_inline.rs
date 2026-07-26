@@ -5,21 +5,32 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent, ProvenanceSpan,
-    RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
+    CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent,
+    InlineReferenceEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance,
+    SourceSpan, SourceSpanRole,
 };
 
 use crate::{Vm, citation_style_hint_for_command};
 
 #[derive(Debug, Default)]
-pub(super) struct SemanticCitationState {
-    scanner_event_ids: HashSet<EventId>,
-    executed_events: Vec<RenderEventEnvelope>,
+pub(super) struct SemanticInlineState {
+    scanner_citation_event_ids: HashSet<EventId>,
+    scanner_reference_event_ids: HashSet<EventId>,
+    executed_citations: Vec<RenderEventEnvelope>,
+    executed_references: Vec<RenderEventEnvelope>,
 }
 
 impl Vm<'_> {
     pub(super) fn mark_scanner_citation_event(&mut self, event_id: EventId) {
-        self.semantic_citation.scanner_event_ids.insert(event_id);
+        self.semantic_inline
+            .scanner_citation_event_ids
+            .insert(event_id);
+    }
+
+    pub(super) fn mark_scanner_reference_event(&mut self, event_id: EventId) {
+        self.semantic_inline
+            .scanner_reference_event_ids
+            .insert(event_id);
     }
 
     pub(super) fn emit_executed_citation(
@@ -32,27 +43,7 @@ impl Vm<'_> {
         if !self.render_event_capture || !self.execution_in_document {
             return;
         }
-        let (mut source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
-        let invocation_span = match &source.primary {
-            ProvenanceSpan::File(primary)
-                if producer == EventProducer::Macro
-                    && start_utf8 >= primary.start_utf8
-                    && end_utf8 <= primary.end_utf8 =>
-            {
-                Some(SourceSpan {
-                    path: primary.path.clone(),
-                    start_utf8,
-                    end_utf8,
-                })
-            }
-            _ => None,
-        };
-        if let Some(invocation_span) = invocation_span {
-            source = source.with_related(
-                SourceSpanRole::Invocation,
-                ProvenanceSpan::File(invocation_span),
-            );
-        }
+        let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
         let mut envelope = RenderEventEnvelope::new(
@@ -65,13 +56,48 @@ impl Vm<'_> {
             source,
         );
         envelope.meta.producer = producer;
-        self.semantic_citation.executed_events.push(envelope);
+        self.semantic_inline.executed_citations.push(envelope);
         self.mark_executed_inline_content();
     }
 
-    pub(super) fn reconcile_executed_citation_events(&mut self) {
-        let scanner_ids = mem::take(&mut self.semantic_citation.scanner_event_ids);
-        let mut executed = mem::take(&mut self.semantic_citation.executed_events);
+    pub(super) fn emit_executed_reference(
+        &mut self,
+        command: String,
+        keys: Vec<String>,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            return;
+        }
+        let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
+        let event_id = self.next_render_event_id;
+        self.next_render_event_id += 1;
+        let mut envelope = RenderEventEnvelope::new(
+            event_id,
+            RenderEvent::InlineReference(InlineReferenceEvent { keys, command }),
+            source,
+        );
+        envelope.meta.producer = producer;
+        self.semantic_inline.executed_references.push(envelope);
+        self.mark_executed_inline_content();
+    }
+
+    pub(super) fn reconcile_executed_inline_events(&mut self) {
+        let citation_ids = mem::take(&mut self.semantic_inline.scanner_citation_event_ids);
+        let citations = mem::take(&mut self.semantic_inline.executed_citations);
+        self.reconcile_scanner_inline_events(citation_ids, citations);
+
+        let reference_ids = mem::take(&mut self.semantic_inline.scanner_reference_event_ids);
+        let references = mem::take(&mut self.semantic_inline.executed_references);
+        self.reconcile_scanner_inline_events(reference_ids, references);
+    }
+
+    fn reconcile_scanner_inline_events(
+        &mut self,
+        scanner_ids: HashSet<EventId>,
+        mut executed: Vec<RenderEventEnvelope>,
+    ) {
         if scanner_ids.is_empty() && executed.is_empty() {
             return;
         }
@@ -84,7 +110,7 @@ impl Vm<'_> {
                 continue;
             }
             let matching = executed.iter().position(|candidate| {
-                citation_payload_matches(candidate, &scanner_event)
+                inline_payload_matches(candidate, &scanner_event)
                     && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
             });
             if let Some(index) = matching {
@@ -111,28 +137,29 @@ impl Vm<'_> {
         }
 
         executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
-        insert_unmatched_citations(&mut reconciled, executed);
+        insert_unmatched_inline_events(&mut reconciled, executed);
         self.render_events = reconciled;
     }
 
-    pub(super) fn reconcile_embedded_executed_citations(&mut self) {
+    pub(super) fn reconcile_embedded_executed_inline_events(&mut self) {
         let mut executed = Vec::new();
         let mut events = Vec::with_capacity(self.render_events.len());
         for event in self.render_events.drain(..) {
-            if matches!(event.event, RenderEvent::InlineCitation(_))
-                && matches!(
-                    event.meta.producer,
-                    EventProducer::Primitive | EventProducer::Macro
-                )
-            {
+            if matches!(
+                event.event,
+                RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_)
+            ) && matches!(
+                event.meta.producer,
+                EventProducer::Primitive | EventProducer::Macro
+            ) {
                 executed.push(event);
             } else {
                 events.push(event);
             }
         }
-        self.replace_embedded_citation_placeholders(&mut events, &mut executed);
-        executed.retain(|citation| !recovery_container_represents(&events, citation));
-        insert_unmatched_citations(&mut events, executed);
+        self.replace_embedded_inline_placeholders(&mut events, &mut executed);
+        executed.retain(|event| !recovery_container_represents(&events, event));
+        insert_unmatched_inline_events(&mut events, executed);
         for (index, event) in events.iter_mut().enumerate() {
             event.meta.event_id = index as EventId + 1;
         }
@@ -140,7 +167,7 @@ impl Vm<'_> {
         self.render_events = events;
     }
 
-    fn replace_embedded_citation_placeholders(
+    fn replace_embedded_inline_placeholders(
         &self,
         events: &mut Vec<RenderEventEnvelope>,
         executed: &mut Vec<RenderEventEnvelope>,
@@ -217,28 +244,58 @@ impl Vm<'_> {
         }
         *events = reconciled;
     }
+
+    fn executed_inline_source(
+        &self,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> (SourceProvenance, EventProducer) {
+        let (mut source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
+        let invocation_span = match &source.primary {
+            ProvenanceSpan::File(primary)
+                if producer == EventProducer::Macro
+                    && start_utf8 >= primary.start_utf8
+                    && end_utf8 <= primary.end_utf8 =>
+            {
+                Some(SourceSpan {
+                    path: primary.path.clone(),
+                    start_utf8,
+                    end_utf8,
+                })
+            }
+            _ => None,
+        };
+        if let Some(invocation_span) = invocation_span {
+            source = source.with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(invocation_span),
+            );
+        }
+        (source, producer)
+    }
 }
 
-fn citation_payload_matches(left: &RenderEventEnvelope, right: &RenderEventEnvelope) -> bool {
-    matches!(
-        (&left.event, &right.event),
-        (RenderEvent::InlineCitation(left), RenderEvent::InlineCitation(right))
-            if left.keys == right.keys && left.style_hint == right.style_hint
-    )
+fn inline_payload_matches(left: &RenderEventEnvelope, right: &RenderEventEnvelope) -> bool {
+    match (&left.event, &right.event) {
+        (RenderEvent::InlineCitation(left), RenderEvent::InlineCitation(right)) => {
+            left.keys == right.keys && left.style_hint == right.style_hint
+        }
+        (RenderEvent::InlineReference(left), RenderEvent::InlineReference(right)) => {
+            left.keys == right.keys && left.command == right.command
+        }
+        _ => false,
+    }
 }
 
 fn recovery_container_represents(
     events: &[RenderEventEnvelope],
-    citation_event: &RenderEventEnvelope,
+    inline_event: &RenderEventEnvelope,
 ) -> bool {
-    let RenderEvent::InlineCitation(citation) = &citation_event.event else {
-        return false;
-    };
     events.iter().any(|event| {
         matches!(
             event.meta.producer,
             EventProducer::ScannerRecovery | EventProducer::Fallback
-        ) && event_anchor_is_contained_by(citation_event, &event.meta.source)
+        ) && event_anchor_is_contained_by(inline_event, &event.meta.source)
             && match &event.event {
                 RenderEvent::Text(text) => text.text.contains("[?]"),
                 RenderEvent::Heading(heading) => heading.text.contains("[?]"),
@@ -247,12 +304,20 @@ fn recovery_container_represents(
                 RenderEvent::Caption(caption) => {
                     caption.text.contains("[?]")
                         || caption.inline_placeholders.iter().any(|placeholder| {
-                            matches!(
-                                placeholder,
-                                CaptionInlinePlaceholderEvent::Citation(embedded)
-                                    if embedded.keys == citation.keys
-                                        && embedded.style_hint == citation.style_hint
-                            )
+                            match (placeholder, &inline_event.event) {
+                                (
+                                    CaptionInlinePlaceholderEvent::Citation(embedded),
+                                    RenderEvent::InlineCitation(actual),
+                                ) => {
+                                    embedded.keys == actual.keys
+                                        && embedded.style_hint == actual.style_hint
+                                }
+                                (
+                                    CaptionInlinePlaceholderEvent::Reference(embedded),
+                                    RenderEvent::InlineReference(actual),
+                                ) => embedded.keys == actual.keys,
+                                _ => false,
+                            }
                         })
                 }
                 RenderEvent::RawFallback(fallback) => fallback
@@ -272,7 +337,7 @@ fn event_anchor_is_contained_by(event: &RenderEventEnvelope, source: &SourceProv
         .any(|span| span.path == path && start_utf8 >= span.start_utf8 && end_utf8 <= span.end_utf8)
 }
 
-fn insert_unmatched_citations(
+fn insert_unmatched_inline_events(
     events: &mut Vec<RenderEventEnvelope>,
     executed: Vec<RenderEventEnvelope>,
 ) {
@@ -309,17 +374,18 @@ fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> boo
 }
 
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
-    if matches!(event.event, RenderEvent::InlineCitation(_))
-        && let Some(span) = event.meta.source.related.iter().find_map(|related| {
-            if related.role != SourceSpanRole::Invocation {
-                return None;
-            }
-            match &related.span {
-                ProvenanceSpan::File(span) => Some(span),
-                ProvenanceSpan::Generated(_) => None,
-            }
-        })
-    {
+    if matches!(
+        event.event,
+        RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_)
+    ) && let Some(span) = event.meta.source.related.iter().find_map(|related| {
+        if related.role != SourceSpanRole::Invocation {
+            return None;
+        }
+        match &related.span {
+            ProvenanceSpan::File(span) => Some(span),
+            ProvenanceSpan::Generated(_) => None,
+        }
+    }) {
         return Some((span.path.clone(), span.start_utf8, span.end_utf8));
     }
     match &event.meta.source.primary {

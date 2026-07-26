@@ -428,6 +428,130 @@ fn executed_citation_replaces_recovery_placeholder_inside_visible_wrapper_text()
 }
 
 #[test]
+fn false_conditional_does_not_emit_reference_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\ref{wrong}
+\fi
+\ref{right}
+\end{document}",
+    );
+    let references = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineReference(reference) => Some((
+                reference.keys.clone(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        references,
+        vec![(
+            vec!["right".to_string()],
+            EventProducer::Primitive,
+            SemanticConfidence::High,
+        )]
+    );
+}
+
+#[test]
+fn macro_generated_reference_emits_at_the_invocation() {
+    let outcome = capture(
+        r"\def\emitref{\ref{key}}
+\begin{document}
+Before \emitref, After
+\end{document}",
+    );
+    let reference = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::InlineReference(_)))
+        .expect("macro-generated reference");
+    let RenderEvent::InlineReference(reference_event) = &reference.event else {
+        unreachable!();
+    };
+
+    assert_eq!(reference_event.keys, vec!["key"]);
+    assert_eq!(reference.meta.producer, EventProducer::Macro);
+    assert_eq!(reference.meta.confidence, SemanticConfidence::High);
+    assert_eq!(
+        reference
+            .meta
+            .source
+            .expansion_stack
+            .last()
+            .and_then(|frame| frame.command_name.as_deref()),
+        Some("emitref")
+    );
+    let before = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "Before"))
+        .expect("before text");
+    let reference_position = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(event.event, RenderEvent::InlineReference(_)))
+        .expect("reference position");
+    let after = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "After"))
+        .expect("after text");
+
+    assert!(before < reference_position && reference_position < after);
+}
+
+#[test]
+fn reference_aliases_preserve_canonical_semantics_and_arity() {
+    let outcome = capture(
+        r"\let\myeqref\eqref
+\let\myrange\crefrange
+\begin{document}
+\myeqref{eq:main} \myrange{fig:a}{fig:b}
+\end{document}",
+    );
+    let references = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineReference(reference) => {
+                Some((reference.command.as_str(), reference.keys.as_slice()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        references,
+        vec![
+            ("eqref", &["eq:main".to_string()][..]),
+            ("crefrange", &["fig:a".to_string(), "fig:b".to_string()][..]),
+        ],
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::InlineReference(_)))
+            .count(),
+        2
+    );
+    assert!(!outcome.render_events.iter().any(
+        |event| matches!(&event.event, RenderEvent::Text(text) if text.text.contains("fig:b"))
+    ));
+}
+
+#[test]
 fn executed_paragraph_breaks_preserve_their_reason() {
     let outcome = capture(
         r"\begin{document}

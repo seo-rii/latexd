@@ -8,10 +8,10 @@
         ]
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 3,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -44,10 +44,10 @@
         ]
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 7,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -81,10 +81,10 @@
         ]
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 10,
         "mode_hint": "horizontal",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,

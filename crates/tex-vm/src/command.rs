@@ -15,6 +15,12 @@ pub(crate) struct MacroDefinition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReferenceCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) key_argument_count: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -227,4 +233,5 @@ pub(crate) enum Primitive {
     Include,
     IncludeOnly,
     Citation,
+    Reference(ReferenceCommand),
 }

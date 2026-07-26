@@ -18872,7 +18872,7 @@ fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() 
         ),
         (
             "boxed [?]",
-            "boxed [?]",
+            "boxed ",
             r"boxed \ref{sec:intro}",
             r"\colorbox{yellow}{boxed \ref{sec:intro}}",
             &["yellow"][..],

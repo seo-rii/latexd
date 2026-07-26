@@ -126,9 +126,9 @@
         {
           "clusters": [
             {
-              "glyph_end": 9,
+              "glyph_end": 6,
               "glyph_start": 0,
-              "text_end_utf8": 9,
+              "text_end_utf8": 6,
               "text_start_utf8": 0
             }
           ],
@@ -163,13 +163,13 @@
               }
             ]
           },
-          "text": "boxed [?]"
+          "text": "boxed "
         }
       ],
       "event": {
         "event": {
           "kind": "text",
-          "text": "boxed [?]"
+          "text": "boxed "
         },
         "meta": {
           "confidence": "medium",
@@ -303,7 +303,7 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 18,
+          "event_id": 19,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
           "source": {
