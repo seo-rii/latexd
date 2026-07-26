@@ -788,48 +788,58 @@ pub fn run_project_from_checkpoint_with_mounts(
         source_offset_utf8: checkpoint.source_offset_utf8,
     });
     replay_frames.extend(checkpoint.continuation_stack.clone());
-    for frame in &replay_frames {
-        let source_path = world.root.join(&frame.path);
-        let source = if let Some(source) = mounted_files.get(&frame.path) {
-            source.clone()
-        } else {
-            read_tex_source_lossy(&source_path)
-                .with_context(|| format!("failed to read replay source {source_path}"))?
-        };
-        let start_offset = align_char_boundary(&source, frame.source_offset_utf8 as usize);
-        vm.set_entry_source_path(frame.path.clone());
+    let current_continuation_sources =
+        checkpoint
+            .snapshot
+            .input_continuation
+            .as_ref()
+            .and_then(|continuation| {
+                continuation
+                    .source_stack
+                    .iter()
+                    .rev()
+                    .map(|frame| {
+                        if frame.path == toplevel {
+                            return Some(source[body_start..].to_string());
+                        }
+                        if let Some(source) = mounted_files.get(&frame.path) {
+                            return Some(source.clone());
+                        }
+                        read_tex_source_lossy(&world.root.join(&frame.path)).ok()
+                    })
+                    .collect::<Option<Vec<_>>>()
+            });
+    let can_resume_serialized_input = checkpoint
+        .snapshot
+        .input_continuation
+        .as_ref()
+        .zip(current_continuation_sources.as_ref())
+        .is_some_and(|(continuation, sources)| {
+            continuation.is_restorable()
+                && continuation.matches_character_sources(sources.iter().map(String::as_str))
+        });
+    if can_resume_serialized_input {
         let output_prefix_len = output.len() as u32;
-        let outcome = vm.run_plain(&source[start_offset..]);
+        let outcome = vm
+            .resume_continuation()
+            .expect("validated input continuation must be restorable");
         output.push_str(&outcome.output);
-        let output_end_utf8 = output.len() as u32;
         registers = outcome.registers;
         transcript.extend(outcome.transcript);
         diagnostics.extend(outcome.diagnostics);
         loaded_modules = outcome.loaded_modules;
-        if frame.path != toplevel && !loaded_modules.contains(&frame.path) {
-            loaded_modules.push(frame.path.clone());
-        }
-        if frame.path != toplevel {
-            module_traces.push(VmModuleTrace {
-                path: frame.path.clone(),
-                source_start_utf8: start_offset as u32,
-                source_end_utf8: source.len() as u32,
-                output_start_utf8: output_prefix_len,
-                output_end_utf8,
-            });
-        }
-        module_traces.extend(
-            outcome
-                .module_traces
-                .into_iter()
-                .map(|trace| VmModuleTrace {
-                    path: trace.path,
-                    source_start_utf8: trace.source_start_utf8,
-                    source_end_utf8: trace.source_end_utf8,
-                    output_start_utf8: trace.output_start_utf8 + output_prefix_len,
-                    output_end_utf8: trace.output_end_utf8 + output_prefix_len,
-                }),
-        );
+        module_traces.extend(outcome.module_traces.into_iter().map(|trace| {
+            VmModuleTrace {
+                source_start_utf8: replay_frames
+                    .iter()
+                    .find(|frame| frame.path == trace.path)
+                    .map_or(trace.source_start_utf8, |frame| frame.source_offset_utf8),
+                path: trace.path,
+                source_end_utf8: trace.source_end_utf8,
+                output_start_utf8: trace.output_start_utf8 + output_prefix_len,
+                output_end_utf8: trace.output_end_utf8 + output_prefix_len,
+            }
+        }));
         module_checkpoints.extend(outcome.module_checkpoints.into_iter().map(|checkpoint| {
             VmModuleCheckpoint {
                 kind: checkpoint.kind,
@@ -841,6 +851,61 @@ pub fn run_project_from_checkpoint_with_mounts(
                 snapshot: checkpoint.snapshot,
             }
         }));
+    } else {
+        for frame in &replay_frames {
+            let source_path = world.root.join(&frame.path);
+            let source = if let Some(source) = mounted_files.get(&frame.path) {
+                source.clone()
+            } else {
+                read_tex_source_lossy(&source_path)
+                    .with_context(|| format!("failed to read replay source {source_path}"))?
+            };
+            let start_offset = align_char_boundary(&source, frame.source_offset_utf8 as usize);
+            vm.set_entry_source_path(frame.path.clone());
+            let output_prefix_len = output.len() as u32;
+            let outcome = vm.run_plain(&source[start_offset..]);
+            output.push_str(&outcome.output);
+            let output_end_utf8 = output.len() as u32;
+            registers = outcome.registers;
+            transcript.extend(outcome.transcript);
+            diagnostics.extend(outcome.diagnostics);
+            loaded_modules = outcome.loaded_modules;
+            if frame.path != toplevel && !loaded_modules.contains(&frame.path) {
+                loaded_modules.push(frame.path.clone());
+            }
+            if frame.path != toplevel {
+                module_traces.push(VmModuleTrace {
+                    path: frame.path.clone(),
+                    source_start_utf8: start_offset as u32,
+                    source_end_utf8: source.len() as u32,
+                    output_start_utf8: output_prefix_len,
+                    output_end_utf8,
+                });
+            }
+            module_traces.extend(
+                outcome
+                    .module_traces
+                    .into_iter()
+                    .map(|trace| VmModuleTrace {
+                        path: trace.path,
+                        source_start_utf8: trace.source_start_utf8,
+                        source_end_utf8: trace.source_end_utf8,
+                        output_start_utf8: trace.output_start_utf8 + output_prefix_len,
+                        output_end_utf8: trace.output_end_utf8 + output_prefix_len,
+                    }),
+            );
+            module_checkpoints.extend(outcome.module_checkpoints.into_iter().map(|checkpoint| {
+                VmModuleCheckpoint {
+                    kind: checkpoint.kind,
+                    module_path: checkpoint.module_path,
+                    resume_path: checkpoint.resume_path,
+                    source_offset_utf8: checkpoint.source_offset_utf8,
+                    continuation_stack: checkpoint.continuation_stack,
+                    output_start_utf8: checkpoint.output_start_utf8 + output_prefix_len,
+                    snapshot: checkpoint.snapshot,
+                }
+            }));
+        }
     }
     loaded_modules.sort();
     loaded_modules.dedup();
@@ -2738,6 +2803,89 @@ mod tests {
             resumed_parent_trace.source_end_utf8,
             "B\\input{sections/child}C".len() as u32
         );
+    }
+
+    #[test]
+    fn replay_checkpoint_preserves_package_catcodes_from_serialized_input_continuation() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("child.tex"), "C").expect("child");
+        fs::write(
+            root.join("resume.sty"),
+            r"\def\resume{\input{child}\def\pkg@tail{B}\pkg@tail}A\resume",
+        )
+        .expect("package");
+        fs::write(root.join("paper.tex"), r"\usepackage{resume}Z").expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let full = run_project(&world).expect("full run");
+        let child_exit = full
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == tex_vm::VmModuleCheckpointKind::Exit
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child exit checkpoint");
+        let replayed = run_project_from_checkpoint(
+            &world,
+            &super::ProjectReplayCheckpoint {
+                snapshot: child_exit.snapshot.clone(),
+                resume_path: child_exit.resume_path.clone().expect("resume path"),
+                source_offset_utf8: child_exit.source_offset_utf8,
+                continuation_stack: child_exit.continuation_stack.clone(),
+            },
+            &full.output[..child_exit.output_start_utf8 as usize],
+        )
+        .expect("replayed run");
+
+        assert_eq!(full.output, "ACBZ");
+        assert_eq!(replayed.output, full.output);
+        assert!(replayed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn replay_checkpoint_uses_current_source_when_serialized_input_is_stale() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("child.tex"), "D").expect("child");
+        fs::write(root.join("paper.tex"), r"A\input{child}C").expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let full = run_project(&world).expect("full run");
+        let child_exit = full
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == tex_vm::VmModuleCheckpointKind::Exit
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child exit checkpoint");
+        fs::write(root.join("paper.tex"), r"A\input{child}X").expect("updated paper");
+
+        let replayed = run_project_from_checkpoint(
+            &world,
+            &super::ProjectReplayCheckpoint {
+                snapshot: child_exit.snapshot.clone(),
+                resume_path: child_exit.resume_path.clone().expect("resume path"),
+                source_offset_utf8: child_exit.source_offset_utf8,
+                continuation_stack: child_exit.continuation_stack.clone(),
+            },
+            &full.output[..child_exit.output_start_utf8 as usize],
+        )
+        .expect("replayed run");
+
+        assert_eq!(replayed.output, "ADX");
     }
 
     #[test]

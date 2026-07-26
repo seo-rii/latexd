@@ -162,6 +162,22 @@ impl VmInputContinuationSnapshot {
                 } => source_start_utf8 <= source_end_utf8,
             })
     }
+
+    pub fn matches_character_sources<'a>(
+        &self,
+        sources: impl IntoIterator<Item = &'a str>,
+    ) -> bool {
+        let mut sources = sources.into_iter();
+        for mouth in self.queue.iter().filter_map(|item| match item {
+            VmQueueItemSnapshot::CharacterSource { mouth } => Some(mouth),
+            VmQueueItemSnapshot::Token { .. } | VmQueueItemSnapshot::ModuleEnd { .. } => None,
+        }) {
+            if sources.next() != Some(mouth.input()) {
+                return false;
+            }
+        }
+        sources.next().is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

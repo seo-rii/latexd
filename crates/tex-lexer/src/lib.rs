@@ -312,6 +312,12 @@ impl Mouth {
     }
 }
 
+impl MouthSnapshot {
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+}
+
 pub fn lex_plain(input: &str, interner: &mut ControlSequenceInterner) -> Vec<Token> {
     Lexer::new(input, CatCodeTable::plain_tex(), interner).tokenize()
 }
