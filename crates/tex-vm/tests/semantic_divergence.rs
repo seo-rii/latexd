@@ -33,12 +33,57 @@ Recovered text.
 }
 
 #[test]
-#[ignore = "known divergence: register assignments are not restored at group end"]
 fn group_local_count_assignment_is_restored() {
     let outcome = run(r"\count0=1{\count0=2}\the\count0");
 
     assert_eq!(outcome.output, "1");
     assert_eq!(outcome.registers.get(&0), Some(&1));
+}
+
+#[test]
+fn nested_count_assignments_restore_each_group_value() {
+    let outcome = run(r"\count0=1{\count0=2{\count0=3}\the\count0}\the\count0");
+
+    assert_eq!(outcome.output, "21");
+    assert_eq!(outcome.registers.get(&0), Some(&1));
+}
+
+#[test]
+fn global_count_assignment_cancels_pending_group_restores() {
+    let outcome = run(r"\count0=1{\count0=2{\global\count0=4}\the\count0}\the\count0");
+
+    assert_eq!(outcome.output, "44");
+    assert_eq!(outcome.registers.get(&0), Some(&4));
+}
+
+#[test]
+fn local_count_assignment_after_global_restores_global_value() {
+    let outcome = run(r"\count0=1{\global\count0=4\count0=5\the\count0}\the\count0");
+
+    assert_eq!(outcome.output, "54");
+    assert_eq!(outcome.registers.get(&0), Some(&4));
+}
+
+#[test]
+fn globaldefs_controls_count_assignment_scope() {
+    let positive = run(r"\count0=1{\globaldefs=1\count0=2}\the\count0");
+    let negative = run(r"\count0=1{\globaldefs=-1\global\count0=2}\the\count0");
+
+    assert_eq!(positive.output, "2");
+    assert_eq!(positive.registers.get(&0), Some(&2));
+    assert_eq!(negative.output, "1");
+    assert_eq!(negative.registers.get(&0), Some(&1));
+}
+
+#[test]
+fn count_arithmetic_uses_the_same_assignment_scope() {
+    let local = run(r"\count0=2{\advance\count0 by 3\multiply\count0 by 2}\the\count0");
+    let global = run(r"\count0=2{\global\advance\count0 by 3}\the\count0");
+
+    assert_eq!(local.output, "2");
+    assert_eq!(local.registers.get(&0), Some(&2));
+    assert_eq!(global.output, "5");
+    assert_eq!(global.registers.get(&0), Some(&5));
 }
 
 #[test]

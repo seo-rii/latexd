@@ -25,16 +25,20 @@ use tex_world::{normalize_relative_path, read_tex_source_lossy};
 
 mod command;
 mod diagnostic;
+mod eqtb;
 mod input;
 mod outcome;
+mod save_stack;
 mod snapshot;
 
 use command::{MacroDefinition, Meaning, Primitive};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
+use eqtb::{AssignmentScope, Eqtb};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
+use save_stack::SaveStack;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpoint, VmModuleCheckpointKind,
@@ -855,7 +859,8 @@ struct RenderReadableWrapperMacro {
 pub struct Vm<'i> {
     interner: &'i mut ControlSequenceInterner,
     scopes: Vec<HashMap<String, Meaning>>,
-    registers: BTreeMap<u32, i32>,
+    eqtb: Eqtb,
+    save_stack: SaveStack,
     dimen_registers: BTreeMap<u32, i32>,
     skip_registers: BTreeMap<u32, i32>,
     token_registers: BTreeMap<u32, Vec<Token>>,
@@ -912,7 +917,8 @@ impl<'i> Vm<'i> {
         let mut vm = Self {
             interner,
             scopes: vec![HashMap::new()],
-            registers: BTreeMap::new(),
+            eqtb: Eqtb::default(),
+            save_stack: SaveStack::default(),
             dimen_registers: BTreeMap::new(),
             skip_registers: BTreeMap::new(),
             token_registers: BTreeMap::new(),
@@ -1026,8 +1032,14 @@ impl<'i> Vm<'i> {
                 false,
             );
         }
-        vm.registers.insert(251, 0);
-        vm.registers.insert(252, '\\' as i32);
+        vm.eqtb.ensure_count(251);
+        vm.eqtb.assign_count(
+            252,
+            '\\' as i32,
+            AssignmentScope::Global,
+            0,
+            &mut vm.save_stack,
+        );
         let dimen_id = vm.interner.intern("dimen");
         for (name, register_index) in [
             ("dimen@", "255"),
@@ -14947,7 +14959,7 @@ impl<'i> Vm<'i> {
         VmOutcome {
             output: mem::take(&mut self.output),
             render_events: mem::take(&mut self.render_events),
-            registers: self.registers.clone(),
+            registers: self.eqtb.count_values(),
             transcript: mem::take(&mut self.transcript),
             diagnostics: mem::take(&mut self.diagnostics),
             loaded_modules: {
@@ -14973,7 +14985,7 @@ impl<'i> Vm<'i> {
                         .collect()
                 })
                 .collect(),
-            registers: self.registers.clone(),
+            registers: self.eqtb.count_values(),
             dimen_registers: self.dimen_registers.clone(),
             skip_registers: self.skip_registers.clone(),
             token_registers: self
@@ -15090,7 +15102,8 @@ impl<'i> Vm<'i> {
                     .collect()
             })
             .collect();
-        vm.registers = snapshot.registers.clone();
+        vm.eqtb = Eqtb::from_count_values(snapshot.registers.clone());
+        vm.save_stack = SaveStack::default();
         vm.dimen_registers = snapshot.dimen_registers.clone();
         vm.skip_registers = snapshot.skip_registers.clone();
         vm.token_registers = snapshot
@@ -15276,6 +15289,7 @@ impl<'i> Vm<'i> {
             return;
         }
         self.scopes.push(HashMap::new());
+        self.save_stack.begin_group();
         self.aftergroup_tokens.push(Vec::new());
     }
 
@@ -15285,6 +15299,7 @@ impl<'i> Vm<'i> {
                 CatCode::BeginGroup => self.begin_group(queue),
                 CatCode::EndGroup => {
                     if self.scopes.len() > 1 {
+                        self.eqtb.end_group(&mut self.save_stack);
                         self.scopes.pop();
                         if let Some(tokens) = self.aftergroup_tokens.pop() {
                             for token in tokens.into_iter().rev() {
@@ -15522,7 +15537,7 @@ impl<'i> Vm<'i> {
                         if let Some(register_index) =
                             self.resolve_count_register_name("endlinechar")
                         {
-                            if let Some(value) = self.registers.get(&register_index).copied() {
+                            if let Some(value) = self.eqtb.count(register_index) {
                                 if (0..=255).contains(&value) {
                                     if let Some(ch) = char::from_u32(value as u32) {
                                         line.push(ch);
@@ -15644,6 +15659,7 @@ impl<'i> Vm<'i> {
             Primitive::BeginGroupCommand => self.begin_group(queue),
             Primitive::EndGroupCommand => {
                 if self.scopes.len() > 1 {
+                    self.eqtb.end_group(&mut self.save_stack);
                     self.scopes.pop();
                     if let Some(tokens) = self.aftergroup_tokens.pop() {
                         for token in tokens.into_iter().rev() {
@@ -16665,12 +16681,12 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                while self.registers.contains_key(&self.next_count_register) {
+                while self.eqtb.contains_count(self.next_count_register) {
                     self.next_count_register += 1;
                 }
                 let register_index = self.next_count_register;
                 self.next_count_register += 1;
-                self.registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_count(register_index);
                 let count_id = self.interner.intern("count");
                 let mut body = vec![Token::control_sequence(count_id, 0, 0)];
                 body.extend(
@@ -16785,7 +16801,7 @@ impl<'i> Vm<'i> {
                 else {
                     return;
                 };
-                self.registers.entry(register_index).or_insert(0);
+                self.eqtb.ensure_count(register_index);
                 let count_id = self.interner.intern("count");
                 let mut body = vec![Token::control_sequence(count_id, 0, 0)];
                 body.extend(
@@ -16907,6 +16923,13 @@ impl<'i> Vm<'i> {
             | Primitive::AddToCounter
             | Primitive::StepCounter
             | Primitive::RefStepCounter => {
+                self.global_prefix = false;
+                let assignment_scope = if self.current_globaldefs_value() < 0 {
+                    AssignmentScope::Local
+                } else {
+                    AssignmentScope::Global
+                };
+                let group_level = self.scopes.len().saturating_sub(1);
                 let Some(counter_name_tokens) = self.read_macro_argument(queue) else {
                     return;
                 };
@@ -16925,12 +16948,19 @@ impl<'i> Vm<'i> {
                     Primitive::StepCounter | Primitive::RefStepCounter => 1,
                     _ => unreachable!(),
                 };
-                let register = self.registers.entry(register_index).or_insert(0);
-                if matches!(primitive, Primitive::SetCounter) {
-                    *register = delta;
+                let current = self.eqtb.count(register_index).unwrap_or(0);
+                let value = if matches!(primitive, Primitive::SetCounter) {
+                    delta
                 } else {
-                    *register += delta;
-                }
+                    current + delta
+                };
+                self.eqtb.assign_count(
+                    register_index,
+                    value,
+                    assignment_scope,
+                    group_level,
+                    &mut self.save_stack,
+                );
                 if matches!(
                     primitive,
                     Primitive::StepCounter | Primitive::RefStepCounter
@@ -16941,7 +16971,13 @@ impl<'i> Vm<'i> {
                         if let Some(child_register_index) =
                             self.resolve_count_register_name(&child_counter_name)
                         {
-                            self.registers.insert(child_register_index, 0);
+                            self.eqtb.assign_count(
+                                child_register_index,
+                                0,
+                                assignment_scope,
+                                group_level,
+                                &mut self.save_stack,
+                            );
                         }
                     }
                 }
@@ -18771,6 +18807,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_count_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -18807,8 +18844,20 @@ impl<'i> Vm<'i> {
                     let Some(delta) = self.read_number_expression(queue) else {
                         return;
                     };
-                    let next = self.registers.get(&index).copied().unwrap_or(0) + delta;
-                    self.registers.insert(index, next);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let next = self.eqtb.count(index).unwrap_or(0) + delta;
+                    self.eqtb.assign_count(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript.push(format!("count{index}+={delta}"));
                     if let Some(token) = self.after_assignment_token.take() {
                         self.push_token_front(queue, token);
@@ -18918,6 +18967,7 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_count_register_index(&mut local_queue) {
                     *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
                     self.skip_optional_spaces(queue);
                     if matches!(
                         self.peek_next_token(queue),
@@ -18954,7 +19004,13 @@ impl<'i> Vm<'i> {
                     let Some(factor) = self.read_number_expression(queue) else {
                         return;
                     };
-                    let current = self.registers.get(&index).copied().unwrap_or(0);
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let current = self.eqtb.count(index).unwrap_or(0);
                     let next = match primitive {
                         Primitive::Multiply => current.saturating_mul(factor),
                         Primitive::Divide => {
@@ -18965,7 +19021,13 @@ impl<'i> Vm<'i> {
                         }
                         _ => unreachable!(),
                     };
-                    self.registers.insert(index, next);
+                    self.eqtb.assign_count(
+                        index,
+                        next,
+                        assignment_scope,
+                        self.scopes.len().saturating_sub(1),
+                        &mut self.save_stack,
+                    );
                     self.transcript.push(match primitive {
                         Primitive::Multiply => format!("count{index}*={factor}"),
                         Primitive::Divide => format!("count{index}/={factor}"),
@@ -19182,7 +19244,22 @@ impl<'i> Vm<'i> {
                 {
                     self.pop_next_token(queue);
                     if let Some(value) = self.read_number_expression(queue) {
-                        self.registers.insert(index, value);
+                        let requested_global = mem::take(&mut self.global_prefix);
+                        let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                            std::cmp::Ordering::Greater => AssignmentScope::Global,
+                            std::cmp::Ordering::Less => AssignmentScope::Local,
+                            std::cmp::Ordering::Equal if requested_global => {
+                                AssignmentScope::Global
+                            }
+                            std::cmp::Ordering::Equal => AssignmentScope::Local,
+                        };
+                        self.eqtb.assign_count(
+                            index,
+                            value,
+                            assignment_scope,
+                            self.scopes.len().saturating_sub(1),
+                            &mut self.save_stack,
+                        );
                         self.transcript.push(format!("count{index}={value}"));
                         if let Some(token) = self.after_assignment_token.take() {
                             self.push_token_front(queue, token);
@@ -19284,11 +19361,7 @@ impl<'i> Vm<'i> {
                 let Some(register_index) = self.resolve_count_register_name(&counter_name) else {
                     return;
                 };
-                let value = self
-                    .registers
-                    .get(&register_index)
-                    .copied()
-                    .unwrap_or_default();
+                let value = self.eqtb.count(register_index).unwrap_or_default();
                 for ch in value.to_string().chars().rev() {
                     self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
                 }
@@ -19694,7 +19767,7 @@ impl<'i> Vm<'i> {
                             .map(|tokens| format!("c@{}", self.tokens_to_text(tokens)))
                             .unwrap_or_default();
                         self.resolve_count_register_name(&counter_name)
-                            .and_then(|register_index| self.registers.get(&register_index).copied())
+                            .and_then(|register_index| self.eqtb.count(register_index))
                             .unwrap_or_default()
                             .to_string()
                             .chars()
@@ -19825,7 +19898,7 @@ impl<'i> Vm<'i> {
 
     fn current_escape_character(&self) -> Option<char> {
         let register_index = self.resolve_count_register_name("escapechar")?;
-        let value = *self.registers.get(&register_index)?;
+        let value = self.eqtb.count(register_index)?;
         if !(0..=255).contains(&value) {
             return None;
         }
@@ -19834,7 +19907,7 @@ impl<'i> Vm<'i> {
 
     fn current_globaldefs_value(&self) -> i32 {
         self.resolve_count_register_name("globaldefs")
-            .and_then(|register_index| self.registers.get(&register_index).copied())
+            .and_then(|register_index| self.eqtb.count(register_index))
             .unwrap_or_default()
     }
 
@@ -19921,7 +19994,7 @@ impl<'i> Vm<'i> {
         }
         let counter_name = format!("c@{}", self.tokens_to_text(tokens));
         let register_index = self.resolve_count_register_name(&counter_name)?;
-        Some(*self.registers.get(&register_index).unwrap_or(&0))
+        Some(self.eqtb.count(register_index).unwrap_or(0))
     }
 
     fn render_counter_format_tokens(&self, value: i32, primitive: Primitive) -> Vec<Token> {
@@ -20296,10 +20369,10 @@ impl<'i> Vm<'i> {
                 let name = self.interner.resolve(name).unwrap_or("").to_string();
                 if name == "count" {
                     let index = self.read_integer(queue)? as u32;
-                    return Some(*self.registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.count(index).unwrap_or(0));
                 }
                 if let Some(index) = self.resolve_count_register_name(&name) {
-                    return Some(*self.registers.get(&index).unwrap_or(&0));
+                    return Some(self.eqtb.count(index).unwrap_or(0));
                 }
                 if let Some(value) = match name.as_str() {
                     "z@" => Some(0),
@@ -20324,7 +20397,7 @@ impl<'i> Vm<'i> {
                             .read_macro_argument(queue)
                             .map(|tokens| format!("c@{}", self.tokens_to_text(tokens)))?;
                         let register_index = self.resolve_count_register_name(&counter_name)?;
-                        Some(*self.registers.get(&register_index).unwrap_or(&0))
+                        Some(self.eqtb.count(register_index).unwrap_or(0))
                     }
                     Some(Meaning::Primitive(Primitive::Number)) => {
                         self.read_number_expression(queue)
@@ -31134,7 +31207,7 @@ mod tests {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         let outcome = vm.run_plain(
-            r"{\global\def\seed{S}\global\let\foo\seed\global\newif\ifflag\global\flagtrue\global\newcommand{\bar}[1][B]{[#1]}\global\newcount\scratch\scratch=2}\ifdefined\foo T\else F\fi\ifflag Y\else N\fi\foo\bar[\number\scratch]",
+            r"{\global\def\seed{S}\global\let\foo\seed\global\newif\ifflag\global\flagtrue\global\newcommand{\bar}[1][B]{[#1]}\global\newcount\scratch\global\scratch=2}\ifdefined\foo T\else F\fi\ifflag Y\else N\fi\foo\bar[\number\scratch]",
         );
 
         assert_eq!(outcome.output, "TYS[2]");
