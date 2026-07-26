@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use tex_lexer::{Mouth, MouthSnapshot};
 use tex_tokens::CatCode;
 
-pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 1;
+pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -67,6 +68,8 @@ impl Default for VmContinuationSafety {
 pub struct VmSnapshot {
     #[serde(default)]
     pub continuation_safety: VmContinuationSafety,
+    #[serde(default)]
+    pub input_continuation: Option<VmInputContinuationSnapshot>,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
@@ -140,6 +143,81 @@ pub struct VmSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmInputContinuationSnapshot {
+    pub queue: Vec<VmQueueItemSnapshot>,
+    pub source_stack: Vec<VmActiveSourceFrameSnapshot>,
+    pub last_token_end_utf8: u32,
+}
+
+impl VmInputContinuationSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        !self.source_stack.is_empty()
+            && self.queue.iter().all(|item| match item {
+                VmQueueItemSnapshot::Token { token } => token.start_utf8 <= token.end_utf8,
+                VmQueueItemSnapshot::CharacterSource { mouth } => Mouth::restore(mouth).is_some(),
+                VmQueueItemSnapshot::ModuleEnd {
+                    source_start_utf8,
+                    source_end_utf8,
+                    ..
+                } => source_start_utf8 <= source_end_utf8,
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VmQueueItemSnapshot {
+    Token {
+        token: SnapshotToken,
+    },
+    CharacterSource {
+        mouth: MouthSnapshot,
+    },
+    ModuleEnd {
+        path: Utf8PathBuf,
+        source_start_utf8: u32,
+        source_end_utf8: u32,
+        output_start_utf8: u32,
+        checkpoint: Option<VmPendingModuleCheckpointSnapshot>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmPendingModuleCheckpointSnapshot {
+    pub resume_path: Option<Utf8PathBuf>,
+    pub source_offset_utf8: u32,
+    pub continuation_stack: Vec<VmReplayFrame>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveSourceFrameSnapshot {
+    pub path: Utf8PathBuf,
+    pub return_to_parent: Option<VmReplayFrame>,
+    pub global_definition_base_scope: Option<usize>,
+    pub module_kind: Option<VmActiveModuleKindSnapshot>,
+    pub catcode_overrides: BTreeMap<char, CatCode>,
+    pub suppressed_catcode_overrides: BTreeMap<char, usize>,
+    pub end_hooks: Vec<Vec<SnapshotToken>>,
+    pub module_options: Option<VmActiveModuleOptionsSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VmActiveModuleKindSnapshot {
+    Package,
+    Class,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveModuleOptionsSnapshot {
+    pub default_options: Vec<String>,
+    pub passed_options: Vec<String>,
+    pub forwarded_options: Vec<String>,
+    pub declared_options: BTreeMap<String, Vec<SnapshotToken>>,
+    pub default_option_body: Option<Vec<SnapshotToken>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SnapshotMeaning {
     Macro {
@@ -159,6 +237,10 @@ pub enum SnapshotMeaning {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotToken {
     pub kind: SnapshotTokenKind,
+    #[serde(default)]
+    pub start_utf8: u32,
+    #[serde(default)]
+    pub end_utf8: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -252,13 +252,13 @@ pub fn build_checkpoint_bundle_with_shipouts(
         let snapshot_json = serde_json::to_vec(&boundary.snapshot)
             .context("failed to serialize input-boundary snapshot")?;
         let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
-        let mut continuation_safety = boundary.snapshot.continuation_safety.clone();
-        if boundary.resume_path.is_some() {
-            continuation_safety
-                .blockers
-                .retain(|blocker| *blocker != VmContinuationBlocker::ActiveInput);
-        }
-        let snapshot_attached = continuation_safety.is_safe();
+        let continuation_safety = boundary.snapshot.continuation_safety.clone();
+        let snapshot_attached = continuation_safety.is_safe()
+            && boundary
+                .snapshot
+                .input_continuation
+                .as_ref()
+                .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable);
         let boundary_hash = blake3::hash(
             format!(
                 "{}:{}:{}:{}:{}:{}",
@@ -371,15 +371,11 @@ pub fn checkpoint_is_replay_safe(checkpoint: &StoredCheckpoint) -> bool {
         && checkpoint.meta.continuation_safety.is_safe()
         && checkpoint.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.continuation_safety.is_safe()
-                || (checkpoint.meta.kind == CheckpointKind::InputBoundary
-                    && checkpoint.meta.resume_path.is_some()
-                    && snapshot.continuation_safety.schema_version
-                        == tex_vm::VM_CONTINUATION_SAFETY_SCHEMA_VERSION
-                    && snapshot
-                        .continuation_safety
-                        .blockers
-                        .iter()
-                        .all(|blocker| *blocker == VmContinuationBlocker::ActiveInput))
+                && (checkpoint.meta.kind != CheckpointKind::InputBoundary
+                    || snapshot
+                        .input_continuation
+                        .as_ref()
+                        .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable))
         })
 }
 

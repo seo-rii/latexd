@@ -36,13 +36,16 @@ pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
+    RestoredInputContinuation,
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpoint, VmModuleCheckpointKind,
-    VmReplayFrame, VmSnapshot,
+    VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
+    VmContinuationBlocker, VmContinuationSafety, VmInputContinuationSnapshot, VmModuleCheckpoint,
+    VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -887,6 +890,7 @@ pub struct Vm<'i> {
     read_stream_eof: BTreeMap<u32, bool>,
     entry_source_path: Option<Utf8PathBuf>,
     source_stack: Vec<ActiveSourceFrame>,
+    restored_input_continuation: Option<RestoredInputContinuation>,
     last_token_end_utf8: u32,
     next_count_register: u32,
     next_dimen_register: u32,
@@ -942,6 +946,7 @@ impl<'i> Vm<'i> {
             read_stream_eof: BTreeMap::new(),
             entry_source_path: None,
             source_stack: Vec::new(),
+            restored_input_continuation: None,
             last_token_end_utf8: 0,
             next_count_register: default_next_count_register(),
             next_dimen_register: default_next_dimen_register(),
@@ -1227,7 +1232,7 @@ impl<'i> Vm<'i> {
             self.capture_render_events_from_source(&source_path, source, false, 0, &mut scan_state);
         }
         let queue = VecDeque::from([QueueItem::CharacterSource(Mouth::new(source))]);
-        self.run_queue(queue, source.len())
+        self.run_queue(queue, source.len(), false)
     }
 
     fn capture_jobname_bbl_render_events(
@@ -14893,28 +14898,39 @@ impl<'i> Vm<'i> {
             .into_iter()
             .map(QueueItem::Token)
             .collect::<VecDeque<_>>();
-        self.run_queue(queue, initial_queue_weight)
+        self.run_queue(queue, initial_queue_weight, false)
+    }
+
+    pub fn resume_continuation(&mut self) -> Option<VmOutcome> {
+        let continuation = self.restored_input_continuation.take()?;
+        let initial_queue_weight = continuation.queue.len();
+        self.source_stack = continuation.source_stack;
+        self.last_token_end_utf8 = continuation.last_token_end_utf8;
+        Some(self.run_queue(continuation.queue, initial_queue_weight, true))
     }
 
     fn run_queue(
         &mut self,
         mut queue: VecDeque<QueueItem>,
         initial_queue_weight: usize,
+        restored_source_stack: bool,
     ) -> VmOutcome {
         let pending_queue_limit = initial_queue_weight.saturating_add(MAX_PENDING_QUEUE_ITEMS);
         let mut executed_tokens = 0usize;
-        let pushed_root_source = self.entry_source_path.clone().map(|path| {
-            self.source_stack.push(ActiveSourceFrame {
-                path,
-                return_to_parent: None,
-                global_definition_base_scope: None,
-                module_kind: None,
-                catcode_overrides: BTreeMap::new(),
-                suppressed_catcode_overrides: BTreeMap::new(),
-                end_hooks: Vec::new(),
-                module_options: None,
+        let pushed_root_source = !restored_source_stack
+            && self.entry_source_path.clone().is_some_and(|path| {
+                self.source_stack.push(ActiveSourceFrame {
+                    path,
+                    return_to_parent: None,
+                    global_definition_base_scope: None,
+                    module_kind: None,
+                    catcode_overrides: BTreeMap::new(),
+                    suppressed_catcode_overrides: BTreeMap::new(),
+                    end_hooks: Vec::new(),
+                    module_options: None,
+                });
+                true
             });
-        });
         'execution: loop {
             while let Some(token) = self.pop_next_token(&mut queue) {
                 executed_tokens = executed_tokens.saturating_add(1);
@@ -14943,7 +14959,9 @@ impl<'i> Vm<'i> {
             }
         }
         self.flush_module_end_markers(&mut queue);
-        if pushed_root_source.is_some() {
+        if restored_source_stack {
+            self.source_stack.clear();
+        } else if pushed_root_source {
             self.source_stack.pop();
         }
         self.legacy_output_last_char = self
@@ -14969,8 +14987,99 @@ impl<'i> Vm<'i> {
     }
 
     pub fn snapshot(&self) -> VmSnapshot {
+        self.snapshot_with_input_queue(None)
+    }
+
+    fn snapshot_with_input_queue(&self, input_queue: Option<&VecDeque<QueueItem>>) -> VmSnapshot {
+        let input_continuation = input_queue.map(|queue| VmInputContinuationSnapshot {
+            queue: queue
+                .iter()
+                .map(|item| match item {
+                    QueueItem::Token(token) => VmQueueItemSnapshot::Token {
+                        token: self.token_to_snapshot(token),
+                    },
+                    QueueItem::CharacterSource(mouth) => VmQueueItemSnapshot::CharacterSource {
+                        mouth: mouth.snapshot(),
+                    },
+                    QueueItem::ModuleEnd {
+                        path,
+                        source_start_utf8,
+                        source_end_utf8,
+                        output_start_utf8,
+                        checkpoint,
+                    } => VmQueueItemSnapshot::ModuleEnd {
+                        path: path.clone(),
+                        source_start_utf8: *source_start_utf8,
+                        source_end_utf8: *source_end_utf8,
+                        output_start_utf8: *output_start_utf8,
+                        checkpoint: checkpoint.as_ref().map(|checkpoint| {
+                            VmPendingModuleCheckpointSnapshot {
+                                resume_path: checkpoint.resume_path.clone(),
+                                source_offset_utf8: checkpoint.source_offset_utf8,
+                                continuation_stack: checkpoint.continuation_stack.clone(),
+                            }
+                        }),
+                    },
+                })
+                .collect(),
+            source_stack: self
+                .source_stack
+                .iter()
+                .map(|frame| VmActiveSourceFrameSnapshot {
+                    path: frame.path.clone(),
+                    return_to_parent: frame.return_to_parent.clone(),
+                    global_definition_base_scope: frame.global_definition_base_scope,
+                    module_kind: frame.module_kind.map(|kind| match kind {
+                        ActiveModuleKind::Package => VmActiveModuleKindSnapshot::Package,
+                        ActiveModuleKind::Class => VmActiveModuleKindSnapshot::Class,
+                    }),
+                    catcode_overrides: frame.catcode_overrides.clone(),
+                    suppressed_catcode_overrides: frame.suppressed_catcode_overrides.clone(),
+                    end_hooks: frame
+                        .end_hooks
+                        .iter()
+                        .map(|tokens| {
+                            tokens
+                                .iter()
+                                .map(|token| self.token_to_snapshot(token))
+                                .collect()
+                        })
+                        .collect(),
+                    module_options: frame.module_options.as_ref().map(|options| {
+                        VmActiveModuleOptionsSnapshot {
+                            default_options: options.default_options.clone(),
+                            passed_options: options.passed_options.clone(),
+                            forwarded_options: options.forwarded_options.clone(),
+                            declared_options: options
+                                .declared_options
+                                .iter()
+                                .map(|(name, tokens)| {
+                                    (
+                                        name.clone(),
+                                        tokens
+                                            .iter()
+                                            .map(|token| self.token_to_snapshot(token))
+                                            .collect(),
+                                    )
+                                })
+                                .collect(),
+                            default_option_body: options.default_option_body.as_ref().map(
+                                |tokens| {
+                                    tokens
+                                        .iter()
+                                        .map(|token| self.token_to_snapshot(token))
+                                        .collect()
+                                },
+                            ),
+                        }
+                    }),
+                })
+                .collect(),
+            last_token_end_utf8: self.last_token_end_utf8,
+        });
         VmSnapshot {
-            continuation_safety: self.continuation_safety(),
+            continuation_safety: self.continuation_safety(input_continuation.is_some()),
+            input_continuation,
             scopes: self
                 .scopes
                 .iter()
@@ -15065,7 +15174,7 @@ impl<'i> Vm<'i> {
         }
     }
 
-    fn continuation_safety(&self) -> VmContinuationSafety {
+    fn continuation_safety(&self, input_continuation_captured: bool) -> VmContinuationSafety {
         let mut blockers = Vec::new();
         if self.scopes.len() != 1 || self.aftergroup_tokens.len() != 1 {
             blockers.push(VmContinuationBlocker::OpenGroup);
@@ -15073,7 +15182,7 @@ impl<'i> Vm<'i> {
         if !self.conditionals.is_empty() {
             blockers.push(VmContinuationBlocker::OpenConditional);
         }
-        if !self.source_stack.is_empty() {
+        if !self.source_stack.is_empty() && !input_continuation_captured {
             blockers.push(VmContinuationBlocker::ActiveInput);
         }
         if self.global_prefix {
@@ -15183,6 +15292,102 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
+        vm.restored_input_continuation =
+            snapshot
+                .input_continuation
+                .as_ref()
+                .and_then(|continuation| {
+                    let mut queue = VecDeque::with_capacity(continuation.queue.len());
+                    for item in &continuation.queue {
+                        queue.push_back(match item {
+                            VmQueueItemSnapshot::Token { token } => {
+                                QueueItem::Token(vm.snapshot_to_token(token))
+                            }
+                            VmQueueItemSnapshot::CharacterSource { mouth } => {
+                                QueueItem::CharacterSource(Mouth::restore(mouth)?)
+                            }
+                            VmQueueItemSnapshot::ModuleEnd {
+                                path,
+                                source_start_utf8,
+                                source_end_utf8,
+                                output_start_utf8,
+                                checkpoint,
+                            } => QueueItem::ModuleEnd {
+                                path: path.clone(),
+                                source_start_utf8: *source_start_utf8,
+                                source_end_utf8: *source_end_utf8,
+                                output_start_utf8: *output_start_utf8,
+                                checkpoint: checkpoint.as_ref().map(|checkpoint| {
+                                    PendingModuleCheckpoint {
+                                        resume_path: checkpoint.resume_path.clone(),
+                                        source_offset_utf8: checkpoint.source_offset_utf8,
+                                        continuation_stack: checkpoint.continuation_stack.clone(),
+                                    }
+                                }),
+                            },
+                        });
+                    }
+                    let source_stack = continuation
+                        .source_stack
+                        .iter()
+                        .map(|frame| ActiveSourceFrame {
+                            path: frame.path.clone(),
+                            return_to_parent: frame.return_to_parent.clone(),
+                            global_definition_base_scope: frame.global_definition_base_scope,
+                            module_kind: frame.module_kind.map(|kind| match kind {
+                                VmActiveModuleKindSnapshot::Package => ActiveModuleKind::Package,
+                                VmActiveModuleKindSnapshot::Class => ActiveModuleKind::Class,
+                            }),
+                            catcode_overrides: frame.catcode_overrides.clone(),
+                            suppressed_catcode_overrides: frame
+                                .suppressed_catcode_overrides
+                                .clone(),
+                            end_hooks: frame
+                                .end_hooks
+                                .iter()
+                                .map(|tokens| {
+                                    tokens
+                                        .iter()
+                                        .map(|token| vm.snapshot_to_token(token))
+                                        .collect()
+                                })
+                                .collect(),
+                            module_options: frame.module_options.as_ref().map(|options| {
+                                ActiveModuleOptions {
+                                    default_options: options.default_options.clone(),
+                                    passed_options: options.passed_options.clone(),
+                                    forwarded_options: options.forwarded_options.clone(),
+                                    declared_options: options
+                                        .declared_options
+                                        .iter()
+                                        .map(|(name, tokens)| {
+                                            (
+                                                name.clone(),
+                                                tokens
+                                                    .iter()
+                                                    .map(|token| vm.snapshot_to_token(token))
+                                                    .collect(),
+                                            )
+                                        })
+                                        .collect(),
+                                    default_option_body: options.default_option_body.as_ref().map(
+                                        |tokens| {
+                                            tokens
+                                                .iter()
+                                                .map(|token| vm.snapshot_to_token(token))
+                                                .collect()
+                                        },
+                                    ),
+                                }
+                            }),
+                        })
+                        .collect();
+                    Some(RestoredInputContinuation {
+                        queue,
+                        source_stack,
+                        last_token_end_utf8: continuation.last_token_end_utf8,
+                    })
+                });
         vm
     }
 
@@ -19876,7 +20081,7 @@ impl<'i> Vm<'i> {
                     source_offset_utf8: checkpoint.source_offset_utf8,
                     continuation_stack: checkpoint.continuation_stack,
                     output_start_utf8: self.output.len() as u32,
-                    snapshot: self.snapshot(),
+                    snapshot: self.snapshot_with_input_queue(Some(queue)),
                 });
             }
         }
@@ -20541,15 +20746,24 @@ impl<'i> Vm<'i> {
                     catcode: *catcode,
                 },
             },
+            start_utf8: token.span.start,
+            end_utf8: token.span.end,
         }
     }
 
     fn snapshot_to_token(&mut self, token: &SnapshotToken) -> Token {
         match &token.kind {
-            SnapshotTokenKind::ControlSequence { name } => {
-                Token::control_sequence(self.interner.intern(name), 0, 0)
-            }
-            SnapshotTokenKind::Character { ch, catcode } => Token::character(*ch, *catcode, 0, 0),
+            SnapshotTokenKind::ControlSequence { name } => Token::control_sequence(
+                self.interner.intern(name),
+                token.start_utf8 as usize,
+                token.end_utf8 as usize,
+            ),
+            SnapshotTokenKind::Character { ch, catcode } => Token::character(
+                *ch,
+                *catcode,
+                token.start_utf8 as usize,
+                token.end_utf8 as usize,
+            ),
         }
     }
 

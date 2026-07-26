@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use camino::Utf8PathBuf;
 use tex_lexer::Mouth;
@@ -51,4 +51,11 @@ pub(crate) struct ActiveModuleOptions {
     pub(crate) forwarded_options: Vec<String>,
     pub(crate) declared_options: HashMap<String, Vec<Token>>,
     pub(crate) default_option_body: Option<Vec<Token>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct RestoredInputContinuation {
+    pub(crate) queue: VecDeque<QueueItem>,
+    pub(crate) source_stack: Vec<ActiveSourceFrame>,
+    pub(crate) last_token_end_utf8: u32,
 }

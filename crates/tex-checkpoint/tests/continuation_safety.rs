@@ -5,7 +5,7 @@ use tex_checkpoint::{
     preamble_key_for_source, select_reusable_preamble,
 };
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpoint, VmSnapshot};
+use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpoint, VmModuleCheckpointKind, VmSnapshot};
 
 fn snapshot_after(source: &str) -> VmSnapshot {
     let mut interner = ControlSequenceInterner::new();
@@ -118,10 +118,59 @@ fn module_checkpoint_records_active_input_as_a_replay_blocker() {
 }
 
 #[test]
-fn input_boundary_metadata_certifies_active_input_as_external_continuation_state() {
-    let checkpoint = capture_input_checkpoint(r"\input{child.tex}");
+fn input_enter_metadata_does_not_certify_missing_continuation_state() {
+    let checkpoint = capture_input_checkpoint(r"\input{child.tex}", VmModuleCheckpointKind::Enter);
     let bundle = bundle_with_input_checkpoint(checkpoint);
     let stored = bundle
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
+        .expect("stored input checkpoint");
+
+    assert_eq!(
+        stored.meta.continuation_safety.blockers,
+        vec![VmContinuationBlocker::ActiveInput]
+    );
+    assert!(!stored.meta.snapshot_attached);
+    assert!(!checkpoint_is_replay_safe(stored));
+}
+
+#[test]
+fn input_boundary_rejects_an_invalid_serialized_continuation() {
+    let mut checkpoint =
+        capture_input_checkpoint(r"\input{child.tex}tail", VmModuleCheckpointKind::Exit);
+    assert!(checkpoint.snapshot.continuation_safety.is_safe());
+    checkpoint
+        .snapshot
+        .input_continuation
+        .as_mut()
+        .expect("input continuation")
+        .source_stack
+        .clear();
+
+    let bundle = bundle_with_input_checkpoint(checkpoint);
+    let stored = bundle
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
+        .expect("stored input checkpoint");
+
+    assert!(!stored.meta.snapshot_attached);
+    assert!(!checkpoint_is_replay_safe(stored));
+}
+
+#[test]
+fn input_exit_with_serialized_continuation_is_replay_safe() {
+    let checkpoint =
+        capture_input_checkpoint(r"\input{child.tex}tail", VmModuleCheckpointKind::Exit);
+    assert!(checkpoint.snapshot.input_continuation.is_some());
+    assert!(checkpoint.snapshot.continuation_safety.is_safe());
+
+    let bundle = bundle_with_input_checkpoint(checkpoint);
+    let json = serde_json::to_vec(&bundle).expect("serialize checkpoint bundle");
+    let restored =
+        serde_json::from_slice::<tex_checkpoint::CheckpointBundle>(&json).expect("restore bundle");
+    let stored = restored
         .checkpoints
         .iter()
         .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
@@ -134,7 +183,7 @@ fn input_boundary_metadata_certifies_active_input_as_external_continuation_state
 
 #[test]
 fn input_boundary_metadata_does_not_certify_an_open_group() {
-    let checkpoint = capture_input_checkpoint(r"{\input{child.tex}");
+    let checkpoint = capture_input_checkpoint(r"{\input{child.tex}", VmModuleCheckpointKind::Enter);
     let bundle = bundle_with_input_checkpoint(checkpoint);
     let stored = bundle
         .checkpoints
@@ -142,9 +191,19 @@ fn input_boundary_metadata_does_not_certify_an_open_group() {
         .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
         .expect("stored input checkpoint");
 
-    assert_eq!(
-        stored.meta.continuation_safety.blockers,
-        vec![VmContinuationBlocker::OpenGroup]
+    assert!(
+        stored
+            .meta
+            .continuation_safety
+            .blockers
+            .contains(&VmContinuationBlocker::OpenGroup)
+    );
+    assert!(
+        stored
+            .meta
+            .continuation_safety
+            .blockers
+            .contains(&VmContinuationBlocker::ActiveInput)
     );
     assert!(!stored.meta.snapshot_attached);
     assert!(!checkpoint_is_replay_safe(stored));
@@ -167,7 +226,7 @@ fn snapshot_without_safety_metadata_is_unverified() {
     assert!(!legacy.continuation_safety.is_safe());
 }
 
-fn capture_input_checkpoint(source: &str) -> VmModuleCheckpoint {
+fn capture_input_checkpoint(source: &str, kind: VmModuleCheckpointKind) -> VmModuleCheckpoint {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.set_entry_source_path("main.tex");
@@ -175,7 +234,7 @@ fn capture_input_checkpoint(source: &str) -> VmModuleCheckpoint {
     vm.run_plain(source)
         .module_checkpoints
         .into_iter()
-        .next()
+        .find(|checkpoint| checkpoint.kind == kind)
         .expect("input checkpoint")
 }
 
