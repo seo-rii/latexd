@@ -25,11 +25,15 @@ use tex_world::{normalize_relative_path, read_tex_source_lossy};
 
 mod command;
 mod diagnostic;
+mod input;
 mod outcome;
 mod snapshot;
 
 use command::{MacroDefinition, Meaning, Primitive};
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
+use input::{
+    ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
+};
 pub use outcome::{VmModuleTrace, VmOutcome};
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
@@ -721,50 +725,6 @@ const BUILTIN_GENERIC_CLASS_SHIMS: &[&str] = &[
 enum ConditionalState {
     ThenExecuted,
     ElseExecuted,
-}
-
-#[derive(Debug, Clone)]
-enum QueueItem {
-    Token(Token),
-    ModuleEnd {
-        path: Utf8PathBuf,
-        source_start_utf8: u32,
-        source_end_utf8: u32,
-        output_start_utf8: u32,
-        checkpoint: Option<PendingModuleCheckpoint>,
-    },
-}
-
-#[derive(Debug, Clone)]
-struct PendingModuleCheckpoint {
-    resume_path: Option<Utf8PathBuf>,
-    source_offset_utf8: u32,
-    continuation_stack: Vec<VmReplayFrame>,
-}
-
-#[derive(Debug, Clone)]
-struct ActiveSourceFrame {
-    path: Utf8PathBuf,
-    return_to_parent: Option<VmReplayFrame>,
-    global_definition_base_scope: Option<usize>,
-    module_kind: Option<ActiveModuleKind>,
-    end_hooks: Vec<Vec<Token>>,
-    module_options: Option<ActiveModuleOptions>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ActiveModuleKind {
-    Package,
-    Class,
-}
-
-#[derive(Debug, Clone)]
-struct ActiveModuleOptions {
-    default_options: Vec<String>,
-    passed_options: Vec<String>,
-    forwarded_options: Vec<String>,
-    declared_options: HashMap<String, Vec<Token>>,
-    default_option_body: Option<Vec<Token>>,
 }
 
 #[derive(Debug, Default)]
