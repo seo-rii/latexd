@@ -18862,20 +18862,23 @@ fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() 
         .expect("paragraph");
 
     let mut provenance_cases = Vec::new();
-    for (display_text, content_source, invocation_text, argument_sources) in [
+    for (display_text, event_text, content_source, invocation_text, argument_sources) in [
         (
             "visible [?]",
+            "visible ",
             r"visible \cite{key}",
             r"\textcolor{cyan}{visible \cite{key}}",
             &["cyan"][..],
         ),
         (
             "boxed [?]",
+            "boxed [?]",
             r"boxed \ref{sec:intro}",
             r"\colorbox{yellow}{boxed \ref{sec:intro}}",
             &["yellow"][..],
         ),
         (
+            "framed paper",
             "framed paper",
             r"framed \href{https://hidden.test}{paper}",
             r"\fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}",
@@ -18889,7 +18892,7 @@ fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() 
             .find(|envelope| {
                 matches!(
                     &envelope.event,
-                    RenderEvent::Text(text) if text.text == display_text
+                    RenderEvent::Text(text) if text.text == event_text
                 )
             })
             .expect("color wrapper text event");
@@ -18897,7 +18900,7 @@ fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() 
             .content
             .iter()
             .find_map(|node| match node {
-                InlineNode::Text { text, source } if text == display_text => Some(source),
+                InlineNode::Text { text, source } if text == event_text => Some(source),
                 _ => None,
             })
             .expect("color wrapper text IR source");

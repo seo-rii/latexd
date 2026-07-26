@@ -311,6 +311,123 @@ Before \emittext, After
 }
 
 #[test]
+fn false_conditional_does_not_emit_citation_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\cite{wrong}
+\fi
+\cite{right}
+\end{document}",
+    );
+    let citations = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineCitation(citation) => Some((
+                citation.keys.clone(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        citations,
+        vec![(
+            vec!["right".to_string()],
+            EventProducer::Primitive,
+            SemanticConfidence::High,
+        )]
+    );
+}
+
+#[test]
+fn macro_generated_citation_emits_at_the_invocation() {
+    let outcome = capture(
+        r"\def\emitcite{\cite{key}}
+\begin{document}
+Before \emitcite, After
+\end{document}",
+    );
+    let citation = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::InlineCitation(_)))
+        .expect("macro-generated citation");
+    let RenderEvent::InlineCitation(citation_event) = &citation.event else {
+        unreachable!();
+    };
+
+    assert_eq!(citation_event.keys, vec!["key"]);
+    assert_eq!(citation.meta.producer, EventProducer::Macro);
+    assert_eq!(citation.meta.confidence, SemanticConfidence::High);
+    assert_eq!(
+        citation
+            .meta
+            .source
+            .expansion_stack
+            .last()
+            .and_then(|frame| frame.command_name.as_deref()),
+        Some("emitcite")
+    );
+    let before = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "Before"))
+        .expect("before text");
+    let citation_position = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(event.event, RenderEvent::InlineCitation(_)))
+        .expect("citation position");
+    let after = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "After"))
+        .expect("after text");
+
+    assert!(before < citation_position && citation_position < after);
+}
+
+#[test]
+fn executed_citation_replaces_recovery_placeholder_inside_visible_wrapper_text() {
+    let outcome = capture(
+        r"\begin{document}
+\textcolor{cyan}{visible \cite{key}}
+\end{document}",
+    );
+    let visible = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            RenderEvent::InlineCitation(_) => Some("[?]"),
+            _ => None,
+        })
+        .collect::<String>();
+    let citations = outcome
+        .render_events
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::InlineCitation(_)))
+        .collect::<Vec<_>>();
+
+    assert_eq!(visible, "visible [?]", "{:#?}", outcome.render_events);
+    assert_eq!(citations.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(citations[0].meta.producer, EventProducer::Primitive);
+    assert!(
+        outcome.render_events.iter().all(
+            |event| !matches!(&event.event, RenderEvent::Text(text) if text.text.contains("[?]"))
+        ),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn executed_paragraph_breaks_preserve_their_reason() {
     let outcome = capture(
         r"\begin{document}

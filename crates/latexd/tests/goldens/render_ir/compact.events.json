@@ -342,8 +342,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "horizontal",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {

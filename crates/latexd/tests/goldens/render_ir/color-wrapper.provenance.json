@@ -5,9 +5,9 @@
         {
           "clusters": [
             {
-              "glyph_end": 11,
+              "glyph_end": 8,
               "glyph_start": 0,
-              "text_end_utf8": 11,
+              "text_end_utf8": 8,
               "text_start_utf8": 0
             }
           ],
@@ -42,13 +42,13 @@
               }
             ]
           },
-          "text": "visible [?]"
+          "text": "visible "
         }
       ],
       "event": {
         "event": {
           "kind": "text",
-          "text": "visible [?]"
+          "text": "visible "
         },
         "meta": {
           "confidence": "medium",
@@ -173,7 +173,7 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 13,
+          "event_id": 14,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
           "source": {
@@ -303,7 +303,7 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 17,
+          "event_id": 18,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
           "source": {

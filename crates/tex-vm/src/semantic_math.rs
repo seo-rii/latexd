@@ -174,7 +174,6 @@ impl Vm<'_> {
         let mut executed = mem::take(&mut self.executed_math_events);
         if scanner_dollar_ids.is_empty() {
             self.render_events.append(&mut executed);
-            self.render_event_sources.clear();
             return;
         }
 
@@ -232,6 +231,5 @@ impl Vm<'_> {
         }
         reconciled.append(&mut executed);
         self.render_events = reconciled;
-        self.render_event_sources.clear();
     }
 }

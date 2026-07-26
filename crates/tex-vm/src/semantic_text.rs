@@ -101,10 +101,26 @@ impl Vm<'_> {
         if !self.render_event_capture || end_utf8 <= start_utf8 {
             return;
         }
+        self.record_suppressed_source_range_for_path(
+            self.current_execution_source_path(),
+            start_utf8,
+            end_utf8,
+        );
+    }
+
+    pub(super) fn record_suppressed_source_range_for_path(
+        &mut self,
+        path: Utf8PathBuf,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !self.render_event_capture || end_utf8 <= start_utf8 {
+            return;
+        }
         self.semantic_text
             .suppressed_ranges
             .push(SuppressedSourceRange {
-                path: self.current_execution_source_path(),
+                path,
                 start_utf8,
                 end_utf8,
             });
@@ -325,6 +341,25 @@ impl Vm<'_> {
     pub(super) fn separate_executed_inline_content(&mut self) {
         self.flush_executed_text_capture();
         self.semantic_text.space_run_active = false;
+    }
+
+    pub(super) fn executed_semantic_source(
+        &self,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> (SourceProvenance, EventProducer) {
+        let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
+        (source, producer)
+    }
+
+    pub(super) fn semantic_source_is_suppressed(&self, source: &SourceProvenance) -> bool {
+        provenance_spans(source).any(|span| {
+            self.semantic_text.suppressed_ranges.iter().any(|range| {
+                span.path == range.path
+                    && span.start_utf8 < range.end_utf8
+                    && range.start_utf8 < span.end_utf8
+            })
+        })
     }
 
     pub(super) fn reconcile_executed_text_events(&mut self) {

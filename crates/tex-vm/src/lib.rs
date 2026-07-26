@@ -29,6 +29,7 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_citation;
 mod semantic_math;
 mod semantic_text;
 mod snapshot;
@@ -42,6 +43,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_citation::SemanticCitationState;
 use semantic_math::ExecutedMathCapture;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
@@ -892,6 +894,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_citation: SemanticCitationState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     next_render_event_id: EventId,
@@ -955,6 +958,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_citation: SemanticCitationState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             next_render_event_id: 1,
@@ -2897,6 +2901,11 @@ impl<'i> Vm<'i> {
                                 let end_marker = format!("\\end{{{other}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
                                     index += relative_end + end_marker.len();
+                                    self.record_suppressed_source_range_for_path(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    );
                                 }
                             }
                             "abstract" | "abstract*" | "onecolabstract" if in_document => {
@@ -14898,7 +14907,9 @@ impl<'i> Vm<'i> {
                 RenderEvent::Text(TextEvent { text: pending_word }),
                 SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
             );
-        } else if let Some(space_kind) = pending_space
+            emitted_any = true;
+        }
+        if let Some(space_kind) = pending_space
             && emitted_any
         {
             self.emit_render_event(
@@ -14930,10 +14941,14 @@ impl<'i> Vm<'i> {
                     .and_then(|source| source.as_bytes().get(span.start_utf8 as usize))
                     == Some(&b'$')
         });
+        let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
             self.scanner_dollar_math_event_ids.insert(event_id);
+        }
+        if scanner_citation {
+            self.mark_scanner_citation_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15019,7 +15034,10 @@ impl<'i> Vm<'i> {
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
             self.reconcile_executed_math_events();
+            self.reconcile_executed_citation_events();
             self.reconcile_executed_text_events();
+            self.reconcile_embedded_executed_citations();
+            self.render_event_sources.clear();
         }
 
         VmOutcome {
@@ -15714,6 +15732,12 @@ impl<'i> Vm<'i> {
     ) {
         let source_offset_utf8 = primitive_token.span.start;
         let source_end_utf8 = primitive_token.span.end;
+        let primitive_command_name = match &primitive_token.kind {
+            TokenKind::ControlSequence { name } => {
+                self.interner.resolve(*name).unwrap_or("").to_string()
+            }
+            TokenKind::Character { .. } => String::new(),
+        };
         let input_enter_snapshot = matches!(
             primitive,
             Primitive::Input
@@ -15756,7 +15780,20 @@ impl<'i> Vm<'i> {
                         break;
                     }
                 }
-                if self.read_macro_argument(queue).is_some() {
+                if let Some(key_tokens) = self.read_macro_argument(queue) {
+                    let keys = self
+                        .tokens_to_text(key_tokens)
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|key| !key.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>();
+                    self.emit_executed_citation(
+                        primitive_command_name,
+                        keys,
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                    );
                     self.output.push_str("[?]");
                 }
             }
@@ -29402,8 +29439,8 @@ mod tests {
         FootnoteCommandKind, GeneratedBy, GraphicAssetDensity, GraphicAssetDensityUnit,
         GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, LayoutAlignment, ListKind,
         MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
-        TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+        RenderEventEnvelope, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
+        TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -29411,6 +29448,18 @@ mod tests {
         MAX_PENDING_QUEUE_ITEMS, Vm, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
         compile_format_snapshot,
     };
+
+    fn visible_render_event_text(events: &[RenderEventEnvelope]) -> String {
+        events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn expands_simple_macros() {
@@ -43046,16 +43095,7 @@ Fallback text.
             vm.set_entry_source_path("main.tex");
             vm.enable_render_event_capture();
             let outcome = vm.run_plain(source);
-            let visible_text = outcome
-                .render_events
-                .iter()
-                .filter_map(|event| match &event.event {
-                    RenderEvent::Text(text) => Some(text.text.as_str()),
-                    RenderEvent::Space(_) => Some(" "),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("");
+            let visible_text = visible_render_event_text(&outcome.render_events);
 
             assert!(
                 visible_text.contains("A TODO: check [?], [?], and paper B."),
@@ -43078,16 +43118,7 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
 
         assert!(
             visible_text.contains("A TODO: check [?], [?], and paper B."),
@@ -43109,16 +43140,7 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
 
         assert!(
             visible_text
@@ -43386,16 +43408,7 @@ Fallback text.
                         == r"\newcommand{\mysection}[1]{\section{#1}}"
         ));
 
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
         assert!(visible_text.contains("TODO: check [?]"), "{visible_text}");
         for hidden in ["mysection", "reviewnote", "color", "red", "key"] {
             assert!(
@@ -43448,16 +43461,7 @@ Fallback text.
                         == r"\newcommand{\mysection}[1]{\section{#1}}"
         ));
 
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
         assert!(visible_text.contains("TODO: check [?]"), "{visible_text}");
         for hidden in [
             "input",
@@ -43518,16 +43522,7 @@ Fallback text.
                         == r"\newcommand{\mysection}[1]{\section{#1}}"
         ));
 
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
         assert!(visible_text.contains("TODO: package [?]"), "{visible_text}");
         for hidden in ["macros", "mysection", "reviewnote", "color", "red", "key"] {
             assert!(
@@ -43580,16 +43575,7 @@ Fallback text.
                         == r"\newcommand{\mysection}[1]{\section{#1}}"
         ));
 
-        let visible_text = outcome
-            .render_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                RenderEvent::Text(text) => Some(text.text.as_str()),
-                RenderEvent::Space(_) => Some(" "),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let visible_text = visible_render_event_text(&outcome.render_events);
         assert!(visible_text.contains("TODO: class [?]"), "{visible_text}");
         for hidden in ["wrapper", "mysection", "reviewnote", "color", "red", "key"] {
             assert!(
@@ -47119,7 +47105,7 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::InlineCitation(citation)
-                if citation.command == "cite" && citation.keys == vec!["key".to_string()]
+                if citation.command == "mycite" && citation.keys == vec!["key".to_string()]
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
