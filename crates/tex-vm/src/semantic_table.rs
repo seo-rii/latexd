@@ -5,9 +5,10 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventId, EventProducer, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, TableCellEvent,
-    TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRulePosition,
+    EventId, EventProducer, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RelatedSourceSpan,
+    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpanRole,
+    TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent,
+    TableRulePosition,
 };
 
 use crate::{Vm, input::QueueItem};
@@ -30,6 +31,8 @@ struct ExecutedTableFrame {
     rows: Vec<TableRowEvent>,
     current_cells: Vec<TableCellEvent>,
     current_text: String,
+    current_source: Option<SourceProvenance>,
+    row_source: Option<SourceProvenance>,
     row_started: bool,
 }
 
@@ -41,9 +44,14 @@ struct ExecutedTable {
 }
 
 impl ExecutedTableFrame {
-    fn finish_cell(&mut self) {
+    fn finish_cell(&mut self, boundary_source: Option<SourceProvenance>) {
+        let source = self.current_source.take().or(boundary_source);
+        if let Some(source) = &source {
+            merge_source_range(&mut self.row_source, source.clone());
+        }
         self.current_cells.push(TableCellEvent {
             text: self.current_text.trim().to_string(),
+            source,
             column_span: 1,
             row_span: None,
             alignment: None,
@@ -56,15 +64,16 @@ impl ExecutedTableFrame {
         self.row_started = true;
     }
 
-    fn finish_row(&mut self, force: bool) {
+    fn finish_row(&mut self, force: bool, boundary_source: Option<SourceProvenance>) {
         if !force && !self.row_started && self.current_text.trim().is_empty() {
             return;
         }
-        self.finish_cell();
+        self.finish_cell(boundary_source.clone());
         self.rows.push(TableRowEvent {
             rule_above: false,
             partial_rules_above: Vec::new(),
             cells: mem::take(&mut self.current_cells),
+            source: self.row_source.take().or(boundary_source),
             rule_below: false,
             partial_rules_below: Vec::new(),
         });
@@ -114,18 +123,29 @@ impl Vm<'_> {
             rows: Vec::new(),
             current_cells: Vec::new(),
             current_text: String::new(),
+            current_source: None,
+            row_source: None,
             row_started: false,
         });
     }
 
-    pub(super) fn capture_executed_table_character(&mut self, ch: char) -> bool {
-        if !self.semantic_table.structured_events {
+    pub(super) fn capture_executed_table_character(
+        &mut self,
+        ch: char,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> bool {
+        if !self.semantic_table.structured_events || self.semantic_table.open_tables.is_empty() {
             return false;
         }
-        let Some(table) = self.semantic_table.open_tables.last_mut() else {
-            return false;
-        };
+        let source = self.executed_table_token_source(start_utf8, end_utf8);
+        let table = self
+            .semantic_table
+            .open_tables
+            .last_mut()
+            .expect("table frame exists");
         table.current_text.push(ch);
+        merge_source_range(&mut table.current_source, source);
         table.row_started = true;
         true
     }
@@ -143,20 +163,29 @@ impl Vm<'_> {
         true
     }
 
-    pub(super) fn capture_executed_table_alignment_tab(&mut self) -> bool {
-        if !self.semantic_table.structured_events {
+    pub(super) fn capture_executed_table_alignment_tab(
+        &mut self,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> bool {
+        if !self.semantic_table.structured_events || self.semantic_table.open_tables.is_empty() {
             return false;
         }
-        let Some(table) = self.semantic_table.open_tables.last_mut() else {
-            return false;
-        };
-        table.finish_cell();
+        let source = self.executed_table_token_source(start_utf8, end_utf8);
+        let table = self
+            .semantic_table
+            .open_tables
+            .last_mut()
+            .expect("table frame exists");
+        table.finish_cell(Some(source));
         true
     }
 
     pub(super) fn capture_executed_table_control_sequence(
         &mut self,
         control_sequence: &str,
+        start_utf8: u32,
+        end_utf8: u32,
         queue: &mut VecDeque<QueueItem>,
     ) -> bool {
         if !self.semantic_table.structured_events
@@ -168,18 +197,23 @@ impl Vm<'_> {
         if control_sequence == "\\" {
             let _ = self.read_optional_bracket_tokens(queue);
         }
+        let source = self.executed_table_token_source(start_utf8, end_utf8);
         self.semantic_table
             .open_tables
             .last_mut()
             .expect("table frame exists")
-            .finish_row(true);
+            .finish_row(true, Some(source));
         true
     }
 
-    pub(super) fn end_executed_table(&mut self, environment: &str) {
+    pub(super) fn end_executed_table(&mut self, environment: &str, start_utf8: u32, end_utf8: u32) {
         if !self.render_event_capture || !is_table_environment(environment) {
             return;
         }
+        let end_source = self
+            .semantic_table
+            .structured_events
+            .then(|| self.executed_table_token_source(start_utf8, end_utf8));
         let Some(index) = self
             .semantic_table
             .open_tables
@@ -189,7 +223,7 @@ impl Vm<'_> {
             return;
         };
         let mut frame = self.semantic_table.open_tables.remove(index);
-        frame.finish_row(false);
+        frame.finish_row(false, end_source);
         let native_event = if self.semantic_table.structured_events && !frame.rows.is_empty() {
             let event_id = self.next_render_event_id;
             self.next_render_event_id += 1;
@@ -214,6 +248,23 @@ impl Vm<'_> {
             source: frame.source,
             native_event,
         });
+    }
+
+    fn executed_table_token_source(&self, start_utf8: u32, end_utf8: u32) -> SourceProvenance {
+        let (execution_source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
+        if producer != EventProducer::Macro || start_utf8 >= end_utf8 {
+            return execution_source;
+        }
+        let mut source =
+            SourceProvenance::file(self.current_execution_source_path(), start_utf8, end_utf8);
+        if source.primary != execution_source.primary {
+            source =
+                source.with_related(SourceSpanRole::Invocation, execution_source.primary.clone());
+        }
+        source.expansion_stack = execution_source.expansion_stack;
+        source.expansion_stack_truncated = execution_source.expansion_stack_truncated;
+        source.generated_by = execution_source.generated_by;
+        source
     }
 
     pub(super) fn reconcile_executed_table_events(&mut self) {
@@ -292,6 +343,33 @@ pub(super) fn is_table_environment(environment: &str) -> bool {
             | "tabu"
             | "longtabu"
     )
+}
+
+fn merge_source_range(target: &mut Option<SourceProvenance>, source: SourceProvenance) {
+    let Some(existing) = target else {
+        *target = Some(source);
+        return;
+    };
+    if existing.expansion_stack == source.expansion_stack
+        && let (ProvenanceSpan::File(existing_span), ProvenanceSpan::File(source_span)) =
+            (&mut existing.primary, &source.primary)
+        && existing_span.path == source_span.path
+    {
+        existing_span.start_utf8 = existing_span.start_utf8.min(source_span.start_utf8);
+        existing_span.end_utf8 = existing_span.end_utf8.max(source_span.end_utf8);
+        return;
+    }
+    if existing.primary != source.primary
+        && !existing
+            .related
+            .iter()
+            .any(|related| related.span == source.primary)
+    {
+        existing.related.push(RelatedSourceSpan {
+            role: SourceSpanRole::ArgumentContent,
+            span: source.primary,
+        });
+    }
 }
 
 fn simple_table_columns(spec: &str) -> Vec<TableColumnSpec> {
@@ -502,6 +580,7 @@ fn table_event_from_fallback(event: &RawFallbackEvent) -> Option<TableEvent> {
                 .filter(|text| !text.is_empty())
                 .map(|text| TableCellEvent {
                     text: split_nested_table_cell_lines(text),
+                    source: None,
                     column_span: 1,
                     row_span: None,
                     alignment: None,
@@ -515,6 +594,7 @@ fn table_event_from_fallback(event: &RawFallbackEvent) -> Option<TableEvent> {
                 rule_above: false,
                 partial_rules_above: Vec::new(),
                 cells,
+                source: None,
                 rule_below: false,
                 partial_rules_below: Vec::new(),
             })

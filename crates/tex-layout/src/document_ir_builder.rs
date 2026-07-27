@@ -2332,6 +2332,7 @@ mod tests {
                         cells: vec![
                             TableCellEvent {
                                 text: "Alpha".to_string(),
+                                source: None,
                                 column_span: 1,
                                 row_span: None,
                                 alignment: None,
@@ -2342,6 +2343,7 @@ mod tests {
                             },
                             TableCellEvent {
                                 text: "1".to_string(),
+                                source: None,
                                 column_span: 2,
                                 row_span: Some(2),
                                 alignment: Some(TableColumnAlignment::Center),
@@ -2351,6 +2353,7 @@ mod tests {
                                 cell_suffix: Some("]".to_string()),
                             },
                         ],
+                        source: None,
                         rule_below: false,
                         partial_rules_below: vec![TableRuleSpan {
                             start_column: 1,

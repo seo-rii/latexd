@@ -15751,7 +15751,7 @@ impl<'i> Vm<'i> {
                         }
                     }
                     CatCode::AlignmentTab => {
-                        self.capture_executed_table_alignment_tab();
+                        self.capture_executed_table_alignment_tab(token_span.start, token_span.end);
                         self.legacy_math_pending_word_boundary = false;
                         self.output.push(ch);
                         self.legacy_output_last_char = Some(ch);
@@ -15773,7 +15773,12 @@ impl<'i> Vm<'i> {
                     return;
                 }
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
-                if self.capture_executed_table_control_sequence(&control_sequence, queue) {
+                if self.capture_executed_table_control_sequence(
+                    &control_sequence,
+                    token_span.start,
+                    token_span.end,
+                    queue,
+                ) {
                     return;
                 }
                 self.separate_executed_inline_content();
@@ -16899,7 +16904,11 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
-                self.end_executed_table(environment);
+                self.end_executed_table(
+                    environment,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 self.end_executed_list(environment);
                 if environment == "document" {
                     self.execution_in_document = false;

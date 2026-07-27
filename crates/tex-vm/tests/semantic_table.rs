@@ -1,4 +1,4 @@
-use tex_render_model::{EventProducer, RenderEvent, SemanticConfidence};
+use tex_render_model::{EventProducer, ProvenanceSpan, RenderEvent, SemanticConfidence};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::Vm;
 
@@ -42,6 +42,15 @@ Beta & 2
     assert_eq!(tables[0].0.rows[0].cells[1].text, "1");
     assert_eq!(tables[0].0.rows[1].cells[0].text, "Beta");
     assert_eq!(tables[0].0.rows[1].cells[1].text, "2");
+    assert!(tables[0].0.rows.iter().all(|row| row.source.is_none()));
+    assert!(
+        tables[0]
+            .0
+            .rows
+            .iter()
+            .flat_map(|row| &row.cells)
+            .all(|cell| cell.source.is_none())
+    );
     assert_eq!(tables[0].1.meta.producer, EventProducer::ScannerRecovery);
     assert_eq!(tables[0].1.meta.confidence, SemanticConfidence::Medium);
     assert!(!outcome.render_events.iter().any(|event| matches!(
@@ -215,13 +224,12 @@ Alpha & Beta
 
 #[test]
 fn macro_generated_table_is_captured_from_vm_execution() {
-    let outcome = capture(
-        r"\def\makerow#1#2{#1 & #2 \\}
+    let source = r"\def\makerow#1#2{#1 & #2 \\}
 \def\maketable{\begin{tabular}{lr}\makerow{Alpha}{1}\makerow{Beta}{2}\end{tabular}}
 \begin{document}
 \maketable
-\end{document}",
-    );
+\end{document}";
+    let outcome = capture(source);
     let tables = outcome
         .render_events
         .iter()
@@ -238,6 +246,30 @@ fn macro_generated_table_is_captured_from_vm_execution() {
     assert_eq!(tables[0].0.rows[0].cells[1].text, "1");
     assert_eq!(tables[0].0.rows[1].cells[0].text, "Beta");
     assert_eq!(tables[0].0.rows[1].cells[1].text, "2");
+    for (cell, expected) in tables[0]
+        .0
+        .rows
+        .iter()
+        .flat_map(|row| &row.cells)
+        .zip(["Alpha", "1", "Beta", "2"])
+    {
+        let provenance = cell.source.as_ref().expect("cell source");
+        let ProvenanceSpan::File(span) = &provenance.primary else {
+            panic!("expected file-backed cell source");
+        };
+        assert_eq!(
+            &source[span.start_utf8 as usize..span.end_utf8 as usize],
+            expected
+        );
+        assert!(
+            provenance
+                .expansion_stack
+                .iter()
+                .any(|frame| frame.command_name.as_deref() == Some("makerow")),
+            "{provenance:#?}"
+        );
+    }
+    assert!(tables[0].0.rows.iter().all(|row| row.source.is_some()));
     assert_eq!(tables[0].1.meta.producer, EventProducer::Macro);
     assert_eq!(tables[0].1.meta.confidence, SemanticConfidence::High);
     assert_eq!(

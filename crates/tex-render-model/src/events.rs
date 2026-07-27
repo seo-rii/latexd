@@ -618,6 +618,8 @@ pub struct TableRowEvent {
     pub partial_rules_above: Vec<TableRuleSpan>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cells: Vec<TableCellEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceProvenance>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rule_below: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -627,6 +629,8 @@ pub struct TableRowEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableCellEvent {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceProvenance>,
     #[serde(default = "one_usize", skip_serializing_if = "is_one_usize")]
     pub column_span: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -928,6 +932,7 @@ mod tests {
                         cells: vec![
                             TableCellEvent {
                                 text: "Alpha".to_string(),
+                                source: None,
                                 column_span: 1,
                                 row_span: None,
                                 alignment: None,
@@ -938,6 +943,7 @@ mod tests {
                             },
                             TableCellEvent {
                                 text: "1".to_string(),
+                                source: None,
                                 column_span: 1,
                                 row_span: Some(2),
                                 alignment: Some(TableColumnAlignment::Right),
@@ -947,6 +953,7 @@ mod tests {
                                 cell_suffix: Some("!".to_string()),
                             },
                         ],
+                        source: None,
                         rule_below: false,
                         partial_rules_below: vec![TableRuleSpan {
                             start_column: 1,
@@ -971,6 +978,49 @@ mod tests {
         assert!(!encoded.contains("\"source_excerpt\""));
         assert_eq!(decoded, stream);
         assert_eq!(stream.events[0].meta.mode_hint, ModeHint::Vertical);
+    }
+
+    #[test]
+    fn structured_table_event_roundtrips_nested_source_provenance() {
+        let row_source = serde_json::json!({
+            "primary": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 10,
+                "end_utf8": 20
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+        });
+        let encoded = serde_json::json!({
+            "environment": "tabular",
+            "rows": [{
+                "cells": [{
+                    "text": "Alpha",
+                    "source": {
+                        "primary": {
+                            "kind": "file",
+                            "path": "main.tex",
+                            "start_utf8": 10,
+                            "end_utf8": 15
+                        },
+                        "related": [],
+                        "expansion_stack": [],
+                        "generated_by": "source",
+                        "expansion_stack_truncated": false
+                    }
+                }],
+                "source": row_source
+            }]
+        });
+
+        let event: TableEvent =
+            serde_json::from_value(encoded.clone()).expect("decode table event");
+        let reencoded = serde_json::to_value(event).expect("encode table event");
+
+        assert_eq!(reencoded, encoded);
     }
 
     #[test]

@@ -234,7 +234,7 @@ impl Vm<'_> {
         start_utf8: u32,
         end_utf8: u32,
     ) {
-        if self.capture_executed_table_character(ch) {
+        if self.capture_executed_table_character(ch, start_utf8, end_utf8) {
             return;
         }
         if !self.can_capture_executed_text()
