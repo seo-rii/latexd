@@ -96,6 +96,162 @@ fn input_enter_snapshot_reexecutes_the_input_primitive_with_current_child_source
 }
 
 #[test]
+fn input_enter_snapshot_rebases_a_semantically_equivalent_parent_source() {
+    let previous_source = "\\begin{document}% old comment\n\\input{child} After.\\end{document}";
+    let current_source =
+        "\\begin{document}% a longer replacement comment\n\\input{child} After.\\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    let previous = vm.run_plain(previous_source);
+    let checkpoint = previous
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .expect("child enter checkpoint");
+    let output_prefix = previous.output[..checkpoint.output_start_utf8 as usize].to_string();
+    let snapshot = checkpoint.snapshot.clone();
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    restored.mount_file("child.tex", "Child.");
+    assert!(restored.rebase_restored_input_sources([current_source]));
+    let replayed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+
+    let mut clean_interner = ControlSequenceInterner::new();
+    let mut clean = Vm::new(&mut clean_interner);
+    clean.set_entry_source_path("main.tex");
+    clean.mount_file("child.tex", "Child.");
+    let expected = clean.run_plain(current_source);
+
+    assert_eq!(
+        format!("{output_prefix}{}", replayed.output),
+        expected.output
+    );
+}
+
+#[test]
+fn input_enter_snapshot_replaces_changed_child_render_events() {
+    let (expected, replayed) =
+        replay_render_events_after_changed_child("Old child.", "A much newer child.");
+
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn input_enter_snapshot_replaces_changed_child_heading_event() {
+    let (expected, replayed) =
+        replay_render_events_after_changed_child(r"\section{Old}", r"\section{New heading}");
+
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn input_enter_snapshot_replaces_changed_child_citation_event() {
+    let (expected, replayed) =
+        replay_render_events_after_changed_child(r"\cite{old}", r"\cite{new-key}");
+
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn input_enter_snapshot_replaces_changed_child_math_event() {
+    let (expected, replayed) =
+        replay_render_events_after_changed_child("$x^2$", r"$\alpha \le \beta$");
+
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn input_enter_snapshot_replaces_changed_child_structural_events() {
+    for (case, previous_child, current_child) in [
+        ("reference", r"\ref{old}", r"\pageref{new}"),
+        (
+            "link",
+            r"\href{https://old.test}{Old}",
+            r"\href{https://new.test}{New link}",
+        ),
+        (
+            "graphic",
+            r"\includegraphics{old.png}",
+            r"\includegraphics[width=2cm]{new.png}",
+        ),
+        (
+            "list",
+            r"\begin{itemize}\item Old\end{itemize}",
+            r"\begin{enumerate}\item New item\end{enumerate}",
+        ),
+        (
+            "environment",
+            r"\begin{quote}Old\end{quote}",
+            r"\begin{quotation}New text\end{quotation}",
+        ),
+        (
+            "table",
+            r"\begin{tabular}{l}Old\end{tabular}",
+            r"\begin{tabular}{ll}New & Cell\end{tabular}",
+        ),
+        ("caption", r"\caption{Old}", r"\caption{New caption}"),
+    ] {
+        let (expected, replayed) =
+            replay_render_events_after_changed_child(previous_child, current_child);
+
+        assert_eq!(replayed, expected, "{case}");
+    }
+}
+
+fn replay_render_events_after_changed_child(
+    previous_child: &str,
+    current_child: &str,
+) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
+    let source = r"\begin{document}Before \input{child} After.\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", previous_child);
+    let previous = vm.run_plain(source);
+    let checkpoint = previous
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .expect("child enter checkpoint");
+    let output_prefix = previous.output[..checkpoint.output_start_utf8 as usize].to_string();
+    let snapshot = checkpoint.snapshot.clone();
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    restored.mount_file("child.tex", current_child);
+    let replayed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+
+    let mut clean_interner = ControlSequenceInterner::new();
+    let mut clean = Vm::new(&mut clean_interner);
+    clean.enable_render_event_capture();
+    clean.set_entry_source_path("main.tex");
+    clean.mount_file("child.tex", current_child);
+    let expected = clean.run_plain(source);
+
+    assert_eq!(
+        format!("{output_prefix}{}", replayed.output),
+        expected.output
+    );
+    (expected.render_events, replayed.render_events)
+}
+
+#[test]
 fn input_exit_snapshot_preserves_observation_prefixes() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

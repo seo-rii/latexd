@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     fs, mem,
 };
 
@@ -785,6 +785,109 @@ struct RenderEventScanState {
 }
 
 impl RenderEventScanState {
+    fn new(root_source_continues: bool) -> Self {
+        let mut state = Self {
+            root_source_continues,
+            ..Self::default()
+        };
+        for environment in [
+            "quote",
+            "quotation",
+            "verse",
+            "NoHyper",
+            "center",
+            "flushleft",
+            "flushright",
+            "samepage",
+            "titlepage",
+            "framed",
+            "shaded",
+            "snugshade",
+            "leftbar",
+            "oframed",
+            "tcolorbox",
+            "mdframed",
+            "displayquote",
+            "displayquotation",
+            "acknowledgements",
+            "acknowledgments",
+            "acknowledgement",
+            "acknowledgment",
+            "keywords",
+            "keyword",
+            "IEEEkeywords",
+            "frontmatter",
+            "widetext",
+            "strip",
+            "fullwidth",
+            "landscape",
+            "landscape*",
+            "CJK",
+            "CJK*",
+            "sloppypar",
+            "tiny",
+            "scriptsize",
+            "footnotesize",
+            "small",
+            "normalsize",
+            "large",
+            "Large",
+            "LARGE",
+            "huge",
+            "Huge",
+            "spacing",
+            "onehalfspace",
+            "doublespace",
+            "singlespace",
+            "adjustwidth",
+            "adjustwidth*",
+            "addmargin",
+            "addmargin*",
+            "algorithm",
+            "algorithm*",
+            "algorithmic",
+            "algorithmic*",
+            "subequations",
+            "appendices",
+            "subappendices",
+            "minipage",
+            "multicols",
+            "multicols*",
+            "paracol",
+            "paracol*",
+            "adjustbox",
+            "threeparttable",
+            "tablenotes",
+            "subfigure",
+            "subfigure*",
+            "subtable",
+            "subtable*",
+        ] {
+            state
+                .structured_environments
+                .insert(environment.to_string());
+        }
+        for environment in [
+            "theorem",
+            "proof",
+            "lemma",
+            "proposition",
+            "corollary",
+            "definition",
+            "remark",
+            "example",
+        ] {
+            state
+                .theorem_like_environments
+                .insert(environment.to_string());
+            state
+                .structured_environments
+                .insert(environment.to_string());
+        }
+        state.hidden_environments.insert("comment".to_string());
+        state
+    }
+
     fn next_heading_number(&mut self, level: u8) -> String {
         let level = usize::from(level).min(self.heading_counters.len() - 1);
         self.heading_counters[level] += 1;
@@ -917,6 +1020,7 @@ pub struct Vm<'i> {
     render_events: SemanticEventBuffer,
     scanner_dollar_math_event_ids: HashSet<EventId>,
     render_event_sources: HashMap<Utf8PathBuf, String>,
+    semantic_recovery_dirty_paths: HashSet<Utf8PathBuf>,
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
@@ -988,6 +1092,7 @@ impl<'i> Vm<'i> {
             render_events: SemanticEventBuffer::default(),
             scanner_dollar_math_event_ids: HashSet::new(),
             render_event_sources: HashMap::new(),
+            semantic_recovery_dirty_paths: HashSet::new(),
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
@@ -1181,7 +1286,191 @@ impl<'i> Vm<'i> {
     }
 
     pub fn mount_file(&mut self, path: impl Into<Utf8PathBuf>, source: impl Into<String>) {
-        self.mounted_files.insert(path.into(), source.into());
+        let path = path.into();
+        let source = source.into();
+        self.mounted_files.insert(path.clone(), source.clone());
+        let is_entry_source = self.entry_source_path.as_ref() == Some(&path);
+        self.refresh_render_recovery_source(
+            &path,
+            &source,
+            !is_entry_source && self.execution_in_document,
+            usize::from(!is_entry_source),
+        );
+    }
+
+    fn refresh_render_recovery_source(
+        &mut self,
+        path: &Utf8PathBuf,
+        source: &str,
+        initial_in_document: bool,
+        include_depth: usize,
+    ) {
+        let previous_recovery_source = self.render_event_sources.get(path).cloned();
+        if !self.render_event_capture
+            || previous_recovery_source
+                .as_ref()
+                .is_none_or(|previous| previous == source)
+        {
+            return;
+        }
+
+        let removed_event_ids = self
+            .render_events
+            .iter()
+            .filter_map(|event| {
+                let belongs_to_source = matches!(
+                    &event.meta.source.primary,
+                    ProvenanceSpan::File(span) if &span.path == path
+                );
+                belongs_to_source.then_some(event.meta.event_id)
+            })
+            .collect::<BTreeSet<_>>();
+        if removed_event_ids.is_empty() {
+            self.semantic_recovery_dirty_paths.insert(path.clone());
+            self.render_event_sources
+                .insert(path.clone(), source.to_string());
+            return;
+        }
+
+        let original_math = self.semantic_math_snapshot();
+        let original_text = self.semantic_text_snapshot();
+        let original_graphic = self.semantic_graphic_snapshot();
+        let original_list = self.semantic_list_snapshot();
+        let original_environment = self.semantic_environment_snapshot();
+        let original_table = self.semantic_table_snapshot();
+        let original_inline = self.semantic_inline_snapshot();
+        let original_heading = self.semantic_heading_snapshot();
+        let original_caption = self.semantic_caption_snapshot();
+
+        let mut math = original_math.clone();
+        math.scanner_dollar_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_math_snapshot(&math);
+        let mut text = original_text.clone();
+        text.scanner_slots.retain(|slot| &slot.path != path);
+        text.suppressed_ranges.retain(|range| &range.path != path);
+        self.restore_semantic_text_snapshot(&text);
+        let mut graphic = original_graphic.clone();
+        graphic
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        graphic
+            .overridden_invocations
+            .retain(|invocation| &invocation.path != path);
+        self.restore_semantic_graphic_snapshot(&graphic);
+        let mut list = original_list.clone();
+        list.scanner_item_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_list_snapshot(&list);
+        let mut environment = original_environment.clone();
+        environment
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_environment_snapshot(&environment);
+        let mut table = original_table.clone();
+        table
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_table_snapshot(&table);
+        let mut inline = original_inline.clone();
+        inline
+            .scanner_citation_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        inline
+            .scanner_reference_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        inline
+            .scanner_link_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_inline_snapshot(&inline);
+        let mut heading = original_heading.clone();
+        heading
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_heading_snapshot(&heading);
+        let mut caption = original_caption.clone();
+        caption
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_caption_snapshot(&caption);
+
+        self.render_event_sources.remove(path);
+        let mark = self.render_events.mark();
+        let mut scan_state = RenderEventScanState::new(false);
+        self.capture_render_events_from_source(
+            path,
+            source,
+            initial_in_document,
+            include_depth,
+            &mut scan_state,
+        );
+        if let Some(event_id_remap) = self
+            .render_events
+            .replace_transaction_since(&removed_event_ids, mark)
+        {
+            let remap_event_ids = |event_ids: &mut Vec<EventId>| {
+                for event_id in event_ids {
+                    if let Some(committed_event_id) = event_id_remap.get(event_id) {
+                        *event_id = *committed_event_id;
+                    }
+                }
+            };
+
+            let mut math = self.semantic_math_snapshot();
+            remap_event_ids(&mut math.scanner_dollar_event_ids);
+            self.restore_semantic_math_snapshot(&math);
+
+            let mut text = self.semantic_text_snapshot();
+            for slot in &mut text.scanner_slots {
+                remap_event_ids(&mut slot.event_ids);
+            }
+            self.restore_semantic_text_snapshot(&text);
+
+            let mut graphic = self.semantic_graphic_snapshot();
+            remap_event_ids(&mut graphic.scanner_event_ids);
+            self.restore_semantic_graphic_snapshot(&graphic);
+
+            let mut list = self.semantic_list_snapshot();
+            remap_event_ids(&mut list.scanner_item_event_ids);
+            self.restore_semantic_list_snapshot(&list);
+
+            let mut environment = self.semantic_environment_snapshot();
+            remap_event_ids(&mut environment.scanner_event_ids);
+            self.restore_semantic_environment_snapshot(&environment);
+
+            let mut table = self.semantic_table_snapshot();
+            remap_event_ids(&mut table.scanner_event_ids);
+            self.restore_semantic_table_snapshot(&table);
+
+            let mut inline = self.semantic_inline_snapshot();
+            remap_event_ids(&mut inline.scanner_citation_event_ids);
+            remap_event_ids(&mut inline.scanner_reference_event_ids);
+            remap_event_ids(&mut inline.scanner_link_event_ids);
+            self.restore_semantic_inline_snapshot(&inline);
+
+            let mut heading = self.semantic_heading_snapshot();
+            remap_event_ids(&mut heading.scanner_event_ids);
+            self.restore_semantic_heading_snapshot(&heading);
+
+            let mut caption = self.semantic_caption_snapshot();
+            remap_event_ids(&mut caption.scanner_event_ids);
+            self.restore_semantic_caption_snapshot(&caption);
+            return;
+        }
+
+        let _ = self.render_events.rollback(mark);
+        self.restore_semantic_math_snapshot(&original_math);
+        self.restore_semantic_text_snapshot(&original_text);
+        self.restore_semantic_graphic_snapshot(&original_graphic);
+        self.restore_semantic_list_snapshot(&original_list);
+        self.restore_semantic_environment_snapshot(&original_environment);
+        self.restore_semantic_table_snapshot(&original_table);
+        self.restore_semantic_inline_snapshot(&original_inline);
+        self.restore_semantic_heading_snapshot(&original_heading);
+        self.restore_semantic_caption_snapshot(&original_caption);
+        self.semantic_recovery_dirty_paths.insert(path.clone());
+        self.render_event_sources
+            .insert(path.clone(), source.to_string());
     }
 
     pub fn set_module_trace_prefix(&mut self, module_traces: Vec<VmModuleTrace>) {
@@ -1208,105 +1497,7 @@ impl<'i> Vm<'i> {
                 .entry_source_path
                 .clone()
                 .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
-            let mut scan_state = RenderEventScanState {
-                root_source_continues: source_continues,
-                ..RenderEventScanState::default()
-            };
-            for environment in [
-                "quote",
-                "quotation",
-                "verse",
-                "NoHyper",
-                "center",
-                "flushleft",
-                "flushright",
-                "samepage",
-                "titlepage",
-                "framed",
-                "shaded",
-                "snugshade",
-                "leftbar",
-                "oframed",
-                "tcolorbox",
-                "mdframed",
-                "displayquote",
-                "displayquotation",
-                "acknowledgements",
-                "acknowledgments",
-                "acknowledgement",
-                "acknowledgment",
-                "keywords",
-                "keyword",
-                "IEEEkeywords",
-                "frontmatter",
-                "widetext",
-                "strip",
-                "fullwidth",
-                "landscape",
-                "landscape*",
-                "CJK",
-                "CJK*",
-                "sloppypar",
-                "tiny",
-                "scriptsize",
-                "footnotesize",
-                "small",
-                "normalsize",
-                "large",
-                "Large",
-                "LARGE",
-                "huge",
-                "Huge",
-                "spacing",
-                "onehalfspace",
-                "doublespace",
-                "singlespace",
-                "adjustwidth",
-                "adjustwidth*",
-                "addmargin",
-                "addmargin*",
-                "algorithm",
-                "algorithm*",
-                "algorithmic",
-                "algorithmic*",
-                "subequations",
-                "appendices",
-                "subappendices",
-                "minipage",
-                "multicols",
-                "multicols*",
-                "paracol",
-                "paracol*",
-                "adjustbox",
-                "threeparttable",
-                "tablenotes",
-                "subfigure",
-                "subfigure*",
-                "subtable",
-                "subtable*",
-            ] {
-                scan_state
-                    .structured_environments
-                    .insert(environment.to_string());
-            }
-            for environment in [
-                "theorem",
-                "proof",
-                "lemma",
-                "proposition",
-                "corollary",
-                "definition",
-                "remark",
-                "example",
-            ] {
-                scan_state
-                    .theorem_like_environments
-                    .insert(environment.to_string());
-                scan_state
-                    .structured_environments
-                    .insert(environment.to_string());
-            }
-            scan_state.hidden_environments.insert("comment".to_string());
+            let mut scan_state = RenderEventScanState::new(source_continues);
             self.capture_render_events_from_source(
                 &source_path,
                 source,
@@ -15100,6 +15291,40 @@ impl<'i> Vm<'i> {
         Some(self.run_queue(continuation.queue, initial_queue_weight, true))
     }
 
+    pub fn rebase_restored_input_sources<'a>(
+        &mut self,
+        sources: impl IntoIterator<Item = &'a str>,
+    ) -> bool {
+        let Some(continuation) = self.restored_input_continuation.as_ref() else {
+            return false;
+        };
+        let mut sources = sources.into_iter();
+        let mut rebased_queue = VecDeque::with_capacity(continuation.queue.len());
+        for item in &continuation.queue {
+            let rebased = match item {
+                QueueItem::CharacterSource(mouth) => {
+                    let Some(source) = sources.next() else {
+                        return false;
+                    };
+                    let Some(mouth) = mouth.rebase_input(source) else {
+                        return false;
+                    };
+                    QueueItem::CharacterSource(mouth)
+                }
+                item => item.clone(),
+            };
+            rebased_queue.push_back(rebased);
+        }
+        if sources.next().is_some() {
+            return false;
+        }
+        self.restored_input_continuation
+            .as_mut()
+            .expect("validated restored input continuation")
+            .queue = rebased_queue;
+        true
+    }
+
     fn run_queue(
         &mut self,
         mut queue: VecDeque<QueueItem>,
@@ -15173,6 +15398,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_table_events();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
+            self.semantic_recovery_dirty_paths.clear();
             self.render_event_sources.clear();
         }
 
@@ -22806,6 +23032,12 @@ impl<'i> Vm<'i> {
             });
             return;
         };
+        self.refresh_render_recovery_source(
+            &path,
+            &source,
+            label == "input" && self.execution_in_document,
+            1,
+        );
 
         self.record_graphic_module_options(label, &path, &module_options);
         let output_start_utf8 = self.output.len() as u32;

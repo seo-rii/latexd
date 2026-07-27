@@ -149,6 +149,49 @@ impl Mouth {
         })
     }
 
+    pub fn rebase_input(&self, input: &str) -> Option<Self> {
+        let position = if self.input.as_ref() == input
+            || input.get(..self.position) == self.input.get(..self.position)
+        {
+            self.position
+        } else {
+            let remaining = self.input.get(self.position..)?;
+            if remaining.is_empty() {
+                return None;
+            }
+            let maximum = remaining.len().min(256);
+            let mut previous_length = usize::MAX;
+            let mut rebased_position = None;
+            for target_length in [maximum, 128, 64, 32, 16] {
+                let mut length = target_length.min(maximum);
+                while length > 0 && !remaining.is_char_boundary(length) {
+                    length -= 1;
+                }
+                if length == 0
+                    || length == previous_length
+                    || (remaining.len() >= 16 && length < 16)
+                {
+                    continue;
+                }
+                previous_length = length;
+                let mut matches = input.match_indices(&remaining[..length]);
+                let Some((position, _)) = matches.next() else {
+                    continue;
+                };
+                if matches.next().is_none() {
+                    rebased_position = Some(position);
+                    break;
+                }
+            }
+            rebased_position?
+        };
+        Some(Self {
+            input: Arc::from(input),
+            position,
+            state: self.state,
+        })
+    }
+
     pub fn next_token(
         &mut self,
         catcodes: &CatCodeTable,
@@ -452,6 +495,46 @@ mod tests {
             render(&restored_tail, &interner),
             vec!["cs:foo@bar", "char:Letter:z"]
         );
+    }
+
+    #[test]
+    fn mouth_rebases_a_checkpoint_cursor_only_at_an_unambiguous_continuation() {
+        let mut interner = ControlSequenceInterner::new();
+        let catcodes = CatCodeTable::plain_tex();
+        let mut mouth = Mouth::new("\\input{child}\nafter");
+
+        let input = mouth
+            .next_token(&catcodes, &mut interner)
+            .expect("input control sequence");
+        assert_eq!(render(&[input], &interner), vec!["cs:input"]);
+
+        let updated = "semantic-prefix \\input{child}\nafter";
+        let mut rebased = mouth
+            .rebase_input(updated)
+            .expect("unique unread suffix should rebase");
+        let opening = rebased
+            .next_token(&catcodes, &mut interner)
+            .expect("opening argument token");
+        assert_eq!(
+            opening.span.start as usize,
+            updated.find("{child}").expect("argument offset")
+        );
+
+        let mut changed_tail = Mouth::new("\\input{child}\nshared anchor old tail");
+        changed_tail
+            .next_token(&catcodes, &mut interner)
+            .expect("input control sequence");
+        let updated_tail = "semantic-prefix \\input{child}\nshared anchor new tail";
+        assert!(
+            changed_tail.rebase_input(updated_tail).is_some(),
+            "distant edits on both sides must not invalidate a unique cursor anchor"
+        );
+
+        let mut ambiguous = Mouth::new("x-tail");
+        ambiguous
+            .next_token(&catcodes, &mut interner)
+            .expect("consumed prefix");
+        assert!(ambiguous.rebase_input("a-tail-b-tail").is_none());
     }
 
     #[test]

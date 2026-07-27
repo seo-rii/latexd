@@ -1,13 +1,13 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     mem,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
     EventId, EventProducer, ExpansionFrame, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SpaceEvent,
-    SpaceKind, TextEvent,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance,
+    SourceSpan, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -544,13 +544,14 @@ impl Vm<'_> {
     pub(super) fn reconcile_executed_text_events(&mut self) {
         self.flush_executed_text_capture();
         let mut slots = mem::take(&mut self.semantic_text.scanner_slots);
+        let mut executed = mem::take(&mut self.semantic_text.executed_events);
+        self.replace_dirty_scanner_text_transactions(&mut slots, &mut executed);
         attach_trailing_scanner_spaces_to_eof_slots(
             &mut slots,
             &self.render_events,
             &self.render_event_sources,
         );
         let suppressed_ranges = self.semantic_text.suppressed_ranges.clone();
-        let executed = mem::take(&mut self.semantic_text.executed_events);
         if slots.is_empty() {
             insert_unmatched_macro_events(&mut self.render_events, executed);
             return;
@@ -695,6 +696,89 @@ impl Vm<'_> {
         }
         insert_unmatched_macro_events(&mut reconciled, unmatched);
         self.render_events.replace_events(reconciled);
+    }
+
+    fn replace_dirty_scanner_text_transactions(
+        &mut self,
+        slots: &mut Vec<ScannerTextSlot>,
+        executed: &mut Vec<RenderEventEnvelope>,
+    ) {
+        for path in self
+            .semantic_recovery_dirty_paths
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            let mut removed_event_ids = slots
+                .iter()
+                .filter(|slot| slot.path == path)
+                .flat_map(|slot| slot.event_ids.iter().copied())
+                .collect::<BTreeSet<_>>();
+            removed_event_ids.extend(self.render_events.iter().filter_map(|event| {
+                let is_dirty_scanner_text = event.meta.producer == EventProducer::ScannerRecovery
+                    && matches!(event.event, RenderEvent::Text(_) | RenderEvent::Space(_))
+                    && matches!(
+                        &event.meta.source.primary,
+                        ProvenanceSpan::File(span) if span.path == path
+                    );
+                is_dirty_scanner_text.then_some(event.meta.event_id)
+            }));
+            if removed_event_ids.is_empty() {
+                continue;
+            }
+
+            let mut replacements = Vec::new();
+            let mut retained = Vec::with_capacity(executed.len());
+            for event in mem::take(executed) {
+                let belongs_to_dirty_source = matches!(
+                    &event.meta.source.primary,
+                    ProvenanceSpan::File(span) if span.path == path
+                );
+                if belongs_to_dirty_source {
+                    replacements.push(event);
+                } else {
+                    retained.push(event);
+                }
+            }
+            *executed = retained;
+
+            if let Some(source) = self.render_event_sources.get(&path)
+                && source.chars().last().is_some_and(|ch| !ch.is_whitespace())
+            {
+                let last_line_start = source
+                    .rfind(['\n', '\r'])
+                    .map(|index| index + 1)
+                    .unwrap_or_default();
+                let last_line_has_comment =
+                    source[last_line_start..]
+                        .match_indices('%')
+                        .any(|(offset, _)| {
+                            !crate::is_escaped_percent(source, last_line_start + offset)
+                        });
+                if !last_line_has_comment {
+                    let event_id = self.render_events.allocate_event_id();
+                    let source_end = source.len().try_into().unwrap_or(u32::MAX);
+                    let mut trailing_space = RenderEventEnvelope::new(
+                        event_id,
+                        RenderEvent::Space(SpaceEvent {
+                            kind: SpaceKind::Interword,
+                        }),
+                        SourceProvenance::file(path.clone(), source_end, source_end),
+                    );
+                    trailing_space.meta.producer = EventProducer::ScannerRecovery;
+                    trailing_space.meta.confidence = SemanticConfidence::Medium;
+                    replacements.push(trailing_space);
+                }
+            }
+
+            if self
+                .render_events
+                .replace_transaction(&removed_event_ids, replacements)
+                .is_some()
+            {
+                slots.retain(|slot| slot.path != path);
+            }
+        }
     }
 
     pub(super) fn clear_semantic_suppression_ranges(&mut self) {

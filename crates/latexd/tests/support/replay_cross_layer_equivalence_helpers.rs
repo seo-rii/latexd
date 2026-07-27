@@ -136,17 +136,6 @@ async fn run_cross_layer_replay_case(case: CrossLayerReplayCase) {
         module_checkpoint_shape(replay_build_root.join("rev-2/sources.json"))
     );
     assert_eq!(clean.page_metadata, replayed.page_metadata);
-    match case {
-        CrossLayerReplayCase::PlainMutation => assert!(
-            !replayed.page_patches.is_empty(),
-            "visible input edit did not change renderer pages"
-        ),
-        CrossLayerReplayCase::Plain | CrossLayerReplayCase::SemanticAux => assert!(
-            replayed.page_patches.is_empty(),
-            "trailing comment changed renderer pages: {:?}",
-            replayed.page_patches
-        ),
-    }
     let normalize_renderer_metadata =
         |pages: &[latexd::compiler::PageArtifactMeta]| -> Vec<latexd::compiler::PageArtifactMeta> {
             pages
@@ -204,6 +193,17 @@ async fn run_cross_layer_replay_case(case: CrossLayerReplayCase) {
             differing_span.and_then(|index| clean_page?.source_spans.get(index)),
             differing_span.and_then(|index| replay_page?.source_spans.get(index)),
         );
+    }
+    match case {
+        CrossLayerReplayCase::PlainMutation => assert!(
+            !replayed.page_patches.is_empty(),
+            "visible input edit did not change renderer pages"
+        ),
+        CrossLayerReplayCase::Plain | CrossLayerReplayCase::SemanticAux => assert!(
+            replayed.page_patches.is_empty(),
+            "trailing comment changed renderer pages: {:?}",
+            replayed.page_patches
+        ),
     }
     assert_eq!(
         clean

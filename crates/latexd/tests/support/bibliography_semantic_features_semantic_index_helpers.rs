@@ -363,7 +363,11 @@ async fn run_bibliography_semantic_features_backdate_and_rebuild(
             assert_eq!(tail.previous_rev, 1);
             assert_eq!(tail.current_page_start, 0);
             assert_eq!(tail.page_count, second.page_metadata.len());
-            assert!(second.page_patches.is_empty());
+            assert!(
+                second.page_patches.is_empty(),
+                "trailing newline changed renderer pages: {:?}",
+                second.page_patches
+            );
             assert_eq!(
                 fs::read(fixture.build_root.join("rev-2/aux.json")).expect("read backdated aux"),
                 previous_payload

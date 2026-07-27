@@ -1,4 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::{Deref, DerefMut},
+};
 
 use tex_render_model::{EventId, RenderEventEnvelope};
 
@@ -99,6 +102,97 @@ impl SemanticEventBuffer {
         self.epoch = self.epoch.wrapping_add(1);
     }
 
+    pub(super) fn replace_transaction(
+        &mut self,
+        removed_event_ids: &BTreeSet<EventId>,
+        mut replacements: Vec<RenderEventEnvelope>,
+    ) -> Option<BTreeMap<EventId, EventId>> {
+        if removed_event_ids.is_empty() {
+            return None;
+        }
+        let present_event_ids = self
+            .events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<BTreeSet<_>>();
+        if !removed_event_ids.is_subset(&present_event_ids) {
+            return None;
+        }
+        let emitted_event_ids = replacements
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        let reusable_event_ids = self
+            .events
+            .iter()
+            .filter(|event| removed_event_ids.contains(&event.meta.event_id))
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        for (replacement, event_id) in replacements.iter_mut().zip(reusable_event_ids) {
+            replacement.meta.event_id = event_id;
+        }
+        let retained_event_ids = present_event_ids
+            .difference(removed_event_ids)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let replacement_event_ids = replacements
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<BTreeSet<_>>();
+        let event_id_remap = emitted_event_ids
+            .into_iter()
+            .zip(replacements.iter().map(|event| event.meta.event_id))
+            .collect::<BTreeMap<_, _>>();
+        if event_id_remap.len() != replacements.len()
+            || replacement_event_ids.len() != replacements.len()
+            || !retained_event_ids.is_disjoint(&replacement_event_ids)
+        {
+            return None;
+        }
+
+        let mut replacements = Some(replacements);
+        let mut events = Vec::with_capacity(
+            self.events.len().saturating_sub(removed_event_ids.len())
+                + replacements.as_ref().map_or(0, Vec::len),
+        );
+        for event in self.events.drain(..) {
+            if removed_event_ids.contains(&event.meta.event_id) {
+                if let Some(replacements) = replacements.take() {
+                    events.extend(replacements);
+                }
+            } else {
+                events.push(event);
+            }
+        }
+        self.next_event_id = events
+            .iter()
+            .map(|event| event.meta.event_id.saturating_add(1))
+            .max()
+            .unwrap_or(1)
+            .max(self.next_event_id);
+        self.events = events;
+        self.epoch = self.epoch.wrapping_add(1);
+        Some(event_id_remap)
+    }
+
+    pub(super) fn replace_transaction_since(
+        &mut self,
+        removed_event_ids: &BTreeSet<EventId>,
+        mark: SemanticSinkMark,
+    ) -> Option<BTreeMap<EventId, EventId>> {
+        if !self.commit(mark) {
+            return None;
+        }
+        let replacements = self.events.split_off(mark.event_len);
+        match self.replace_transaction(removed_event_ids, replacements.clone()) {
+            Some(event_id_remap) => Some(event_id_remap),
+            None => {
+                self.events.extend(replacements);
+                None
+            }
+        }
+    }
+
     pub(super) fn set_replay_prefix(&mut self, events: Vec<RenderEventEnvelope>) {
         self.next_event_id = events
             .iter()
@@ -139,6 +233,8 @@ impl DerefMut for SemanticEventBuffer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use tex_render_model::{RenderEvent, RenderEventEnvelope, SourceProvenance, TextEvent};
 
     use super::SemanticEventBuffer;
@@ -229,6 +325,72 @@ mod tests {
         assert_eq!(buffer.batch_start_event_id(), 2);
         assert_eq!(emit_text(&mut buffer, "body"), 2);
         assert!(SemanticEventBuffer::restore(&buffer.snapshot()).is_some());
+    }
+
+    #[test]
+    fn source_transaction_replaces_an_event_range_atomically() {
+        let mut buffer = SemanticEventBuffer::default();
+        emit_text(&mut buffer, "before");
+        let old_start = emit_text(&mut buffer, "old start");
+        let old_end = emit_text(&mut buffer, "old end");
+        emit_text(&mut buffer, "after");
+        let replacement_id = buffer.allocate_event_id();
+        let replacement = RenderEventEnvelope::new(
+            replacement_id,
+            RenderEvent::Text(TextEvent {
+                text: "replacement".to_string(),
+            }),
+            SourceProvenance::file("child.tex", 0, 11),
+        );
+
+        let event_id_remap = buffer
+            .replace_transaction(&BTreeSet::from([old_start, old_end]), vec![replacement])
+            .expect("valid source transaction");
+        assert_eq!(event_id_remap.get(&replacement_id), Some(&old_start));
+        assert_eq!(
+            buffer
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::Text(text) => Some(text.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec!["before", "replacement", "after"]
+        );
+
+        let unchanged = buffer.clone();
+        assert!(
+            buffer
+                .replace_transaction(&BTreeSet::from([99]), Vec::new())
+                .is_none()
+        );
+        assert_eq!(buffer, unchanged);
+    }
+
+    #[test]
+    fn source_transaction_moves_events_emitted_since_a_mark() {
+        let mut buffer = SemanticEventBuffer::default();
+        emit_text(&mut buffer, "before");
+        let old = emit_text(&mut buffer, "old");
+        emit_text(&mut buffer, "after");
+        let mark = buffer.mark();
+        emit_text(&mut buffer, "replacement");
+
+        assert!(
+            buffer
+                .replace_transaction_since(&BTreeSet::from([old]), mark)
+                .is_some()
+        );
+        assert_eq!(
+            buffer
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::Text(text) => Some(text.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec!["before", "replacement", "after"]
+        );
     }
 
     #[test]

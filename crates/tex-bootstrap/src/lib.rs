@@ -728,6 +728,7 @@ pub fn capture_page_checkpoints(
     checkpoint: &ProjectReplayCheckpoint,
     output_prefix_utf8: u32,
     page_metadata: &[ProjectPageMeta],
+    authoritative_render_events: &[RenderEventEnvelope],
 ) -> Result<Vec<ProjectReplayCheckpoint>> {
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
     let resume_source = read_tex_source_lossy(&world.root.join(&checkpoint.resume_path))
@@ -753,6 +754,7 @@ pub fn capture_page_checkpoints(
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::restore(&mut interner, &checkpoint.snapshot);
     vm.set_file_root(world.root.clone());
+    vm.set_entry_source_path(checkpoint.resume_path.clone());
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let mut render_event_prefix = checkpoint.render_event_prefix.clone();
@@ -764,6 +766,7 @@ pub fn capture_page_checkpoints(
     let mut frame_index = 0usize;
     let mut last_resume_path = checkpoint.resume_path.clone();
     let mut last_source_offset_utf8 = checkpoint.source_offset_utf8;
+    let mut consumed_source_offsets = BTreeMap::<Utf8PathBuf, u32>::new();
     for (page_index, page) in page_metadata.iter().enumerate() {
         while frame_index < replay_frames.len() {
             let (path, source, current_offset) = &mut replay_frames[frame_index];
@@ -879,6 +882,31 @@ pub fn capture_page_checkpoints(
             }
             frame_index += 1;
         }
+        for (path, _, current_offset) in &replay_frames {
+            consumed_source_offsets
+                .entry(path.clone())
+                .and_modify(|offset| *offset = (*offset).max(*current_offset as u32))
+                .or_insert(*current_offset as u32);
+        }
+        for span in &page.source_spans {
+            consumed_source_offsets
+                .entry(span.file.clone())
+                .and_modify(|offset| *offset = (*offset).max(span.end_utf8))
+                .or_insert(span.end_utf8);
+        }
+        let authoritative_prefix_len = authoritative_render_events
+            .iter()
+            .rposition(|event| {
+                let ProvenanceSpan::File(span) = &event.meta.source.primary else {
+                    return false;
+                };
+                consumed_source_offsets
+                    .get(&span.path)
+                    .is_some_and(|offset| *offset >= span.end_utf8)
+            })
+            .map_or(0, |index| index + 1);
+        render_event_prefix = authoritative_render_events[..authoritative_prefix_len].to_vec();
+        vm.set_render_event_prefix(render_event_prefix.clone());
         let (resume_path, source_offset_utf8, continuation_stack) =
             if let Some((path, _, current_offset)) = replay_frames.get(frame_index) {
                 (
@@ -930,10 +958,13 @@ pub fn run_project_from_base_snapshot_with_mounts(
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::restore(&mut interner, snapshot);
     vm.set_file_root(world.root.clone());
+    vm.set_entry_source_path(toplevel.clone());
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     for (path, mounted_source) in mounted_files {
-        vm.mount_file(path.clone(), mounted_source.clone());
+        if path != &toplevel {
+            vm.mount_file(path.clone(), mounted_source.clone());
+        }
     }
     vm.set_entry_source_path(toplevel.clone());
     let mut output = String::new();
@@ -1058,10 +1089,13 @@ pub fn run_project_from_checkpoint_with_mounts(
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::restore(&mut interner, &checkpoint.snapshot);
     vm.set_file_root(world.root.clone());
+    vm.set_entry_source_path(toplevel.clone());
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     for (path, mounted_source) in mounted_files {
-        vm.mount_file(path.clone(), mounted_source.clone());
+        if path != &toplevel {
+            vm.mount_file(path.clone(), mounted_source.clone());
+        }
     }
     let mut output = output_prefix.to_string();
     let mut registers = BTreeMap::new();
@@ -1101,15 +1135,17 @@ pub fn run_project_from_checkpoint_with_mounts(
                     })
                     .collect::<Option<Vec<_>>>()
             });
-    let can_resume_serialized_input = checkpoint
+    let continuation_is_restorable = checkpoint
         .snapshot
         .input_continuation
         .as_ref()
-        .zip(current_continuation_sources.as_ref())
-        .is_some_and(|(continuation, sources)| {
-            continuation.is_restorable()
-                && continuation.matches_character_sources(sources.iter().map(String::as_str))
-        });
+        .is_some_and(|continuation| continuation.is_restorable());
+    let can_resume_serialized_input = continuation_is_restorable
+        && current_continuation_sources
+            .as_ref()
+            .is_some_and(|sources| {
+                vm.rebase_restored_input_sources(sources.iter().map(String::as_str))
+            });
     if can_resume_serialized_input {
         let output_prefix_len = output.len() as u32;
         let outcome = vm
@@ -1841,7 +1877,8 @@ mod tests {
         LayoutOptions, ProjectLayoutProfile, align_replay_fragment_boundary, build_project_pdf,
         capture_page_checkpoints, compile_mini_kernel_snapshot, layout_options_for_profile,
         layout_profile_from_source, render_event_prefix_for_snapshot, run_project,
-        run_project_from_base_snapshot, run_project_from_checkpoint, run_project_with_snapshot,
+        run_project_from_base_snapshot, run_project_from_checkpoint,
+        run_project_pdf_from_base_snapshot, run_project_with_snapshot,
     };
 
     #[test]
@@ -3461,6 +3498,7 @@ mod tests {
             },
             exit_checkpoint.output_start_utf8,
             &build.page_metadata[start_page_index..],
+            &build.run.render_events,
         )
         .expect("captured checkpoints");
 
@@ -3468,6 +3506,43 @@ mod tests {
         assert_eq!(
             captured[0].resume_path,
             Utf8PathBuf::from("sections/parent.tex")
+        );
+    }
+
+    #[test]
+    fn captured_page_checkpoint_preserves_the_authoritative_render_event_prefix() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\documentclass{article}\begin{document}\tableofcontents\section{Intro}Body.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let base = compile_mini_kernel_snapshot();
+        let (build, preamble) =
+            run_project_pdf_from_base_snapshot(&world, &base).expect("project build");
+        let captured = capture_page_checkpoints(
+            &world,
+            &preamble,
+            0,
+            &build.page_metadata,
+            &build.run.render_events,
+        )
+        .expect("captured checkpoints");
+
+        assert_eq!(
+            captured
+                .last()
+                .expect("final page checkpoint")
+                .render_event_prefix,
+            build.run.render_events
         );
     }
 
