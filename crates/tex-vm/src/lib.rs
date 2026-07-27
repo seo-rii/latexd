@@ -36,6 +36,7 @@ mod semantic_heading;
 mod semantic_inline;
 mod semantic_list;
 mod semantic_math;
+mod semantic_table;
 mod semantic_text;
 mod snapshot;
 
@@ -58,6 +59,7 @@ use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
 use semantic_list::SemanticListState;
 use semantic_math::ExecutedMathCapture;
+use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
@@ -911,6 +913,7 @@ pub struct Vm<'i> {
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
     semantic_list: SemanticListState,
+    semantic_table: SemanticTableState,
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     execution_no_hyper_depth: usize,
@@ -981,6 +984,7 @@ impl<'i> Vm<'i> {
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
             semantic_list: SemanticListState::default(),
+            semantic_table: SemanticTableState::default(),
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             execution_no_hyper_depth: 0,
@@ -1175,6 +1179,7 @@ impl<'i> Vm<'i> {
     pub fn run_plain(&mut self, source: &str) -> VmOutcome {
         if self.render_event_capture {
             self.prepare_semantic_graphic_capture();
+            self.prepare_semantic_table_capture();
             let source_path = self
                 .entry_source_path
                 .clone()
@@ -14986,6 +14991,14 @@ impl<'i> Vm<'i> {
             &event,
             RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
         );
+        let scanner_table = matches!(
+            &event,
+            RenderEvent::RawFallback(fallback)
+                if fallback
+                    .environment
+                    .as_deref()
+                    .is_some_and(semantic_table::is_table_environment)
+        );
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
         self.render_events.push(envelope);
         if scanner_dollar_math {
@@ -15014,6 +15027,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_environment {
             self.mark_scanner_environment_event(event_id);
+        }
+        if scanner_table {
+            self.mark_scanner_table_event(event_id);
         }
         self.render_events
             .last_mut()
@@ -15106,6 +15122,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_text_events();
             self.reconcile_executed_list_events();
             self.reconcile_executed_environment_events();
+            self.reconcile_executed_table_events();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.render_event_sources.clear();
@@ -16759,6 +16776,11 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
+                self.begin_executed_table(
+                    environment,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 self.begin_executed_list(environment);
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
@@ -16855,6 +16877,7 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
+                self.end_executed_table(environment);
                 self.end_executed_list(environment);
                 if environment == "document" {
                     self.execution_in_document = false;
