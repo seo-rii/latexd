@@ -17,9 +17,9 @@ use tex_aux::{
     serialize_semantic_aux_backdated_with_previous,
 };
 use tex_bootstrap::{
-    ProjectPageMeta, ProjectPdfBuild, ProjectReplayCheckpoint, build_project_pdf_from_checkpoint,
-    build_project_pdf_from_checkpoint_with_mounts, capture_page_checkpoints,
-    compile_mini_kernel_snapshot, run_project_pdf_from_base_snapshot,
+    ProjectPageMeta, ProjectPdfBuild, ProjectReplayCheckpoint, ProjectRunResult,
+    build_project_pdf_from_checkpoint, build_project_pdf_from_checkpoint_with_mounts,
+    capture_page_checkpoints, compile_mini_kernel_snapshot, run_project_pdf_from_base_snapshot,
     run_project_pdf_from_base_snapshot_with_mounts,
 };
 use tex_checkpoint::{
@@ -38,7 +38,7 @@ use tex_render_assets::{
 use tex_render_model::{
     AuxView, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat, GraphicAssetRequest,
     GraphicPageSelection, MaterializedGraphicAsset, PageDisplayList, PreparedPdfForm,
-    ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, RenderEventStream, to_pretty_json,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame};
@@ -362,7 +362,153 @@ fn capture_internal_render_ir_with_options(
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let outcome = vm.run_plain(source);
-    let mut events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
+    let mut source_files = BTreeMap::new();
+    source_files.insert(source_path.clone(), source.to_string());
+    for (path, source) in mounted_files {
+        source_files.insert(Utf8PathBuf::from(*path), (*source).to_string());
+    }
+    lower_internal_render_events_with_options(
+        source_path,
+        outcome.output,
+        outcome.render_events,
+        source_files,
+        aux,
+        file_root,
+        prepared_asset_cache_root,
+    )
+}
+
+fn capture_internal_render_ir_from_project_run_with_asset_cache(
+    root: impl AsRef<Utf8Path>,
+    run: &ProjectRunResult,
+    aux: &impl AuxView,
+    rewrite_spans: &BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
+    prepared_asset_cache_root: impl AsRef<Utf8Path>,
+) -> anyhow::Result<InternalRenderIrCapture> {
+    let root = root.as_ref();
+    let mut source_files = BTreeMap::new();
+    source_files.insert(
+        run.toplevel.clone(),
+        read_render_ir_source(root, &run.toplevel)?,
+    );
+    for path in &run.loaded_modules {
+        if source_files.contains_key(path) {
+            continue;
+        }
+        if let Ok(source) = read_render_ir_source(root, path) {
+            source_files.insert(path.clone(), source);
+        }
+    }
+    let mut render_events = run.render_events.clone();
+    remap_render_event_provenance(&mut render_events, rewrite_spans);
+    Ok(lower_internal_render_events_with_options(
+        run.toplevel.clone(),
+        run.output.clone(),
+        render_events,
+        source_files,
+        aux,
+        Some(root),
+        Some(prepared_asset_cache_root.as_ref()),
+    ))
+}
+
+fn remap_render_event_provenance(
+    events: &mut [RenderEventEnvelope],
+    rewrite_spans: &BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
+) {
+    for event in events {
+        remap_source_provenance(&mut event.meta.source, rewrite_spans);
+        if let RenderEvent::Table(table) = &mut event.event {
+            for row in &mut table.rows {
+                if let Some(source) = &mut row.source {
+                    remap_source_provenance(source, rewrite_spans);
+                }
+                for cell in &mut row.cells {
+                    if let Some(source) = &mut cell.source {
+                        remap_source_provenance(source, rewrite_spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn remap_source_provenance(
+    source: &mut tex_render_model::SourceProvenance,
+    rewrite_spans: &BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
+) {
+    remap_provenance_span(&mut source.primary, rewrite_spans);
+    for related in &mut source.related {
+        remap_provenance_span(&mut related.span, rewrite_spans);
+    }
+    for frame in &mut source.expansion_stack {
+        remap_provenance_span(&mut frame.call_span, rewrite_spans);
+        if let Some(definition_span) = &mut frame.definition_span {
+            remap_provenance_span(definition_span, rewrite_spans);
+        }
+    }
+}
+
+fn remap_provenance_span(
+    span: &mut ProvenanceSpan,
+    rewrite_spans: &BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
+) {
+    let ProvenanceSpan::File(span) = span else {
+        return;
+    };
+    let Some(rewrites) = rewrite_spans.get(&span.path) else {
+        return;
+    };
+    let start_utf8 = source_offset_from_materialized(span.start_utf8, rewrites, false);
+    let end_utf8 = source_offset_from_materialized(span.end_utf8, rewrites, true);
+    span.start_utf8 = start_utf8;
+    span.end_utf8 = end_utf8.max(start_utf8);
+}
+
+fn source_offset_from_materialized(
+    output_offset_utf8: u32,
+    rewrite_spans: &[MaterializedRewriteSpan],
+    round_up: bool,
+) -> u32 {
+    let mut source_cursor = 0u32;
+    let mut output_cursor = 0u32;
+    for rewrite in rewrite_spans {
+        if output_offset_utf8 < rewrite.output_start_utf8 {
+            return source_cursor.saturating_add(output_offset_utf8.saturating_sub(output_cursor));
+        }
+        let output_len = rewrite
+            .output_end_utf8
+            .saturating_sub(rewrite.output_start_utf8);
+        let source_len = rewrite.end_utf8.saturating_sub(rewrite.start_utf8);
+        if output_len > 0 && output_offset_utf8 <= rewrite.output_end_utf8 {
+            let relative = output_offset_utf8.saturating_sub(rewrite.output_start_utf8) as u64;
+            let numerator = relative.saturating_mul(source_len as u64);
+            let output_len = output_len as u64;
+            let mapped = if round_up {
+                numerator.saturating_add(output_len - 1) / output_len
+            } else {
+                numerator / output_len
+            };
+            return rewrite
+                .start_utf8
+                .saturating_add(u32::try_from(mapped).unwrap_or(u32::MAX));
+        }
+        source_cursor = rewrite.end_utf8;
+        output_cursor = rewrite.output_end_utf8;
+    }
+    source_cursor.saturating_add(output_offset_utf8.saturating_sub(output_cursor))
+}
+
+fn lower_internal_render_events_with_options(
+    source_path: Utf8PathBuf,
+    legacy_output: String,
+    render_events: Vec<RenderEventEnvelope>,
+    source_files: BTreeMap<Utf8PathBuf, String>,
+    aux: &impl AuxView,
+    file_root: Option<&Utf8Path>,
+    prepared_asset_cache_root: Option<&Utf8Path>,
+) -> InternalRenderIrCapture {
+    let mut events = RenderEventStream::new(Some(source_path.to_string()), render_events);
     let mut prepared_pdf_forms = BTreeMap::<GraphicAssetRequest, PreparedPdfForm>::new();
     let mut prepared_pdf_source_bytes = BTreeMap::<GraphicAssetRequest, Vec<u8>>::new();
     if let Some(root) = file_root {
@@ -503,14 +649,8 @@ fn capture_internal_render_ir_with_options(
         &page_display_lists,
         |request| materialized_assets.get(request).cloned(),
     );
-    let mut source_files = BTreeMap::new();
-    source_files.insert(source_path.clone(), source.to_string());
-    for (path, source) in mounted_files {
-        source_files.insert(Utf8PathBuf::from(*path), (*source).to_string());
-    }
-
     InternalRenderIrCapture {
-        legacy_output: outcome.output,
+        legacy_output,
         events,
         document_ir,
         page_display_lists,
@@ -1663,18 +1803,27 @@ impl CompilerDriver {
                 map_internal_diagnostics(&request.toplevel, &build.run.diagnostics);
             let render_ir_artifact_dir = rev_dir.join("render-ir");
             let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
-            let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
+            let default_semantic_aux = SemanticAux::default();
+            let empty_rewrite_spans = BTreeMap::new();
+            let aux_view = semantic_aux.as_ref().unwrap_or(&default_semantic_aux);
+            // Checkpoint event streams are not prefix-complete while recovery scanning is eager.
+            let render_ir_capture = if previous_build.is_some() || aux_sensitive {
                 capture_internal_render_ir_from_project_root_with_asset_cache(
                     &request.root,
                     &request.toplevel,
-                    aux,
+                    aux_view,
                     &prepared_asset_cache_root,
                 )
             } else {
-                capture_internal_render_ir_from_project_root_with_asset_cache(
+                capture_internal_render_ir_from_project_run_with_asset_cache(
                     &request.root,
-                    &request.toplevel,
-                    &SemanticAux::default(),
+                    &build.run,
+                    aux_view,
+                    materialized_project
+                        .as_ref()
+                        .map_or(&empty_rewrite_spans, |materialized| {
+                            &materialized.rewrite_spans
+                        }),
                     &prepared_asset_cache_root,
                 )
             }
@@ -4283,7 +4432,7 @@ mod tests {
     use hmr_protocol::{DiagnosticLevel, PagePatchOp, PagePreviewArtifact};
     use tempfile::tempdir;
     use tex_aux::MaterializedRewriteSpan;
-    use tex_bootstrap::{ProjectPageMeta, ProjectReplayCheckpoint};
+    use tex_bootstrap::{ProjectPageMeta, ProjectReplayCheckpoint, run_project};
     use tex_checkpoint::{
         CheckpointKind, InputBoundaryCheckpoint, ShipoutCheckpoint,
         build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
@@ -4293,7 +4442,7 @@ mod tests {
     use tex_render_model::{
         DrawOp, GraphicAssetFormat, GraphicAssetRequest, IrBlock, PageDisplayList, PositionedImage,
         Rect, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SourceProvenance,
+        SourceProvenance, TextEvent,
     };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
@@ -4308,16 +4457,17 @@ mod tests {
         StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
         annotate_display_list_image_diagnostics, build_renderer_page_state,
         capture_internal_render_ir, capture_internal_render_ir_from_project_root,
+        capture_internal_render_ir_from_project_run_with_asset_cache,
         copy_previous_external_aux_files, earliest_changed_offset,
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
         has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
         load_latest_previous_internal_build, map_internal_diagnostics,
         materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
         rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
-        render_ir_display_list_svg_file_name, renderer_unchanged_tail,
-        replay_checkpoint_from_stored, resolve_graphic_asset_materializer, run_external_command,
-        save_source_texts, select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
-        shift_shipout_source_offset,
+        remap_render_event_provenance, render_ir_display_list_svg_file_name,
+        renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
+        run_external_command, save_source_texts, select_shipout_replay_plan,
+        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
     };
 
     #[test]
@@ -4667,6 +4817,72 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[test]
+    fn project_run_render_ir_capture_uses_supplied_replayed_events() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\title{Original source text.}\begin{document}\maketitle\end{document}",
+        )
+        .expect("main");
+
+        let world = tex_world::ProjectWorld::load(root.clone()).expect("world");
+        let mut run = run_project(&world).expect("project run");
+        let mut replayed_event = run.render_events.first().cloned().expect("captured event");
+        replayed_event.event = RenderEvent::Text(TextEvent {
+            text: "Replayed event text.".to_string(),
+        });
+        run.render_events = vec![replayed_event];
+
+        let capture = capture_internal_render_ir_from_project_run_with_asset_cache(
+            &root,
+            &run,
+            &SemanticAux::default(),
+            &BTreeMap::new(),
+            root.join("asset-cache"),
+        )
+        .expect("render IR capture");
+        let extracted = capture.document_ir.extracted_text();
+
+        assert!(extracted.contains("Replayed event text."));
+        assert!(!extracted.contains("Original source text."));
+    }
+
+    #[test]
+    fn materialized_render_event_provenance_maps_back_to_source_offsets() {
+        let mut events = vec![RenderEventEnvelope::from_scanner_recovery(
+            1,
+            RenderEvent::Text(TextEvent {
+                text: "abc[1]def".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 9),
+        )];
+        let rewrite_spans = BTreeMap::from([(
+            Utf8PathBuf::from("main.tex"),
+            vec![MaterializedRewriteSpan {
+                start_utf8: 3,
+                end_utf8: 11,
+                output_start_utf8: 3,
+                output_end_utf8: 6,
+                rendered: "[1]".to_string(),
+            }],
+        )]);
+
+        remap_render_event_provenance(&mut events, &rewrite_spans);
+
+        let tex_render_model::ProvenanceSpan::File(span) = &events[0].meta.source.primary else {
+            panic!("text event must retain file provenance");
+        };
+        assert_eq!(span.start_utf8, 0);
+        assert_eq!(span.end_utf8, 14);
     }
 
     #[test]
