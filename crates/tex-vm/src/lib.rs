@@ -67,10 +67,11 @@ pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot,
     VmActiveSourceFrameSnapshot, VmContinuationBlocker, VmContinuationSafety,
-    VmExecutedMathCaptureSnapshot, VmInputContinuationSnapshot, VmModuleCheckpoint,
-    VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmSemanticCaptureSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
-    VmSemanticSinkSnapshot, VmSnapshot,
+    VmExecutedMathCaptureSnapshot, VmExecutedTextCaptureSnapshot, VmInputContinuationSnapshot,
+    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot,
+    VmQueueItemSnapshot, VmReplayFrame, VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot,
+    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
+    VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -15244,16 +15245,27 @@ impl<'i> Vm<'i> {
                 .then(|| self.render_events.snapshot()),
             semantic_capture: self.render_event_capture.then(|| {
                 let math = self.semantic_math_snapshot();
-                let source_buffers = math
+                let text = self.semantic_text_snapshot();
+                let mut source_buffers = BTreeMap::new();
+                if let Some((path, source)) = math.active_capture.as_ref().and_then(|capture| {
+                    self.render_event_sources
+                        .get(&capture.source_path)
+                        .map(|source| (capture.source_path.clone(), source.clone()))
+                }) {
+                    source_buffers.insert(path, source);
+                }
+                if let Some((path, source)) = text
                     .active_capture
                     .as_ref()
-                    .and_then(|capture| {
+                    .and_then(|capture| capture.literal_path.as_ref())
+                    .and_then(|path| {
                         self.render_event_sources
-                            .get(&capture.source_path)
-                            .map(|source| (capture.source_path.clone(), source.clone()))
+                            .get(path)
+                            .map(|source| (path.clone(), source.clone()))
                     })
-                    .into_iter()
-                    .collect();
+                {
+                    source_buffers.insert(path, source);
+                }
                 VmSemanticCaptureSnapshot {
                     schema_version: VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
                     source_buffers,
@@ -15263,6 +15275,7 @@ impl<'i> Vm<'i> {
                         .try_into()
                         .unwrap_or(u32::MAX),
                     math,
+                    text,
                 }
             }),
             scopes: self
@@ -15485,11 +15498,11 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
-        if let Some(semantic_capture) = snapshot
+        let semantic_capture = snapshot
             .semantic_capture
             .as_ref()
-            .filter(|capture| capture.is_restorable())
-        {
+            .filter(|capture| capture.is_restorable());
+        if let Some(semantic_capture) = semantic_capture {
             vm.render_event_capture = true;
             vm.render_event_sources = semantic_capture
                 .source_buffers
@@ -15499,13 +15512,39 @@ impl<'i> Vm<'i> {
             vm.execution_in_document = semantic_capture.execution_in_document;
             vm.execution_no_hyper_depth = semantic_capture.execution_no_hyper_depth as usize;
             vm.restore_semantic_math_snapshot(&semantic_capture.math);
+            vm.restore_semantic_text_snapshot(&semantic_capture.text);
         }
-        if snapshot.input_continuation.is_none()
-            && let Some(render_events) = snapshot
-                .semantic_sink
-                .as_ref()
-                .and_then(SemanticEventBuffer::restore)
-        {
+        let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
+            if snapshot.input_continuation.is_none() {
+                return SemanticEventBuffer::restore(sink);
+            }
+            let semantic_capture = semantic_capture?;
+            let supported_event_ids = semantic_capture
+                .math
+                .scanner_dollar_event_ids
+                .iter()
+                .chain(
+                    semantic_capture
+                        .text
+                        .scanner_slots
+                        .iter()
+                        .flat_map(|slot| &slot.event_ids),
+                )
+                .copied()
+                .collect::<HashSet<_>>();
+            let mut filtered = sink.clone();
+            filtered.events.retain(|event| {
+                supported_event_ids.contains(&event.meta.event_id)
+                    || matches!(
+                        event.event,
+                        RenderEvent::Text(_)
+                            | RenderEvent::Space(_)
+                            | RenderEvent::ParagraphBreak(_)
+                    )
+            });
+            SemanticEventBuffer::restore(&filtered)
+        });
+        if let Some(render_events) = render_events {
             vm.render_events = render_events;
             vm.render_event_capture = true;
         }

@@ -11,7 +11,14 @@ use tex_render_model::{
 };
 use tex_tokens::{ControlSequenceId, Token};
 
-use crate::{Vm, input::QueueItem};
+use crate::{
+    Vm,
+    input::QueueItem,
+    snapshot::{
+        VmExecutedTextCaptureSnapshot, VmScannerTextSlotSnapshot, VmSemanticTextSnapshot,
+        VmSuppressedSourceRangeSnapshot,
+    },
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticTextState {
@@ -63,6 +70,86 @@ enum ExpansionMarkerAction {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_text_snapshot(&self) -> VmSemanticTextSnapshot {
+        VmSemanticTextSnapshot {
+            scanner_slots: self
+                .semantic_text
+                .scanner_slots
+                .iter()
+                .map(|slot| VmScannerTextSlotSnapshot {
+                    path: slot.path.clone(),
+                    start_utf8: slot.start_utf8,
+                    end_utf8: slot.end_utf8,
+                    event_ids: slot.event_ids.clone(),
+                })
+                .collect(),
+            suppressed_ranges: self
+                .semantic_text
+                .suppressed_ranges
+                .iter()
+                .map(|range| VmSuppressedSourceRangeSnapshot {
+                    path: range.path.clone(),
+                    start_utf8: range.start_utf8,
+                    end_utf8: range.end_utf8,
+                })
+                .collect(),
+            executed_events: self.semantic_text.executed_events.clone(),
+            active_capture: self.semantic_text.capture.as_ref().map(|capture| {
+                VmExecutedTextCaptureSnapshot {
+                    text: capture.text.clone(),
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    literal_path: capture.literal_path.clone(),
+                    end_utf8: capture.end_utf8,
+                }
+            }),
+            paragraph_has_content: self.semantic_text.paragraph_has_content,
+            space_run_active: self.semantic_text.space_run_active,
+            marker_state_quiescent: self.semantic_text.marker_actions.is_empty()
+                && self.semantic_text.expansion_stack.is_empty(),
+            next_marker_id: self.semantic_text.next_marker_id,
+        }
+    }
+
+    pub(super) fn restore_semantic_text_snapshot(&mut self, snapshot: &VmSemanticTextSnapshot) {
+        self.semantic_text.scanner_slots = snapshot
+            .scanner_slots
+            .iter()
+            .map(|slot| ScannerTextSlot {
+                path: slot.path.clone(),
+                start_utf8: slot.start_utf8,
+                end_utf8: slot.end_utf8,
+                event_ids: slot.event_ids.clone(),
+            })
+            .collect();
+        self.semantic_text.suppressed_ranges = snapshot
+            .suppressed_ranges
+            .iter()
+            .map(|range| SuppressedSourceRange {
+                path: range.path.clone(),
+                start_utf8: range.start_utf8,
+                end_utf8: range.end_utf8,
+            })
+            .collect();
+        self.semantic_text.executed_events = snapshot.executed_events.clone();
+        self.semantic_text.capture =
+            snapshot
+                .active_capture
+                .as_ref()
+                .map(|capture| ExecutedTextCapture {
+                    text: capture.text.clone(),
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    literal_path: capture.literal_path.clone(),
+                    end_utf8: capture.end_utf8,
+                });
+        self.semantic_text.paragraph_has_content = snapshot.paragraph_has_content;
+        self.semantic_text.space_run_active = snapshot.space_run_active;
+        self.semantic_text.marker_actions.clear();
+        self.semantic_text.expansion_stack.clear();
+        self.semantic_text.next_marker_id = snapshot.next_marker_id;
+    }
+
     pub(super) fn record_scanner_text_slot(
         &mut self,
         path: &Utf8Path,

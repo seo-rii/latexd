@@ -3,11 +3,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
-use tex_render_model::{EventId, RenderEventEnvelope};
+use tex_render_model::{EventId, EventProducer, RenderEventEnvelope, SourceProvenance};
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 1;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -103,6 +103,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub execution_no_hyper_depth: u32,
     #[serde(default)]
     pub math: VmSemanticMathSnapshot,
+    #[serde(default)]
+    pub text: VmSemanticTextSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -119,9 +121,21 @@ impl VmSemanticCaptureSnapshot {
                 && source.is_char_boundary(invocation_start)
                 && source.is_char_boundary(content_start)
         });
+        let active_text_source_is_valid = self.text.active_capture.as_ref().is_none_or(|capture| {
+            let Some(path) = &capture.literal_path else {
+                return true;
+            };
+            let Some(source) = self.source_buffers.get(path) else {
+                return false;
+            };
+            let end_utf8 = capture.end_utf8 as usize;
+            end_utf8 <= source.len() && source.is_char_boundary(end_utf8)
+        });
         self.schema_version == VM_SEMANTIC_CAPTURE_SCHEMA_VERSION
             && self.math.is_restorable()
+            && self.text.is_restorable()
             && active_math_source_is_valid
+            && active_text_source_is_valid
     }
 }
 
@@ -180,6 +194,102 @@ pub struct VmExecutedMathCaptureSnapshot {
 impl VmExecutedMathCaptureSnapshot {
     fn is_restorable(&self) -> bool {
         self.invocation_start_utf8 <= self.content_start_utf8
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticTextSnapshot {
+    #[serde(default)]
+    pub scanner_slots: Vec<VmScannerTextSlotSnapshot>,
+    #[serde(default)]
+    pub suppressed_ranges: Vec<VmSuppressedSourceRangeSnapshot>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub active_capture: Option<VmExecutedTextCaptureSnapshot>,
+    #[serde(default)]
+    pub paragraph_has_content: bool,
+    #[serde(default)]
+    pub space_run_active: bool,
+    #[serde(default)]
+    pub marker_state_quiescent: bool,
+    #[serde(default)]
+    pub next_marker_id: u64,
+}
+
+impl VmSemanticTextSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let scanner_event_ids = self
+            .scanner_slots
+            .iter()
+            .flat_map(|slot| slot.event_ids.iter().copied())
+            .collect::<Vec<_>>();
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        self.marker_state_quiescent
+            && self
+                .scanner_slots
+                .iter()
+                .all(VmScannerTextSlotSnapshot::is_restorable)
+            && values_are_unique_nonzero(&scanner_event_ids)
+            && self
+                .suppressed_ranges
+                .iter()
+                .all(VmSuppressedSourceRangeSnapshot::is_restorable)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && self
+                .active_capture
+                .as_ref()
+                .is_none_or(VmExecutedTextCaptureSnapshot::is_restorable)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmScannerTextSlotSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+    pub event_ids: Vec<EventId>,
+}
+
+impl VmScannerTextSlotSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.start_utf8 <= self.end_utf8 && values_are_unique_nonzero(&self.event_ids)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSuppressedSourceRangeSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+}
+
+impl VmSuppressedSourceRangeSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.start_utf8 <= self.end_utf8
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedTextCaptureSnapshot {
+    pub text: String,
+    pub source: SourceProvenance,
+    pub producer: EventProducer,
+    pub literal_path: Option<Utf8PathBuf>,
+    pub end_utf8: u32,
+}
+
+impl VmExecutedTextCaptureSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.literal_path.is_none()
+            || matches!(&self.source.primary, tex_render_model::ProvenanceSpan::File(span)
+                if Some(&span.path) == self.literal_path.as_ref()
+                    && span.start_utf8 <= span.end_utf8
+                    && span.end_utf8 == self.end_utf8)
     }
 }
 
