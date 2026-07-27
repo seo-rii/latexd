@@ -181,12 +181,31 @@ fn input_exit_snapshot_preserves_open_environment() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_open_table_cell() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{tabular}{ll}A & before\input{barrier}after \\ C & D\end{tabular}\end{document}",
+    );
+
+    let table = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::Table(table) => Some(table),
+            _ => None,
+        })
+        .expect("expected one structured table event");
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[1].text, "beforebarrierafter");
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
     vm.set_entry_source_path("main.tex");
     vm.mount_file("barrier.tex", "c");
 

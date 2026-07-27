@@ -11,7 +11,11 @@ use tex_render_model::{
     TableRulePosition,
 };
 
-use crate::{Vm, input::QueueItem};
+use crate::{
+    Vm,
+    input::QueueItem,
+    snapshot::{VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot, VmSemanticTableSnapshot},
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticTableState {
@@ -82,6 +86,80 @@ impl ExecutedTableFrame {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_table_snapshot(&self) -> VmSemanticTableSnapshot {
+        let mut scanner_event_ids = self
+            .semantic_table
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_event_ids.sort_unstable();
+        VmSemanticTableSnapshot {
+            scanner_event_ids,
+            open_tables: self
+                .semantic_table
+                .open_tables
+                .iter()
+                .map(|frame| VmExecutedTableFrameSnapshot {
+                    environment: frame.environment.clone(),
+                    source: frame.source.clone(),
+                    producer: frame.producer,
+                    width_spec: frame.width_spec.clone(),
+                    columns: frame.columns.clone(),
+                    rows: frame.rows.clone(),
+                    current_cells: frame.current_cells.clone(),
+                    current_text: frame.current_text.clone(),
+                    current_source: frame.current_source.clone(),
+                    row_source: frame.row_source.clone(),
+                    row_started: frame.row_started,
+                })
+                .collect(),
+            executed_tables: self
+                .semantic_table
+                .executed_tables
+                .iter()
+                .map(|table| VmExecutedTableSnapshot {
+                    environment: table.environment.clone(),
+                    source: table.source.clone(),
+                    native_event: table.native_event.clone(),
+                })
+                .collect(),
+            structured_events: self.semantic_table.structured_events,
+        }
+    }
+
+    pub(super) fn restore_semantic_table_snapshot(&mut self, snapshot: &VmSemanticTableSnapshot) {
+        self.semantic_table.scanner_event_ids =
+            snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_table.open_tables = snapshot
+            .open_tables
+            .iter()
+            .map(|frame| ExecutedTableFrame {
+                environment: frame.environment.clone(),
+                source: frame.source.clone(),
+                producer: frame.producer,
+                width_spec: frame.width_spec.clone(),
+                columns: frame.columns.clone(),
+                rows: frame.rows.clone(),
+                current_cells: frame.current_cells.clone(),
+                current_text: frame.current_text.clone(),
+                current_source: frame.current_source.clone(),
+                row_source: frame.row_source.clone(),
+                row_started: frame.row_started,
+            })
+            .collect();
+        self.semantic_table.executed_tables = snapshot
+            .executed_tables
+            .iter()
+            .map(|table| ExecutedTable {
+                environment: table.environment.clone(),
+                source: table.source.clone(),
+                native_event: table.native_event.clone(),
+            })
+            .collect();
+        self.semantic_table.structured_events = snapshot.structured_events;
+    }
+
     pub fn enable_structured_table_events(&mut self) {
         self.semantic_table.structured_events = true;
     }

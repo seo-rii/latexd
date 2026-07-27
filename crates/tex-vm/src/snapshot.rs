@@ -3,11 +3,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
-use tex_render_model::{EventId, EventProducer, ListKind, RenderEventEnvelope, SourceProvenance};
+use tex_render_model::{
+    EventId, EventProducer, ListKind, RenderEventEnvelope, SourceProvenance, TableCellEvent,
+    TableColumnSpec, TableRowEvent,
+};
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 4;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -111,6 +114,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub list: VmSemanticListSnapshot,
     #[serde(default)]
     pub environment: VmSemanticEnvironmentSnapshot,
+    #[serde(default)]
+    pub table: VmSemanticTableSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -143,6 +148,7 @@ impl VmSemanticCaptureSnapshot {
             && self.graphic.is_restorable()
             && self.list.is_restorable()
             && self.environment.is_restorable()
+            && self.table.is_restorable()
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
@@ -381,6 +387,53 @@ impl VmSemanticEnvironmentSnapshot {
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticTableSnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub open_tables: Vec<VmExecutedTableFrameSnapshot>,
+    #[serde(default)]
+    pub executed_tables: Vec<VmExecutedTableSnapshot>,
+    #[serde(default)]
+    pub structured_events: bool,
+}
+
+impl VmSemanticTableSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let native_event_ids = self
+            .executed_tables
+            .iter()
+            .filter_map(|table| table.native_event.as_ref())
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&native_event_ids)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedTableFrameSnapshot {
+    pub environment: String,
+    pub source: SourceProvenance,
+    pub producer: EventProducer,
+    pub width_spec: Option<String>,
+    pub columns: Vec<TableColumnSpec>,
+    pub rows: Vec<TableRowEvent>,
+    pub current_cells: Vec<TableCellEvent>,
+    pub current_text: String,
+    pub current_source: Option<SourceProvenance>,
+    pub row_source: Option<SourceProvenance>,
+    pub row_started: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedTableSnapshot {
+    pub environment: String,
+    pub source: SourceProvenance,
+    pub native_event: Option<RenderEventEnvelope>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
