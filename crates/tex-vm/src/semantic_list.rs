@@ -6,7 +6,7 @@ use tex_render_model::{
     SourceProvenance, SourceSpan,
 };
 
-use crate::Vm;
+use crate::{Vm, snapshot::VmSemanticListSnapshot};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticListState {
@@ -16,6 +16,28 @@ pub(super) struct SemanticListState {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_list_snapshot(&self) -> VmSemanticListSnapshot {
+        let mut scanner_item_event_ids = self
+            .semantic_list
+            .scanner_item_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_item_event_ids.sort_unstable();
+        VmSemanticListSnapshot {
+            scanner_item_event_ids,
+            executed_items: self.semantic_list.executed_items.clone(),
+            active_lists: self.semantic_list.active_lists.clone(),
+        }
+    }
+
+    pub(super) fn restore_semantic_list_snapshot(&mut self, snapshot: &VmSemanticListSnapshot) {
+        self.semantic_list.scanner_item_event_ids =
+            snapshot.scanner_item_event_ids.iter().copied().collect();
+        self.semantic_list.executed_items = snapshot.executed_items.clone();
+        self.semantic_list.active_lists = snapshot.active_lists.clone();
+    }
+
     pub(super) fn mark_scanner_list_item_event(&mut self, event_id: EventId) {
         self.semantic_list.scanner_item_event_ids.insert(event_id);
     }

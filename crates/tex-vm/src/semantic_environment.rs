@@ -9,7 +9,10 @@ use tex_render_model::{
     RenderEventEnvelope, SourceProvenance, SourceSpan,
 };
 
-use crate::{Vm, input::QueueItem, semantic_list::list_kind_for_environment};
+use crate::{
+    Vm, input::QueueItem, semantic_list::list_kind_for_environment,
+    snapshot::VmSemanticEnvironmentSnapshot,
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticEnvironmentState {
@@ -18,6 +21,29 @@ pub(super) struct SemanticEnvironmentState {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_environment_snapshot(&self) -> VmSemanticEnvironmentSnapshot {
+        let mut scanner_event_ids = self
+            .semantic_environment
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_event_ids.sort_unstable();
+        VmSemanticEnvironmentSnapshot {
+            scanner_event_ids,
+            executed_events: self.semantic_environment.executed_events.clone(),
+        }
+    }
+
+    pub(super) fn restore_semantic_environment_snapshot(
+        &mut self,
+        snapshot: &VmSemanticEnvironmentSnapshot,
+    ) {
+        self.semantic_environment.scanner_event_ids =
+            snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_environment.executed_events = snapshot.executed_events.clone();
+    }
+
     pub(super) fn mark_scanner_environment_event(&mut self, event_id: EventId) {
         self.semantic_environment.scanner_event_ids.insert(event_id);
     }

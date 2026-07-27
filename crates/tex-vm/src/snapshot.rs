@@ -3,11 +3,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
-use tex_render_model::{EventId, EventProducer, RenderEventEnvelope, SourceProvenance};
+use tex_render_model::{EventId, EventProducer, ListKind, RenderEventEnvelope, SourceProvenance};
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 3;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -107,6 +107,10 @@ pub struct VmSemanticCaptureSnapshot {
     pub text: VmSemanticTextSnapshot,
     #[serde(default)]
     pub graphic: VmSemanticGraphicSnapshot,
+    #[serde(default)]
+    pub list: VmSemanticListSnapshot,
+    #[serde(default)]
+    pub environment: VmSemanticEnvironmentSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -137,6 +141,8 @@ impl VmSemanticCaptureSnapshot {
             && self.math.is_restorable()
             && self.text.is_restorable()
             && self.graphic.is_restorable()
+            && self.list.is_restorable()
+            && self.environment.is_restorable()
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
@@ -332,6 +338,48 @@ pub struct VmGraphicInvocationRangeSnapshot {
 impl VmGraphicInvocationRangeSnapshot {
     fn is_restorable(&self) -> bool {
         self.start_utf8 <= self.end_utf8
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticListSnapshot {
+    #[serde(default)]
+    pub scanner_item_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_items: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub active_lists: Vec<ListKind>,
+}
+
+impl VmSemanticListSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let executed_event_ids = self
+            .executed_items
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_item_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticEnvironmentSnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+}
+
+impl VmSemanticEnvironmentSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
     }
 }
 

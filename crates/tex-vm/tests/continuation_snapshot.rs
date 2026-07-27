@@ -144,6 +144,43 @@ fn input_exit_snapshot_preserves_graphics_around_boundary() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_open_list() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{itemize}\item Before\input{barrier}\item After\end{itemize}\end{document}",
+    );
+
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::ListItem(_)))
+            .count(),
+        2
+    );
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_open_environment() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{quote}Before\input{barrier}After\end{quote}\end{document}",
+    );
+
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.event,
+                    RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
+                )
+            })
+            .count(),
+        2
+    );
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {

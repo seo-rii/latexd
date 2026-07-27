@@ -70,9 +70,10 @@ pub use snapshot::{
     VmExecutedMathCaptureSnapshot, VmExecutedTextCaptureSnapshot, VmGraphicInvocationRangeSnapshot,
     VmInputContinuationSnapshot, VmModuleCheckpoint, VmModuleCheckpointKind,
     VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot, VmSemanticGraphicSnapshot,
-    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
-    VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot,
+    VmSemanticMathSnapshot, VmSemanticSinkSnapshot, VmSemanticTextSnapshot, VmSnapshot,
+    VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -15248,6 +15249,8 @@ impl<'i> Vm<'i> {
                 let math = self.semantic_math_snapshot();
                 let text = self.semantic_text_snapshot();
                 let graphic = self.semantic_graphic_snapshot();
+                let list = self.semantic_list_snapshot();
+                let environment = self.semantic_environment_snapshot();
                 let mut source_buffers = BTreeMap::new();
                 if let Some((path, source)) = math.active_capture.as_ref().and_then(|capture| {
                     self.render_event_sources
@@ -15279,6 +15282,8 @@ impl<'i> Vm<'i> {
                     math,
                     text,
                     graphic,
+                    list,
+                    environment,
                 }
             }),
             scopes: self
@@ -15517,6 +15522,8 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_math_snapshot(&semantic_capture.math);
             vm.restore_semantic_text_snapshot(&semantic_capture.text);
             vm.restore_semantic_graphic_snapshot(&semantic_capture.graphic);
+            vm.restore_semantic_list_snapshot(&semantic_capture.list);
+            vm.restore_semantic_environment_snapshot(&semantic_capture.environment);
         }
         let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
             if snapshot.input_continuation.is_none() {
@@ -15528,6 +15535,8 @@ impl<'i> Vm<'i> {
                 .scanner_dollar_event_ids
                 .iter()
                 .chain(&semantic_capture.graphic.scanner_event_ids)
+                .chain(&semantic_capture.list.scanner_item_event_ids)
+                .chain(&semantic_capture.environment.scanner_event_ids)
                 .chain(
                     semantic_capture
                         .text
