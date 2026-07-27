@@ -123,6 +123,12 @@ pub struct VmSnapshot {
     #[serde(default)]
     pub pending_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
     #[serde(default)]
+    pub graphic_paths: Vec<Utf8PathBuf>,
+    #[serde(default)]
+    pub graphic_extensions: Vec<String>,
+    #[serde(default)]
+    pub graphic_default_options: Option<String>,
+    #[serde(default)]
     pub counter_resets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub read_stream_lines: BTreeMap<u32, Vec<String>>,

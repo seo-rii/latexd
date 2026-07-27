@@ -41,6 +41,12 @@ pub(crate) struct CaptionCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GraphicCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) include_pdf: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -258,4 +264,8 @@ pub(crate) enum Primitive {
     Link(LinkCommand),
     Heading(HeadingCommand),
     Caption(CaptionCommand),
+    Graphic(GraphicCommand),
+    GraphicPath,
+    DeclareGraphicsExtensions,
+    SetKeys,
 }

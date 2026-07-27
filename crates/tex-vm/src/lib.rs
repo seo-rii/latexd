@@ -31,6 +31,7 @@ mod outcome;
 mod save_stack;
 mod semantic_caption;
 mod semantic_environment;
+mod semantic_graphic;
 mod semantic_heading;
 mod semantic_inline;
 mod semantic_list;
@@ -39,8 +40,8 @@ mod semantic_text;
 mod snapshot;
 
 use command::{
-    CaptionCommand, HeadingCommand, LinkCommand, MacroDefinition, Meaning, Primitive,
-    ReferenceCommand,
+    CaptionCommand, GraphicCommand, HeadingCommand, LinkCommand, MacroDefinition, Meaning,
+    Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -52,6 +53,7 @@ pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
 use semantic_caption::SemanticCaptionState;
 use semantic_environment::SemanticEnvironmentState;
+use semantic_graphic::SemanticGraphicState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
 use semantic_list::SemanticListState;
@@ -905,6 +907,7 @@ pub struct Vm<'i> {
     executed_math_capture: Option<ExecutedMathCapture>,
     semantic_caption: SemanticCaptionState,
     semantic_environment: SemanticEnvironmentState,
+    semantic_graphic: SemanticGraphicState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
     semantic_list: SemanticListState,
@@ -974,6 +977,7 @@ impl<'i> Vm<'i> {
             executed_math_capture: None,
             semantic_caption: SemanticCaptionState::default(),
             semantic_environment: SemanticEnvironmentState::default(),
+            semantic_graphic: SemanticGraphicState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
             semantic_list: SemanticListState::default(),
@@ -1170,6 +1174,7 @@ impl<'i> Vm<'i> {
 
     pub fn run_plain(&mut self, source: &str) -> VmOutcome {
         if self.render_event_capture {
+            self.prepare_semantic_graphic_capture();
             let source_path = self
                 .entry_source_path
                 .clone()
@@ -14972,6 +14977,10 @@ impl<'i> Vm<'i> {
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
         let scanner_heading = matches!(&event, RenderEvent::Heading(_));
         let scanner_caption = matches!(&event, RenderEvent::Caption(_));
+        let scanner_graphic = matches!(
+            &event,
+            RenderEvent::GraphicRef(_) | RenderEvent::IncludePdf(_)
+        );
         let scanner_list_item = matches!(&event, RenderEvent::ListItem(_));
         let scanner_environment = matches!(
             &event,
@@ -14996,6 +15005,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_caption {
             self.mark_scanner_caption_event(event_id);
+        }
+        if scanner_graphic {
+            self.mark_scanner_graphic_event(event_id);
         }
         if scanner_list_item {
             self.mark_scanner_list_item_event(event_id);
@@ -15089,6 +15101,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_math_events();
             self.reconcile_executed_heading_events();
             self.reconcile_executed_caption_events();
+            self.reconcile_executed_graphic_events();
             self.reconcile_executed_inline_events();
             self.reconcile_executed_text_events();
             self.reconcile_executed_list_events();
@@ -15283,6 +15296,9 @@ impl<'i> Vm<'i> {
             loaded_class_options: self.loaded_class_options.clone(),
             pending_package_options: self.pending_package_options.clone(),
             pending_class_options: self.pending_class_options.clone(),
+            graphic_paths: self.semantic_graphic.graphic_paths.clone(),
+            graphic_extensions: self.semantic_graphic.graphic_extensions.clone(),
+            graphic_default_options: self.semantic_graphic.default_options.clone(),
             counter_resets: self.counter_resets.clone(),
             read_stream_lines: self.read_stream_lines.clone(),
             read_stream_eof: self.read_stream_eof.clone(),
@@ -15409,6 +15425,9 @@ impl<'i> Vm<'i> {
         vm.loaded_class_options = snapshot.loaded_class_options.clone();
         vm.pending_package_options = snapshot.pending_package_options.clone();
         vm.pending_class_options = snapshot.pending_class_options.clone();
+        vm.semantic_graphic.graphic_paths = snapshot.graphic_paths.clone();
+        vm.semantic_graphic.graphic_extensions = snapshot.graphic_extensions.clone();
+        vm.semantic_graphic.default_options = snapshot.graphic_default_options.clone();
         vm.counter_resets = snapshot.counter_resets.clone();
         vm.read_stream_lines = snapshot.read_stream_lines.clone();
         vm.read_stream_eof = snapshot.read_stream_eof.clone();
@@ -15738,6 +15757,11 @@ impl<'i> Vm<'i> {
                     Some(Meaning::Macro(definition)) => {
                         let expanded = self.expand_macro(definition, queue);
                         let invocation_end_utf8 = self.last_token_end_utf8.max(token_span.end);
+                        self.record_overridden_graphic_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -15746,7 +15770,14 @@ impl<'i> Vm<'i> {
                             queue,
                         );
                     }
-                    Some(Meaning::Token(token)) => self.push_token_front(queue, token),
+                    Some(Meaning::Token(token)) => {
+                        self.record_overridden_graphic_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
+                        self.push_token_front(queue, token);
+                    }
                     Some(Meaning::Primitive(primitive)) => {
                         self.capture_executed_math_control_sequence(&control_sequence);
                         self.execute_primitive(
@@ -16091,6 +16122,23 @@ impl<'i> Vm<'i> {
                     content_tokens,
                     queue,
                 );
+            }
+            Primitive::Graphic(graphic_command) => {
+                self.execute_semantic_graphic(
+                    graphic_command,
+                    source_offset_utf8,
+                    source_end_utf8,
+                    queue,
+                );
+            }
+            Primitive::GraphicPath => {
+                self.execute_graphic_path(queue);
+            }
+            Primitive::DeclareGraphicsExtensions => {
+                self.execute_declare_graphics_extensions(queue);
+            }
+            Primitive::SetKeys => {
+                self.execute_graphic_set_keys(queue);
             }
             Primitive::NewRead => {
                 let force_global = mem::take(&mut self.global_prefix);
@@ -22529,6 +22577,7 @@ impl<'i> Vm<'i> {
             return;
         };
 
+        self.record_graphic_module_options(label, &path, &module_options);
         let output_start_utf8 = self.output.len() as u32;
         if label == "package" {
             self.loaded_package_options
@@ -23197,6 +23246,17 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "url",
             has_separate_text_argument: false,
         })),
+        "includegraphics" => Some(Primitive::Graphic(GraphicCommand {
+            canonical_name: "includegraphics",
+            include_pdf: false,
+        })),
+        "includepdf" => Some(Primitive::Graphic(GraphicCommand {
+            canonical_name: "includepdf",
+            include_pdf: true,
+        })),
+        "graphicspath" => Some(Primitive::GraphicPath),
+        "DeclareGraphicsExtensions" => Some(Primitive::DeclareGraphicsExtensions),
+        "setkeys" => Some(Primitive::SetKeys),
         "caption" | "subcaption" | "captionabove" | "captionbelow" => {
             Some(Primitive::Caption(CaptionCommand {
                 canonical_name: match name {
@@ -23455,6 +23515,10 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Link(link) => link.canonical_name,
         Primitive::Heading(heading) => heading.canonical_name,
         Primitive::Caption(caption) => caption.canonical_name,
+        Primitive::Graphic(graphic) => graphic.canonical_name,
+        Primitive::GraphicPath => "graphicspath",
+        Primitive::DeclareGraphicsExtensions => "DeclareGraphicsExtensions",
+        Primitive::SetKeys => "setkeys",
     }
 }
 
