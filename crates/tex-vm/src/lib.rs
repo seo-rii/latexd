@@ -15421,9 +15421,6 @@ impl<'i> Vm<'i> {
         if self.global_prefix {
             blockers.push(VmContinuationBlocker::PendingGlobalPrefix);
         }
-        if self.render_event_capture {
-            blockers.push(VmContinuationBlocker::RenderEventSink);
-        }
         VmContinuationSafety {
             schema_version: VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
             blockers,
@@ -15556,59 +15553,10 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_caption_snapshot(&semantic_capture.caption);
         }
         let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
-            if snapshot.input_continuation.is_none() {
-                return SemanticEventBuffer::restore(sink);
+            if snapshot.input_continuation.is_some() && semantic_capture.is_none() {
+                return None;
             }
-            let semantic_capture = semantic_capture?;
-            let supported_event_ids = semantic_capture
-                .math
-                .scanner_dollar_event_ids
-                .iter()
-                .chain(&semantic_capture.graphic.scanner_event_ids)
-                .chain(&semantic_capture.list.scanner_item_event_ids)
-                .chain(&semantic_capture.environment.scanner_event_ids)
-                .chain(&semantic_capture.table.scanner_event_ids)
-                .chain(&semantic_capture.inline.scanner_citation_event_ids)
-                .chain(&semantic_capture.inline.scanner_reference_event_ids)
-                .chain(&semantic_capture.inline.scanner_link_event_ids)
-                .chain(&semantic_capture.heading.scanner_event_ids)
-                .chain(&semantic_capture.caption.scanner_event_ids)
-                .chain(
-                    semantic_capture
-                        .text
-                        .scanner_slots
-                        .iter()
-                        .flat_map(|slot| &slot.event_ids),
-                )
-                .copied()
-                .collect::<HashSet<_>>();
-            let mut filtered = sink.clone();
-            let supported_sources = filtered
-                .events
-                .iter()
-                .filter(|event| {
-                    supported_event_ids.contains(&event.meta.event_id)
-                        || matches!(
-                            event.event,
-                            RenderEvent::Text(_)
-                                | RenderEvent::Space(_)
-                                | RenderEvent::ParagraphBreak(_)
-                        )
-                })
-                .map(|event| event.meta.source.clone())
-                .collect::<Vec<_>>();
-            filtered.events.retain(|event| {
-                supported_event_ids.contains(&event.meta.event_id)
-                    || matches!(
-                        event.event,
-                        RenderEvent::Text(_)
-                            | RenderEvent::Space(_)
-                            | RenderEvent::ParagraphBreak(_)
-                    )
-                    || matches!(event.event, RenderEvent::Diagnostic(_))
-                        && supported_sources.contains(&event.meta.source)
-            });
-            SemanticEventBuffer::restore(&filtered)
+            SemanticEventBuffer::restore(sink)
         });
         if let Some(render_events) = render_events {
             vm.render_events = render_events;

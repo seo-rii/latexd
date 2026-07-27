@@ -15,3 +15,4 @@ tex-world = { path = "../tex-world" }
 
 [dev-dependencies]
 serde_json.workspace = true
+tex-layout = { path = "../tex-layout" }

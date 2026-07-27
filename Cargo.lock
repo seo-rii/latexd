@@ -1676,6 +1676,7 @@ dependencies = [
  "camino",
  "serde",
  "serde_json",
+ "tex-layout",
  "tex-lexer",
  "tex-render-model",
  "tex-tokens",

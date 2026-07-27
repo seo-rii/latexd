@@ -1,4 +1,7 @@
-use tex_render_model::{EventProducer, RenderEvent, RenderEventEnvelope, SemanticConfidence};
+use tex_layout::{PageDisplayListOptions, build_document_ir, build_page_display_lists};
+use tex_render_model::{
+    EventProducer, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmSnapshot};
 
@@ -125,6 +128,64 @@ fn input_exit_snapshot_preserves_observation_prefixes() {
     assert_eq!(resumed.transcript, full.transcript);
     assert_eq!(resumed.module_traces, full.module_traces);
     assert_eq!(resumed.registers, full.registers);
+}
+
+#[test]
+fn input_boundary_snapshot_preserves_document_ir_and_display_lists() {
+    let source = r"\documentclass[11pt]{article}
+\title{Replay Paper}
+\author{Ada}
+\begin{document}
+\maketitle
+\begin{abstract}Short abstract.\end{abstract}
+\section{Intro}\label{sec:intro}
+First line\\Second line\footnote{A note.}
+\input{barrier}
+\begin{minipage}{0.5\textwidth}Container text.\end{minipage}
+\[
+x^2
+\]
+\newpage
+\begin{thebibliography}{1}
+\bibitem{k} Author. Title.
+\end{thebibliography}
+\end{document}";
+
+    for checkpoint_kind in [VmModuleCheckpointKind::Enter, VmModuleCheckpointKind::Exit] {
+        let (expected, actual) = replay_render_events_at_input_boundary(source, checkpoint_kind);
+
+        assert!(expected.iter().any(|event| matches!(
+            event.event,
+            RenderEvent::SetDocumentMetadata(_) | RenderEvent::FlushTitleBlock(_)
+        )));
+        assert!(
+            expected
+                .iter()
+                .any(|event| matches!(event.event, RenderEvent::LineBreak(_)))
+        );
+        assert!(
+            expected
+                .iter()
+                .any(|event| matches!(event.event, RenderEvent::PageBreak(_)))
+        );
+        assert_eq!(actual, expected);
+
+        let expected_stream = RenderEventStream::new(Some("full".to_string()), expected);
+        let actual_stream = RenderEventStream::new(Some("full".to_string()), actual);
+        let expected_ir = build_document_ir(&expected_stream, &());
+        let actual_ir = build_document_ir(&actual_stream, &());
+        assert_eq!(actual_ir, expected_ir);
+
+        let expected_pages = build_page_display_lists(
+            &expected_ir,
+            PageDisplayListOptions::for_document_ir(&expected_ir),
+        );
+        let actual_pages = build_page_display_lists(
+            &actual_ir,
+            PageDisplayListOptions::for_document_ir(&actual_ir),
+        );
+        assert_eq!(actual_pages, expected_pages);
+    }
 }
 
 #[test]
@@ -372,6 +433,13 @@ fn input_exit_snapshot_preserves_active_lossy_caption_capture() {
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
+    replay_render_events_at_input_boundary(source, VmModuleCheckpointKind::Exit)
+}
+
+fn replay_render_events_at_input_boundary(
+    source: &str,
+    checkpoint_kind: VmModuleCheckpointKind,
+) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.enable_render_event_capture();
@@ -384,10 +452,14 @@ fn replay_render_events_after_input_exit(
         .module_checkpoints
         .iter()
         .find(|checkpoint| {
-            checkpoint.kind == VmModuleCheckpointKind::Exit
-                && checkpoint.module_path.as_str() == "barrier.tex"
+            checkpoint.kind == checkpoint_kind && checkpoint.module_path.as_str() == "barrier.tex"
         })
-        .expect("barrier exit checkpoint");
+        .expect("barrier input checkpoint");
+    assert!(
+        checkpoint.snapshot.continuation_safety.is_safe(),
+        "render continuation must be replay-safe: {:#?}",
+        checkpoint.snapshot.continuation_safety.blockers
+    );
     let semantic_capture = checkpoint
         .snapshot
         .semantic_capture
@@ -405,6 +477,7 @@ fn replay_render_events_after_input_exit(
 
     let mut restored_interner = ControlSequenceInterner::new();
     let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    restored.mount_file("barrier.tex", "c");
     let resumed = restored
         .resume_continuation()
         .expect("restored input continuation");

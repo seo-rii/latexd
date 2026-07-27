@@ -79,7 +79,7 @@ fn pending_global_prefix_snapshot_records_a_replay_blocker() {
 }
 
 #[test]
-fn render_event_capture_snapshot_records_sink_state_as_a_replay_blocker() {
+fn render_event_capture_snapshot_is_replay_safe() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.enable_render_event_capture();
@@ -87,12 +87,7 @@ fn render_event_capture_snapshot_records_sink_state_as_a_replay_blocker() {
 
     let snapshot = vm.snapshot();
 
-    assert!(
-        snapshot
-            .continuation_safety
-            .blockers
-            .contains(&VmContinuationBlocker::RenderEventSink)
-    );
+    assert!(snapshot.continuation_safety.is_safe());
     let encoded = serde_json::to_value(&snapshot).expect("serialize VM snapshot");
     let semantic_sink = encoded
         .get("semantic_sink")

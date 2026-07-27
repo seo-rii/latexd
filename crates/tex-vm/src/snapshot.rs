@@ -47,6 +47,7 @@ pub enum VmContinuationBlocker {
     OpenConditional,
     ActiveInput,
     PendingGlobalPrefix,
+    // Kept so schema-v2 snapshots produced before sink replay support still deserialize.
     RenderEventSink,
 }
 
