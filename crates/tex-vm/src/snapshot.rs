@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
+use tex_render_model::{EventId, RenderEventEnvelope};
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
@@ -65,11 +66,39 @@ impl Default for VmContinuationSafety {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticSinkSnapshot {
+    #[serde(default)]
+    pub events: Vec<RenderEventEnvelope>,
+    #[serde(default = "default_next_render_event_id")]
+    pub next_event_id: EventId,
+    #[serde(default = "default_next_render_event_id")]
+    pub batch_start_event_id: EventId,
+    #[serde(default)]
+    pub epoch: u64,
+}
+
+impl VmSemanticSinkSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let mut event_ids = BTreeSet::new();
+        self.next_event_id >= 1
+            && self.batch_start_event_id >= 1
+            && self.batch_start_event_id <= self.next_event_id
+            && self.events.iter().all(|event| {
+                event.meta.event_id >= self.batch_start_event_id
+                    && event.meta.event_id < self.next_event_id
+                    && event_ids.insert(event.meta.event_id)
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSnapshot {
     #[serde(default)]
     pub continuation_safety: VmContinuationSafety,
     #[serde(default)]
     pub input_continuation: Option<VmInputContinuationSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_sink: Option<VmSemanticSinkSnapshot>,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
@@ -148,6 +177,10 @@ pub struct VmSnapshot {
     pub legacy_output_last_char: Option<char>,
     #[serde(default)]
     pub legacy_text_script_boundary_pending: bool,
+}
+
+fn default_next_render_event_id() -> EventId {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

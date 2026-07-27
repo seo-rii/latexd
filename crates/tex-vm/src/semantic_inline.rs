@@ -377,11 +377,15 @@ impl Vm<'_> {
         self.replace_embedded_inline_placeholders(&mut events, &mut executed);
         executed.retain(|event| !recovery_container_represents(&events, event));
         insert_unmatched_inline_events(&mut events, executed);
+        let first_event_id = self.render_events.batch_start_event_id();
+        let next_event_id = self
+            .render_events
+            .next_event_id()
+            .max(first_event_id.saturating_add(events.len() as EventId));
         for (index, event) in events.iter_mut().enumerate() {
-            event.meta.event_id = index as EventId + 1;
+            event.meta.event_id = first_event_id + index as EventId;
         }
-        self.render_events
-            .set_next_event_id(events.len() as EventId + 1);
+        self.render_events.set_next_event_id(next_event_id);
         self.render_events.replace_events(events);
     }
 

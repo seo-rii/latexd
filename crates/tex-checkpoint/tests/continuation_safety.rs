@@ -93,6 +93,34 @@ fn render_event_capture_snapshot_records_sink_state_as_a_replay_blocker() {
             .blockers
             .contains(&VmContinuationBlocker::RenderEventSink)
     );
+    let encoded = serde_json::to_value(&snapshot).expect("serialize VM snapshot");
+    let semantic_sink = encoded
+        .get("semantic_sink")
+        .expect("semantic sink snapshot");
+    assert_eq!(semantic_sink["events"], serde_json::json!([]));
+    assert!(
+        semantic_sink["next_event_id"]
+            .as_u64()
+            .is_some_and(|event_id| event_id > 1)
+    );
+
+    let next_event_id = snapshot
+        .semantic_sink
+        .as_ref()
+        .expect("typed semantic sink snapshot")
+        .next_event_id;
+    drop(vm);
+    let mut restored = Vm::restore(&mut interner, &snapshot);
+    let outcome = restored.run_plain(r"\begin{document}Next.\end{document}");
+    assert_eq!(
+        outcome
+            .render_events
+            .first()
+            .expect("restored semantic event capture")
+            .meta
+            .event_id,
+        next_event_id
+    );
 }
 
 #[test]

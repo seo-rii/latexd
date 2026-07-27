@@ -68,7 +68,7 @@ pub use snapshot::{
     VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
     VmContinuationBlocker, VmContinuationSafety, VmInputContinuationSnapshot, VmModuleCheckpoint,
     VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmSnapshot,
+    VmSemanticSinkSnapshot, VmSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -15129,7 +15129,7 @@ impl<'i> Vm<'i> {
 
         VmOutcome {
             output: mem::take(&mut self.output),
-            render_events: self.render_events.take_events(),
+            render_events: self.render_events.finish_batch(),
             registers: self.eqtb.count_values(),
             transcript: mem::take(&mut self.transcript),
             diagnostics: mem::take(&mut self.diagnostics),
@@ -15237,6 +15237,9 @@ impl<'i> Vm<'i> {
         VmSnapshot {
             continuation_safety: self.continuation_safety(input_continuation.is_some()),
             input_continuation,
+            semantic_sink: self
+                .render_event_capture
+                .then(|| self.render_events.snapshot()),
             scopes: self
                 .scopes
                 .iter()
@@ -15457,6 +15460,15 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
+        if snapshot.input_continuation.is_none()
+            && let Some(render_events) = snapshot
+                .semantic_sink
+                .as_ref()
+                .and_then(SemanticEventBuffer::restore)
+        {
+            vm.render_events = render_events;
+            vm.render_event_capture = true;
+        }
         vm.restored_input_continuation =
             snapshot
                 .input_continuation
