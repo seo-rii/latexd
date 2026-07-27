@@ -1572,6 +1572,7 @@ dependencies = [
  "tempfile",
  "tex-layout",
  "tex-pdf",
+ "tex-render-model",
  "tex-tokens",
  "tex-vm",
  "tex-world",
