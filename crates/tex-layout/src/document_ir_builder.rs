@@ -861,6 +861,45 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     self.flush_paragraph();
                 }
                 RenderEvent::ParagraphBreak(_) => {}
+                RenderEvent::Table(event) => {
+                    self.flush_paragraph();
+                    let rows = event
+                        .rows
+                        .iter()
+                        .map(|row| TableRow {
+                            rule_above: row.rule_above,
+                            partial_rules_above: row.partial_rules_above.clone(),
+                            cells: row
+                                .cells
+                                .iter()
+                                .map(|cell| TableCell {
+                                    text: cell.text.clone(),
+                                    column_span: (cell.column_span > 1).then_some(cell.column_span),
+                                    row_span: cell.row_span.filter(|span| *span > 1),
+                                    alignment: cell.alignment,
+                                    rule_before_count: cell.rule_before_count,
+                                    rule_after_count: cell.rule_after_count,
+                                    cell_prefix: cell.cell_prefix.clone(),
+                                    cell_suffix: cell.cell_suffix.clone(),
+                                })
+                                .collect(),
+                            rule_below: row.rule_below,
+                            partial_rules_below: row.partial_rules_below.clone(),
+                        })
+                        .collect();
+                    self.push_block(IrBlock::Table(TableBlock {
+                        environment: event.environment.clone(),
+                        width_spec: event.width_spec.clone(),
+                        columns: event.columns.clone(),
+                        rows,
+                        caption: event.caption.clone(),
+                        caption_source: event
+                            .caption
+                            .as_ref()
+                            .map(|_| envelope.meta.source.clone()),
+                        source: envelope.meta.source.clone(),
+                    }));
+                }
                 RenderEvent::RawFallback(event) => {
                     self.flush_paragraph();
                     if matches!(
@@ -1483,7 +1522,8 @@ mod tests {
         LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
         PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
         RenderEvent, RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent,
-        SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
+        SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellEvent,
+        TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
     };
 
     use super::build_document_ir;
@@ -2251,6 +2291,102 @@ mod tests {
             Some("fallbacks/raw-1.tex")
         );
         assert!(fallback.truncated);
+    }
+
+    #[test]
+    fn structured_table_event_lowers_losslessly_to_table_ir() {
+        let stream = RenderEventStream::new(
+            Some("table".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::Table(TableEvent {
+                    environment: "tabularx".to_string(),
+                    width_spec: Some("\\textwidth".to_string()),
+                    columns: vec![
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Left,
+                            rule_before: false,
+                            rule_before_count: 0,
+                            rule_after: false,
+                            rule_after_count: 0,
+                            separator_after: Some("--".to_string()),
+                            width_pt_milli: None,
+                            cell_prefix: Some("+".to_string()),
+                            cell_suffix: None,
+                        },
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Right,
+                            rule_before: false,
+                            rule_before_count: 0,
+                            rule_after: true,
+                            rule_after_count: 1,
+                            separator_after: None,
+                            width_pt_milli: Some(20_000),
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rows: vec![TableRowEvent {
+                        rule_above: true,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCellEvent {
+                                text: "Alpha".to_string(),
+                                column_span: 1,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCellEvent {
+                                text: "1".to_string(),
+                                column_span: 2,
+                                row_span: Some(2),
+                                alignment: Some(TableColumnAlignment::Center),
+                                rule_before_count: 1,
+                                rule_after_count: 1,
+                                cell_prefix: Some("[".to_string()),
+                                cell_suffix: Some("]".to_string()),
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: vec![TableRuleSpan {
+                            start_column: 1,
+                            end_column: 2,
+                            trim_start: true,
+                            trim_end: false,
+                            trim_start_pt_milli: Some(250),
+                            trim_end_pt_milli: None,
+                        }],
+                    }],
+                    caption: Some("Measurements".to_string()),
+                }),
+                SourceProvenance::file("main.tex", 0, 90),
+            )],
+        );
+
+        let ir = build_document_ir(&stream, &());
+        let [IrBlock::Table(table)] = ir.blocks.as_slice() else {
+            panic!("expected structured table block");
+        };
+
+        assert_eq!(table.environment, "tabularx");
+        assert_eq!(table.width_spec.as_deref(), Some("\\textwidth"));
+        assert_eq!(table.caption.as_deref(), Some("Measurements"));
+        assert_eq!(table.columns.len(), 2);
+        assert_eq!(table.rows.len(), 1);
+        assert!(table.rows[0].rule_above);
+        assert_eq!(table.rows[0].partial_rules_below.len(), 1);
+        assert_eq!(table.rows[0].cells[1].text, "1");
+        assert_eq!(table.rows[0].cells[1].column_span, Some(2));
+        assert_eq!(table.rows[0].cells[1].row_span, Some(2));
+        assert_eq!(
+            table.rows[0].cells[1].alignment,
+            Some(TableColumnAlignment::Center)
+        );
+        assert_eq!(ir.extracted_text(), "Measurements\nAlpha | 1");
     }
 
     #[test]

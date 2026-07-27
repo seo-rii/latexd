@@ -146,6 +146,7 @@ pub enum RenderEvent {
     GraphicRef(GraphicRefEvent),
     IncludePdf(GraphicRefEvent),
     Caption(CaptionEvent),
+    Table(TableEvent),
     InlineMath(MathSourceEvent),
     DisplayMath(MathSourceEvent),
     RawFallback(RawFallbackEvent),
@@ -176,7 +177,9 @@ impl RenderEvent {
             | Self::BeginFootnote(_)
             | Self::EndFootnote(_)
             | Self::FootnoteMark(_) => ModeHint::Horizontal,
-            Self::GraphicRef(_) | Self::IncludePdf(_) | Self::Caption(_) => ModeHint::Vertical,
+            Self::GraphicRef(_) | Self::IncludePdf(_) | Self::Caption(_) | Self::Table(_) => {
+                ModeHint::Vertical
+            }
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             Self::LabelDefinition(_) | Self::RawFallback(_) | Self::Diagnostic(_) => {
                 ModeHint::Unknown
@@ -595,6 +598,52 @@ pub struct MathSourceEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableEvent {
+    pub environment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_spec: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<TableColumnSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<TableRowEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableRowEvent {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rule_above: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub partial_rules_above: Vec<TableRuleSpan>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<TableCellEvent>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rule_below: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub partial_rules_below: Vec<TableRuleSpan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableCellEvent {
+    pub text: String,
+    #[serde(default = "one_usize", skip_serializing_if = "is_one_usize")]
+    pub column_span: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_span: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<TableColumnAlignment>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_before_count: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_after_count: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_suffix: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawFallbackEvent {
     pub source_excerpt: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -704,6 +753,14 @@ fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
 
+fn one_usize() -> usize {
+    1
+}
+
+fn is_one_usize(value: &usize) -> bool {
+    *value == 1
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -734,7 +791,8 @@ mod tests {
         MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
         ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
         RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TableCellEvent,
+        TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
     };
 
     #[test]
@@ -829,6 +887,90 @@ mod tests {
 
         let decoded: RenderEventStream = serde_json::from_str(&encoded).expect("decode stream");
         assert_eq!(decoded, stream);
+    }
+
+    #[test]
+    fn structured_table_event_roundtrips_without_fallback_fields() {
+        let stream = RenderEventStream::new(
+            Some("table".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::Table(TableEvent {
+                    environment: "tabular".to_string(),
+                    width_spec: Some("\\textwidth".to_string()),
+                    columns: vec![
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Left,
+                            rule_before: true,
+                            rule_before_count: 1,
+                            rule_after: false,
+                            rule_after_count: 0,
+                            separator_after: None,
+                            width_pt_milli: None,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Right,
+                            rule_before: false,
+                            rule_before_count: 0,
+                            rule_after: true,
+                            rule_after_count: 1,
+                            separator_after: None,
+                            width_pt_milli: None,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rows: vec![TableRowEvent {
+                        rule_above: true,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCellEvent {
+                                text: "Alpha".to_string(),
+                                column_span: 1,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCellEvent {
+                                text: "1".to_string(),
+                                column_span: 1,
+                                row_span: Some(2),
+                                alignment: Some(TableColumnAlignment::Right),
+                                rule_before_count: 0,
+                                rule_after_count: 1,
+                                cell_prefix: None,
+                                cell_suffix: Some("!".to_string()),
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: vec![TableRuleSpan {
+                            start_column: 1,
+                            end_column: 2,
+                            trim_start: false,
+                            trim_end: true,
+                            trim_start_pt_milli: None,
+                            trim_end_pt_milli: Some(500),
+                        }],
+                    }],
+                    caption: Some("Measurements".to_string()),
+                }),
+                SourceProvenance::file("main.tex", 0, 80),
+            )],
+        );
+
+        let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
+        let decoded: RenderEventStream = serde_json::from_str(&encoded).expect("decode stream");
+
+        assert!(encoded.contains("\"kind\": \"table\""));
+        assert!(encoded.contains("\"environment\": \"tabular\""));
+        assert!(!encoded.contains("\"source_excerpt\""));
+        assert_eq!(decoded, stream);
+        assert_eq!(stream.events[0].meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]
