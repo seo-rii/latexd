@@ -67,9 +67,10 @@ pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot,
     VmActiveSourceFrameSnapshot, VmContinuationBlocker, VmContinuationSafety,
-    VmExecutedMathCaptureSnapshot, VmExecutedTextCaptureSnapshot, VmInputContinuationSnapshot,
-    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot,
-    VmQueueItemSnapshot, VmReplayFrame, VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot,
+    VmExecutedMathCaptureSnapshot, VmExecutedTextCaptureSnapshot, VmGraphicInvocationRangeSnapshot,
+    VmInputContinuationSnapshot, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot, VmSemanticGraphicSnapshot,
     VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
     VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
@@ -15246,6 +15247,7 @@ impl<'i> Vm<'i> {
             semantic_capture: self.render_event_capture.then(|| {
                 let math = self.semantic_math_snapshot();
                 let text = self.semantic_text_snapshot();
+                let graphic = self.semantic_graphic_snapshot();
                 let mut source_buffers = BTreeMap::new();
                 if let Some((path, source)) = math.active_capture.as_ref().and_then(|capture| {
                     self.render_event_sources
@@ -15276,6 +15278,7 @@ impl<'i> Vm<'i> {
                         .unwrap_or(u32::MAX),
                     math,
                     text,
+                    graphic,
                 }
             }),
             scopes: self
@@ -15513,6 +15516,7 @@ impl<'i> Vm<'i> {
             vm.execution_no_hyper_depth = semantic_capture.execution_no_hyper_depth as usize;
             vm.restore_semantic_math_snapshot(&semantic_capture.math);
             vm.restore_semantic_text_snapshot(&semantic_capture.text);
+            vm.restore_semantic_graphic_snapshot(&semantic_capture.graphic);
         }
         let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
             if snapshot.input_continuation.is_none() {
@@ -15523,6 +15527,7 @@ impl<'i> Vm<'i> {
                 .math
                 .scanner_dollar_event_ids
                 .iter()
+                .chain(&semantic_capture.graphic.scanner_event_ids)
                 .chain(
                     semantic_capture
                         .text
@@ -15533,6 +15538,20 @@ impl<'i> Vm<'i> {
                 .copied()
                 .collect::<HashSet<_>>();
             let mut filtered = sink.clone();
+            let supported_sources = filtered
+                .events
+                .iter()
+                .filter(|event| {
+                    supported_event_ids.contains(&event.meta.event_id)
+                        || matches!(
+                            event.event,
+                            RenderEvent::Text(_)
+                                | RenderEvent::Space(_)
+                                | RenderEvent::ParagraphBreak(_)
+                        )
+                })
+                .map(|event| event.meta.source.clone())
+                .collect::<Vec<_>>();
             filtered.events.retain(|event| {
                 supported_event_ids.contains(&event.meta.event_id)
                     || matches!(
@@ -15541,6 +15560,8 @@ impl<'i> Vm<'i> {
                             | RenderEvent::Space(_)
                             | RenderEvent::ParagraphBreak(_)
                     )
+                    || matches!(event.event, RenderEvent::Diagnostic(_))
+                        && supported_sources.contains(&event.meta.source)
             });
             SemanticEventBuffer::restore(&filtered)
         });

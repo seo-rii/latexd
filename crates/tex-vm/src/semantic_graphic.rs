@@ -16,6 +16,7 @@ use crate::{
     input::QueueItem,
     merge_graphic_default_options, merge_graphic_options, normalize_latex_text,
     parse_graphic_page_selection, read_braced_source_argument, skip_ascii_whitespace,
+    snapshot::{VmGraphicInvocationRangeSnapshot, VmSemanticGraphicSnapshot},
 };
 
 #[derive(Debug, Default)]
@@ -46,6 +47,48 @@ struct ExecutedGraphicInput {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_graphic_snapshot(&self) -> VmSemanticGraphicSnapshot {
+        let mut scanner_event_ids = self
+            .semantic_graphic
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_event_ids.sort_unstable();
+        VmSemanticGraphicSnapshot {
+            scanner_event_ids,
+            executed_events: self.semantic_graphic.executed_events.clone(),
+            overridden_invocations: self
+                .semantic_graphic
+                .overridden_invocations
+                .iter()
+                .map(|invocation| VmGraphicInvocationRangeSnapshot {
+                    path: invocation.path.clone(),
+                    start_utf8: invocation.start_utf8,
+                    end_utf8: invocation.end_utf8,
+                })
+                .collect(),
+        }
+    }
+
+    pub(super) fn restore_semantic_graphic_snapshot(
+        &mut self,
+        snapshot: &VmSemanticGraphicSnapshot,
+    ) {
+        self.semantic_graphic.scanner_event_ids =
+            snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_graphic.executed_events = snapshot.executed_events.clone();
+        self.semantic_graphic.overridden_invocations = snapshot
+            .overridden_invocations
+            .iter()
+            .map(|invocation| GraphicInvocationRange {
+                path: invocation.path.clone(),
+                start_utf8: invocation.start_utf8,
+                end_utf8: invocation.end_utf8,
+            })
+            .collect();
+    }
+
     pub(super) fn prepare_semantic_graphic_capture(&mut self) {
         self.semantic_graphic.scanner_event_ids.clear();
         self.semantic_graphic.executed_events.clear();

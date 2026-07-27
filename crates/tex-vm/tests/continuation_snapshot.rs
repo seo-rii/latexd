@@ -1,4 +1,4 @@
-use tex_render_model::RenderEventEnvelope;
+use tex_render_model::{RenderEvent, RenderEventEnvelope};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmSnapshot};
 
@@ -125,6 +125,22 @@ fn input_exit_snapshot_preserves_active_text_capture() {
         replay_render_events_after_input_exit(r"\begin{document}A\input{barrier}B\end{document}");
 
     assert!(!expected.is_empty(), "expected executed text events");
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_graphics_around_boundary() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\includegraphics[width=2cm]{before.png}\input{barrier}\includegraphics{after.png}\end{document}",
+    );
+
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+            .count(),
+        2
+    );
     assert_eq!(actual, expected);
 }
 

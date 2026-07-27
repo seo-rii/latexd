@@ -7,7 +7,7 @@ use tex_render_model::{EventId, EventProducer, RenderEventEnvelope, SourceProven
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 2;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -105,6 +105,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub math: VmSemanticMathSnapshot,
     #[serde(default)]
     pub text: VmSemanticTextSnapshot,
+    #[serde(default)]
+    pub graphic: VmSemanticGraphicSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -134,6 +136,7 @@ impl VmSemanticCaptureSnapshot {
         self.schema_version == VM_SEMANTIC_CAPTURE_SCHEMA_VERSION
             && self.math.is_restorable()
             && self.text.is_restorable()
+            && self.graphic.is_restorable()
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
@@ -290,6 +293,45 @@ impl VmExecutedTextCaptureSnapshot {
                 if Some(&span.path) == self.literal_path.as_ref()
                     && span.start_utf8 <= span.end_utf8
                     && span.end_utf8 == self.end_utf8)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticGraphicSnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub overridden_invocations: Vec<VmGraphicInvocationRangeSnapshot>,
+}
+
+impl VmSemanticGraphicSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && self
+                .overridden_invocations
+                .iter()
+                .all(VmGraphicInvocationRangeSnapshot::is_restorable)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmGraphicInvocationRangeSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+}
+
+impl VmGraphicInvocationRangeSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.start_utf8 <= self.end_utf8
     }
 }
 
