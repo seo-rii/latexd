@@ -70,7 +70,7 @@ impl Vm<'_> {
         end_utf8: u32,
         first_event_id: EventId,
     ) {
-        let event_ids = (first_event_id..self.next_render_event_id).collect::<Vec<_>>();
+        let event_ids = (first_event_id..self.render_events.next_event_id()).collect::<Vec<_>>();
         if event_ids.is_empty() {
             return;
         }
@@ -338,8 +338,7 @@ impl Vm<'_> {
         if capture.text.is_empty() {
             return;
         }
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::Text(TextEvent { text: capture.text }),
@@ -487,7 +486,7 @@ impl Vm<'_> {
             }
         }
         insert_unmatched_macro_events(&mut reconciled, unmatched);
-        self.render_events = reconciled;
+        self.render_events.replace_events(reconciled);
     }
 
     pub(super) fn clear_semantic_suppression_ranges(&mut self) {
@@ -495,8 +494,7 @@ impl Vm<'_> {
     }
 
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
         let mut envelope = RenderEventEnvelope::new(event_id, event, source);
         envelope.meta.producer = producer;

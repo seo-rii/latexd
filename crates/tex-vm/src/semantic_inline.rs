@@ -105,8 +105,7 @@ impl Vm<'_> {
             return;
         }
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let citation = InlineCitationEvent {
             keys,
             style_hint: citation_style_hint_for_command(&command),
@@ -136,8 +135,7 @@ impl Vm<'_> {
             return;
         }
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let reference = InlineReferenceEvent { keys, command };
         let mut envelope = RenderEventEnvelope::new(
             event_id,
@@ -273,8 +271,7 @@ impl Vm<'_> {
             .truncate(capture.link_event_mark);
         self.executed_math_events.truncate(capture.math_event_mark);
 
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::InlineLink(InlineLinkEvent {
@@ -315,7 +312,7 @@ impl Vm<'_> {
         }
 
         let mut reconciled = Vec::with_capacity(self.render_events.len() + executed.len());
-        let scanner_events = mem::take(&mut self.render_events);
+        let scanner_events = self.render_events.take_events();
         for scanner_event in scanner_events {
             if !scanner_ids.contains(&scanner_event.meta.event_id) {
                 reconciled.push(scanner_event);
@@ -356,7 +353,7 @@ impl Vm<'_> {
 
         executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
         insert_unmatched_inline_events(&mut reconciled, executed);
-        self.render_events = reconciled;
+        self.render_events.replace_events(reconciled);
     }
 
     pub(super) fn reconcile_embedded_executed_inline_events(&mut self) {
@@ -383,8 +380,9 @@ impl Vm<'_> {
         for (index, event) in events.iter_mut().enumerate() {
             event.meta.event_id = index as EventId + 1;
         }
-        self.next_render_event_id = events.len() as EventId + 1;
-        self.render_events = events;
+        self.render_events
+            .set_next_event_id(events.len() as EventId + 1);
+        self.render_events.replace_events(events);
     }
 
     fn replace_embedded_inline_placeholders(

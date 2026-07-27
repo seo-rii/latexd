@@ -376,8 +376,7 @@ impl Vm<'_> {
             asset_hash,
             asset_dimensions,
         };
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             if input.include_pdf {
@@ -399,7 +398,7 @@ impl Vm<'_> {
             return;
         }
 
-        let scanner_events = mem::take(&mut self.render_events);
+        let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
             if !scanner_ids.contains(&scanner_event.meta.event_id) {
@@ -452,7 +451,7 @@ impl Vm<'_> {
 
         executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
         insert_unmatched_graphic_events(&mut reconciled, executed);
-        self.render_events = reconciled;
+        self.render_events.replace_events(reconciled);
     }
 
     fn expanded_graphic_text(&mut self, tokens: Vec<Token>) -> String {

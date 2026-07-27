@@ -36,6 +36,7 @@ mod semantic_heading;
 mod semantic_inline;
 mod semantic_list;
 mod semantic_math;
+mod semantic_sink;
 mod semantic_table;
 mod semantic_text;
 mod snapshot;
@@ -59,6 +60,7 @@ use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
 use semantic_list::SemanticListState;
 use semantic_math::ExecutedMathCapture;
+use semantic_sink::SemanticEventBuffer;
 use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
@@ -901,7 +903,7 @@ pub struct Vm<'i> {
     module_checkpoints: Vec<VmModuleCheckpoint>,
     output: String,
     render_event_capture: bool,
-    render_events: Vec<RenderEventEnvelope>,
+    render_events: SemanticEventBuffer,
     scanner_dollar_math_event_ids: HashSet<EventId>,
     render_event_sources: HashMap<Utf8PathBuf, String>,
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
@@ -917,7 +919,6 @@ pub struct Vm<'i> {
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     execution_no_hyper_depth: usize,
-    next_render_event_id: EventId,
     transcript: Vec<String>,
     diagnostics: Vec<VmDiagnostic>,
     read_stream_lines: BTreeMap<u32, Vec<String>>,
@@ -972,7 +973,7 @@ impl<'i> Vm<'i> {
             module_checkpoints: Vec::new(),
             output: String::new(),
             render_event_capture: false,
-            render_events: Vec::new(),
+            render_events: SemanticEventBuffer::default(),
             scanner_dollar_math_event_ids: HashSet::new(),
             render_event_sources: HashMap::new(),
             executed_math_invocations: HashSet::new(),
@@ -988,7 +989,6 @@ impl<'i> Vm<'i> {
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             execution_no_hyper_depth: 0,
-            next_render_event_id: 1,
             transcript: Vec::new(),
             diagnostics: Vec::new(),
             read_stream_lines: BTreeMap::new(),
@@ -6926,7 +6926,7 @@ impl<'i> Vm<'i> {
                             let note_id = pending_mark
                                 .as_ref()
                                 .map(|(note_id, _)| *note_id)
-                                .unwrap_or(self.next_render_event_id);
+                                .unwrap_or(self.render_events.next_event_id());
                             let marker = explicit_note_marker
                                 .clone()
                                 .or_else(|| pending_mark.and_then(|(_, marker)| marker));
@@ -9513,7 +9513,7 @@ impl<'i> Vm<'i> {
                         marker = (!value.is_empty()).then_some(value);
                         index = after_option;
                     }
-                    let note_id = self.next_render_event_id;
+                    let note_id = self.render_events.next_event_id();
                     self.emit_render_event(
                         RenderEvent::FootnoteMark(FootnoteMarkEvent {
                             note_id,
@@ -10740,7 +10740,7 @@ impl<'i> Vm<'i> {
                             let text =
                                 normalize_latex_text_with_inline_placeholders(&visible_source);
                             if !text.is_empty() {
-                                let first_event_id = self.next_render_event_id;
+                                let first_event_id = self.render_events.next_event_id();
                                 self.emit_render_event(
                                     RenderEvent::Text(TextEvent { text }),
                                     SourceProvenance::file(
@@ -14856,7 +14856,7 @@ impl<'i> Vm<'i> {
         if !in_document || start >= end {
             return;
         }
-        let first_event_id = self.next_render_event_id;
+        let first_event_id = self.render_events.next_event_id();
         let mut pending_word = String::new();
         let mut pending_space = None;
         let mut emitted_any = false;
@@ -14961,8 +14961,7 @@ impl<'i> Vm<'i> {
         event: RenderEvent,
         source: SourceProvenance,
     ) -> &mut RenderEventEnvelope {
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let scanner_dollar_math = matches!(
             &event,
             RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_)
@@ -15130,7 +15129,7 @@ impl<'i> Vm<'i> {
 
         VmOutcome {
             output: mem::take(&mut self.output),
-            render_events: mem::take(&mut self.render_events),
+            render_events: self.render_events.take_events(),
             registers: self.eqtb.count_values(),
             transcript: mem::take(&mut self.transcript),
             diagnostics: mem::take(&mut self.diagnostics),

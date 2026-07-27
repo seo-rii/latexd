@@ -59,8 +59,7 @@ impl Vm<'_> {
 
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::ListItem(ListItemEvent { marker }),
@@ -78,7 +77,7 @@ impl Vm<'_> {
             return;
         }
 
-        let scanner_events = mem::take(&mut self.render_events);
+        let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
             if !scanner_ids.contains(&scanner_event.meta.event_id) {
@@ -104,7 +103,7 @@ impl Vm<'_> {
         }
 
         insert_unmatched_list_items(&mut reconciled, executed);
-        self.render_events = reconciled;
+        self.render_events.replace_events(reconciled);
     }
 }
 

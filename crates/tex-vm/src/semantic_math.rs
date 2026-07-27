@@ -127,8 +127,7 @@ impl Vm<'_> {
         } else {
             RenderEvent::InlineMath(math_source_event(raw_source))
         };
-        let event_id = self.next_render_event_id;
-        self.next_render_event_id += 1;
+        let event_id = self.render_events.allocate_event_id();
         let source_path = capture.source_path.clone();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
@@ -238,6 +237,6 @@ impl Vm<'_> {
             reconciled.push(executed_event);
         }
         reconciled.append(&mut executed);
-        self.render_events = reconciled;
+        self.render_events.replace_events(reconciled);
     }
 }
