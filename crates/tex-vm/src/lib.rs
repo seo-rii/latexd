@@ -65,17 +65,19 @@ use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
-    VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot, VmContinuationBlocker,
-    VmContinuationSafety, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
+    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveHeadingCaptureSnapshot,
+    VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot,
+    VmActiveSourceFrameSnapshot, VmContinuationBlocker, VmContinuationSafety,
+    VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
     VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExpansionContextSnapshot,
     VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
     VmInputContinuationSnapshot, VmModuleCheckpoint, VmModuleCheckpointKind,
     VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
     VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
-    VmSemanticGraphicSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
-    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
-    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
+    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
+    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
+    VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -15255,6 +15257,7 @@ impl<'i> Vm<'i> {
                 let environment = self.semantic_environment_snapshot();
                 let table = self.semantic_table_snapshot();
                 let inline = self.semantic_inline_snapshot();
+                let heading = self.semantic_heading_snapshot();
                 let mut source_buffers = self
                     .render_event_sources
                     .iter()
@@ -15298,6 +15301,7 @@ impl<'i> Vm<'i> {
                     environment,
                     table,
                     inline,
+                    heading,
                 }
             }),
             scopes: self
@@ -15540,6 +15544,7 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_environment_snapshot(&semantic_capture.environment);
             vm.restore_semantic_table_snapshot(&semantic_capture.table);
             vm.restore_semantic_inline_snapshot(&semantic_capture.inline);
+            vm.restore_semantic_heading_snapshot(&semantic_capture.heading);
         }
         let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
             if snapshot.input_continuation.is_none() {
@@ -15557,6 +15562,7 @@ impl<'i> Vm<'i> {
                 .chain(&semantic_capture.inline.scanner_citation_event_ids)
                 .chain(&semantic_capture.inline.scanner_reference_event_ids)
                 .chain(&semantic_capture.inline.scanner_link_event_ids)
+                .chain(&semantic_capture.heading.scanner_event_ids)
                 .chain(
                     semantic_capture
                         .text

@@ -14,7 +14,9 @@ use tex_tokens::{ControlSequenceId, Token};
 use crate::{
     Vm, citation_style_hint_for_command,
     input::QueueItem,
-    snapshot::{VmActiveLinkCaptureSnapshot, VmSemanticInlineSnapshot},
+    snapshot::{
+        VmActiveLinkCaptureSnapshot, VmExecutedInlineEventMarkSnapshot, VmSemanticInlineSnapshot,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -52,6 +54,38 @@ pub(super) struct ExecutedInlineEventMark {
     references: usize,
     links: usize,
     caption_placeholders: usize,
+}
+
+impl ExecutedInlineEventMark {
+    pub(super) fn snapshot(self) -> VmExecutedInlineEventMarkSnapshot {
+        VmExecutedInlineEventMarkSnapshot {
+            citations: self.citations.try_into().unwrap_or(u64::MAX),
+            references: self.references.try_into().unwrap_or(u64::MAX),
+            links: self.links.try_into().unwrap_or(u64::MAX),
+            caption_placeholders: self.caption_placeholders.try_into().unwrap_or(u64::MAX),
+        }
+    }
+
+    pub(super) fn restore(snapshot: &VmExecutedInlineEventMarkSnapshot) -> Self {
+        Self {
+            citations: snapshot
+                .citations
+                .try_into()
+                .expect("validated citation event mark"),
+            references: snapshot
+                .references
+                .try_into()
+                .expect("validated reference event mark"),
+            links: snapshot
+                .links
+                .try_into()
+                .expect("validated link event mark"),
+            caption_placeholders: snapshot
+                .caption_placeholders
+                .try_into()
+                .expect("validated caption placeholder mark"),
+        }
+    }
 }
 
 impl Vm<'_> {

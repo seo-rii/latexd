@@ -10,7 +10,12 @@ use tex_render_model::{
 };
 use tex_tokens::{ControlSequenceId, Token};
 
-use crate::{Vm, input::QueueItem, semantic_inline::ExecutedInlineEventMark};
+use crate::{
+    Vm,
+    input::QueueItem,
+    semantic_inline::ExecutedInlineEventMark,
+    snapshot::{VmActiveHeadingCaptureSnapshot, VmSemanticHeadingSnapshot},
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticHeadingState {
@@ -22,11 +27,14 @@ pub(super) struct SemanticHeadingState {
 
 #[derive(Debug)]
 struct ExecutedHeadingCapture {
+    marker_id: u64,
     level: u8,
     numbered: bool,
     source: SourceProvenance,
     producer: EventProducer,
+    text_prefix: String,
     output_start: usize,
+    lossy_prefix: bool,
     diagnostic_mark: usize,
     text_event_mark: usize,
     inline_event_mark: ExecutedInlineEventMark,
@@ -35,6 +43,93 @@ struct ExecutedHeadingCapture {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_heading_snapshot(&self) -> VmSemanticHeadingSnapshot {
+        let mut scanner_event_ids = self
+            .semantic_heading
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_event_ids.sort_unstable();
+        let mut active_heading_actions = self
+            .semantic_heading
+            .marker_actions
+            .iter()
+            .map(|(name, capture)| {
+                let mut visible_output_prefix = capture.text_prefix.clone();
+                visible_output_prefix.push_str(
+                    self.output
+                        .get(capture.output_start..)
+                        .expect("active heading output cursor must be valid"),
+                );
+                VmActiveHeadingCaptureSnapshot {
+                    control_sequence: self.interner.resolve(*name).unwrap_or("").to_string(),
+                    marker_id: capture.marker_id,
+                    level: capture.level,
+                    numbered: capture.numbered,
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    visible_output_prefix,
+                    lossy_before_restore: capture.lossy_prefix
+                        || self.diagnostics.len() > capture.diagnostic_mark,
+                    text_event_mark: capture.text_event_mark.try_into().unwrap_or(u64::MAX),
+                    inline_event_mark: capture.inline_event_mark.snapshot(),
+                    math_event_mark: capture.math_event_mark.try_into().unwrap_or(u64::MAX),
+                    heading_event_mark: capture.heading_event_mark.try_into().unwrap_or(u64::MAX),
+                }
+            })
+            .collect::<Vec<_>>();
+        active_heading_actions
+            .sort_by(|left, right| left.control_sequence.cmp(&right.control_sequence));
+        VmSemanticHeadingSnapshot {
+            scanner_event_ids,
+            executed_events: self.semantic_heading.executed_events.clone(),
+            active_heading_actions,
+            next_marker_id: self.semantic_heading.next_marker_id,
+        }
+    }
+
+    pub(super) fn restore_semantic_heading_snapshot(
+        &mut self,
+        snapshot: &VmSemanticHeadingSnapshot,
+    ) {
+        self.semantic_heading.scanner_event_ids =
+            snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_heading.executed_events = snapshot.executed_events.clone();
+        self.semantic_heading.marker_actions.clear();
+        for capture in &snapshot.active_heading_actions {
+            let name = self.interner.intern(&capture.control_sequence);
+            self.semantic_heading.marker_actions.insert(
+                name,
+                ExecutedHeadingCapture {
+                    marker_id: capture.marker_id,
+                    level: capture.level,
+                    numbered: capture.numbered,
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    text_prefix: capture.visible_output_prefix.clone(),
+                    output_start: self.output.len(),
+                    lossy_prefix: capture.lossy_before_restore,
+                    diagnostic_mark: self.diagnostics.len(),
+                    text_event_mark: capture
+                        .text_event_mark
+                        .try_into()
+                        .expect("validated text event mark"),
+                    inline_event_mark: ExecutedInlineEventMark::restore(&capture.inline_event_mark),
+                    math_event_mark: capture
+                        .math_event_mark
+                        .try_into()
+                        .expect("validated math event mark"),
+                    heading_event_mark: capture
+                        .heading_event_mark
+                        .try_into()
+                        .expect("validated heading event mark"),
+                },
+            );
+        }
+        self.semantic_heading.next_marker_id = snapshot.next_marker_id;
+    }
+
     pub(super) fn mark_scanner_heading_event(&mut self, event_id: EventId) {
         self.semantic_heading.scanner_event_ids.insert(event_id);
     }
@@ -88,11 +183,14 @@ impl Vm<'_> {
             .interner
             .intern(&format!("latexd@semantic@heading@end@{marker_id}"));
         let capture = ExecutedHeadingCapture {
+            marker_id,
             level,
             numbered,
             source,
             producer,
+            text_prefix: String::new(),
             output_start: self.output.len(),
+            lossy_prefix: false,
             diagnostic_mark: self.diagnostics.len(),
             text_event_mark: self.executed_text_event_mark(),
             inline_event_mark: self.executed_inline_event_mark(),
@@ -121,11 +219,9 @@ impl Vm<'_> {
             return false;
         };
         self.flush_executed_text_capture();
-        let raw_text = self
-            .output
-            .get(capture.output_start..)
-            .unwrap_or_default()
-            .replace("[?]", "\u{e000}");
+        let mut raw_text = capture.text_prefix.clone();
+        raw_text.push_str(self.output.get(capture.output_start..).unwrap_or_default());
+        let raw_text = raw_text.replace("[?]", "\u{e000}");
         let text = crate::normalize_latex_text_with_inline_placeholders(&raw_text)
             .replace('\u{e000}', "[?]");
         self.rollback_executed_text_events(capture.text_event_mark);
@@ -137,7 +233,7 @@ impl Vm<'_> {
         self.finish_executed_block_content();
 
         let event_id = self.render_events.allocate_event_id();
-        let lossy = self.diagnostics.len() > capture.diagnostic_mark;
+        let lossy = capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::Heading(HeadingEvent {

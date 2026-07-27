@@ -10,7 +10,7 @@ use tex_render_model::{
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 8;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -118,6 +118,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub table: VmSemanticTableSnapshot,
     #[serde(default)]
     pub inline: VmSemanticInlineSnapshot,
+    #[serde(default)]
+    pub heading: VmSemanticHeadingSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -154,6 +156,11 @@ impl VmSemanticCaptureSnapshot {
             && self.inline.is_restorable(
                 self.text.executed_events.len(),
                 self.math.executed_events.len(),
+            )
+            && self.heading.is_restorable(
+                self.text.executed_events.len(),
+                self.math.executed_events.len(),
+                &self.inline,
             )
             && active_math_source_is_valid
             && active_text_source_is_valid
@@ -431,6 +438,103 @@ pub struct VmActiveLinkCaptureSnapshot {
     pub reference_event_mark: u64,
     pub link_event_mark: u64,
     pub math_event_mark: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedInlineEventMarkSnapshot {
+    pub citations: u64,
+    pub references: u64,
+    pub links: u64,
+    pub caption_placeholders: u64,
+}
+
+impl VmExecutedInlineEventMarkSnapshot {
+    fn is_restorable(&self, inline: &VmSemanticInlineSnapshot) -> bool {
+        self.citations <= u64::try_from(inline.executed_citations.len()).unwrap_or(u64::MAX)
+            && self.references
+                <= u64::try_from(inline.executed_references.len()).unwrap_or(u64::MAX)
+            && self.links <= u64::try_from(inline.executed_links.len()).unwrap_or(u64::MAX)
+            && self.caption_placeholders
+                <= u64::try_from(inline.caption_placeholders.len()).unwrap_or(u64::MAX)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticHeadingSnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub active_heading_actions: Vec<VmActiveHeadingCaptureSnapshot>,
+    #[serde(default)]
+    pub next_marker_id: u64,
+}
+
+impl VmSemanticHeadingSnapshot {
+    pub fn is_restorable(
+        &self,
+        text_event_count: usize,
+        math_event_count: usize,
+        inline: &VmSemanticInlineSnapshot,
+    ) -> bool {
+        let text_event_count = u64::try_from(text_event_count).unwrap_or(u64::MAX);
+        let math_event_count = u64::try_from(math_event_count).unwrap_or(u64::MAX);
+        let scanner_event_ids = self
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        let marker_names = self
+            .active_heading_actions
+            .iter()
+            .map(|capture| capture.control_sequence.clone())
+            .collect::<Vec<_>>();
+        let marker_ids = self
+            .active_heading_actions
+            .iter()
+            .map(|capture| capture.marker_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && executed_event_ids
+                .iter()
+                .all(|event_id| !scanner_event_ids.contains(event_id))
+            && marker_names.iter().all(|name| !name.is_empty())
+            && values_are_unique(&marker_names)
+            && values_are_unique(&marker_ids)
+            && marker_ids
+                .iter()
+                .all(|marker_id| *marker_id < self.next_marker_id)
+            && self.active_heading_actions.iter().all(|capture| {
+                capture.text_event_mark <= text_event_count
+                    && capture.inline_event_mark.is_restorable(inline)
+                    && capture.math_event_mark <= math_event_count
+                    && capture.heading_event_mark
+                        <= u64::try_from(self.executed_events.len()).unwrap_or(u64::MAX)
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveHeadingCaptureSnapshot {
+    pub control_sequence: String,
+    pub marker_id: u64,
+    pub level: u8,
+    pub numbered: bool,
+    pub source: SourceProvenance,
+    pub producer: EventProducer,
+    pub visible_output_prefix: String,
+    pub lossy_before_restore: bool,
+    pub text_event_mark: u64,
+    pub inline_event_mark: VmExecutedInlineEventMarkSnapshot,
+    pub math_event_mark: u64,
+    pub heading_event_mark: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

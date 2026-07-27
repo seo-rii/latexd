@@ -1,4 +1,4 @@
-use tex_render_model::{RenderEvent, RenderEventEnvelope};
+use tex_render_model::{EventProducer, RenderEvent, RenderEventEnvelope, SemanticConfidence};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmSnapshot};
 
@@ -262,6 +262,40 @@ fn input_exit_snapshot_preserves_active_link_capture() {
     assert_eq!(links.len(), 1);
     assert!(links[0].text.contains("Before"));
     assert!(links[0].text.contains("After"));
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_active_heading_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}Lead\section{Before \cite{k} \href{https://example.test}{L} $m$ \input{barrier} After}Tail\end{document}",
+    );
+
+    let headings = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Heading(heading) => Some(heading),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(headings.len(), 1);
+    assert!(headings[0].text.contains("Before"));
+    assert!(headings[0].text.contains("After"));
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_active_lossy_heading_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\section{Before \unsupportedtitle{Visible} \input{barrier} After}\end{document}",
+    );
+
+    let heading = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::Heading(_)))
+        .expect("recovered heading");
+    assert_eq!(heading.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(heading.meta.confidence, SemanticConfidence::Medium);
     assert_eq!(actual, expected);
 }
 
