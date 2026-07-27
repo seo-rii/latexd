@@ -35,8 +35,8 @@ Beta & 2
     assert_eq!(tables[0].0.rows[0].cells[1].text, "1");
     assert_eq!(tables[0].0.rows[1].cells[0].text, "Beta");
     assert_eq!(tables[0].0.rows[1].cells[1].text, "2");
-    assert_eq!(tables[0].1.meta.producer, EventProducer::Primitive);
-    assert_eq!(tables[0].1.meta.confidence, SemanticConfidence::High);
+    assert_eq!(tables[0].1.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(tables[0].1.meta.confidence, SemanticConfidence::Medium);
     assert!(!outcome.render_events.iter().any(|event| matches!(
         &event.event,
         RenderEvent::RawFallback(fallback)
@@ -67,7 +67,7 @@ fn false_conditional_table_recovery_is_discarded() {
 
     assert_eq!(
         tables,
-        vec![("Right", EventProducer::Primitive)],
+        vec![("Right", EventProducer::ScannerRecovery)],
         "{:#?}",
         outcome.render_events
     );
@@ -101,8 +101,8 @@ fn executed_table_environment_kinds_do_not_cross_match() {
     assert_eq!(
         tables,
         vec![
-            ("tabularx", "Tabular X", EventProducer::Primitive),
-            ("longtable", "Long table", EventProducer::Primitive),
+            ("tabularx", "Tabular X", EventProducer::ScannerRecovery),
+            ("longtable", "Long table", EventProducer::ScannerRecovery),
         ],
         "{:#?}",
         outcome.render_events
@@ -110,7 +110,7 @@ fn executed_table_environment_kinds_do_not_cross_match() {
 }
 
 #[test]
-fn structured_table_preserves_empty_cells() {
+fn structured_table_recovery_omits_ambiguous_empty_placeholders() {
     let outcome = capture(
         r"\begin{document}
 \begin{tabular}{lll}
@@ -135,7 +135,7 @@ A && C \\
             .iter()
             .map(|cell| cell.text.as_str())
             .collect::<Vec<_>>(),
-        vec!["A", "", "C"]
+        vec!["A", "C"]
     );
     assert_eq!(
         table.rows[1]
@@ -143,7 +143,7 @@ A && C \\
             .iter()
             .map(|cell| cell.text.as_str())
             .collect::<Vec<_>>(),
-        vec!["", "B", ""]
+        vec!["B"]
     );
 }
 

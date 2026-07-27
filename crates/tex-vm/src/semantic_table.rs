@@ -21,14 +21,12 @@ pub(super) struct SemanticTableState {
 struct ExecutedTableFrame {
     environment: String,
     source: SourceProvenance,
-    producer: EventProducer,
 }
 
 #[derive(Debug)]
 struct ExecutedTable {
     environment: String,
     source: SourceProvenance,
-    producer: EventProducer,
 }
 
 impl Vm<'_> {
@@ -58,11 +56,10 @@ impl Vm<'_> {
         {
             return;
         }
-        let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
+        let (source, _) = self.executed_semantic_source(start_utf8, end_utf8);
         self.semantic_table.open_tables.push(ExecutedTableFrame {
             environment: environment.to_string(),
             source,
-            producer,
         });
     }
 
@@ -82,7 +79,6 @@ impl Vm<'_> {
         self.semantic_table.executed_tables.push(ExecutedTable {
             environment: frame.environment,
             source: frame.source,
-            producer: frame.producer,
         });
     }
 
@@ -110,19 +106,20 @@ impl Vm<'_> {
                 continue;
             };
             let executed_table = executed.remove(index);
-            scanner_event.meta.producer = executed_table.producer;
-            scanner_event.meta.confidence = SemanticConfidence::High;
-            scanner_event.meta.source.generated_by = GeneratedBy::Source;
-            if scanner_event.meta.source.expansion_stack.is_empty() {
-                scanner_event.meta.source.expansion_stack = executed_table.source.expansion_stack;
-                scanner_event.meta.source.expansion_stack_truncated =
-                    executed_table.source.expansion_stack_truncated;
-            }
             if self.semantic_table.structured_events
                 && let RenderEvent::RawFallback(fallback) = &scanner_event.event
                 && let Some(table) = table_event_from_fallback(fallback)
             {
                 scanner_event.event = RenderEvent::Table(table);
+                scanner_event.meta.producer = EventProducer::ScannerRecovery;
+                scanner_event.meta.confidence = SemanticConfidence::Medium;
+                scanner_event.meta.source.generated_by = GeneratedBy::Source;
+                if scanner_event.meta.source.expansion_stack.is_empty() {
+                    scanner_event.meta.source.expansion_stack =
+                        executed_table.source.expansion_stack;
+                    scanner_event.meta.source.expansion_stack_truncated =
+                        executed_table.source.expansion_stack_truncated;
+                }
             }
         }
     }
@@ -303,8 +300,10 @@ fn table_event_from_fallback(event: &RawFallbackEvent) -> Option<TableEvent> {
             serialized_cells.push(&row[cell_start..]);
             let cells = serialized_cells
                 .into_iter()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
                 .map(|text| TableCellEvent {
-                    text: split_nested_table_cell_lines(text.trim()),
+                    text: split_nested_table_cell_lines(text),
                     column_span: 1,
                     row_span: None,
                     alignment: None,
