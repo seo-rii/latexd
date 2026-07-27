@@ -360,6 +360,7 @@ fn capture_internal_render_ir_with_options(
         vm.mount_file(*path, *source);
     }
     vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
     let outcome = vm.run_plain(source);
     let mut events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
     let mut prepared_pdf_forms = BTreeMap::<GraphicAssetRequest, PreparedPdfForm>::new();
@@ -4663,6 +4664,35 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[test]
+    fn internal_render_ir_capture_uses_structured_table_events() {
+        let capture = capture_internal_render_ir(
+            "main.tex",
+            r"\begin{document}\begin{tabular}{lr}Alpha & 1 \\ Beta & 2\end{tabular}\end{document}",
+            &SemanticAux::default(),
+        );
+
+        let table_event = capture
+            .events
+            .events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Table(table) => Some(table),
+                _ => None,
+            })
+            .expect("structured table event");
+        assert_eq!(table_event.rows.len(), 2);
+        assert!(!capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+        )));
+        assert!(matches!(
+            capture.document_ir.blocks.as_slice(),
+            [IrBlock::Table(table)] if table.rows.len() == 2
+        ));
     }
 
     #[test]

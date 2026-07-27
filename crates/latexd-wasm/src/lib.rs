@@ -31,6 +31,7 @@ fn compile_source_json(source: &str) -> Result<String, String> {
     let mut vm = tex_vm::Vm::new(&mut interner);
     vm.set_entry_source_path("main.tex");
     vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
     let outcome = vm.run_plain(source);
     let stream = RenderEventStream::new(Some("main.tex".to_string()), outcome.render_events);
     let event_count = stream.events.len();

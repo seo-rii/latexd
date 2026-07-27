@@ -69,6 +69,7 @@ fn compile() -> Result<CompileResponse, String> {
         }
     }
     vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
     let outcome = vm.run_plain(source);
     let stream = RenderEventStream::new(Some(entry), outcome.render_events);
     let event_count = stream.events.len();
