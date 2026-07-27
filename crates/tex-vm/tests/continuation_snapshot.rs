@@ -216,6 +216,36 @@ fn input_exit_snapshot_preserves_active_macro_expansion() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_completed_inline_events() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}A \cite{a}\ref{x}\href{https://example.test}{B}\input{barrier}\cite{b}\pageref{y}.\end{document}",
+    );
+
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::InlineCitation(_)))
+            .count(),
+        2
+    );
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::InlineReference(_)))
+            .count(),
+        2
+    );
+    assert_eq!(
+        expected
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::InlineLink(_)))
+            .count(),
+        1
+    );
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {

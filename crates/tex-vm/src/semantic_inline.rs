@@ -11,7 +11,9 @@ use tex_render_model::{
 };
 use tex_tokens::{ControlSequenceId, Token};
 
-use crate::{Vm, citation_style_hint_for_command, input::QueueItem};
+use crate::{
+    Vm, citation_style_hint_for_command, input::QueueItem, snapshot::VmSemanticInlineSnapshot,
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticInlineState {
@@ -49,6 +51,50 @@ pub(super) struct ExecutedInlineEventMark {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_inline_snapshot(&self) -> VmSemanticInlineSnapshot {
+        let sorted_event_ids = |event_ids: &HashSet<EventId>| {
+            let mut event_ids = event_ids.iter().copied().collect::<Vec<_>>();
+            event_ids.sort_unstable();
+            event_ids
+        };
+        VmSemanticInlineSnapshot {
+            scanner_citation_event_ids: sorted_event_ids(
+                &self.semantic_inline.scanner_citation_event_ids,
+            ),
+            scanner_reference_event_ids: sorted_event_ids(
+                &self.semantic_inline.scanner_reference_event_ids,
+            ),
+            scanner_link_event_ids: sorted_event_ids(&self.semantic_inline.scanner_link_event_ids),
+            executed_citations: self.semantic_inline.executed_citations.clone(),
+            executed_references: self.semantic_inline.executed_references.clone(),
+            executed_links: self.semantic_inline.executed_links.clone(),
+            caption_placeholders: self.semantic_inline.caption_placeholders.clone(),
+            marker_state_quiescent: self.semantic_inline.link_marker_actions.is_empty(),
+            next_link_marker_id: self.semantic_inline.next_link_marker_id,
+        }
+    }
+
+    pub(super) fn restore_semantic_inline_snapshot(&mut self, snapshot: &VmSemanticInlineSnapshot) {
+        self.semantic_inline.scanner_citation_event_ids = snapshot
+            .scanner_citation_event_ids
+            .iter()
+            .copied()
+            .collect();
+        self.semantic_inline.scanner_reference_event_ids = snapshot
+            .scanner_reference_event_ids
+            .iter()
+            .copied()
+            .collect();
+        self.semantic_inline.scanner_link_event_ids =
+            snapshot.scanner_link_event_ids.iter().copied().collect();
+        self.semantic_inline.executed_citations = snapshot.executed_citations.clone();
+        self.semantic_inline.executed_references = snapshot.executed_references.clone();
+        self.semantic_inline.executed_links = snapshot.executed_links.clone();
+        self.semantic_inline.caption_placeholders = snapshot.caption_placeholders.clone();
+        self.semantic_inline.link_marker_actions.clear();
+        self.semantic_inline.next_link_marker_id = snapshot.next_link_marker_id;
+    }
+
     pub(super) fn mark_scanner_citation_event(&mut self, event_id: EventId) {
         self.semantic_inline
             .scanner_citation_event_ids

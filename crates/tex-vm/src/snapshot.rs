@@ -4,13 +4,13 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
-    EventId, EventProducer, ListKind, RenderEventEnvelope, SourceProvenance, TableCellEvent,
-    TableColumnSpec, TableRowEvent,
+    CaptionInlinePlaceholderEvent, EventId, EventProducer, ListKind, RenderEventEnvelope,
+    SourceProvenance, TableCellEvent, TableColumnSpec, TableRowEvent,
 };
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 6;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -116,6 +116,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub environment: VmSemanticEnvironmentSnapshot,
     #[serde(default)]
     pub table: VmSemanticTableSnapshot,
+    #[serde(default)]
+    pub inline: VmSemanticInlineSnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -149,6 +151,7 @@ impl VmSemanticCaptureSnapshot {
             && self.list.is_restorable()
             && self.environment.is_restorable()
             && self.table.is_restorable()
+            && self.inline.is_restorable()
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
@@ -333,6 +336,54 @@ impl VmExpansionMarkerActionSnapshot {
 pub struct VmExpansionContextSnapshot {
     pub marker_id: u64,
     pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticInlineSnapshot {
+    #[serde(default)]
+    pub scanner_citation_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub scanner_reference_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub scanner_link_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_citations: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub executed_references: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub executed_links: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub caption_placeholders: Vec<CaptionInlinePlaceholderEvent>,
+    #[serde(default)]
+    pub marker_state_quiescent: bool,
+    #[serde(default)]
+    pub next_link_marker_id: u64,
+}
+
+impl VmSemanticInlineSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let scanner_event_ids = self
+            .scanner_citation_event_ids
+            .iter()
+            .chain(&self.scanner_reference_event_ids)
+            .chain(&self.scanner_link_event_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        let executed_event_ids = self
+            .executed_citations
+            .iter()
+            .chain(&self.executed_references)
+            .chain(&self.executed_links)
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        let executed_event_id_set = executed_event_ids.iter().copied().collect::<BTreeSet<_>>();
+        self.marker_state_quiescent
+            && values_are_unique_nonzero(&scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && scanner_event_ids
+                .iter()
+                .all(|event_id| !executed_event_id_set.contains(event_id))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
