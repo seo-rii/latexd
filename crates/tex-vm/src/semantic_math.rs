@@ -7,7 +7,14 @@ use tex_render_model::{
 };
 use tex_tokens::{CatCode, TokenKind};
 
-use crate::{Vm, input::QueueItem, math_source_event};
+use crate::{
+    Vm,
+    input::QueueItem,
+    math_source_event,
+    snapshot::{
+        VmExecutedMathCaptureSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
+    },
+};
 
 #[derive(Debug)]
 pub(super) struct ExecutedMathCapture {
@@ -19,6 +26,60 @@ pub(super) struct ExecutedMathCapture {
 }
 
 impl Vm<'_> {
+    pub(super) fn semantic_math_snapshot(&self) -> VmSemanticMathSnapshot {
+        let mut scanner_dollar_event_ids = self
+            .scanner_dollar_math_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_dollar_event_ids.sort_unstable();
+        let mut executed_invocations = self
+            .executed_math_invocations
+            .iter()
+            .map(|(path, start_utf8)| VmSemanticMathInvocationSnapshot {
+                path: path.clone(),
+                start_utf8: *start_utf8,
+            })
+            .collect::<Vec<_>>();
+        executed_invocations.sort();
+        VmSemanticMathSnapshot {
+            scanner_dollar_event_ids,
+            executed_invocations,
+            executed_events: self.executed_math_events.clone(),
+            active_capture: self.executed_math_capture.as_ref().map(|capture| {
+                VmExecutedMathCaptureSnapshot {
+                    display: capture.display,
+                    raw_source: capture.raw_source.clone(),
+                    source_path: capture.source_path.clone(),
+                    invocation_start_utf8: capture.invocation_start_utf8,
+                    content_start_utf8: capture.content_start_utf8,
+                }
+            }),
+        }
+    }
+
+    pub(super) fn restore_semantic_math_snapshot(&mut self, snapshot: &VmSemanticMathSnapshot) {
+        self.scanner_dollar_math_event_ids =
+            snapshot.scanner_dollar_event_ids.iter().copied().collect();
+        self.executed_math_invocations = snapshot
+            .executed_invocations
+            .iter()
+            .map(|invocation| (invocation.path.clone(), invocation.start_utf8))
+            .collect();
+        self.executed_math_events = snapshot.executed_events.clone();
+        self.executed_math_capture =
+            snapshot
+                .active_capture
+                .as_ref()
+                .map(|capture| ExecutedMathCapture {
+                    display: capture.display,
+                    raw_source: capture.raw_source.clone(),
+                    source_path: capture.source_path.clone(),
+                    invocation_start_utf8: capture.invocation_start_utf8,
+                    content_start_utf8: capture.content_start_utf8,
+                });
+    }
+
     pub(super) fn execute_math_shift(
         &mut self,
         ch: char,

@@ -7,6 +7,7 @@ use tex_render_model::{EventId, RenderEventEnvelope};
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -92,6 +93,97 @@ impl VmSemanticSinkSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticCaptureSnapshot {
+    pub schema_version: u32,
+    #[serde(default)]
+    pub source_buffers: BTreeMap<Utf8PathBuf, String>,
+    #[serde(default)]
+    pub execution_in_document: bool,
+    #[serde(default)]
+    pub execution_no_hyper_depth: u32,
+    #[serde(default)]
+    pub math: VmSemanticMathSnapshot,
+}
+
+impl VmSemanticCaptureSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let active_math_source_is_valid = self.math.active_capture.as_ref().is_none_or(|capture| {
+            let Some(source) = self.source_buffers.get(&capture.source_path) else {
+                return false;
+            };
+            let invocation_start = capture.invocation_start_utf8 as usize;
+            let content_start = capture.content_start_utf8 as usize;
+            self.execution_in_document
+                && invocation_start <= content_start
+                && content_start <= source.len()
+                && source.is_char_boundary(invocation_start)
+                && source.is_char_boundary(content_start)
+        });
+        self.schema_version == VM_SEMANTIC_CAPTURE_SCHEMA_VERSION
+            && self.math.is_restorable()
+            && active_math_source_is_valid
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticMathSnapshot {
+    #[serde(default)]
+    pub scanner_dollar_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_invocations: Vec<VmSemanticMathInvocationSnapshot>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub active_capture: Option<VmExecutedMathCaptureSnapshot>,
+}
+
+impl VmSemanticMathSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        let scanner_event_ids = self
+            .scanner_dollar_event_ids
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        values_are_unique_nonzero(&self.scanner_dollar_event_ids)
+            && values_are_unique(&self.executed_invocations)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && executed_event_ids
+                .iter()
+                .all(|event_id| !scanner_event_ids.contains(event_id))
+            && self
+                .active_capture
+                .as_ref()
+                .is_none_or(VmExecutedMathCaptureSnapshot::is_restorable)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct VmSemanticMathInvocationSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedMathCaptureSnapshot {
+    pub display: bool,
+    pub raw_source: String,
+    pub source_path: Utf8PathBuf,
+    pub invocation_start_utf8: u32,
+    pub content_start_utf8: u32,
+}
+
+impl VmExecutedMathCaptureSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.invocation_start_utf8 <= self.content_start_utf8
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSnapshot {
     #[serde(default)]
     pub continuation_safety: VmContinuationSafety,
@@ -99,6 +191,8 @@ pub struct VmSnapshot {
     pub input_continuation: Option<VmInputContinuationSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_sink: Option<VmSemanticSinkSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_capture: Option<VmSemanticCaptureSnapshot>,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
@@ -181,6 +275,14 @@ pub struct VmSnapshot {
 
 fn default_next_render_event_id() -> EventId {
     1
+}
+
+fn values_are_unique_nonzero(values: &[EventId]) -> bool {
+    values.iter().all(|value| *value >= 1) && values_are_unique(values)
+}
+
+fn values_are_unique<T: Ord + Clone>(values: &[T]) -> bool {
+    values.iter().cloned().collect::<BTreeSet<_>>().len() == values.len()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

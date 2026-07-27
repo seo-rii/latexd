@@ -65,9 +65,11 @@ use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
-    VmContinuationBlocker, VmContinuationSafety, VmInputContinuationSnapshot, VmModuleCheckpoint,
+    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot,
+    VmActiveSourceFrameSnapshot, VmContinuationBlocker, VmContinuationSafety,
+    VmExecutedMathCaptureSnapshot, VmInputContinuationSnapshot, VmModuleCheckpoint,
     VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmSemanticCaptureSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
     VmSemanticSinkSnapshot, VmSnapshot,
 };
 use snapshot::{
@@ -15240,6 +15242,29 @@ impl<'i> Vm<'i> {
             semantic_sink: self
                 .render_event_capture
                 .then(|| self.render_events.snapshot()),
+            semantic_capture: self.render_event_capture.then(|| {
+                let math = self.semantic_math_snapshot();
+                let source_buffers = math
+                    .active_capture
+                    .as_ref()
+                    .and_then(|capture| {
+                        self.render_event_sources
+                            .get(&capture.source_path)
+                            .map(|source| (capture.source_path.clone(), source.clone()))
+                    })
+                    .into_iter()
+                    .collect();
+                VmSemanticCaptureSnapshot {
+                    schema_version: VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
+                    source_buffers,
+                    execution_in_document: self.execution_in_document,
+                    execution_no_hyper_depth: self
+                        .execution_no_hyper_depth
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                    math,
+                }
+            }),
             scopes: self
                 .scopes
                 .iter()
@@ -15460,6 +15485,21 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
+        if let Some(semantic_capture) = snapshot
+            .semantic_capture
+            .as_ref()
+            .filter(|capture| capture.is_restorable())
+        {
+            vm.render_event_capture = true;
+            vm.render_event_sources = semantic_capture
+                .source_buffers
+                .iter()
+                .map(|(path, source)| (path.clone(), source.clone()))
+                .collect();
+            vm.execution_in_document = semantic_capture.execution_in_document;
+            vm.execution_no_hyper_depth = semantic_capture.execution_no_hyper_depth as usize;
+            vm.restore_semantic_math_snapshot(&semantic_capture.math);
+        }
         if snapshot.input_continuation.is_none()
             && let Some(render_events) = snapshot
                 .semantic_sink
