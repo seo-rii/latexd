@@ -1813,10 +1813,12 @@ fn sample_structure_slice_document_ir() -> DocumentIr {
             width_spec: None,
             columns: Vec::new(),
             rows: vec![TableRow {
+                source: None,
                 rule_above: false,
                 partial_rules_above: Vec::new(),
                 cells: vec![
                     TableCell {
+                        source: None,
                         text: "Cell".to_string(),
                         column_span: None,
                         row_span: None,
@@ -1827,6 +1829,7 @@ fn sample_structure_slice_document_ir() -> DocumentIr {
                         cell_suffix: None,
                     },
                     TableCell {
+                        source: None,
                         text: "Alpha".to_string(),
                         column_span: None,
                         row_span: None,
@@ -2292,9 +2295,11 @@ fn arxiv_oracle_ir_structure_slice_reports_source_backed_extra_tokens() {
         width_spec: None,
         columns: Vec::new(),
         rows: vec![TableRow {
+            source: None,
             rule_above: false,
             partial_rules_above: Vec::new(),
             cells: vec![TableCell {
+                source: None,
                 text: "$100000$".to_string(),
                 column_span: None,
                 row_span: None,

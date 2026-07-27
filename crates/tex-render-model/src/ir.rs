@@ -678,6 +678,8 @@ pub struct TableRow {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub partial_rules_above: Vec<TableRuleSpan>,
     pub cells: Vec<TableCell>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceProvenance>,
     #[serde(default)]
     pub rule_below: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -687,6 +689,8 @@ pub struct TableRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableCell {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column_span: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

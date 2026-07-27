@@ -874,6 +874,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .iter()
                                 .map(|cell| TableCell {
                                     text: cell.text.clone(),
+                                    source: cell.source.clone(),
                                     column_span: (cell.column_span > 1).then_some(cell.column_span),
                                     row_span: cell.row_span.filter(|span| *span > 1),
                                     alignment: cell.alignment,
@@ -883,6 +884,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     cell_suffix: cell.cell_suffix.clone(),
                                 })
                                 .collect(),
+                            source: row.source.clone(),
                             rule_below: row.rule_below,
                             partial_rules_below: row.partial_rules_below.clone(),
                         })
@@ -1022,6 +1024,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     .filter(|cell| !cell.is_empty())
                                     .map(|text| TableCell {
                                         text: split_nested_table_cell_lines(text),
+                                        source: None,
                                         column_span: None,
                                         row_span: None,
                                         alignment: None,
@@ -1035,6 +1038,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     rule_above: false,
                                     partial_rules_above: Vec::new(),
                                     cells,
+                                    source: None,
                                     rule_below: false,
                                     partial_rules_below: Vec::new(),
                                 })
@@ -2332,7 +2336,7 @@ mod tests {
                         cells: vec![
                             TableCellEvent {
                                 text: "Alpha".to_string(),
-                                source: None,
+                                source: Some(SourceProvenance::file("main.tex", 20, 25)),
                                 column_span: 1,
                                 row_span: None,
                                 alignment: None,
@@ -2343,7 +2347,7 @@ mod tests {
                             },
                             TableCellEvent {
                                 text: "1".to_string(),
-                                source: None,
+                                source: Some(SourceProvenance::file("main.tex", 30, 31)),
                                 column_span: 2,
                                 row_span: Some(2),
                                 alignment: Some(TableColumnAlignment::Center),
@@ -2353,7 +2357,7 @@ mod tests {
                                 cell_suffix: Some("]".to_string()),
                             },
                         ],
-                        source: None,
+                        source: Some(SourceProvenance::file("main.tex", 20, 31)),
                         rule_below: false,
                         partial_rules_below: vec![TableRuleSpan {
                             start_column: 1,
@@ -2388,6 +2392,18 @@ mod tests {
         assert_eq!(
             table.rows[0].cells[1].alignment,
             Some(TableColumnAlignment::Center)
+        );
+        assert_eq!(
+            table.rows[0].source.as_ref(),
+            Some(&SourceProvenance::file("main.tex", 20, 31))
+        );
+        assert_eq!(
+            table.rows[0].cells[0].source.as_ref(),
+            Some(&SourceProvenance::file("main.tex", 20, 25))
+        );
+        assert_eq!(
+            table.rows[0].cells[1].source.as_ref(),
+            Some(&SourceProvenance::file("main.tex", 30, 31))
         );
         assert_eq!(ir.extracted_text(), "Measurements\nAlpha | 1");
     }

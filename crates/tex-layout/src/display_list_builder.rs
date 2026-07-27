@@ -5424,10 +5424,12 @@ mod tests {
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5438,6 +5440,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Longer".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5452,10 +5455,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Alpha".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5466,6 +5471,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5543,10 +5549,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5557,6 +5565,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5567,6 +5576,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Long".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5581,10 +5591,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Left".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5595,6 +5607,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Wide".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5605,6 +5618,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "9".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5671,10 +5685,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5685,6 +5701,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "3.4".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5699,10 +5716,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5713,6 +5732,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "12".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5727,10 +5747,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5741,6 +5763,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "0.25".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5808,10 +5831,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5822,6 +5847,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5836,10 +5862,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5850,6 +5878,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "2".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -5916,10 +5945,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
@@ -5930,6 +5961,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
@@ -5993,10 +6025,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6007,6 +6041,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6053,6 +6088,7 @@ mod tests {
             cell_suffix: None,
         };
         let cell = |text: &str| TableCell {
+            source: None,
             text: text.to_string(),
             column_span: None,
             row_span: None,
@@ -6068,6 +6104,7 @@ mod tests {
                 width_spec: None,
                 columns: vec![fixed_column(), fixed_column()],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![cell("alpha beta gamma delta"), cell("right")],
@@ -6127,9 +6164,11 @@ mod tests {
                 width_spec: None,
                 columns: Vec::new(),
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![TableCell {
+                        source: None,
                         text: "abcdefghij\nklmnopqrst".to_string(),
                         column_span: None,
                         row_span: None,
@@ -6196,9 +6235,11 @@ mod tests {
                 width_spec: None,
                 columns: vec![fixed_column(), fixed_column()],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![TableCell {
+                        source: None,
                         text: "long multicolumn heading".to_string(),
                         column_span: Some(2),
                         row_span: None,
@@ -6255,9 +6296,11 @@ mod tests {
                     cell_suffix: None,
                 }],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![TableCell {
+                        source: None,
                         text: "alpha beta gamma delta".to_string(),
                         column_span: None,
                         row_span: None,
@@ -6320,9 +6363,11 @@ mod tests {
                     cell_suffix: None,
                 }],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![TableCell {
+                        source: None,
                         text: "alpha beta gamma delta".to_string(),
                         column_span: None,
                         row_span: None,
@@ -6389,9 +6434,11 @@ mod tests {
                     cell_suffix: None,
                 }],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![TableCell {
+                        source: None,
                         text: "cell".to_string(),
                         column_span: None,
                         row_span: None,
@@ -6456,10 +6503,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "Alpha".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6470,6 +6519,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "Beta".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6562,10 +6612,12 @@ mod tests {
                         },
                     ],
                     rows: vec![TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Alpha".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -6576,6 +6628,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Beta".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -6651,10 +6704,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "Alpha".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6665,6 +6720,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "Beta".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6731,10 +6787,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "Alpha".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6745,6 +6803,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "Beta".to_string(),
                             column_span: None,
                             row_span: None,
@@ -6804,6 +6863,7 @@ mod tests {
         let cells = ["A".repeat(40), "B".repeat(40)]
             .into_iter()
             .map(|text| TableCell {
+                source: None,
                 text,
                 column_span: None,
                 row_span: None,
@@ -6828,6 +6888,7 @@ mod tests {
                 width_spec: Some("0.5\\textwidth".to_string()),
                 columns,
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells,
@@ -6874,11 +6935,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let row = |prefix: char| TableRow {
+            source: None,
             rule_above: false,
             partial_rules_above: Vec::new(),
             cells: [prefix.to_string().repeat(20), prefix.to_string().repeat(20)]
                 .into_iter()
                 .map(|text| TableCell {
+                    source: None,
                     text,
                     column_span: None,
                     row_span: None,
@@ -6935,9 +6998,11 @@ mod tests {
     fn cvpr_tables_apply_profile_row_stretch() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let row = |text: &str| TableRow {
+            source: None,
             rule_above: false,
             partial_rules_above: Vec::new(),
             cells: vec![TableCell {
+                source: None,
                 text: text.to_string(),
                 column_span: None,
                 row_span: None,
@@ -7017,11 +7082,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let row = |prefix: char| TableRow {
+            source: None,
             rule_above: false,
             partial_rules_above: Vec::new(),
             cells: [prefix.to_string().repeat(40), prefix.to_string().repeat(40)]
                 .into_iter()
                 .map(|text| TableCell {
+                    source: None,
                     text,
                     column_span: None,
                     row_span: None,
@@ -7078,6 +7145,7 @@ mod tests {
         let first_row = "A".repeat(40);
         let second_row = "B".repeat(40);
         let make_cell = |text: String| TableCell {
+            source: None,
             text,
             column_span: None,
             row_span: None,
@@ -7104,6 +7172,7 @@ mod tests {
                 }],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: true,
                         partial_rules_above: Vec::new(),
                         cells: vec![make_cell(first_row.clone())],
@@ -7111,6 +7180,7 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![make_cell(second_row.clone())],
@@ -7183,10 +7253,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7197,6 +7269,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7211,10 +7284,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7225,6 +7300,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "22".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7306,10 +7382,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: true,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
@@ -7320,6 +7398,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
@@ -7424,10 +7503,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7438,6 +7519,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7452,10 +7534,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7466,6 +7550,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "22".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7517,6 +7602,7 @@ mod tests {
     fn table_display_list_partial_rule_limits_vertical_rule_stubs_to_span() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let cell = |text: &str| TableCell {
+            source: None,
             text: text.to_string(),
             column_span: None,
             row_span: None,
@@ -7548,6 +7634,7 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![cell("A"), cell("B"), cell("C")],
@@ -7562,6 +7649,7 @@ mod tests {
                         }],
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![cell("D"), cell("E"), cell("F")],
@@ -7622,6 +7710,7 @@ mod tests {
     fn table_display_list_trimmed_partial_rule_omits_trimmed_side_vertical_rule_stubs() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let cell = |text: &str| TableCell {
+            source: None,
             text: text.to_string(),
             column_span: None,
             row_span: None,
@@ -7653,6 +7742,7 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![cell("A"), cell("B"), cell("C")],
@@ -7667,6 +7757,7 @@ mod tests {
                         }],
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![cell("D"), cell("E"), cell("F")],
@@ -7755,10 +7846,12 @@ mod tests {
                     },
                 ],
                 rows: vec![TableRow {
+                    source: None,
                     rule_above: false,
                     partial_rules_above: Vec::new(),
                     cells: vec![
                         TableCell {
+                            source: None,
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
@@ -7769,6 +7862,7 @@ mod tests {
                             cell_suffix: None,
                         },
                         TableCell {
+                            source: None,
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
@@ -7820,10 +7914,12 @@ mod tests {
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: true,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Head".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7834,6 +7930,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7848,10 +7945,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7862,6 +7961,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7938,10 +8038,12 @@ mod tests {
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Head".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7952,6 +8054,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7962,6 +8065,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7983,10 +8087,12 @@ mod tests {
                         }],
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -7997,6 +8103,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8007,6 +8114,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8067,10 +8175,12 @@ mod tests {
                     columns: Vec::new(),
                     rows: vec![
                         TableRow {
+                            source: None,
                             rule_above: false,
                             partial_rules_above: Vec::new(),
                             cells: vec![
                                 TableCell {
+                                    source: None,
                                     text: "Head".to_string(),
                                     column_span: None,
                                     row_span: None,
@@ -8081,6 +8191,7 @@ mod tests {
                                     cell_suffix: None,
                                 },
                                 TableCell {
+                                    source: None,
                                     text: "Value".to_string(),
                                     column_span: None,
                                     row_span: None,
@@ -8102,10 +8213,12 @@ mod tests {
                             }],
                         },
                         TableRow {
+                            source: None,
                             rule_above: false,
                             partial_rules_above: Vec::new(),
                             cells: vec![
                                 TableCell {
+                                    source: None,
                                     text: "A".to_string(),
                                     column_span: None,
                                     row_span: None,
@@ -8116,6 +8229,7 @@ mod tests {
                                     cell_suffix: None,
                                 },
                                 TableCell {
+                                    source: None,
                                     text: "B".to_string(),
                                     column_span: None,
                                     row_span: None,
@@ -8174,10 +8288,12 @@ mod tests {
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Wide".to_string(),
                                 column_span: Some(2),
                                 row_span: None,
@@ -8188,6 +8304,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8202,10 +8319,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8216,6 +8335,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8226,6 +8346,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8303,10 +8424,12 @@ mod tests {
                 ],
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Wide".to_string(),
                                 column_span: Some(2),
                                 row_span: None,
@@ -8317,6 +8440,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8331,10 +8455,12 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Alpha".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8345,6 +8471,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Beta".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8355,6 +8482,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8398,10 +8526,12 @@ mod tests {
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
+                                source: None,
                                 text: "Span".to_string(),
                                 column_span: None,
                                 row_span: Some(2),
@@ -8412,6 +8542,7 @@ mod tests {
                                 cell_suffix: None,
                             },
                             TableCell {
+                                source: None,
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
@@ -8426,9 +8557,11 @@ mod tests {
                         partial_rules_below: Vec::new(),
                     },
                     TableRow {
+                        source: None,
                         rule_above: false,
                         partial_rules_above: Vec::new(),
                         cells: vec![TableCell {
+                            source: None,
                             text: "B".to_string(),
                             column_span: None,
                             row_span: None,
