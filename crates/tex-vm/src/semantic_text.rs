@@ -15,7 +15,8 @@ use crate::{
     Vm,
     input::QueueItem,
     snapshot::{
-        VmExecutedTextCaptureSnapshot, VmScannerTextSlotSnapshot, VmSemanticTextSnapshot,
+        VmExecutedTextCaptureSnapshot, VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot,
+        VmExpansionMarkerSnapshot, VmScannerTextSlotSnapshot, VmSemanticTextSnapshot,
         VmSuppressedSourceRangeSnapshot,
     },
 };
@@ -71,6 +72,28 @@ enum ExpansionMarkerAction {
 
 impl Vm<'_> {
     pub(super) fn semantic_text_snapshot(&self) -> VmSemanticTextSnapshot {
+        let mut marker_actions = self
+            .semantic_text
+            .marker_actions
+            .iter()
+            .map(|(name, action)| VmExpansionMarkerSnapshot {
+                control_sequence: self.interner.resolve(*name).unwrap_or("").to_string(),
+                action: match action {
+                    ExpansionMarkerAction::Begin(context) => {
+                        VmExpansionMarkerActionSnapshot::Begin {
+                            context: VmExpansionContextSnapshot {
+                                marker_id: context.id,
+                                source: context.source.clone(),
+                            },
+                        }
+                    }
+                    ExpansionMarkerAction::End(marker_id) => VmExpansionMarkerActionSnapshot::End {
+                        marker_id: *marker_id,
+                    },
+                },
+            })
+            .collect::<Vec<_>>();
+        marker_actions.sort_by(|left, right| left.control_sequence.cmp(&right.control_sequence));
         VmSemanticTextSnapshot {
             scanner_slots: self
                 .semantic_text
@@ -105,8 +128,16 @@ impl Vm<'_> {
             }),
             paragraph_has_content: self.semantic_text.paragraph_has_content,
             space_run_active: self.semantic_text.space_run_active,
-            marker_state_quiescent: self.semantic_text.marker_actions.is_empty()
-                && self.semantic_text.expansion_stack.is_empty(),
+            marker_actions,
+            expansion_stack: self
+                .semantic_text
+                .expansion_stack
+                .iter()
+                .map(|context| VmExpansionContextSnapshot {
+                    marker_id: context.id,
+                    source: context.source.clone(),
+                })
+                .collect(),
             next_marker_id: self.semantic_text.next_marker_id,
         }
     }
@@ -146,7 +177,29 @@ impl Vm<'_> {
         self.semantic_text.paragraph_has_content = snapshot.paragraph_has_content;
         self.semantic_text.space_run_active = snapshot.space_run_active;
         self.semantic_text.marker_actions.clear();
-        self.semantic_text.expansion_stack.clear();
+        for marker in &snapshot.marker_actions {
+            let name = self.interner.intern(&marker.control_sequence);
+            let action = match &marker.action {
+                VmExpansionMarkerActionSnapshot::Begin { context } => {
+                    ExpansionMarkerAction::Begin(ExpansionContext {
+                        id: context.marker_id,
+                        source: context.source.clone(),
+                    })
+                }
+                VmExpansionMarkerActionSnapshot::End { marker_id } => {
+                    ExpansionMarkerAction::End(*marker_id)
+                }
+            };
+            self.semantic_text.marker_actions.insert(name, action);
+        }
+        self.semantic_text.expansion_stack = snapshot
+            .expansion_stack
+            .iter()
+            .map(|context| ExpansionContext {
+                id: context.marker_id,
+                source: context.source.clone(),
+            })
+            .collect();
         self.semantic_text.next_marker_id = snapshot.next_marker_id;
     }
 

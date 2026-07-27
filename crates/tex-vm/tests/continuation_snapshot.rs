@@ -199,6 +199,23 @@ fn input_exit_snapshot_preserves_open_table_cell() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_active_macro_expansion() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\def\wrap#1{Before #1 after.}\begin{document}\wrap{\input{barrier}}\end{document}",
+    );
+
+    assert!(expected.iter().any(|event| {
+        event
+            .meta
+            .source
+            .expansion_stack
+            .iter()
+            .any(|frame| frame.command_name.as_deref() == Some("wrap"))
+    }));
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {

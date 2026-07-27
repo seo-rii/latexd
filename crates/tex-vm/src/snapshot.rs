@@ -10,7 +10,7 @@ use tex_render_model::{
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 5;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -227,7 +227,9 @@ pub struct VmSemanticTextSnapshot {
     #[serde(default)]
     pub space_run_active: bool,
     #[serde(default)]
-    pub marker_state_quiescent: bool,
+    pub marker_actions: Vec<VmExpansionMarkerSnapshot>,
+    #[serde(default)]
+    pub expansion_stack: Vec<VmExpansionContextSnapshot>,
     #[serde(default)]
     pub next_marker_id: u64,
 }
@@ -244,7 +246,50 @@ impl VmSemanticTextSnapshot {
             .iter()
             .map(|event| event.meta.event_id)
             .collect::<Vec<_>>();
-        self.marker_state_quiescent
+        let marker_names = self
+            .marker_actions
+            .iter()
+            .map(|marker| marker.control_sequence.clone())
+            .collect::<Vec<_>>();
+        let expansion_ids = self
+            .expansion_stack
+            .iter()
+            .map(|context| context.marker_id)
+            .collect::<Vec<_>>();
+        let expansion_id_set = expansion_ids.iter().copied().collect::<BTreeSet<_>>();
+        let mut action_state = BTreeMap::<u64, (bool, bool)>::new();
+        for marker in &self.marker_actions {
+            let marker_id = marker.action.marker_id();
+            if marker_id >= self.next_marker_id {
+                return false;
+            }
+            let state = action_state.entry(marker_id).or_default();
+            match &marker.action {
+                VmExpansionMarkerActionSnapshot::Begin { .. } if state.0 => return false,
+                VmExpansionMarkerActionSnapshot::Begin { .. } => state.0 = true,
+                VmExpansionMarkerActionSnapshot::End { .. } if state.1 => return false,
+                VmExpansionMarkerActionSnapshot::End { .. } => state.1 = true,
+            }
+        }
+        let marker_state_is_valid = action_state
+            .iter()
+            .all(|(marker_id, (has_begin, has_end))| {
+                if expansion_id_set.contains(marker_id) {
+                    !has_begin && *has_end
+                } else {
+                    *has_begin && *has_end
+                }
+            })
+            && expansion_ids
+                .iter()
+                .all(|marker_id| action_state.contains_key(marker_id));
+        marker_names.iter().all(|name| !name.is_empty())
+            && values_are_unique(&marker_names)
+            && values_are_unique(&expansion_ids)
+            && expansion_ids
+                .iter()
+                .all(|marker_id| *marker_id < self.next_marker_id)
+            && marker_state_is_valid
             && self
                 .scanner_slots
                 .iter()
@@ -260,6 +305,34 @@ impl VmSemanticTextSnapshot {
                 .as_ref()
                 .is_none_or(VmExecutedTextCaptureSnapshot::is_restorable)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExpansionMarkerSnapshot {
+    pub control_sequence: String,
+    pub action: VmExpansionMarkerActionSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VmExpansionMarkerActionSnapshot {
+    Begin { context: VmExpansionContextSnapshot },
+    End { marker_id: u64 },
+}
+
+impl VmExpansionMarkerActionSnapshot {
+    fn marker_id(&self) -> u64 {
+        match self {
+            Self::Begin { context } => context.marker_id,
+            Self::End { marker_id } => *marker_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExpansionContextSnapshot {
+    pub marker_id: u64,
+    pub source: SourceProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
