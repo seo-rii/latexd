@@ -219,6 +219,30 @@ right
 }
 
 #[test]
+fn segmented_capture_preserves_document_mode_for_plain_body_text() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+
+    let preamble = vm.run_plain(r"\begin{document}");
+    let body = vm.run_plain("Visible body text.");
+    let visible_text = body
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(preamble.render_events.is_empty());
+    assert!(visible_text.contains("Visible"), "{visible_text:?}");
+    assert!(visible_text.contains("body"), "{visible_text:?}");
+    assert!(visible_text.contains("text."), "{visible_text:?}");
+}
+
+#[test]
 fn unselected_else_branch_does_not_emit_text_events() {
     let outcome = capture(
         r"\count0=1

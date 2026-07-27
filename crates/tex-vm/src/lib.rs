@@ -1289,7 +1289,13 @@ impl<'i> Vm<'i> {
                     .insert(environment.to_string());
             }
             scan_state.hidden_environments.insert("comment".to_string());
-            self.capture_render_events_from_source(&source_path, source, false, 0, &mut scan_state);
+            self.capture_render_events_from_source(
+                &source_path,
+                source,
+                self.execution_in_document,
+                0,
+                &mut scan_state,
+            );
         }
         let queue = VecDeque::from([QueueItem::CharacterSource(Mouth::new(source))]);
         self.run_queue(queue, source.len(), false)
