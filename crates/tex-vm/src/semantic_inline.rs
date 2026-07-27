@@ -12,7 +12,9 @@ use tex_render_model::{
 use tex_tokens::{ControlSequenceId, Token};
 
 use crate::{
-    Vm, citation_style_hint_for_command, input::QueueItem, snapshot::VmSemanticInlineSnapshot,
+    Vm, citation_style_hint_for_command,
+    input::QueueItem,
+    snapshot::{VmActiveLinkCaptureSnapshot, VmSemanticInlineSnapshot},
 };
 
 #[derive(Debug, Default)]
@@ -30,10 +32,12 @@ pub(super) struct SemanticInlineState {
 
 #[derive(Debug)]
 struct ExecutedLinkCapture {
+    marker_id: u64,
     command: String,
     target: String,
     source: SourceProvenance,
     producer: EventProducer,
+    text_prefix: String,
     output_start: usize,
     text_event_mark: usize,
     citation_event_mark: usize,
@@ -57,6 +61,38 @@ impl Vm<'_> {
             event_ids.sort_unstable();
             event_ids
         };
+        let mut active_link_actions = self
+            .semantic_inline
+            .link_marker_actions
+            .iter()
+            .map(|(name, capture)| {
+                let mut visible_output_prefix = capture.text_prefix.clone();
+                visible_output_prefix.push_str(
+                    self.output
+                        .get(capture.output_start..)
+                        .expect("active link output cursor must be valid"),
+                );
+                VmActiveLinkCaptureSnapshot {
+                    control_sequence: self.interner.resolve(*name).unwrap_or("").to_string(),
+                    marker_id: capture.marker_id,
+                    command: capture.command.clone(),
+                    target: capture.target.clone(),
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    visible_output_prefix,
+                    text_event_mark: capture.text_event_mark.try_into().unwrap_or(u64::MAX),
+                    citation_event_mark: capture.citation_event_mark.try_into().unwrap_or(u64::MAX),
+                    reference_event_mark: capture
+                        .reference_event_mark
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    link_event_mark: capture.link_event_mark.try_into().unwrap_or(u64::MAX),
+                    math_event_mark: capture.math_event_mark.try_into().unwrap_or(u64::MAX),
+                }
+            })
+            .collect::<Vec<_>>();
+        active_link_actions
+            .sort_by(|left, right| left.control_sequence.cmp(&right.control_sequence));
         VmSemanticInlineSnapshot {
             scanner_citation_event_ids: sorted_event_ids(
                 &self.semantic_inline.scanner_citation_event_ids,
@@ -69,7 +105,7 @@ impl Vm<'_> {
             executed_references: self.semantic_inline.executed_references.clone(),
             executed_links: self.semantic_inline.executed_links.clone(),
             caption_placeholders: self.semantic_inline.caption_placeholders.clone(),
-            marker_state_quiescent: self.semantic_inline.link_marker_actions.is_empty(),
+            active_link_actions,
             next_link_marker_id: self.semantic_inline.next_link_marker_id,
         }
     }
@@ -92,6 +128,41 @@ impl Vm<'_> {
         self.semantic_inline.executed_links = snapshot.executed_links.clone();
         self.semantic_inline.caption_placeholders = snapshot.caption_placeholders.clone();
         self.semantic_inline.link_marker_actions.clear();
+        for capture in &snapshot.active_link_actions {
+            let name = self.interner.intern(&capture.control_sequence);
+            self.semantic_inline.link_marker_actions.insert(
+                name,
+                ExecutedLinkCapture {
+                    marker_id: capture.marker_id,
+                    command: capture.command.clone(),
+                    target: capture.target.clone(),
+                    source: capture.source.clone(),
+                    producer: capture.producer,
+                    text_prefix: capture.visible_output_prefix.clone(),
+                    output_start: self.output.len(),
+                    text_event_mark: capture
+                        .text_event_mark
+                        .try_into()
+                        .expect("validated text event mark"),
+                    citation_event_mark: capture
+                        .citation_event_mark
+                        .try_into()
+                        .expect("validated citation event mark"),
+                    reference_event_mark: capture
+                        .reference_event_mark
+                        .try_into()
+                        .expect("validated reference event mark"),
+                    link_event_mark: capture
+                        .link_event_mark
+                        .try_into()
+                        .expect("validated link event mark"),
+                    math_event_mark: capture
+                        .math_event_mark
+                        .try_into()
+                        .expect("validated math event mark"),
+                },
+            );
+        }
         self.semantic_inline.next_link_marker_id = snapshot.next_link_marker_id;
     }
 
@@ -269,10 +340,12 @@ impl Vm<'_> {
         self.semantic_inline.link_marker_actions.insert(
             marker_name,
             ExecutedLinkCapture {
+                marker_id,
                 command,
                 target,
                 source,
                 producer,
+                text_prefix: String::new(),
                 output_start: self.output.len(),
                 text_event_mark,
                 citation_event_mark,
@@ -300,11 +373,8 @@ impl Vm<'_> {
             return false;
         };
         self.flush_executed_text_capture();
-        let text = self
-            .output
-            .get(capture.output_start..)
-            .unwrap_or_default()
-            .to_string();
+        let mut text = capture.text_prefix;
+        text.push_str(self.output.get(capture.output_start..).unwrap_or_default());
         self.rollback_executed_text_events(capture.text_event_mark);
         self.semantic_inline
             .executed_citations

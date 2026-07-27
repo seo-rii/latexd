@@ -65,17 +65,17 @@ use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot,
-    VmActiveSourceFrameSnapshot, VmContinuationBlocker, VmContinuationSafety,
-    VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
-    VmExecutedTextCaptureSnapshot, VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot,
-    VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot,
-    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot,
-    VmQueueItemSnapshot, VmReplayFrame, VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot,
-    VmSemanticEnvironmentSnapshot, VmSemanticGraphicSnapshot, VmSemanticInlineSnapshot,
-    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
-    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
-    VmSuppressedSourceRangeSnapshot,
+    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
+    VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot, VmContinuationBlocker,
+    VmContinuationSafety, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
+    VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExpansionContextSnapshot,
+    VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
+    VmInputContinuationSnapshot, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmScannerTextSlotSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
+    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
+    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -15255,25 +15255,33 @@ impl<'i> Vm<'i> {
                 let environment = self.semantic_environment_snapshot();
                 let table = self.semantic_table_snapshot();
                 let inline = self.semantic_inline_snapshot();
-                let mut source_buffers = BTreeMap::new();
-                if let Some((path, source)) = math.active_capture.as_ref().and_then(|capture| {
-                    self.render_event_sources
-                        .get(&capture.source_path)
-                        .map(|source| (capture.source_path.clone(), source.clone()))
-                }) {
-                    source_buffers.insert(path, source);
-                }
-                if let Some((path, source)) = text
-                    .active_capture
-                    .as_ref()
-                    .and_then(|capture| capture.literal_path.as_ref())
-                    .and_then(|path| {
-                        self.render_event_sources
-                            .get(path)
-                            .map(|source| (path.clone(), source.clone()))
-                    })
+                let mut source_buffers = self
+                    .render_event_sources
+                    .iter()
+                    .map(|(path, source)| (path.clone(), source.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                for path in [
+                    math.active_capture
+                        .as_ref()
+                        .map(|capture| &capture.source_path),
+                    text.active_capture
+                        .as_ref()
+                        .and_then(|capture| capture.literal_path.as_ref()),
+                ]
+                .into_iter()
+                .flatten()
                 {
-                    source_buffers.insert(path, source);
+                    if source_buffers.contains_key(path) {
+                        continue;
+                    }
+                    let source = self.mounted_files.get(path).cloned().or_else(|| {
+                        self.file_root
+                            .as_ref()
+                            .and_then(|root| read_tex_source_lossy(&root.join(path)).ok())
+                    });
+                    if let Some(source) = source {
+                        source_buffers.insert(path.clone(), source);
+                    }
                 }
                 VmSemanticCaptureSnapshot {
                     schema_version: VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,

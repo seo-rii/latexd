@@ -246,6 +246,25 @@ fn input_exit_snapshot_preserves_completed_inline_events() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_active_link_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}Lead \href{https://example.test}{Before \cite{k} and \ref{x} $m$ \input{barrier} After} Tail.\end{document}",
+    );
+
+    let links = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::InlineLink(link) => Some(link),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(links.len(), 1);
+    assert!(links[0].text.contains("Before"));
+    assert!(links[0].text.contains("After"));
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
@@ -265,6 +284,15 @@ fn replay_render_events_after_input_exit(
                 && checkpoint.module_path.as_str() == "barrier.tex"
         })
         .expect("barrier exit checkpoint");
+    let semantic_capture = checkpoint
+        .snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture snapshot");
+    assert!(
+        semantic_capture.is_restorable(),
+        "semantic capture must be restorable: {semantic_capture:#?}"
+    );
     let expected = full.render_events.clone();
     let snapshot_json = serde_json::to_vec(&checkpoint.snapshot).expect("serialize snapshot");
     let snapshot =

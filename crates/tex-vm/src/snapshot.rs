@@ -10,7 +10,7 @@ use tex_render_model::{
 use tex_tokens::CatCode;
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 7;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -151,7 +151,10 @@ impl VmSemanticCaptureSnapshot {
             && self.list.is_restorable()
             && self.environment.is_restorable()
             && self.table.is_restorable()
-            && self.inline.is_restorable()
+            && self.inline.is_restorable(
+                self.text.executed_events.len(),
+                self.math.executed_events.len(),
+            )
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
@@ -355,13 +358,19 @@ pub struct VmSemanticInlineSnapshot {
     #[serde(default)]
     pub caption_placeholders: Vec<CaptionInlinePlaceholderEvent>,
     #[serde(default)]
-    pub marker_state_quiescent: bool,
+    pub active_link_actions: Vec<VmActiveLinkCaptureSnapshot>,
     #[serde(default)]
     pub next_link_marker_id: u64,
 }
 
 impl VmSemanticInlineSnapshot {
-    pub fn is_restorable(&self) -> bool {
+    pub fn is_restorable(&self, text_event_count: usize, math_event_count: usize) -> bool {
+        let text_event_count = u64::try_from(text_event_count).unwrap_or(u64::MAX);
+        let math_event_count = u64::try_from(math_event_count).unwrap_or(u64::MAX);
+        let citation_event_count = u64::try_from(self.executed_citations.len()).unwrap_or(u64::MAX);
+        let reference_event_count =
+            u64::try_from(self.executed_references.len()).unwrap_or(u64::MAX);
+        let link_event_count = u64::try_from(self.executed_links.len()).unwrap_or(u64::MAX);
         let scanner_event_ids = self
             .scanner_citation_event_ids
             .iter()
@@ -377,13 +386,51 @@ impl VmSemanticInlineSnapshot {
             .map(|event| event.meta.event_id)
             .collect::<Vec<_>>();
         let executed_event_id_set = executed_event_ids.iter().copied().collect::<BTreeSet<_>>();
-        self.marker_state_quiescent
-            && values_are_unique_nonzero(&scanner_event_ids)
+        let marker_names = self
+            .active_link_actions
+            .iter()
+            .map(|capture| capture.control_sequence.clone())
+            .collect::<Vec<_>>();
+        let marker_ids = self
+            .active_link_actions
+            .iter()
+            .map(|capture| capture.marker_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
             && scanner_event_ids
                 .iter()
                 .all(|event_id| !executed_event_id_set.contains(event_id))
+            && marker_names.iter().all(|name| !name.is_empty())
+            && values_are_unique(&marker_names)
+            && values_are_unique(&marker_ids)
+            && marker_ids
+                .iter()
+                .all(|marker_id| *marker_id < self.next_link_marker_id)
+            && self.active_link_actions.iter().all(|capture| {
+                capture.text_event_mark <= text_event_count
+                    && capture.citation_event_mark <= citation_event_count
+                    && capture.reference_event_mark <= reference_event_count
+                    && capture.link_event_mark <= link_event_count
+                    && capture.math_event_mark <= math_event_count
+            })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveLinkCaptureSnapshot {
+    pub control_sequence: String,
+    pub marker_id: u64,
+    pub command: String,
+    pub target: String,
+    pub source: SourceProvenance,
+    pub producer: EventProducer,
+    pub visible_output_prefix: String,
+    pub text_event_mark: u64,
+    pub citation_event_mark: u64,
+    pub reference_event_mark: u64,
+    pub link_event_mark: u64,
+    pub math_event_mark: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
