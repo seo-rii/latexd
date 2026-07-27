@@ -47,6 +47,24 @@ pub(crate) struct GraphicCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LegacyGraphicSyntax {
+    KeyValue,
+    File,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LegacyGraphicCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) syntax: LegacyGraphicSyntax,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EpsfDimension {
+    Width,
+    Height,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -265,6 +283,8 @@ pub(crate) enum Primitive {
     Heading(HeadingCommand),
     Caption(CaptionCommand),
     Graphic(GraphicCommand),
+    LegacyGraphic(LegacyGraphicCommand),
+    EpsfDimension(EpsfDimension),
     GraphicPath,
     DeclareGraphicsExtensions,
     SetKeys,

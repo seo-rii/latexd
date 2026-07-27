@@ -40,8 +40,8 @@ mod semantic_text;
 mod snapshot;
 
 use command::{
-    CaptionCommand, GraphicCommand, HeadingCommand, LinkCommand, MacroDefinition, Meaning,
-    Primitive, ReferenceCommand,
+    CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
+    LegacyGraphicSyntax, LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -15299,6 +15299,7 @@ impl<'i> Vm<'i> {
             graphic_paths: self.semantic_graphic.graphic_paths.clone(),
             graphic_extensions: self.semantic_graphic.graphic_extensions.clone(),
             graphic_default_options: self.semantic_graphic.default_options.clone(),
+            epsf_pending_options: self.semantic_graphic.epsf_pending_options.clone(),
             counter_resets: self.counter_resets.clone(),
             read_stream_lines: self.read_stream_lines.clone(),
             read_stream_eof: self.read_stream_eof.clone(),
@@ -15428,6 +15429,7 @@ impl<'i> Vm<'i> {
         vm.semantic_graphic.graphic_paths = snapshot.graphic_paths.clone();
         vm.semantic_graphic.graphic_extensions = snapshot.graphic_extensions.clone();
         vm.semantic_graphic.default_options = snapshot.graphic_default_options.clone();
+        vm.semantic_graphic.epsf_pending_options = snapshot.epsf_pending_options.clone();
         vm.counter_resets = snapshot.counter_resets.clone();
         vm.read_stream_lines = snapshot.read_stream_lines.clone();
         vm.read_stream_eof = snapshot.read_stream_eof.clone();
@@ -16130,6 +16132,17 @@ impl<'i> Vm<'i> {
                     source_end_utf8,
                     queue,
                 );
+            }
+            Primitive::LegacyGraphic(graphic_command) => {
+                self.execute_legacy_graphic(
+                    graphic_command,
+                    source_offset_utf8,
+                    source_end_utf8,
+                    queue,
+                );
+            }
+            Primitive::EpsfDimension(dimension) => {
+                self.execute_epsf_dimension(dimension, queue);
             }
             Primitive::GraphicPath => {
                 self.execute_graphic_path(queue);
@@ -23254,6 +23267,24 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "includepdf",
             include_pdf: true,
         })),
+        "epsfig" | "psfig" => Some(Primitive::LegacyGraphic(LegacyGraphicCommand {
+            canonical_name: match name {
+                "epsfig" => "epsfig",
+                "psfig" => "psfig",
+                _ => unreachable!(),
+            },
+            syntax: LegacyGraphicSyntax::KeyValue,
+        })),
+        "epsfbox" | "epsffile" => Some(Primitive::LegacyGraphic(LegacyGraphicCommand {
+            canonical_name: match name {
+                "epsfbox" => "epsfbox",
+                "epsffile" => "epsffile",
+                _ => unreachable!(),
+            },
+            syntax: LegacyGraphicSyntax::File,
+        })),
+        "epsfxsize" => Some(Primitive::EpsfDimension(EpsfDimension::Width)),
+        "epsfysize" => Some(Primitive::EpsfDimension(EpsfDimension::Height)),
         "graphicspath" => Some(Primitive::GraphicPath),
         "DeclareGraphicsExtensions" => Some(Primitive::DeclareGraphicsExtensions),
         "setkeys" => Some(Primitive::SetKeys),
@@ -23516,6 +23547,9 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Heading(heading) => heading.canonical_name,
         Primitive::Caption(caption) => caption.canonical_name,
         Primitive::Graphic(graphic) => graphic.canonical_name,
+        Primitive::LegacyGraphic(graphic) => graphic.canonical_name,
+        Primitive::EpsfDimension(EpsfDimension::Width) => "epsfxsize",
+        Primitive::EpsfDimension(EpsfDimension::Height) => "epsfysize",
         Primitive::GraphicPath => "graphicspath",
         Primitive::DeclareGraphicsExtensions => "DeclareGraphicsExtensions",
         Primitive::SetKeys => "setkeys",

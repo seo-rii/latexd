@@ -11,9 +11,11 @@ use tex_render_model::{
 use tex_tokens::{CatCode, Token, TokenKind};
 
 use crate::{
-    Vm, command::GraphicCommand, input::QueueItem, merge_graphic_default_options,
-    merge_graphic_options, normalize_latex_text, parse_graphic_page_selection,
-    read_braced_source_argument, skip_ascii_whitespace,
+    Vm,
+    command::{EpsfDimension, GraphicCommand, LegacyGraphicCommand, LegacyGraphicSyntax},
+    input::QueueItem,
+    merge_graphic_default_options, merge_graphic_options, normalize_latex_text,
+    parse_graphic_page_selection, read_braced_source_argument, skip_ascii_whitespace,
 };
 
 #[derive(Debug, Default)]
@@ -24,6 +26,7 @@ pub(super) struct SemanticGraphicState {
     pub(super) graphic_paths: Vec<Utf8PathBuf>,
     pub(super) graphic_extensions: Vec<String>,
     pub(super) default_options: Option<String>,
+    pub(super) epsf_pending_options: Option<String>,
 }
 
 #[derive(Debug)]
@@ -31,6 +34,15 @@ struct GraphicInvocationRange {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
+}
+
+struct ExecutedGraphicInput {
+    include_pdf: bool,
+    invocation_start_utf8: u32,
+    invocation_end_utf8: u32,
+    argument_span: Option<(u32, u32)>,
+    path: String,
+    options: Option<String>,
 }
 
 impl Vm<'_> {
@@ -52,7 +64,10 @@ impl Vm<'_> {
     ) {
         if !self.render_event_capture
             || !self.execution_in_document
-            || !matches!(command_name, "includegraphics" | "includepdf")
+            || !matches!(
+                command_name,
+                "includegraphics" | "includepdf" | "epsfig" | "psfig" | "epsfbox" | "epsffile"
+            )
             || end_utf8 <= start_utf8
         {
             return;
@@ -203,14 +218,115 @@ impl Vm<'_> {
             self.semantic_graphic.default_options.as_deref(),
             local_options,
         );
-
         let path = normalize_latex_text(self.expanded_graphic_text(path_tokens).trim());
+        self.emit_executed_graphic(ExecutedGraphicInput {
+            include_pdf: command.include_pdf,
+            invocation_start_utf8: source_start_utf8,
+            invocation_end_utf8,
+            argument_span: Some((path_start_utf8, path_end_utf8)),
+            path,
+            options,
+        });
+    }
+
+    pub(super) fn execute_legacy_graphic(
+        &mut self,
+        command: LegacyGraphicCommand,
+        source_start_utf8: u32,
+        source_end_utf8: u32,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        let Some(argument_tokens) = self.read_macro_argument(queue) else {
+            return;
+        };
+        let argument_start_utf8 = argument_tokens
+            .first()
+            .map_or(source_end_utf8, |token| token.span.start);
+        let argument_end_utf8 = argument_tokens
+            .last()
+            .map_or(argument_start_utf8, |token| token.span.end);
+        let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+        let legacy_path_span = (command.syntax == LegacyGraphicSyntax::KeyValue)
+            .then(|| legacy_graphic_path_span(&argument_tokens))
+            .flatten();
+        let argument = self.expanded_graphic_text(argument_tokens);
+        let (path, local_options, argument_span) = match command.syntax {
+            LegacyGraphicSyntax::KeyValue => {
+                let Some(path) = legacy_graphic_path(&argument) else {
+                    return;
+                };
+                (path, Some(argument.trim().to_string()), legacy_path_span)
+            }
+            LegacyGraphicSyntax::File => (
+                normalize_latex_text(argument.trim()),
+                self.semantic_graphic.epsf_pending_options.take(),
+                Some((argument_start_utf8, argument_end_utf8)),
+            ),
+        };
+        let options = merge_graphic_default_options(
+            self.semantic_graphic.default_options.as_deref(),
+            local_options,
+        );
+        self.emit_executed_graphic(ExecutedGraphicInput {
+            include_pdf: false,
+            invocation_start_utf8: source_start_utf8,
+            invocation_end_utf8,
+            argument_span,
+            path,
+            options,
+        });
+    }
+
+    pub(super) fn execute_epsf_dimension(
+        &mut self,
+        dimension: EpsfDimension,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        self.skip_optional_spaces(queue);
+        if matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character { ch: '=', .. })
+        ) {
+            self.pop_next_token(queue);
+        }
+        self.skip_optional_spaces(queue);
+        let mut value_tokens = Vec::new();
+        while let Some(token) = self.peek_next_token(queue) {
+            match token.kind {
+                TokenKind::ControlSequence { .. }
+                | TokenKind::Character {
+                    catcode: CatCode::Space | CatCode::BeginGroup | CatCode::EndGroup,
+                    ..
+                } => break,
+                TokenKind::Character { .. } => {
+                    if let Some(token) = self.pop_next_token(queue) {
+                        value_tokens.push(token);
+                    }
+                }
+            }
+        }
+        if value_tokens.is_empty() {
+            return;
+        }
+        let value = self.expanded_graphic_text(value_tokens);
+        let key = match dimension {
+            EpsfDimension::Width => "width",
+            EpsfDimension::Height => "height",
+        };
+        let option = format!("{key}={}", value.trim());
+        self.semantic_graphic.epsf_pending_options = merge_graphic_options(
+            self.semantic_graphic.epsf_pending_options.take(),
+            Some(&option),
+        );
+    }
+
+    fn emit_executed_graphic(&mut self, input: ExecutedGraphicInput) {
         let graphic_paths = self.semantic_graphic.graphic_paths.clone();
         let graphic_extensions = self.semantic_graphic.graphic_extensions.clone();
         let source_path = self.current_execution_source_path();
         let resolved_path = self.resolve_graphic_asset_path(
             &source_path,
-            &path,
+            &input.path,
             &graphic_paths,
             &graphic_extensions,
         );
@@ -221,21 +337,30 @@ impl Vm<'_> {
             self.project_graphic_asset_dimensions(resolved_asset_path, asset_format);
 
         self.finish_executed_block_content();
-        let (mut source, producer) = self.executed_semantic_source(path_start_utf8, path_end_utf8);
+        let (content_start_utf8, content_end_utf8) = input
+            .argument_span
+            .unwrap_or((input.invocation_start_utf8, input.invocation_end_utf8));
+        let (mut source, producer) =
+            self.executed_semantic_source(content_start_utf8, content_end_utf8);
         if producer == EventProducer::Primitive {
-            source =
-                SourceProvenance::file(source_path.clone(), source_start_utf8, invocation_end_utf8)
-                    .with_related(
-                        SourceSpanRole::ArgumentContent,
-                        ProvenanceSpan::File(SourceSpan {
-                            path: source_path,
-                            start_utf8: path_start_utf8,
-                            end_utf8: path_end_utf8,
-                        }),
-                    );
+            source = SourceProvenance::file(
+                source_path.clone(),
+                input.invocation_start_utf8,
+                input.invocation_end_utf8,
+            );
+            if let Some((argument_start_utf8, argument_end_utf8)) = input.argument_span {
+                source = source.with_related(
+                    SourceSpanRole::ArgumentContent,
+                    ProvenanceSpan::File(SourceSpan {
+                        path: source_path,
+                        start_utf8: argument_start_utf8,
+                        end_utf8: argument_end_utf8,
+                    }),
+                );
+            }
         }
 
-        if !command.include_pdf {
+        if !input.include_pdf {
             self.output.push_str("[image]");
             self.legacy_output_last_char = Some(']');
         }
@@ -245,8 +370,8 @@ impl Vm<'_> {
 
         let event = GraphicRefEvent {
             path: resolved_path,
-            options: options.clone(),
-            page_selection: parse_graphic_page_selection(options.as_deref()),
+            options: input.options.clone(),
+            page_selection: parse_graphic_page_selection(input.options.as_deref()),
             asset_format,
             asset_hash,
             asset_dimensions,
@@ -255,7 +380,7 @@ impl Vm<'_> {
         self.next_render_event_id += 1;
         let mut envelope = RenderEventEnvelope::new(
             event_id,
-            if command.include_pdf {
+            if input.include_pdf {
                 RenderEvent::IncludePdf(event)
             } else {
                 RenderEvent::GraphicRef(event)
@@ -304,11 +429,15 @@ impl Vm<'_> {
             }
             if graphic_payloads_match(&executed_event, &scanner_event)
                 || graphic_options_match(&executed_event, &scanner_event)
+                || graphic_executed_options_extend_scanner(&executed_event, &scanner_event)
                 || (!graphic_paths_match(&executed_event, &scanner_event)
                     && executed_event.meta.producer != EventProducer::Macro)
             {
                 let executed_source = executed_event.meta.source;
                 let mut source = scanner_event.meta.source;
+                if source.related.is_empty() {
+                    source.related = executed_source.related.clone();
+                }
                 if source.expansion_stack.is_empty() {
                     source.expansion_stack = executed_source.expansion_stack;
                     source.expansion_stack_truncated = executed_source.expansion_stack_truncated;
@@ -347,6 +476,133 @@ fn normalize_bbox_option(value: &str) -> String {
         .join(" ")
 }
 
+fn legacy_graphic_path_span(tokens: &[Token]) -> Option<(u32, u32)> {
+    let mut part_start = 0usize;
+    let mut depth = 0usize;
+    for index in 0..=tokens.len() {
+        let delimiter = index == tokens.len()
+            || (depth == 0 && matches!(tokens[index].kind, TokenKind::Character { ch: ',', .. }));
+        if delimiter {
+            let part = &tokens[part_start..index];
+            let mut part_depth = 0usize;
+            let equals_index = part.iter().position(|token| match token.kind {
+                TokenKind::Character {
+                    catcode: CatCode::BeginGroup,
+                    ..
+                } => {
+                    part_depth += 1;
+                    false
+                }
+                TokenKind::Character {
+                    catcode: CatCode::EndGroup,
+                    ..
+                } => {
+                    part_depth = part_depth.saturating_sub(1);
+                    false
+                }
+                TokenKind::Character { ch: '=', .. } => part_depth == 0,
+                _ => false,
+            });
+            if let Some(equals_index) = equals_index {
+                let key = part[..equals_index]
+                    .iter()
+                    .filter_map(|token| match token.kind {
+                        TokenKind::Character { ch, .. } if !ch.is_whitespace() => Some(ch),
+                        _ => None,
+                    })
+                    .collect::<String>();
+                if matches!(key.as_str(), "file" | "figure") {
+                    let value = &part[equals_index + 1..];
+                    let mut visible = value.iter().filter(|token| {
+                        !matches!(
+                            token.kind,
+                            TokenKind::Character {
+                                catcode: CatCode::Space | CatCode::BeginGroup | CatCode::EndGroup,
+                                ..
+                            }
+                        )
+                    });
+                    let first = visible.next()?;
+                    let last = visible.next_back().unwrap_or(first);
+                    return Some((first.span.start, last.span.end));
+                }
+            }
+            part_start = index.saturating_add(1);
+        }
+        if let Some(token) = tokens.get(index) {
+            match token.kind {
+                TokenKind::Character {
+                    catcode: CatCode::BeginGroup,
+                    ..
+                } => depth += 1,
+                TokenKind::Character {
+                    catcode: CatCode::EndGroup,
+                    ..
+                } => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+fn legacy_graphic_path(options: &str) -> Option<String> {
+    let mut part_start = 0usize;
+    let mut part_index = 0usize;
+    let mut brace_depth = 0usize;
+    while part_index <= options.len() {
+        let delimiter = part_index == options.len()
+            || (brace_depth == 0 && options[part_index..].starts_with(','));
+        if delimiter {
+            let part = &options[part_start..part_index];
+            let mut equals_index = None;
+            let mut part_depth = 0usize;
+            for (index, ch) in part.char_indices() {
+                match ch {
+                    '{' => part_depth += 1,
+                    '}' => part_depth = part_depth.saturating_sub(1),
+                    '=' if part_depth == 0 => {
+                        equals_index = Some(index);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(equals_index) = equals_index {
+                let key = part[..equals_index].trim();
+                if matches!(key, "file" | "figure") {
+                    let value = part[equals_index + 1..].trim();
+                    let value = if let Some((inner, _, _, after_inner)) =
+                        read_braced_source_argument(value, 0)
+                        && skip_ascii_whitespace(value, after_inner) == value.len()
+                    {
+                        inner
+                    } else {
+                        value
+                    };
+                    let path = normalize_latex_text(value);
+                    if !path.is_empty() {
+                        return Some(path);
+                    }
+                }
+            }
+            part_index += 1;
+            part_start = part_index;
+            continue;
+        }
+        let Some(ch) = options[part_index..].chars().next() else {
+            break;
+        };
+        match ch {
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            _ => {}
+        }
+        part_index += ch.len_utf8();
+    }
+    None
+}
+
 fn graphic_payloads_match(left: &RenderEventEnvelope, right: &RenderEventEnvelope) -> bool {
     match (&left.event, &right.event) {
         (RenderEvent::GraphicRef(left), RenderEvent::GraphicRef(right))
@@ -371,6 +627,26 @@ fn graphic_paths_match(left: &RenderEventEnvelope, right: &RenderEventEnvelope) 
         | (RenderEvent::IncludePdf(left), RenderEvent::IncludePdf(right)) => {
             left.path == right.path
         }
+        _ => false,
+    }
+}
+
+fn graphic_executed_options_extend_scanner(
+    executed: &RenderEventEnvelope,
+    scanner: &RenderEventEnvelope,
+) -> bool {
+    let (executed, scanner) = match (&executed.event, &scanner.event) {
+        (RenderEvent::GraphicRef(executed), RenderEvent::GraphicRef(scanner))
+        | (RenderEvent::IncludePdf(executed), RenderEvent::IncludePdf(scanner)) => {
+            (executed, scanner)
+        }
+        _ => return false,
+    };
+    match (executed.options.as_deref(), scanner.options.as_deref()) {
+        (Some(executed), None) => !executed.trim().is_empty(),
+        (Some(executed), Some(scanner)) => executed
+            .strip_suffix(scanner)
+            .is_some_and(|prefix| prefix.is_empty() || prefix.ends_with(',')),
         _ => false,
     }
 }

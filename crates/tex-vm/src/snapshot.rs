@@ -129,6 +129,8 @@ pub struct VmSnapshot {
     #[serde(default)]
     pub graphic_default_options: Option<String>,
     #[serde(default)]
+    pub epsf_pending_options: Option<String>,
+    #[serde(default)]
     pub counter_resets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub read_stream_lines: BTreeMap<u32, Vec<String>>,
