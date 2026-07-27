@@ -4,7 +4,9 @@ use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
 use tex_layout::{DocumentLayout, LayoutOptions, layout_text};
 use tex_pdf::render_pdf;
-use tex_render_model::RenderEventEnvelope;
+use tex_render_model::{
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpanRole,
+};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
     Vm, VmDiagnostic, VmModuleCheckpoint, VmModuleCheckpointKind, VmModuleTrace, VmReplayFrame,
@@ -480,6 +482,95 @@ pub fn render_event_prefix_for_snapshot(
         .collect()
 }
 
+fn append_render_event_batch(
+    events: &mut Vec<RenderEventEnvelope>,
+    batch: Vec<RenderEventEnvelope>,
+    source_path: &Utf8PathBuf,
+    source_offset_utf8: u32,
+    already_absolute_through_event_id: u64,
+) {
+    let existing_max_event_id = max_render_event_id(events);
+    for mut event in batch {
+        if event.meta.event_id <= existing_max_event_id {
+            continue;
+        }
+        if event.meta.event_id > already_absolute_through_event_id && source_offset_utf8 > 0 {
+            shift_render_event_source(&mut event, source_path, source_offset_utf8);
+        }
+        events.push(event);
+    }
+}
+
+fn max_render_event_id(events: &[RenderEventEnvelope]) -> u64 {
+    events
+        .iter()
+        .map(|event| event.meta.event_id)
+        .max()
+        .unwrap_or_default()
+}
+
+fn snapshot_render_event_max(snapshot: &VmSnapshot) -> u64 {
+    snapshot
+        .semantic_sink
+        .as_ref()
+        .map_or(0, |sink| max_render_event_id(&sink.events))
+}
+
+fn shift_render_event_source(
+    event: &mut RenderEventEnvelope,
+    source_path: &Utf8PathBuf,
+    source_offset_utf8: u32,
+) {
+    shift_source_provenance(&mut event.meta.source, source_path, source_offset_utf8);
+    if let RenderEvent::Table(table) = &mut event.event {
+        for row in &mut table.rows {
+            if let Some(source) = &mut row.source {
+                shift_source_provenance(source, source_path, source_offset_utf8);
+            }
+            for cell in &mut row.cells {
+                if let Some(source) = &mut cell.source {
+                    shift_source_provenance(source, source_path, source_offset_utf8);
+                }
+            }
+        }
+    }
+}
+
+fn shift_source_provenance(
+    source: &mut SourceProvenance,
+    source_path: &Utf8PathBuf,
+    source_offset_utf8: u32,
+) {
+    shift_provenance_span(&mut source.primary, source_path, source_offset_utf8);
+    for related in &mut source.related {
+        if matches!(
+            related.role,
+            SourceSpanRole::Definition | SourceSpanRole::MetadataDefinition
+        ) {
+            continue;
+        }
+        shift_provenance_span(&mut related.span, source_path, source_offset_utf8);
+    }
+    for frame in &mut source.expansion_stack {
+        shift_provenance_span(&mut frame.call_span, source_path, source_offset_utf8);
+    }
+}
+
+fn shift_provenance_span(
+    span: &mut ProvenanceSpan,
+    source_path: &Utf8PathBuf,
+    source_offset_utf8: u32,
+) {
+    let ProvenanceSpan::File(span) = span else {
+        return;
+    };
+    if &span.path != source_path {
+        return;
+    }
+    span.start_utf8 = span.start_utf8.saturating_add(source_offset_utf8);
+    span.end_utf8 = span.end_utf8.saturating_add(source_offset_utf8);
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectPageMeta {
     pub page_id: String,
@@ -593,6 +684,7 @@ pub fn capture_page_checkpoints(
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let mut render_event_prefix = checkpoint.render_event_prefix.clone();
+    let restored_event_max = snapshot_render_event_max(&checkpoint.snapshot);
     let mut frame_index = 0usize;
     let mut last_resume_path = checkpoint.resume_path.clone();
     let mut last_source_offset_utf8 = checkpoint.source_offset_utf8;
@@ -615,8 +707,17 @@ pub fn capture_page_checkpoints(
                 .map(|target| align_char_boundary(source, target as usize));
             if let Some(target_offset) = page_target.filter(|target| *target > *current_offset) {
                 vm.set_entry_source_path(path.clone());
+                let source_offset_utf8 = *current_offset as u32;
                 let outcome = vm.run_plain(&source[*current_offset..target_offset]);
-                render_event_prefix.extend(outcome.render_events);
+                let already_absolute_through_event_id =
+                    max_render_event_id(&render_event_prefix).max(restored_event_max);
+                append_render_event_batch(
+                    &mut render_event_prefix,
+                    outcome.render_events,
+                    path,
+                    source_offset_utf8,
+                    already_absolute_through_event_id,
+                );
                 *current_offset = target_offset;
                 last_resume_path = path.clone();
                 last_source_offset_utf8 = *current_offset as u32;
@@ -630,8 +731,17 @@ pub fn capture_page_checkpoints(
             }
             if *current_offset < source.len() {
                 vm.set_entry_source_path(path.clone());
+                let source_offset_utf8 = *current_offset as u32;
                 let outcome = vm.run_plain(&source[*current_offset..]);
-                render_event_prefix.extend(outcome.render_events);
+                let already_absolute_through_event_id =
+                    max_render_event_id(&render_event_prefix).max(restored_event_max);
+                append_render_event_batch(
+                    &mut render_event_prefix,
+                    outcome.render_events,
+                    path,
+                    source_offset_utf8,
+                    already_absolute_through_event_id,
+                );
                 *current_offset = source.len();
                 last_resume_path = path.clone();
                 last_source_offset_utf8 = *current_offset as u32;
@@ -699,9 +809,9 @@ pub fn run_project_from_base_snapshot_with_mounts(
     let mut module_checkpoints = Vec::new();
     let mut render_events = Vec::new();
     if body_start > 0 {
-        let mut preamble = vm.run_plain(&source[..body_start]);
+        let preamble = vm.run_plain(&source[..body_start]);
         output.push_str(&preamble.output);
-        render_events.append(&mut preamble.render_events);
+        append_render_event_batch(&mut render_events, preamble.render_events, &toplevel, 0, 0);
         transcript.extend(preamble.transcript);
         diagnostics.extend(preamble.diagnostics);
         module_traces.extend(preamble.module_traces);
@@ -714,10 +824,17 @@ pub fn run_project_from_base_snapshot_with_mounts(
         continuation_stack: Vec::new(),
         render_event_prefix: render_events.clone(),
     };
-    let mut outcome = vm.run_plain(&source[body_start..]);
+    let outcome = vm.run_plain(&source[body_start..]);
     let output_prefix_len = output.len() as u32;
     output.push_str(&outcome.output);
-    render_events.append(&mut outcome.render_events);
+    let already_absolute_through_event_id = max_render_event_id(&render_events);
+    append_render_event_batch(
+        &mut render_events,
+        outcome.render_events,
+        &toplevel,
+        body_start as u32,
+        already_absolute_through_event_id,
+    );
     transcript.extend(outcome.transcript);
     diagnostics.extend(outcome.diagnostics);
     module_traces.extend(
@@ -819,6 +936,7 @@ pub fn run_project_from_checkpoint_with_mounts(
     let mut module_traces = Vec::new();
     let mut module_checkpoints = Vec::new();
     let mut render_events = checkpoint.render_event_prefix.clone();
+    let restored_event_max = snapshot_render_event_max(&checkpoint.snapshot);
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
     replay_frames.push(VmReplayFrame {
         path: checkpoint.resume_path.clone(),
@@ -857,11 +975,19 @@ pub fn run_project_from_checkpoint_with_mounts(
         });
     if can_resume_serialized_input {
         let output_prefix_len = output.len() as u32;
-        let mut outcome = vm
+        let outcome = vm
             .resume_continuation()
             .expect("validated input continuation must be restorable");
         output.push_str(&outcome.output);
-        render_events.append(&mut outcome.render_events);
+        let already_absolute_through_event_id =
+            max_render_event_id(&render_events).max(restored_event_max);
+        append_render_event_batch(
+            &mut render_events,
+            outcome.render_events,
+            &toplevel,
+            body_start as u32,
+            already_absolute_through_event_id,
+        );
         registers = outcome.registers;
         transcript.extend(outcome.transcript);
         diagnostics.extend(outcome.diagnostics);
@@ -901,9 +1027,17 @@ pub fn run_project_from_checkpoint_with_mounts(
             let start_offset = align_char_boundary(&source, frame.source_offset_utf8 as usize);
             vm.set_entry_source_path(frame.path.clone());
             let output_prefix_len = output.len() as u32;
-            let mut outcome = vm.run_plain(&source[start_offset..]);
+            let outcome = vm.run_plain(&source[start_offset..]);
             output.push_str(&outcome.output);
-            render_events.append(&mut outcome.render_events);
+            let already_absolute_through_event_id =
+                max_render_event_id(&render_events).max(restored_event_max);
+            append_render_event_batch(
+                &mut render_events,
+                outcome.render_events,
+                &frame.path,
+                start_offset as u32,
+                already_absolute_through_event_id,
+            );
             let output_end_utf8 = output.len() as u32;
             registers = outcome.registers;
             transcript.extend(outcome.transcript);
@@ -2881,6 +3015,44 @@ mod tests {
 
         assert!(full.render_events.len() >= 6);
         assert_eq!(replayed.render_events, full.render_events);
+    }
+
+    #[test]
+    fn segmented_project_events_use_file_absolute_source_offsets() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        let source = "\\documentclass{article}\\begin{document}Visible body text.\\end{document}";
+        fs::write(root.join("paper.tex"), source).expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let run = run_project(&world).expect("project run");
+        let visible = run
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    tex_render_model::RenderEvent::Text(text) if text.text == "Visible"
+                )
+            })
+            .expect("visible text event");
+        let tex_render_model::ProvenanceSpan::File(span) = &visible.meta.source.primary else {
+            panic!("visible text must come from the project source");
+        };
+
+        assert_eq!(
+            span.start_utf8,
+            source.find("Visible").expect("visible offset") as u32
+        );
+        assert_eq!(
+            span.end_utf8,
+            source.find(r"\end{document}").expect("document end offset") as u32
+        );
     }
 
     #[test]
