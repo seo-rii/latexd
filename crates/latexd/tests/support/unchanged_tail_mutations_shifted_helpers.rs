@@ -4,8 +4,6 @@ struct ShiftedUnchangedTailMutationRun {
     first: CompileOutcome,
     second: CompileOutcome,
     build_meta: BuildMeta,
-    original_source: String,
-    current_source: String,
 }
 
 enum ShiftedUnchangedTailMutationCase {
@@ -102,8 +100,6 @@ toplevel:
         first,
         second,
         build_meta,
-        original_source,
-        current_source,
     }
 }
 
@@ -173,13 +169,6 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
             let second_checkpoints =
                 load_checkpoint_bundle(&run.build_root.join("rev-2/checkpoints.json"))
                     .expect("load rev2 checkpoints");
-            let source_delta = run.current_source.len() as i64 - run.original_source.len() as i64;
-            let shared_prefix = run
-                .original_source
-                .bytes()
-                .zip(run.current_source.bytes())
-                .take_while(|(left, right)| left == right)
-                .count();
             macro_rules! shipout_checkpoint {
                 ($bundle:expr, $page_index:expr) => {
                     $bundle
@@ -200,15 +189,14 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
                     shipout_checkpoint!(first_checkpoints, previous_page_index);
                 let current_checkpoint =
                     shipout_checkpoint!(second_checkpoints, current_page_index);
-                let mut rebased_offset = previous_checkpoint.meta.source_offset_utf8 as usize;
-                if rebased_offset > shared_prefix {
-                    rebased_offset = (rebased_offset as i64 + source_delta)
-                        .clamp(0, run.current_source.len() as i64)
-                        as usize;
-                } else {
-                    rebased_offset = rebased_offset.min(run.current_source.len());
-                }
-                let page_floor = run.second.page_metadata[..=current_page_index]
+                let previous_page_floor = run.first.page_metadata[..=previous_page_index]
+                    .iter()
+                    .flat_map(|page| page.source_spans.iter())
+                    .filter(|span| span.file == Utf8PathBuf::from("main.tex"))
+                    .map(|span| span.end_utf8 as usize)
+                    .max()
+                    .unwrap_or_default();
+                let current_page_floor = run.second.page_metadata[..=current_page_index]
                     .iter()
                     .flat_map(|page| page.source_spans.iter())
                     .filter(|span| span.file == Utf8PathBuf::from("main.tex"))
@@ -216,8 +204,13 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
                     .max()
                     .unwrap_or_default();
                 assert_eq!(
-                    current_checkpoint.meta.source_offset_utf8 as usize,
-                    rebased_offset.max(page_floor)
+                    (current_checkpoint.meta.source_offset_utf8 as usize)
+                        .saturating_sub(current_page_floor),
+                    (previous_checkpoint.meta.source_offset_utf8 as usize)
+                        .saturating_sub(previous_page_floor)
+                );
+                assert!(
+                    current_checkpoint.meta.source_offset_utf8 as usize >= current_page_floor
                 );
             }
         }

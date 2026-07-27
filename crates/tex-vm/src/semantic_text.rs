@@ -40,6 +40,7 @@ struct ScannerTextSlot {
     start_utf8: u32,
     end_utf8: u32,
     event_ids: Vec<EventId>,
+    preserve_leading_space: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +105,7 @@ impl Vm<'_> {
                     start_utf8: slot.start_utf8,
                     end_utf8: slot.end_utf8,
                     event_ids: slot.event_ids.clone(),
+                    preserve_leading_space: slot.preserve_leading_space,
                 })
                 .collect(),
             suppressed_ranges: self
@@ -151,6 +153,7 @@ impl Vm<'_> {
                 start_utf8: slot.start_utf8,
                 end_utf8: slot.end_utf8,
                 event_ids: slot.event_ids.clone(),
+                preserve_leading_space: slot.preserve_leading_space,
             })
             .collect();
         self.semantic_text.suppressed_ranges = snapshot
@@ -219,6 +222,7 @@ impl Vm<'_> {
             start_utf8,
             end_utf8,
             event_ids,
+            preserve_leading_space: start_utf8 == 0 && self.semantic_text.paragraph_has_content,
         });
     }
 
@@ -234,6 +238,7 @@ impl Vm<'_> {
             start_utf8,
             end_utf8,
             event_ids: vec![event_id],
+            preserve_leading_space: false,
         });
     }
 
@@ -538,7 +543,12 @@ impl Vm<'_> {
 
     pub(super) fn reconcile_executed_text_events(&mut self) {
         self.flush_executed_text_capture();
-        let slots = mem::take(&mut self.semantic_text.scanner_slots);
+        let mut slots = mem::take(&mut self.semantic_text.scanner_slots);
+        attach_trailing_scanner_spaces_to_eof_slots(
+            &mut slots,
+            &self.render_events,
+            &self.render_event_sources,
+        );
         let suppressed_ranges = self.semantic_text.suppressed_ranges.clone();
         let executed = mem::take(&mut self.semantic_text.executed_events);
         if slots.is_empty() {
@@ -549,10 +559,15 @@ impl Vm<'_> {
         let mut events_by_slot = vec![Vec::<RenderEventEnvelope>::new(); slots.len()];
         let mut unmatched = Vec::new();
         for event in executed {
-            if let Some(index) = slots
-                .iter()
-                .position(|slot| event_belongs_to_slot(&event, slot))
-            {
+            if let Some(index) = slots.iter().position(|slot| {
+                event_belongs_to_slot(
+                    &event,
+                    slot,
+                    self.render_event_sources
+                        .get(&slot.path)
+                        .map(|source| source.len() as u32),
+                )
+            }) {
                 events_by_slot[index].push(event);
             } else {
                 unmatched.push(event);
@@ -572,27 +587,80 @@ impl Vm<'_> {
                 .filter(|event| slot.event_ids.contains(&event.meta.event_id))
                 .cloned()
                 .collect::<Vec<_>>();
-            let matching_originals = if event_payloads_match(&originals, replacements) {
-                Some(originals.as_slice())
-            } else if originals.first().is_some_and(|event| {
+            let leading_space = originals.first().filter(|event| {
                 matches!(
                     event.event,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     })
                 )
-            }) && event_payloads_match(&originals[1..], replacements)
+            });
+            let trailing_eof_space = originals.last().filter(|event| {
+                event.meta.producer == EventProducer::ScannerRecovery
+                    && matches!(
+                        event.event,
+                        RenderEvent::Space(SpaceEvent {
+                            kind: SpaceKind::Interword,
+                        })
+                    )
+                    && matches!(
+                        &event.meta.source.primary,
+                        ProvenanceSpan::File(SourceSpan {
+                            path,
+                            start_utf8,
+                            end_utf8,
+                        }) if path == &slot.path
+                            && *start_utf8 == slot.end_utf8
+                            && *end_utf8 == slot.end_utf8
+                    )
+            });
+            let matching_originals = event_payloads_match(&originals, replacements).then_some((
+                originals.as_slice(),
+                false,
+                false,
+            ));
+            let matching_originals = matching_originals.or_else(|| {
+                [(false, true), (true, false), (true, true)]
+                    .into_iter()
+                    .find_map(|(strip_leading, strip_trailing)| {
+                        if (strip_leading && leading_space.is_none())
+                            || (strip_trailing && trailing_eof_space.is_none())
+                        {
+                            return None;
+                        }
+                        let payload_start = usize::from(strip_leading);
+                        let payload_end =
+                            originals.len().saturating_sub(usize::from(strip_trailing));
+                        originals
+                            .get(payload_start..payload_end)
+                            .filter(|originals| event_payloads_match(originals, replacements))
+                            .map(|originals| (originals, strip_leading, strip_trailing))
+                    })
+            });
+            if let Some((matching_originals, stripped_leading, stripped_trailing)) =
+                matching_originals
             {
-                Some(&originals[1..])
-            } else {
-                None
-            };
-            if let Some(matching_originals) = matching_originals {
                 for (original, replacement) in
                     matching_originals.iter().zip(replacements.iter_mut())
                 {
                     replacement.meta.event_id = original.meta.event_id;
-                    replacement.meta.source = original.meta.source.clone();
+                    let original_has_extent = provenance_spans(&original.meta.source)
+                        .any(|span| span.start_utf8 < span.end_utf8);
+                    if original_has_extent {
+                        replacement.meta.source = original.meta.source.clone();
+                    }
+                }
+                if stripped_leading
+                    && slot.preserve_leading_space
+                    && let Some(leading_space) = leading_space
+                {
+                    let mut leading_space = leading_space.clone();
+                    leading_space.meta.producer = EventProducer::Primitive;
+                    leading_space.meta.confidence = tex_render_model::SemanticConfidence::High;
+                    replacements.insert(0, leading_space);
+                }
+                if stripped_trailing && let Some(trailing_eof_space) = trailing_eof_space {
+                    replacements.push(trailing_eof_space.clone());
                 }
             } else if !suppressed_ranges
                 .iter()
@@ -672,7 +740,11 @@ impl Vm<'_> {
     }
 }
 
-fn event_belongs_to_slot(event: &RenderEventEnvelope, slot: &ScannerTextSlot) -> bool {
+fn event_belongs_to_slot(
+    event: &RenderEventEnvelope,
+    slot: &ScannerTextSlot,
+    saved_source_len: Option<u32>,
+) -> bool {
     let ProvenanceSpan::File(SourceSpan {
         path,
         start_utf8,
@@ -681,7 +753,67 @@ fn event_belongs_to_slot(event: &RenderEventEnvelope, slot: &ScannerTextSlot) ->
     else {
         return false;
     };
-    path == &slot.path && *start_utf8 >= slot.start_utf8 && *end_utf8 <= slot.end_utf8
+    path == &slot.path
+        && ((*start_utf8 >= slot.start_utf8 && *end_utf8 <= slot.end_utf8)
+            || (matches!(
+                event.event,
+                RenderEvent::Space(SpaceEvent {
+                    kind: SpaceKind::Interword,
+                })
+            ) && *start_utf8 == slot.end_utf8
+                && *end_utf8 == start_utf8.saturating_add(1)))
+        && (end_utf8 <= &slot.end_utf8 || saved_source_len == Some(slot.end_utf8))
+}
+
+fn attach_trailing_scanner_spaces_to_eof_slots(
+    slots: &mut [ScannerTextSlot],
+    events: &[RenderEventEnvelope],
+    sources: &HashMap<Utf8PathBuf, String>,
+) {
+    let mut assigned_event_ids = slots
+        .iter()
+        .flat_map(|slot| slot.event_ids.iter().copied())
+        .collect::<HashSet<_>>();
+    for slot in slots {
+        if sources.get(&slot.path).map(|source| source.len() as u32) != Some(slot.end_utf8) {
+            continue;
+        }
+        let Some(candidate_id) = slot
+            .event_ids
+            .last()
+            .copied()
+            .and_then(|event_id| event_id.checked_add(1))
+        else {
+            continue;
+        };
+        if assigned_event_ids.contains(&candidate_id) {
+            continue;
+        }
+        let is_trailing_scanner_space = events.iter().any(|event| {
+            event.meta.event_id == candidate_id
+                && event.meta.producer == EventProducer::ScannerRecovery
+                && matches!(
+                    event.event,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    })
+                )
+                && matches!(
+                    &event.meta.source.primary,
+                    ProvenanceSpan::File(SourceSpan {
+                        path,
+                        start_utf8,
+                        end_utf8,
+                    }) if path == &slot.path
+                        && *start_utf8 == slot.end_utf8
+                        && *end_utf8 == slot.end_utf8
+                )
+        });
+        if is_trailing_scanner_space {
+            slot.event_ids.push(candidate_id);
+            assigned_event_ids.insert(candidate_id);
+        }
+    }
 }
 
 fn slot_overlaps_suppressed_range(slot: &ScannerTextSlot, range: &SuppressedSourceRange) -> bool {
@@ -777,4 +909,67 @@ fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSp
             ProvenanceSpan::File(span) => Some(span),
             ProvenanceSpan::Generated(_) => None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use tex_tokens::ControlSequenceInterner;
+
+    use super::*;
+
+    #[test]
+    fn eof_text_slot_claims_adjacent_zero_width_scanner_space() {
+        let path = Utf8PathBuf::from("body.tex");
+        let mut slots = vec![ScannerTextSlot {
+            path: path.clone(),
+            start_utf8: 0,
+            end_utf8: 4,
+            event_ids: vec![1],
+            preserve_leading_space: false,
+        }];
+        let mut trailing_space = RenderEventEnvelope::new(
+            2,
+            RenderEvent::Space(SpaceEvent {
+                kind: SpaceKind::Interword,
+            }),
+            SourceProvenance::file(path.clone(), 4, 4),
+        );
+        trailing_space.meta.producer = EventProducer::ScannerRecovery;
+        let sources = HashMap::from([(path, "word".to_string())]);
+
+        attach_trailing_scanner_spaces_to_eof_slots(&mut slots, &[trailing_space], &sources);
+
+        assert_eq!(slots[0].event_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn restored_preamble_reconciles_a_leading_body_fragment_space() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let preamble = vm.run_plain(r"\documentclass{article}\begin{document}");
+        vm.set_render_event_prefix(preamble.render_events);
+        let snapshot = vm.snapshot();
+
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        restored.set_entry_source_path("main.tex");
+        restored.enable_render_event_capture();
+        let outcome = restored.run_plain_fragment("\nAlpha Beta", true);
+        let visible = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(visible, "Alpha Beta", "{:#?}", outcome.render_events);
+        assert!(outcome.render_events.iter().all(|event| {
+            !matches!(event.event, RenderEvent::Text(_) | RenderEvent::Space(_))
+                || event.meta.producer != EventProducer::ScannerRecovery
+        }));
+    }
 }

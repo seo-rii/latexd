@@ -12,7 +12,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 10;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 11;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -26,6 +26,29 @@ pub enum VmModuleCheckpointKind {
     #[default]
     Enter,
     Exit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmModuleBoundary {
+    pub kind: VmModuleCheckpointKind,
+    pub module_path: Utf8PathBuf,
+    pub resume_path: Option<Utf8PathBuf>,
+    pub source_offset_utf8: u32,
+    pub continuation_stack: Vec<VmReplayFrame>,
+    pub output_start_utf8: u32,
+}
+
+impl From<&VmModuleCheckpoint> for VmModuleBoundary {
+    fn from(checkpoint: &VmModuleCheckpoint) -> Self {
+        Self {
+            kind: checkpoint.kind,
+            module_path: checkpoint.module_path.clone(),
+            resume_path: checkpoint.resume_path.clone(),
+            source_offset_utf8: checkpoint.source_offset_utf8,
+            continuation_stack: checkpoint.continuation_stack.clone(),
+            output_start_utf8: checkpoint.output_start_utf8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,7 +114,7 @@ impl VmSemanticSinkSnapshot {
             && self.batch_start_event_id >= 1
             && self.batch_start_event_id <= self.next_event_id
             && self.events.iter().all(|event| {
-                event.meta.event_id >= self.batch_start_event_id
+                event.meta.event_id >= 1
                     && event.meta.event_id < self.next_event_id
                     && event_ids.insert(event.meta.event_id)
             })
@@ -631,6 +654,8 @@ pub struct VmScannerTextSlotSnapshot {
     pub start_utf8: u32,
     pub end_utf8: u32,
     pub event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub preserve_leading_space: bool,
 }
 
 impl VmScannerTextSlotSnapshot {
@@ -815,6 +840,8 @@ pub struct VmSnapshot {
     pub transcript: Vec<String>,
     #[serde(default)]
     pub module_traces: Vec<VmModuleTrace>,
+    #[serde(default)]
+    pub module_boundaries: Vec<VmModuleBoundary>,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
@@ -979,6 +1006,8 @@ pub struct VmPendingModuleCheckpointSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmActiveSourceFrameSnapshot {
     pub path: Utf8PathBuf,
+    #[serde(default)]
+    pub output_start_utf8: u32,
     pub return_to_parent: Option<VmReplayFrame>,
     pub global_definition_base_scope: Option<usize>,
     pub module_kind: Option<VmActiveModuleKindSnapshot>,

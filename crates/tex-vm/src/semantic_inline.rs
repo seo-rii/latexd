@@ -528,13 +528,15 @@ impl Vm<'_> {
         executed.retain(|event| !recovery_container_represents(&events, event));
         insert_unmatched_inline_events(&mut events, executed);
         let first_event_id = self.render_events.batch_start_event_id();
-        let next_event_id = self
-            .render_events
-            .next_event_id()
-            .max(first_event_id.saturating_add(events.len() as EventId));
-        for (index, event) in events.iter_mut().enumerate() {
-            event.meta.event_id = first_event_id + index as EventId;
+        let mut next_batch_event_id = first_event_id;
+        for event in &mut events {
+            if event.meta.event_id < first_event_id {
+                continue;
+            }
+            event.meta.event_id = next_batch_event_id;
+            next_batch_event_id = next_batch_event_id.saturating_add(1);
         }
+        let next_event_id = self.render_events.next_event_id().max(next_batch_event_id);
         self.render_events.set_next_event_id(next_event_id);
         self.render_events.replace_events(events);
     }

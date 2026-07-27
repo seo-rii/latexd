@@ -71,13 +71,13 @@ pub use snapshot::{
     VmContinuationSafety, VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot,
     VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot,
     VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
-    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleCheckpoint,
-    VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmScannerTextSlotSnapshot, VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot,
-    VmSemanticEnvironmentSnapshot, VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot,
-    VmSemanticInlineSnapshot, VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot,
-    VmSemanticMathSnapshot, VmSemanticSinkSnapshot, VmSemanticTableSnapshot,
-    VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
+    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot,
+    VmQueueItemSnapshot, VmReplayFrame, VmScannerTextSlotSnapshot, VmSemanticCaptionSnapshot,
+    VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot, VmSemanticGraphicSnapshot,
+    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
+    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
+    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -760,6 +760,7 @@ enum ConditionalState {
 
 #[derive(Debug, Default)]
 struct RenderEventScanState {
+    root_source_continues: bool,
     no_hyper_depth: usize,
     active_input_paths: Vec<Utf8PathBuf>,
     include_only: Option<HashSet<Utf8PathBuf>>,
@@ -909,6 +910,7 @@ pub struct Vm<'i> {
     pending_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
     counter_resets: BTreeMap<String, Vec<String>>,
     module_traces: Vec<VmModuleTrace>,
+    module_boundaries: Vec<VmModuleBoundary>,
     module_checkpoints: Vec<VmModuleCheckpoint>,
     output: String,
     render_event_capture: bool,
@@ -979,6 +981,7 @@ impl<'i> Vm<'i> {
             pending_class_options: BTreeMap::new(),
             counter_resets: BTreeMap::new(),
             module_traces: Vec::new(),
+            module_boundaries: Vec::new(),
             module_checkpoints: Vec::new(),
             output: String::new(),
             render_event_capture: false,
@@ -1181,11 +1184,23 @@ impl<'i> Vm<'i> {
         self.mounted_files.insert(path.into(), source.into());
     }
 
+    pub fn set_module_trace_prefix(&mut self, module_traces: Vec<VmModuleTrace>) {
+        self.module_traces = module_traces;
+    }
+
+    pub fn set_render_event_prefix(&mut self, render_events: Vec<RenderEventEnvelope>) {
+        self.render_events.set_replay_prefix(render_events);
+    }
+
     pub fn enable_render_event_capture(&mut self) {
         self.render_event_capture = true;
     }
 
     pub fn run_plain(&mut self, source: &str) -> VmOutcome {
+        self.run_plain_fragment(source, false)
+    }
+
+    pub fn run_plain_fragment(&mut self, source: &str, source_continues: bool) -> VmOutcome {
         if self.render_event_capture {
             self.prepare_semantic_graphic_capture();
             self.prepare_semantic_table_capture();
@@ -1193,7 +1208,10 @@ impl<'i> Vm<'i> {
                 .entry_source_path
                 .clone()
                 .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
-            let mut scan_state = RenderEventScanState::default();
+            let mut scan_state = RenderEventScanState {
+                root_source_continues: source_continues,
+                ..RenderEventScanState::default()
+            };
             for environment in [
                 "quote",
                 "quotation",
@@ -10812,6 +10830,7 @@ impl<'i> Vm<'i> {
             .match_indices('%')
             .any(|(offset, _)| !is_escaped_percent(source, last_line_start + offset));
         if initial_in_document
+            && (!scan_state.root_source_continues || include_depth > 0)
             && source.chars().last().is_some_and(|ch| !ch.is_whitespace())
             && !last_line_has_comment
         {
@@ -15093,6 +15112,7 @@ impl<'i> Vm<'i> {
             && self.entry_source_path.clone().is_some_and(|path| {
                 self.source_stack.push(ActiveSourceFrame {
                     path,
+                    output_start_utf8: 0,
                     return_to_parent: None,
                     global_definition_base_scope: None,
                     module_kind: None,
@@ -15213,6 +15233,7 @@ impl<'i> Vm<'i> {
                 .iter()
                 .map(|frame| VmActiveSourceFrameSnapshot {
                     path: frame.path.clone(),
+                    output_start_utf8: frame.output_start_utf8,
                     return_to_parent: frame.return_to_parent.clone(),
                     global_definition_base_scope: frame.global_definition_base_scope,
                     module_kind: frame.module_kind.map(|kind| match kind {
@@ -15329,6 +15350,7 @@ impl<'i> Vm<'i> {
             diagnostics: self.diagnostics.clone(),
             transcript: self.transcript.clone(),
             module_traces: self.module_traces.clone(),
+            module_boundaries: self.module_boundaries.clone(),
             scopes: self
                 .scopes
                 .iter()
@@ -15549,6 +15571,7 @@ impl<'i> Vm<'i> {
         vm.diagnostics = snapshot.diagnostics.clone();
         vm.transcript = snapshot.transcript.clone();
         vm.module_traces = snapshot.module_traces.clone();
+        vm.module_boundaries = snapshot.module_boundaries.clone();
         let semantic_capture = snapshot
             .semantic_capture
             .as_ref()
@@ -15622,6 +15645,7 @@ impl<'i> Vm<'i> {
                         .iter()
                         .map(|frame| ActiveSourceFrame {
                             path: frame.path.clone(),
+                            output_start_utf8: frame.output_start_utf8,
                             return_to_parent: frame.return_to_parent.clone(),
                             global_definition_base_scope: frame.global_definition_base_scope,
                             module_kind: frame.module_kind.map(|kind| match kind {
@@ -18607,7 +18631,7 @@ impl<'i> Vm<'i> {
                     let output_start_utf8 = self.output.len() as u32;
                     let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
                     let continuation_stack = self.current_continuation_stack();
-                    self.module_checkpoints.push(VmModuleCheckpoint {
+                    self.record_module_checkpoint(VmModuleCheckpoint {
                         kind: VmModuleCheckpointKind::Enter,
                         module_path: path.clone(),
                         resume_path: resume_path.clone(),
@@ -18643,7 +18667,7 @@ impl<'i> Vm<'i> {
                 let Some(path) = self.resolve_existing_project_path(&path) else {
                     return;
                 };
-                self.module_checkpoints.push(VmModuleCheckpoint {
+                self.record_module_checkpoint(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Enter,
                     module_path: path.clone(),
                     resume_path: resume_path.clone(),
@@ -20671,7 +20695,7 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let path = self.resolve_existing_project_path(&path).unwrap_or(path);
-                self.module_checkpoints.push(VmModuleCheckpoint {
+                self.record_module_checkpoint(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Enter,
                     module_path: path.clone(),
                     resume_path: resume_path.clone(),
@@ -20708,7 +20732,7 @@ impl<'i> Vm<'i> {
                     self.transcript.push(format!("include skipped {}", path));
                     return;
                 }
-                self.module_checkpoints.push(VmModuleCheckpoint {
+                self.record_module_checkpoint(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Enter,
                     module_path: path.clone(),
                     resume_path: resume_path.clone(),
@@ -20757,6 +20781,12 @@ impl<'i> Vm<'i> {
                 ));
             }
         }
+    }
+
+    fn record_module_checkpoint(&mut self, checkpoint: VmModuleCheckpoint) {
+        self.module_boundaries
+            .push(VmModuleBoundary::from(&checkpoint));
+        self.module_checkpoints.push(checkpoint);
     }
 
     fn flush_module_end_markers(&mut self, queue: &mut VecDeque<QueueItem>) {
@@ -20816,6 +20846,15 @@ impl<'i> Vm<'i> {
                 output_end_utf8: self.output.len() as u32,
             });
             if let Some(checkpoint) = checkpoint {
+                self.module_boundaries.push(VmModuleBoundary {
+                    kind: VmModuleCheckpointKind::Exit,
+                    module_path: path.clone(),
+                    resume_path: checkpoint.resume_path.clone(),
+                    source_offset_utf8: checkpoint.source_offset_utf8,
+                    continuation_stack: checkpoint.continuation_stack.clone(),
+                    output_start_utf8: self.output.len() as u32,
+                });
+                let snapshot = self.snapshot_with_input_queue(Some(queue));
                 self.module_checkpoints.push(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Exit,
                     module_path: path,
@@ -20823,7 +20862,7 @@ impl<'i> Vm<'i> {
                     source_offset_utf8: checkpoint.source_offset_utf8,
                     continuation_stack: checkpoint.continuation_stack,
                     output_start_utf8: self.output.len() as u32,
-                    snapshot: self.snapshot_with_input_queue(Some(queue)),
+                    snapshot,
                 });
             }
         }
@@ -22809,6 +22848,7 @@ impl<'i> Vm<'i> {
         }
         self.source_stack.push(ActiveSourceFrame {
             path: path.clone(),
+            output_start_utf8,
             return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
                 path: path.clone(),
                 source_offset_utf8: resume_source_offset_utf8,

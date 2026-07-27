@@ -9,8 +9,8 @@ use tex_render_model::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    Vm, VmDiagnostic, VmModuleCheckpoint, VmModuleCheckpointKind, VmModuleTrace, VmReplayFrame,
-    VmSnapshot, compile_format_snapshot,
+    Vm, VmDiagnostic, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind, VmModuleTrace,
+    VmReplayFrame, VmSnapshot, compile_format_snapshot,
 };
 use tex_world::{ProjectWorld, read_tex_source_lossy};
 
@@ -422,6 +422,7 @@ pub struct ProjectRunResult {
     pub diagnostics: Vec<VmDiagnostic>,
     pub loaded_modules: Vec<Utf8PathBuf>,
     pub module_traces: Vec<VmModuleTrace>,
+    pub module_boundaries: Vec<VmModuleBoundary>,
     pub module_checkpoints: Vec<VmModuleCheckpoint>,
     pub source_lengths: BTreeMap<Utf8PathBuf, usize>,
     pub body_source_start_utf8: u32,
@@ -468,16 +469,16 @@ pub fn render_event_prefix_for_snapshot(
     events: &[RenderEventEnvelope],
     snapshot: &VmSnapshot,
 ) -> Vec<RenderEventEnvelope> {
-    let Some(next_event_id) = snapshot
+    let Some(batch_start_event_id) = snapshot
         .semantic_sink
         .as_ref()
-        .map(|sink| sink.next_event_id)
+        .map(|sink| sink.batch_start_event_id)
     else {
         return Vec::new();
     };
     events
         .iter()
-        .take_while(|event| event.meta.event_id < next_event_id)
+        .take_while(|event| event.meta.event_id < batch_start_event_id)
         .cloned()
         .collect()
 }
@@ -509,11 +510,81 @@ fn max_render_event_id(events: &[RenderEventEnvelope]) -> u64 {
         .unwrap_or_default()
 }
 
-fn snapshot_render_event_max(snapshot: &VmSnapshot) -> u64 {
+fn append_module_checkpoint_batch(
+    module_boundaries: &mut Vec<VmModuleBoundary>,
+    module_checkpoints: &mut Vec<VmModuleCheckpoint>,
+    checkpoints: Vec<VmModuleCheckpoint>,
+    source_path: &Utf8PathBuf,
+    source_offset_utf8: u32,
+    output_offset_utf8: u32,
+) {
+    for mut checkpoint in checkpoints {
+        if checkpoint.resume_path.as_ref() == Some(source_path) {
+            checkpoint.source_offset_utf8 = checkpoint
+                .source_offset_utf8
+                .saturating_add(source_offset_utf8);
+        }
+        for frame in &mut checkpoint.continuation_stack {
+            if &frame.path == source_path {
+                frame.source_offset_utf8 =
+                    frame.source_offset_utf8.saturating_add(source_offset_utf8);
+            }
+        }
+        checkpoint.output_start_utf8 = checkpoint
+            .output_start_utf8
+            .saturating_add(output_offset_utf8);
+
+        let boundary = VmModuleBoundary::from(&checkpoint);
+        if checkpoint.kind == VmModuleCheckpointKind::Enter {
+            checkpoint.snapshot.module_boundaries = module_boundaries.clone();
+            module_boundaries.push(boundary);
+        } else {
+            module_boundaries.push(boundary);
+            checkpoint.snapshot.module_boundaries = module_boundaries.clone();
+        }
+        module_checkpoints.push(checkpoint);
+    }
+}
+
+fn active_module_trace_origin(snapshot: &VmSnapshot, path: &Utf8PathBuf) -> Option<(u32, u32)> {
+    if let Some(frame) = snapshot
+        .input_continuation
+        .as_ref()
+        .and_then(|continuation| {
+            continuation.source_stack.iter().rev().find(|frame| {
+                &frame.path == path
+                    && (frame.module_kind.is_some() || frame.return_to_parent.is_some())
+            })
+        })
+    {
+        return Some((0, frame.output_start_utf8));
+    }
+    let mut active = Vec::<&VmModuleBoundary>::new();
+    for boundary in &snapshot.module_boundaries {
+        match boundary.kind {
+            VmModuleCheckpointKind::Enter => active.push(boundary),
+            VmModuleCheckpointKind::Exit => {
+                if let Some(index) = active
+                    .iter()
+                    .rposition(|candidate| candidate.module_path == boundary.module_path)
+                {
+                    active.remove(index);
+                }
+            }
+        }
+    }
+    active
+        .into_iter()
+        .rev()
+        .find(|boundary| &boundary.module_path == path)
+        .map(|boundary| (0, boundary.output_start_utf8))
+}
+
+fn snapshot_absolute_render_event_max(snapshot: &VmSnapshot) -> u64 {
     snapshot
         .semantic_sink
         .as_ref()
-        .map_or(0, |sink| max_render_event_id(&sink.events))
+        .map_or(0, |sink| sink.batch_start_event_id.saturating_sub(1))
 }
 
 fn shift_render_event_source(
@@ -655,6 +726,7 @@ pub fn build_project_pdf_from_checkpoint_with_mounts(
 pub fn capture_page_checkpoints(
     world: &ProjectWorld,
     checkpoint: &ProjectReplayCheckpoint,
+    output_prefix_utf8: u32,
     page_metadata: &[ProjectPageMeta],
 ) -> Result<Vec<ProjectReplayCheckpoint>> {
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
@@ -684,7 +756,11 @@ pub fn capture_page_checkpoints(
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let mut render_event_prefix = checkpoint.render_event_prefix.clone();
-    let restored_event_max = snapshot_render_event_max(&checkpoint.snapshot);
+    let mut module_traces = checkpoint.snapshot.module_traces.clone();
+    let mut module_boundaries = checkpoint.snapshot.module_boundaries.clone();
+    let mut normalized_module_checkpoints = Vec::new();
+    let mut output_offset_utf8 = output_prefix_utf8;
+    let restored_event_max = snapshot_absolute_render_event_max(&checkpoint.snapshot);
     let mut frame_index = 0usize;
     let mut last_resume_path = checkpoint.resume_path.clone();
     let mut last_source_offset_utf8 = checkpoint.source_offset_utf8;
@@ -697,18 +773,23 @@ pub fn capture_page_checkpoints(
                 .filter(|span| span.file == *path)
                 .map(|span| span.end_utf8)
                 .max()
-                .map(|target| align_char_boundary(source, target as usize));
+                .map(|target| align_replay_fragment_boundary(source, target as usize));
             let future_target = page_metadata[page_index..]
                 .iter()
                 .flat_map(|candidate| candidate.source_spans.iter())
                 .filter(|span| span.file == *path)
                 .map(|span| span.end_utf8)
                 .max()
-                .map(|target| align_char_boundary(source, target as usize));
+                .map(|target| align_replay_fragment_boundary(source, target as usize));
             if let Some(target_offset) = page_target.filter(|target| *target > *current_offset) {
                 vm.set_entry_source_path(path.clone());
                 let source_offset_utf8 = *current_offset as u32;
-                let outcome = vm.run_plain(&source[*current_offset..target_offset]);
+                let module_trace_prefix_len = module_traces.len();
+                let outcome = vm.run_plain_fragment(
+                    &source[*current_offset..target_offset],
+                    target_offset < source.len(),
+                );
+                let output_len_utf8 = outcome.output.len() as u32;
                 let already_absolute_through_event_id =
                     max_render_event_id(&render_event_prefix).max(restored_event_max);
                 append_render_event_batch(
@@ -718,6 +799,30 @@ pub fn capture_page_checkpoints(
                     source_offset_utf8,
                     already_absolute_through_event_id,
                 );
+                vm.set_render_event_prefix(render_event_prefix.clone());
+                module_traces.extend(
+                    outcome
+                        .module_traces
+                        .into_iter()
+                        .skip(module_trace_prefix_len)
+                        .map(|trace| VmModuleTrace {
+                            path: trace.path,
+                            source_start_utf8: trace.source_start_utf8,
+                            source_end_utf8: trace.source_end_utf8,
+                            output_start_utf8: trace.output_start_utf8 + output_offset_utf8,
+                            output_end_utf8: trace.output_end_utf8 + output_offset_utf8,
+                        }),
+                );
+                vm.set_module_trace_prefix(module_traces.clone());
+                append_module_checkpoint_batch(
+                    &mut module_boundaries,
+                    &mut normalized_module_checkpoints,
+                    outcome.module_checkpoints,
+                    path,
+                    source_offset_utf8,
+                    output_offset_utf8,
+                );
+                output_offset_utf8 = output_offset_utf8.saturating_add(output_len_utf8);
                 *current_offset = target_offset;
                 last_resume_path = path.clone();
                 last_source_offset_utf8 = *current_offset as u32;
@@ -732,7 +837,9 @@ pub fn capture_page_checkpoints(
             if *current_offset < source.len() {
                 vm.set_entry_source_path(path.clone());
                 let source_offset_utf8 = *current_offset as u32;
+                let module_trace_prefix_len = module_traces.len();
                 let outcome = vm.run_plain(&source[*current_offset..]);
+                let output_len_utf8 = outcome.output.len() as u32;
                 let already_absolute_through_event_id =
                     max_render_event_id(&render_event_prefix).max(restored_event_max);
                 append_render_event_batch(
@@ -742,6 +849,30 @@ pub fn capture_page_checkpoints(
                     source_offset_utf8,
                     already_absolute_through_event_id,
                 );
+                vm.set_render_event_prefix(render_event_prefix.clone());
+                module_traces.extend(
+                    outcome
+                        .module_traces
+                        .into_iter()
+                        .skip(module_trace_prefix_len)
+                        .map(|trace| VmModuleTrace {
+                            path: trace.path,
+                            source_start_utf8: trace.source_start_utf8,
+                            source_end_utf8: trace.source_end_utf8,
+                            output_start_utf8: trace.output_start_utf8 + output_offset_utf8,
+                            output_end_utf8: trace.output_end_utf8 + output_offset_utf8,
+                        }),
+                );
+                vm.set_module_trace_prefix(module_traces.clone());
+                append_module_checkpoint_batch(
+                    &mut module_boundaries,
+                    &mut normalized_module_checkpoints,
+                    outcome.module_checkpoints,
+                    path,
+                    source_offset_utf8,
+                    output_offset_utf8,
+                );
+                output_offset_utf8 = output_offset_utf8.saturating_add(output_len_utf8);
                 *current_offset = source.len();
                 last_resume_path = path.clone();
                 last_source_offset_utf8 = *current_offset as u32;
@@ -768,8 +899,11 @@ pub fn capture_page_checkpoints(
                     Vec::new(),
                 )
             };
+        let mut snapshot = vm.snapshot();
+        snapshot.module_boundaries = module_boundaries.clone();
+        snapshot.module_traces = module_traces.clone();
         checkpoints.push(ProjectReplayCheckpoint {
-            snapshot: vm.snapshot(),
+            snapshot,
             resume_path,
             source_offset_utf8,
             continuation_stack,
@@ -805,25 +939,45 @@ pub fn run_project_from_base_snapshot_with_mounts(
     let mut output = String::new();
     let mut transcript = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut module_traces = Vec::new();
+    let mut module_traces = snapshot.module_traces.clone();
+    let mut module_boundaries = snapshot.module_boundaries.clone();
     let mut module_checkpoints = Vec::new();
     let mut render_events = Vec::new();
     if body_start > 0 {
+        let module_trace_prefix_len = module_traces.len();
         let preamble = vm.run_plain(&source[..body_start]);
         output.push_str(&preamble.output);
         append_render_event_batch(&mut render_events, preamble.render_events, &toplevel, 0, 0);
         transcript.extend(preamble.transcript);
         diagnostics.extend(preamble.diagnostics);
-        module_traces.extend(preamble.module_traces);
-        module_checkpoints.extend(preamble.module_checkpoints);
+        module_traces.extend(
+            preamble
+                .module_traces
+                .into_iter()
+                .skip(module_trace_prefix_len),
+        );
+        append_module_checkpoint_batch(
+            &mut module_boundaries,
+            &mut module_checkpoints,
+            preamble.module_checkpoints,
+            &toplevel,
+            0,
+            0,
+        );
+        vm.set_module_trace_prefix(module_traces.clone());
+        vm.set_render_event_prefix(render_events.clone());
     }
+    let mut preamble_snapshot = vm.snapshot();
+    preamble_snapshot.module_boundaries = module_boundaries.clone();
+    preamble_snapshot.module_traces = module_traces.clone();
     let preamble_checkpoint = ProjectReplayCheckpoint {
-        snapshot: vm.snapshot(),
+        snapshot: preamble_snapshot,
         resume_path: toplevel.clone(),
         source_offset_utf8: body_start as u32,
         continuation_stack: Vec::new(),
         render_event_prefix: render_events.clone(),
     };
+    let module_trace_prefix_len = module_traces.len();
     let outcome = vm.run_plain(&source[body_start..]);
     let output_prefix_len = output.len() as u32;
     output.push_str(&outcome.output);
@@ -841,6 +995,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
         outcome
             .module_traces
             .into_iter()
+            .skip(module_trace_prefix_len)
             .map(|trace| VmModuleTrace {
                 path: trace.path,
                 source_start_utf8: trace.source_start_utf8,
@@ -849,34 +1004,14 @@ pub fn run_project_from_base_snapshot_with_mounts(
                 output_end_utf8: trace.output_end_utf8 + output_prefix_len,
             }),
     );
-    module_checkpoints.extend(outcome.module_checkpoints.into_iter().map(|checkpoint| {
-        let resume_path = checkpoint.resume_path;
-        let continuation_stack = checkpoint
-            .continuation_stack
-            .into_iter()
-            .map(|frame| VmReplayFrame {
-                path: frame.path.clone(),
-                source_offset_utf8: if frame.path == toplevel {
-                    frame.source_offset_utf8 + body_start as u32
-                } else {
-                    frame.source_offset_utf8
-                },
-            })
-            .collect();
-        VmModuleCheckpoint {
-            kind: checkpoint.kind,
-            module_path: checkpoint.module_path,
-            resume_path: resume_path.clone(),
-            source_offset_utf8: if resume_path.as_ref() == Some(&toplevel) {
-                checkpoint.source_offset_utf8 + body_start as u32
-            } else {
-                checkpoint.source_offset_utf8
-            },
-            continuation_stack,
-            output_start_utf8: checkpoint.output_start_utf8 + output_prefix_len,
-            snapshot: checkpoint.snapshot,
-        }
-    }));
+    append_module_checkpoint_batch(
+        &mut module_boundaries,
+        &mut module_checkpoints,
+        outcome.module_checkpoints,
+        &toplevel,
+        body_start as u32,
+        output_prefix_len,
+    );
     let source_lengths = collect_source_lengths(
         world,
         mounted_files,
@@ -884,7 +1019,6 @@ pub fn run_project_from_base_snapshot_with_mounts(
         &source,
         &outcome.loaded_modules,
     );
-
     Ok((
         ProjectRunResult {
             toplevel,
@@ -895,6 +1029,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
             diagnostics,
             loaded_modules: outcome.loaded_modules,
             module_traces,
+            module_boundaries,
             module_checkpoints,
             source_lengths,
             body_source_start_utf8: body_start as u32,
@@ -934,9 +1069,11 @@ pub fn run_project_from_checkpoint_with_mounts(
     let mut diagnostics = Vec::new();
     let mut loaded_modules = Vec::new();
     let mut module_traces = Vec::new();
+    let mut module_boundaries = checkpoint.snapshot.module_boundaries.clone();
     let mut module_checkpoints = Vec::new();
+    let mut restored_module_trace_count = checkpoint.snapshot.module_traces.len();
     let mut render_events = checkpoint.render_event_prefix.clone();
-    let restored_event_max = snapshot_render_event_max(&checkpoint.snapshot);
+    let restored_event_max = snapshot_absolute_render_event_max(&checkpoint.snapshot);
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
     replay_frames.push(VmReplayFrame {
         path: checkpoint.resume_path.clone(),
@@ -992,29 +1129,41 @@ pub fn run_project_from_checkpoint_with_mounts(
         transcript.extend(outcome.transcript);
         diagnostics.extend(outcome.diagnostics);
         loaded_modules = outcome.loaded_modules;
-        module_traces.extend(outcome.module_traces.into_iter().map(|trace| {
+        let mut replayed_module_traces = outcome.module_traces.into_iter();
+        module_traces.extend(
+            replayed_module_traces
+                .by_ref()
+                .take(restored_module_trace_count),
+        );
+        module_traces.extend(replayed_module_traces.map(|trace| {
+            let (source_start_utf8, output_start_utf8) =
+                active_module_trace_origin(&checkpoint.snapshot, &trace.path).unwrap_or_else(
+                    || {
+                        (
+                            replay_frames
+                                .iter()
+                                .find(|frame| frame.path == trace.path)
+                                .map_or(trace.source_start_utf8, |frame| frame.source_offset_utf8),
+                            trace.output_start_utf8 + output_prefix_len,
+                        )
+                    },
+                );
             VmModuleTrace {
-                source_start_utf8: replay_frames
-                    .iter()
-                    .find(|frame| frame.path == trace.path)
-                    .map_or(trace.source_start_utf8, |frame| frame.source_offset_utf8),
                 path: trace.path,
+                source_start_utf8,
                 source_end_utf8: trace.source_end_utf8,
-                output_start_utf8: trace.output_start_utf8 + output_prefix_len,
+                output_start_utf8,
                 output_end_utf8: trace.output_end_utf8 + output_prefix_len,
             }
         }));
-        module_checkpoints.extend(outcome.module_checkpoints.into_iter().map(|checkpoint| {
-            VmModuleCheckpoint {
-                kind: checkpoint.kind,
-                module_path: checkpoint.module_path,
-                resume_path: checkpoint.resume_path,
-                source_offset_utf8: checkpoint.source_offset_utf8,
-                continuation_stack: checkpoint.continuation_stack,
-                output_start_utf8: checkpoint.output_start_utf8 + output_prefix_len,
-                snapshot: checkpoint.snapshot,
-            }
-        }));
+        append_module_checkpoint_batch(
+            &mut module_boundaries,
+            &mut module_checkpoints,
+            outcome.module_checkpoints,
+            &toplevel,
+            body_start as u32,
+            output_prefix_len,
+        );
     } else {
         for frame in &replay_frames {
             let source_path = world.root.join(&frame.path);
@@ -1047,37 +1196,46 @@ pub fn run_project_from_checkpoint_with_mounts(
                 loaded_modules.push(frame.path.clone());
             }
             if frame.path != toplevel {
+                let (source_start_utf8, output_start_utf8) =
+                    active_module_trace_origin(&checkpoint.snapshot, &frame.path)
+                        .unwrap_or((start_offset as u32, output_prefix_len));
                 module_traces.push(VmModuleTrace {
                     path: frame.path.clone(),
-                    source_start_utf8: start_offset as u32,
+                    source_start_utf8,
                     source_end_utf8: source.len() as u32,
-                    output_start_utf8: output_prefix_len,
+                    output_start_utf8,
                     output_end_utf8,
                 });
             }
+            let mut replayed_module_traces = outcome.module_traces.into_iter();
             module_traces.extend(
-                outcome
-                    .module_traces
-                    .into_iter()
-                    .map(|trace| VmModuleTrace {
-                        path: trace.path,
-                        source_start_utf8: trace.source_start_utf8,
-                        source_end_utf8: trace.source_end_utf8,
-                        output_start_utf8: trace.output_start_utf8 + output_prefix_len,
-                        output_end_utf8: trace.output_end_utf8 + output_prefix_len,
-                    }),
+                replayed_module_traces
+                    .by_ref()
+                    .take(restored_module_trace_count),
             );
-            module_checkpoints.extend(outcome.module_checkpoints.into_iter().map(|checkpoint| {
-                VmModuleCheckpoint {
-                    kind: checkpoint.kind,
-                    module_path: checkpoint.module_path,
-                    resume_path: checkpoint.resume_path,
-                    source_offset_utf8: checkpoint.source_offset_utf8,
-                    continuation_stack: checkpoint.continuation_stack,
-                    output_start_utf8: checkpoint.output_start_utf8 + output_prefix_len,
-                    snapshot: checkpoint.snapshot,
+            restored_module_trace_count = 0;
+            module_traces.extend(replayed_module_traces.map(|trace| {
+                let (source_start_utf8, output_start_utf8) =
+                    active_module_trace_origin(&checkpoint.snapshot, &trace.path).unwrap_or((
+                        trace.source_start_utf8,
+                        trace.output_start_utf8 + output_prefix_len,
+                    ));
+                VmModuleTrace {
+                    path: trace.path,
+                    source_start_utf8,
+                    source_end_utf8: trace.source_end_utf8,
+                    output_start_utf8,
+                    output_end_utf8: trace.output_end_utf8 + output_prefix_len,
                 }
             }));
+            append_module_checkpoint_batch(
+                &mut module_boundaries,
+                &mut module_checkpoints,
+                outcome.module_checkpoints,
+                &frame.path,
+                start_offset as u32,
+                output_prefix_len,
+            );
         }
     }
     loaded_modules.sort();
@@ -1094,6 +1252,7 @@ pub fn run_project_from_checkpoint_with_mounts(
         diagnostics,
         loaded_modules,
         module_traces,
+        module_boundaries,
         module_checkpoints,
         source_lengths,
         body_source_start_utf8: body_start as u32,
@@ -1139,8 +1298,8 @@ fn build_project_pdf_from_run(run: ProjectRunResult) -> ProjectPdfBuild {
         }
     }
     let mut child_intervals = BTreeMap::<Utf8PathBuf, Vec<(u32, u32, u32, u32)>>::new();
-    let mut open_module_checkpoints = Vec::<&VmModuleCheckpoint>::new();
-    for checkpoint in &run.module_checkpoints {
+    let mut open_module_checkpoints = Vec::<&VmModuleBoundary>::new();
+    for checkpoint in &run.module_boundaries {
         match checkpoint.kind {
             VmModuleCheckpointKind::Enter => open_module_checkpoints.push(checkpoint),
             VmModuleCheckpointKind::Exit => {
@@ -1414,6 +1573,16 @@ pub fn run_project_with_snapshot(
         &source,
         &outcome.loaded_modules,
     );
+    let mut module_boundaries = snapshot.module_boundaries.clone();
+    let mut module_checkpoints = Vec::new();
+    append_module_checkpoint_batch(
+        &mut module_boundaries,
+        &mut module_checkpoints,
+        outcome.module_checkpoints,
+        &toplevel,
+        0,
+        0,
+    );
 
     Ok(ProjectRunResult {
         toplevel,
@@ -1424,7 +1593,8 @@ pub fn run_project_with_snapshot(
         diagnostics: outcome.diagnostics,
         loaded_modules: outcome.loaded_modules,
         module_traces: outcome.module_traces,
-        module_checkpoints: outcome.module_checkpoints,
+        module_boundaries,
+        module_checkpoints,
         source_lengths,
         body_source_start_utf8: 0,
         layout_profile: layout_profile_from_project_source(world, &BTreeMap::new(), &source),
@@ -1627,6 +1797,37 @@ fn align_char_boundary(source: &str, requested_offset: usize) -> usize {
     offset
 }
 
+fn align_replay_fragment_boundary(source: &str, requested_offset: usize) -> usize {
+    let mut offset = align_char_boundary(source, requested_offset);
+    if offset == 0 || offset == source.len() {
+        return offset;
+    }
+    let previous = source[..offset].chars().next_back();
+    let current = source[offset..].chars().next();
+    let is_boundary = |ch: char| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '\\' | '%' | '$' | '{' | '}' | '&' | '#' | '^' | '_' | '~'
+            )
+    };
+    if current.is_some_and(is_boundary)
+        || (previous.is_some_and(is_boundary) && previous != Some('\\'))
+    {
+        return offset;
+    }
+    while offset < source.len() {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        if is_boundary(ch) {
+            break;
+        }
+        offset += ch.len_utf8();
+    }
+    offset
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1637,11 +1838,25 @@ mod tests {
     use tex_world::ProjectWorld;
 
     use super::{
-        LayoutOptions, ProjectLayoutProfile, build_project_pdf, capture_page_checkpoints,
-        compile_mini_kernel_snapshot, layout_options_for_profile, layout_profile_from_source,
-        render_event_prefix_for_snapshot, run_project, run_project_from_base_snapshot,
-        run_project_from_checkpoint, run_project_with_snapshot,
+        LayoutOptions, ProjectLayoutProfile, align_replay_fragment_boundary, build_project_pdf,
+        capture_page_checkpoints, compile_mini_kernel_snapshot, layout_options_for_profile,
+        layout_profile_from_source, render_event_prefix_for_snapshot, run_project,
+        run_project_from_base_snapshot, run_project_from_checkpoint, run_project_with_snapshot,
     };
+
+    #[test]
+    fn replay_fragment_boundary_does_not_split_visible_text() {
+        let source = "alpha w0000384 omega";
+
+        assert_eq!(
+            align_replay_fragment_boundary(source, "alpha w0".len()),
+            "alpha w0000384".len()
+        );
+        assert_eq!(
+            align_replay_fragment_boundary(source, "alpha ".len()),
+            "alpha ".len()
+        );
+    }
 
     #[test]
     fn mini_kernel_snapshot_is_reusable_across_runs() {
@@ -2981,14 +3196,12 @@ mod tests {
             .iter()
             .find(|trace| trace.path == Utf8PathBuf::from("sections/parent.tex"))
             .expect("resumed parent trace");
-        assert_eq!(
-            resumed_parent_trace.source_start_utf8,
-            exit_checkpoint.source_offset_utf8
-        );
-        assert_eq!(
-            resumed_parent_trace.source_end_utf8,
-            "B\\input{sections/child}C".len() as u32
-        );
+        let full_parent_trace = full
+            .module_traces
+            .iter()
+            .find(|trace| trace.path == Utf8PathBuf::from("sections/parent.tex"))
+            .expect("full parent trace");
+        assert_eq!(resumed_parent_trace, full_parent_trace);
     }
 
     #[test]
@@ -3051,7 +3264,7 @@ mod tests {
         );
         assert_eq!(
             span.end_utf8,
-            source.find(r"\end{document}").expect("document end offset") as u32
+            source.find("Visible").expect("visible offset") as u32 + "Visible".len() as u32
         );
     }
 
@@ -3195,6 +3408,8 @@ mod tests {
         assert_eq!(previous.output, "ACBZ");
         assert_eq!(current.output, "ADBZ");
         assert_eq!(replayed.output, current.output);
+        assert_eq!(replayed.module_traces, current.module_traces);
+        assert_eq!(replayed.module_boundaries, current.module_boundaries);
         assert!(replayed.diagnostics.is_empty());
     }
 
@@ -3244,6 +3459,7 @@ mod tests {
                     &exit_checkpoint.snapshot,
                 ),
             },
+            exit_checkpoint.output_start_utf8,
             &build.page_metadata[start_page_index..],
         )
         .expect("captured checkpoints");

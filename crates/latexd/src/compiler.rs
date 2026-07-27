@@ -1806,18 +1806,49 @@ impl CompilerDriver {
             let default_semantic_aux = SemanticAux::default();
             let empty_rewrite_spans = BTreeMap::new();
             let aux_view = semantic_aux.as_ref().unwrap_or(&default_semantic_aux);
-            // Checkpoint event streams are not prefix-complete while recovery scanning is eager.
-            let render_ir_capture = if previous_build.is_some() || aux_sensitive {
-                capture_internal_render_ir_from_project_root_with_asset_cache(
-                    &request.root,
-                    &request.toplevel,
-                    aux_view,
-                    &prepared_asset_cache_root,
-                )
+            // Recovery events can still outlive a replay boundary in older snapshots. Until
+            // sink rollback is transactional, verify only the rendered semantics from source.
+            let authoritative_render_build = if reused_checkpoint_id.is_some() {
+                let base_snapshot = compile_mini_kernel_snapshot();
+                let (render_build, _) = if let Some(materialized) = materialized_project.as_ref() {
+                    run_project_pdf_from_base_snapshot_with_mounts(
+                        &world,
+                        &base_snapshot,
+                        &materialized.files,
+                    )
+                } else {
+                    run_project_pdf_from_base_snapshot(&world, &base_snapshot)
+                }
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!(
+                            "internal compiler semantic render verification failed: {error}"
+                        ),
+                    }],
+                    message: format!(
+                        "internal compiler semantic render verification failed: {error}"
+                    ),
+                })?;
+                if has_fatal_internal_diagnostics(&render_build.run.diagnostics) {
+                    return Err(internal_diagnostics_failure(
+                        &request.toplevel,
+                        render_build,
+                    ));
+                }
+                Some(render_build)
             } else {
+                None
+            };
+            let authoritative_render_run = authoritative_render_build
+                .as_ref()
+                .map_or(&build.run, |render_build| &render_build.run);
+            let mut render_ir_capture =
                 capture_internal_render_ir_from_project_run_with_asset_cache(
                     &request.root,
-                    &build.run,
+                    authoritative_render_run,
                     aux_view,
                     materialized_project
                         .as_ref()
@@ -1826,16 +1857,18 @@ impl CompilerDriver {
                         }),
                     &prepared_asset_cache_root,
                 )
-            }
-            .map_err(|error| CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!("failed to build render IR artifacts: {error}"),
+                    }],
                     message: format!("failed to build render IR artifacts: {error}"),
-                }],
-                message: format!("failed to build render IR artifacts: {error}"),
-            })?;
+                })?;
+            render_ir_capture
+                .legacy_output
+                .clone_from(&build.run.output);
             render_ir_capture
                 .write_debug_artifacts(&render_ir_artifact_dir)
                 .map_err(|error| CompileFailure {
@@ -2138,6 +2171,7 @@ impl CompilerDriver {
                 let mut captured = capture_page_checkpoints(
                     &world,
                     &plan.checkpoint,
+                    plan.output_prefix.len() as u32,
                     &build.page_metadata[plan.start_page_index..capture_end],
                 )
                 .map_err(|error| CompileFailure {
@@ -2215,6 +2249,7 @@ impl CompilerDriver {
                 let mut checkpoints = capture_page_checkpoints(
                     &world,
                     &preamble_checkpoint,
+                    0,
                     &build.page_metadata[..capture_end],
                 )
                 .map_err(|error| CompileFailure {

@@ -29,6 +29,7 @@ pub(crate) struct PendingModuleCheckpoint {
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveSourceFrame {
     pub(crate) path: Utf8PathBuf,
+    pub(crate) output_start_utf8: u32,
     pub(crate) return_to_parent: Option<VmReplayFrame>,
     pub(crate) global_definition_base_scope: Option<usize>,
     pub(crate) module_kind: Option<ActiveModuleKind>,

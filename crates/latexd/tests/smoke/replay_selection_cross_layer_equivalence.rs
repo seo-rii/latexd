@@ -1,0 +1,5 @@
+include!("../support/replay_cross_layer_equivalence_helpers.rs");
+
+smoke!(internal_compiler_plain_checkpoint_replay_preserves_cross_layer_artifacts => run_cross_layer_replay_case(CrossLayerReplayCase::Plain));
+smoke!(internal_compiler_visible_input_mutation_replay_preserves_cross_layer_artifacts => run_cross_layer_replay_case(CrossLayerReplayCase::PlainMutation));
+smoke!(internal_compiler_semantic_aux_checkpoint_replay_preserves_cross_layer_artifacts => run_cross_layer_replay_case(CrossLayerReplayCase::SemanticAux));

@@ -99,6 +99,18 @@ impl SemanticEventBuffer {
         self.epoch = self.epoch.wrapping_add(1);
     }
 
+    pub(super) fn set_replay_prefix(&mut self, events: Vec<RenderEventEnvelope>) {
+        self.next_event_id = events
+            .iter()
+            .map(|event| event.meta.event_id.saturating_add(1))
+            .max()
+            .unwrap_or(self.next_event_id)
+            .max(self.next_event_id);
+        self.batch_start_event_id = self.next_event_id;
+        self.events = events;
+        self.epoch = self.epoch.wrapping_add(1);
+    }
+
     pub(super) fn take_events(&mut self) -> Vec<RenderEventEnvelope> {
         self.epoch = self.epoch.wrapping_add(1);
         std::mem::take(&mut self.events)
@@ -207,6 +219,19 @@ mod tests {
     }
 
     #[test]
+    fn replay_prefix_starts_a_new_event_batch_after_the_prefix() {
+        let mut buffer = SemanticEventBuffer::default();
+        emit_text(&mut buffer, "prefix");
+        let prefix = buffer.finish_batch();
+
+        buffer.set_replay_prefix(prefix);
+
+        assert_eq!(buffer.batch_start_event_id(), 2);
+        assert_eq!(emit_text(&mut buffer, "body"), 2);
+        assert!(SemanticEventBuffer::restore(&buffer.snapshot()).is_some());
+    }
+
+    #[test]
     fn restore_rejects_duplicate_or_out_of_range_event_ids() {
         let mut buffer = SemanticEventBuffer::default();
         emit_text(&mut buffer, "first");
@@ -225,6 +250,6 @@ mod tests {
 
         snapshot.next_event_id = 3;
         snapshot.batch_start_event_id = 2;
-        assert!(SemanticEventBuffer::restore(&snapshot).is_none());
+        assert!(SemanticEventBuffer::restore(&snapshot).is_some());
     }
 }
