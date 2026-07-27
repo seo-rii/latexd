@@ -299,6 +299,41 @@ fn input_exit_snapshot_preserves_active_lossy_heading_capture() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn input_exit_snapshot_preserves_active_caption_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{figure}\caption{Before \cite{k} \ref{x} \href{https://example.test}{L} $m$ \input{barrier} After}\end{figure}\end{document}",
+    );
+
+    let captions = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Caption(caption) => Some(caption),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(captions.len(), 1);
+    assert!(captions[0].text.contains("Before"));
+    assert!(captions[0].text.contains("After"));
+    assert_eq!(captions[0].inline_placeholders.len(), 2);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_active_lossy_caption_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\caption{Before \unsupportedcaption{Visible} \input{barrier} After}\end{document}",
+    );
+
+    let caption = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::Caption(_)))
+        .expect("recovered caption");
+    assert_eq!(caption.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(caption.meta.confidence, SemanticConfidence::Medium);
+    assert_eq!(actual, expected);
+}
+
 fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
