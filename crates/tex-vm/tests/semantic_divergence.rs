@@ -243,6 +243,49 @@ fn segmented_capture_preserves_document_mode_for_plain_body_text() {
 }
 
 #[test]
+fn scanner_text_events_use_word_and_whitespace_source_spans() {
+    let source = r"\begin{document}Alpha beta.\end{document}";
+    let outcome = capture(source);
+    let alpha = outcome
+        .render_events
+        .iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text == "Alpha"
+            )
+        })
+        .expect("Alpha event");
+    let beta = outcome
+        .render_events
+        .iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text == "beta."
+            )
+        })
+        .expect("beta event");
+    let tex_render_model::ProvenanceSpan::File(alpha_span) = &alpha.meta.source.primary else {
+        panic!("Alpha must retain file provenance");
+    };
+    let tex_render_model::ProvenanceSpan::File(beta_span) = &beta.meta.source.primary else {
+        panic!("beta must retain file provenance");
+    };
+
+    let alpha_start = source.find("Alpha").expect("Alpha offset") as u32;
+    let beta_start = source.find("beta.").expect("beta offset") as u32;
+    assert_eq!(
+        (alpha_span.start_utf8, alpha_span.end_utf8),
+        (alpha_start, alpha_start + 5)
+    );
+    assert_eq!(
+        (beta_span.start_utf8, beta_span.end_utf8),
+        (beta_start, beta_start + 5)
+    );
+}
+
+#[test]
 fn unselected_else_branch_does_not_emit_text_events() {
     let outcome = capture(
         r"\count0=1

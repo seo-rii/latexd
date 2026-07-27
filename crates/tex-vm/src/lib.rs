@@ -14873,6 +14873,7 @@ impl<'i> Vm<'i> {
         }
         let first_event_id = self.render_events.next_event_id();
         let mut pending_word = String::new();
+        let mut pending_word_start = None;
         let mut pending_space = None;
         let mut emitted_any = false;
         let mut whitespace_start = start;
@@ -14883,11 +14884,16 @@ impl<'i> Vm<'i> {
             let absolute_index = start + relative_index;
             if ch.is_whitespace() || ch == '~' {
                 if !pending_word.is_empty() {
+                    let word_start = pending_word_start.take().unwrap_or(start);
                     self.emit_render_event(
                         RenderEvent::Text(TextEvent {
                             text: mem::take(&mut pending_word),
                         }),
-                        SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            word_start as u32,
+                            absolute_index as u32,
+                        ),
                     );
                     emitted_any = true;
                 }
@@ -14947,16 +14953,24 @@ impl<'i> Vm<'i> {
             if let Some(space_kind) = pending_space.take() {
                 self.emit_render_event(
                     RenderEvent::Space(SpaceEvent { kind: space_kind }),
-                    SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                    SourceProvenance::file(
+                        source_path.to_owned(),
+                        whitespace_start as u32,
+                        absolute_index as u32,
+                    ),
                 );
                 emitted_any = true;
+            }
+            if pending_word.is_empty() {
+                pending_word_start = Some(absolute_index);
             }
             pending_word.push(ch);
         }
         if !pending_word.is_empty() {
+            let word_start = pending_word_start.take().unwrap_or(start);
             self.emit_render_event(
                 RenderEvent::Text(TextEvent { text: pending_word }),
-                SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                SourceProvenance::file(source_path.to_owned(), word_start as u32, end as u32),
             );
             emitted_any = true;
         }
@@ -14965,7 +14979,7 @@ impl<'i> Vm<'i> {
         {
             self.emit_render_event(
                 RenderEvent::Space(SpaceEvent { kind: space_kind }),
-                SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                SourceProvenance::file(source_path.to_owned(), whitespace_start as u32, end as u32),
             );
         }
         self.record_scanner_text_slot(source_path, start as u32, end as u32, first_event_id);
