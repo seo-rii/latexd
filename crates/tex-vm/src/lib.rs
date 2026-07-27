@@ -15306,6 +15306,9 @@ impl<'i> Vm<'i> {
                     caption,
                 }
             }),
+            diagnostics: self.diagnostics.clone(),
+            transcript: self.transcript.clone(),
+            module_traces: self.module_traces.clone(),
             scopes: self
                 .scopes
                 .iter()
@@ -15526,6 +15529,9 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
+        vm.diagnostics = snapshot.diagnostics.clone();
+        vm.transcript = snapshot.transcript.clone();
+        vm.module_traces = snapshot.module_traces.clone();
         let semantic_capture = snapshot
             .semantic_capture
             .as_ref()

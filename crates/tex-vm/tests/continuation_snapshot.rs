@@ -93,6 +93,41 @@ fn input_enter_snapshot_reexecutes_the_input_primitive_with_current_child_source
 }
 
 #[test]
+fn input_exit_snapshot_preserves_observation_prefixes() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "c");
+
+    let full = vm
+        .run_plain(r"\count0=1\undefinedbefore\input{barrier}\advance\count0 by 1\undefinedafter");
+    let checkpoint = full
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier exit checkpoint");
+    let snapshot_json = serde_json::to_vec(&checkpoint.snapshot).expect("serialize snapshot");
+    let snapshot =
+        serde_json::from_slice::<VmSnapshot>(&snapshot_json).expect("deserialize snapshot");
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    let resumed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+
+    assert_eq!(resumed.diagnostics, full.diagnostics);
+    assert_eq!(resumed.transcript, full.transcript);
+    assert_eq!(resumed.module_traces, full.module_traces);
+    assert_eq!(resumed.registers, full.registers);
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),

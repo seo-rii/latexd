@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
+use serde::{Deserialize, Serialize};
 use tex_render_model::RenderEventEnvelope;
 
 use crate::{diagnostic::VmDiagnostic, snapshot::VmModuleCheckpoint};
@@ -17,7 +18,7 @@ pub struct VmOutcome {
     pub module_checkpoints: Vec<VmModuleCheckpoint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmModuleTrace {
     pub path: Utf8PathBuf,
     pub source_start_utf8: u32,

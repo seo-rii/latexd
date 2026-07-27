@@ -9,6 +9,8 @@ use tex_render_model::{
 };
 use tex_tokens::CatCode;
 
+use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
+
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
 pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 10;
 
@@ -806,6 +808,12 @@ pub struct VmSnapshot {
     pub semantic_sink: Option<VmSemanticSinkSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_capture: Option<VmSemanticCaptureSnapshot>,
+    #[serde(default)]
+    pub diagnostics: Vec<VmDiagnostic>,
+    #[serde(default)]
+    pub transcript: Vec<String>,
+    #[serde(default)]
+    pub module_traces: Vec<VmModuleTrace>,
     pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
     pub registers: BTreeMap<u32, i32>,
     #[serde(default)]
