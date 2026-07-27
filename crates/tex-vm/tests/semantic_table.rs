@@ -10,6 +10,13 @@ fn capture(source: &str) -> tex_vm::VmOutcome {
     vm.run_plain(source)
 }
 
+fn capture_without_structured_tables(source: &str) -> tex_vm::VmOutcome {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.run_plain(source)
+}
+
 #[test]
 fn executed_tabular_recovery_is_authoritative() {
     let outcome = capture(
@@ -204,4 +211,92 @@ Alpha & Beta
     assert_eq!(table.rows.len(), 1);
     assert_eq!(table.rows[0].cells[0].text, "Alpha");
     assert_eq!(table.rows[0].cells[1].text, "Beta");
+}
+
+#[test]
+fn macro_generated_table_is_captured_from_vm_execution() {
+    let outcome = capture(
+        r"\def\makerow#1#2{#1 & #2 \\}
+\def\maketable{\begin{tabular}{lr}\makerow{Alpha}{1}\makerow{Beta}{2}\end{tabular}}
+\begin{document}
+\maketable
+\end{document}",
+    );
+    let tables = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Table(table) if table.environment == "tabular" => Some((table, event)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(tables.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(tables[0].0.columns.len(), 2);
+    assert_eq!(tables[0].0.rows.len(), 2);
+    assert_eq!(tables[0].0.rows[0].cells[0].text, "Alpha");
+    assert_eq!(tables[0].0.rows[0].cells[1].text, "1");
+    assert_eq!(tables[0].0.rows[1].cells[0].text, "Beta");
+    assert_eq!(tables[0].0.rows[1].cells[1].text, "2");
+    assert_eq!(tables[0].1.meta.producer, EventProducer::Macro);
+    assert_eq!(tables[0].1.meta.confidence, SemanticConfidence::High);
+    assert_eq!(
+        tables[0]
+            .1
+            .meta
+            .source
+            .expansion_stack
+            .last()
+            .and_then(|frame| frame.command_name.as_deref()),
+        Some("maketable")
+    );
+}
+
+#[test]
+fn false_conditional_does_not_emit_macro_generated_table() {
+    let outcome = capture(
+        r"\def\maketable#1{\begin{tabular}{l}#1\end{tabular}}
+\begin{document}
+\iffalse\maketable{Wrong}\fi
+\maketable{Right}
+\end{document}",
+    );
+    let tables = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Table(table) if table.environment == "tabular" => {
+                Some(table.rows[0].cells[0].text.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(tables, vec!["Right"], "{:#?}", outcome.render_events);
+}
+
+#[test]
+fn disabled_structured_table_capture_preserves_legacy_row_break_arguments() {
+    let outcome = capture_without_structured_tables(
+        r"\def\start#1{\begin{#1}}
+\def\stop#1{\end{#1}}
+\def\maketable#1{\start{tabular}{l}#1\\[3pt]After\stop{tabular}}
+\begin{document}
+\maketable{Visible}
+\end{document}",
+    );
+
+    assert!(
+        outcome.output.contains("[3pt]"),
+        "legacy output: {:?}",
+        outcome.output
+    );
+    assert!(
+        !outcome
+            .render_events
+            .iter()
+            .any(|event| matches!(&event.event, RenderEvent::Table(_))),
+        "{:#?}",
+        outcome.render_events
+    );
 }

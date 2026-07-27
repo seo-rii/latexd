@@ -15750,7 +15750,13 @@ impl<'i> Vm<'i> {
                             );
                         }
                     }
-                    CatCode::AlignmentTab | CatCode::Parameter | CatCode::Invalid => {
+                    CatCode::AlignmentTab => {
+                        self.capture_executed_table_alignment_tab();
+                        self.legacy_math_pending_word_boundary = false;
+                        self.output.push(ch);
+                        self.legacy_output_last_char = Some(ch);
+                    }
+                    CatCode::Parameter | CatCode::Invalid => {
                         self.legacy_math_pending_word_boundary = false;
                         self.output.push(ch);
                         self.legacy_output_last_char = Some(ch);
@@ -15766,8 +15772,11 @@ impl<'i> Vm<'i> {
                 {
                     return;
                 }
-                self.separate_executed_inline_content();
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+                if self.capture_executed_table_control_sequence(&control_sequence, queue) {
+                    return;
+                }
+                self.separate_executed_inline_content();
                 let meaning = self
                     .lookup_meaning(&control_sequence)
                     .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive));
@@ -16776,12 +16785,6 @@ impl<'i> Vm<'i> {
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
                 );
-                self.begin_executed_table(
-                    environment,
-                    source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
-                );
-                self.begin_executed_list(environment);
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
                 }
@@ -16811,17 +16814,36 @@ impl<'i> Vm<'i> {
                     }
                     self.output.push_str("Abstract ");
                 }
+                let mut table_width_spec = None;
+                let mut table_column_spec = None;
                 if matches!(
                     environment,
                     "array" | "tabular" | "longtable" | "longtable*"
                 ) {
                     let _ = self.read_optional_bracket_tokens(queue);
-                    let _ = self.read_macro_argument(queue);
+                    if let Some(tokens) = self.read_macro_argument(queue) {
+                        let expanded = self.fully_expand_tokens(tokens);
+                        table_column_spec = Some(self.tokens_to_text(expanded));
+                    }
                 } else if matches!(environment, "tabular*" | "tabularx") {
-                    let _ = self.read_macro_argument(queue);
+                    if let Some(tokens) = self.read_macro_argument(queue) {
+                        let expanded = self.fully_expand_tokens(tokens);
+                        table_width_spec = Some(self.tokens_to_text(expanded));
+                    }
                     let _ = self.read_optional_bracket_tokens(queue);
-                    let _ = self.read_macro_argument(queue);
+                    if let Some(tokens) = self.read_macro_argument(queue) {
+                        let expanded = self.fully_expand_tokens(tokens);
+                        table_column_spec = Some(self.tokens_to_text(expanded));
+                    }
                 }
+                self.begin_executed_table(
+                    environment,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                    table_width_spec,
+                    table_column_spec,
+                );
+                self.begin_executed_list(environment);
                 if matches!(environment, "enumerate" | "itemize" | "description") {
                     for _ in 0..3 {
                         if self.read_optional_bracket_tokens(queue).is_none() {

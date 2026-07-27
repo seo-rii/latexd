@@ -234,6 +234,9 @@ impl Vm<'_> {
         start_utf8: u32,
         end_utf8: u32,
     ) {
+        if self.capture_executed_table_character(ch) {
+            return;
+        }
         if !self.can_capture_executed_text()
             || (start_utf8 == 0 && end_utf8 == 0 && self.semantic_text.expansion_stack.is_empty())
         {
@@ -275,6 +278,9 @@ impl Vm<'_> {
     }
 
     pub(super) fn capture_executed_space(&mut self, start_utf8: u32, end_utf8: u32) {
+        if self.capture_executed_table_space() {
+            return;
+        }
         self.flush_executed_text_capture();
         if !self.can_capture_executed_text()
             || !self.semantic_text.paragraph_has_content

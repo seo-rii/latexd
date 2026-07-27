@@ -1,13 +1,16 @@
-use std::{collections::HashSet, mem};
+use std::{
+    collections::{HashSet, VecDeque},
+    mem,
+};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
     EventId, EventProducer, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, TableCellEvent, TableEvent,
-    TableRowEvent, TableRulePosition,
+    RenderEventEnvelope, SemanticConfidence, SourceProvenance, TableCellEvent,
+    TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRulePosition,
 };
 
-use crate::Vm;
+use crate::{Vm, input::QueueItem};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticTableState {
@@ -21,12 +24,52 @@ pub(super) struct SemanticTableState {
 struct ExecutedTableFrame {
     environment: String,
     source: SourceProvenance,
+    producer: EventProducer,
+    width_spec: Option<String>,
+    columns: Vec<TableColumnSpec>,
+    rows: Vec<TableRowEvent>,
+    current_cells: Vec<TableCellEvent>,
+    current_text: String,
+    row_started: bool,
 }
 
 #[derive(Debug)]
 struct ExecutedTable {
     environment: String,
     source: SourceProvenance,
+    native_event: Option<RenderEventEnvelope>,
+}
+
+impl ExecutedTableFrame {
+    fn finish_cell(&mut self) {
+        self.current_cells.push(TableCellEvent {
+            text: self.current_text.trim().to_string(),
+            column_span: 1,
+            row_span: None,
+            alignment: None,
+            rule_before_count: 0,
+            rule_after_count: 0,
+            cell_prefix: None,
+            cell_suffix: None,
+        });
+        self.current_text.clear();
+        self.row_started = true;
+    }
+
+    fn finish_row(&mut self, force: bool) {
+        if !force && !self.row_started && self.current_text.trim().is_empty() {
+            return;
+        }
+        self.finish_cell();
+        self.rows.push(TableRowEvent {
+            rule_above: false,
+            partial_rules_above: Vec::new(),
+            cells: mem::take(&mut self.current_cells),
+            rule_below: false,
+            partial_rules_below: Vec::new(),
+        });
+        self.row_started = false;
+    }
 }
 
 impl Vm<'_> {
@@ -49,6 +92,8 @@ impl Vm<'_> {
         environment: &str,
         start_utf8: u32,
         end_utf8: u32,
+        width_spec: Option<String>,
+        column_spec: Option<String>,
     ) {
         if !self.render_event_capture
             || !self.execution_in_document
@@ -56,11 +101,79 @@ impl Vm<'_> {
         {
             return;
         }
-        let (source, _) = self.executed_semantic_source(start_utf8, end_utf8);
+        let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
         self.semantic_table.open_tables.push(ExecutedTableFrame {
             environment: environment.to_string(),
             source,
+            producer,
+            width_spec,
+            columns: column_spec
+                .as_deref()
+                .map(simple_table_columns)
+                .unwrap_or_default(),
+            rows: Vec::new(),
+            current_cells: Vec::new(),
+            current_text: String::new(),
+            row_started: false,
         });
+    }
+
+    pub(super) fn capture_executed_table_character(&mut self, ch: char) -> bool {
+        if !self.semantic_table.structured_events {
+            return false;
+        }
+        let Some(table) = self.semantic_table.open_tables.last_mut() else {
+            return false;
+        };
+        table.current_text.push(ch);
+        table.row_started = true;
+        true
+    }
+
+    pub(super) fn capture_executed_table_space(&mut self) -> bool {
+        if !self.semantic_table.structured_events {
+            return false;
+        }
+        let Some(table) = self.semantic_table.open_tables.last_mut() else {
+            return false;
+        };
+        if !table.current_text.is_empty() && !table.current_text.ends_with(char::is_whitespace) {
+            table.current_text.push(' ');
+        }
+        true
+    }
+
+    pub(super) fn capture_executed_table_alignment_tab(&mut self) -> bool {
+        if !self.semantic_table.structured_events {
+            return false;
+        }
+        let Some(table) = self.semantic_table.open_tables.last_mut() else {
+            return false;
+        };
+        table.finish_cell();
+        true
+    }
+
+    pub(super) fn capture_executed_table_control_sequence(
+        &mut self,
+        control_sequence: &str,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> bool {
+        if !self.semantic_table.structured_events
+            || self.semantic_table.open_tables.is_empty()
+            || !matches!(control_sequence, "\\" | "tabularnewline" | "cr" | "crcr")
+        {
+            return false;
+        }
+        if control_sequence == "\\" {
+            let _ = self.read_optional_bracket_tokens(queue);
+        }
+        self.semantic_table
+            .open_tables
+            .last_mut()
+            .expect("table frame exists")
+            .finish_row(true);
+        true
     }
 
     pub(super) fn end_executed_table(&mut self, environment: &str) {
@@ -75,10 +188,31 @@ impl Vm<'_> {
         else {
             return;
         };
-        let frame = self.semantic_table.open_tables.remove(index);
+        let mut frame = self.semantic_table.open_tables.remove(index);
+        frame.finish_row(false);
+        let native_event = if self.semantic_table.structured_events && !frame.rows.is_empty() {
+            let event_id = self.next_render_event_id;
+            self.next_render_event_id += 1;
+            let mut envelope = RenderEventEnvelope::new(
+                event_id,
+                RenderEvent::Table(TableEvent {
+                    environment: frame.environment.clone(),
+                    width_spec: frame.width_spec,
+                    columns: frame.columns,
+                    rows: frame.rows,
+                    caption: None,
+                }),
+                frame.source.clone(),
+            );
+            envelope.meta.producer = frame.producer;
+            Some(envelope)
+        } else {
+            None
+        };
         self.semantic_table.executed_tables.push(ExecutedTable {
             environment: frame.environment,
             source: frame.source,
+            native_event,
         });
     }
 
@@ -86,9 +220,6 @@ impl Vm<'_> {
         let scanner_ids = mem::take(&mut self.semantic_table.scanner_event_ids);
         let mut executed = mem::take(&mut self.semantic_table.executed_tables);
         self.semantic_table.open_tables.clear();
-        if scanner_ids.is_empty() {
-            return;
-        }
 
         for scanner_event in &mut self.render_events {
             if !scanner_ids.contains(&scanner_event.meta.event_id) {
@@ -122,6 +253,30 @@ impl Vm<'_> {
                 }
             }
         }
+
+        for executed_table in executed {
+            let Some(native_event) = executed_table.native_event else {
+                continue;
+            };
+            let Some((path, start_utf8)) = table_start_anchor(&native_event.meta.source) else {
+                continue;
+            };
+            let insertion = self
+                .render_events
+                .iter()
+                .position(|event| {
+                    table_start_anchor(&event.meta.source).is_some_and(
+                        |(event_path, event_start_utf8)| {
+                            event_path == path
+                                && (event_start_utf8 > start_utf8
+                                    || (event_start_utf8 == start_utf8
+                                        && event.meta.event_id > native_event.meta.event_id))
+                        },
+                    )
+                })
+                .unwrap_or(self.render_events.len());
+            self.render_events.insert(insertion, native_event);
+        }
     }
 }
 
@@ -137,6 +292,49 @@ pub(super) fn is_table_environment(environment: &str) -> bool {
             | "tabu"
             | "longtabu"
     )
+}
+
+fn simple_table_columns(spec: &str) -> Vec<TableColumnSpec> {
+    let mut columns = Vec::<TableColumnSpec>::new();
+    let mut pending_rules = 0u8;
+    for ch in spec.chars() {
+        if ch == '|' {
+            pending_rules = pending_rules.saturating_add(1);
+            continue;
+        }
+        let alignment = match ch {
+            'l' => TableColumnAlignment::Left,
+            'c' => TableColumnAlignment::Center,
+            'r' => TableColumnAlignment::Right,
+            'p' | 'm' | 'b' => TableColumnAlignment::Paragraph,
+            _ => continue,
+        };
+        if pending_rules > 0
+            && let Some(previous) = columns.last_mut()
+        {
+            previous.rule_after = true;
+            previous.rule_after_count = pending_rules;
+        }
+        columns.push(TableColumnSpec {
+            alignment,
+            rule_before: pending_rules > 0,
+            rule_before_count: pending_rules,
+            rule_after: false,
+            rule_after_count: 0,
+            separator_after: None,
+            width_pt_milli: None,
+            cell_prefix: None,
+            cell_suffix: None,
+        });
+        pending_rules = 0;
+    }
+    if pending_rules > 0
+        && let Some(last) = columns.last_mut()
+    {
+        last.rule_after = true;
+        last.rule_after_count = pending_rules;
+    }
+    columns
 }
 
 fn table_environment(event: &RenderEventEnvelope) -> Option<&str> {
