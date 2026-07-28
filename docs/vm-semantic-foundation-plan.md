@@ -732,7 +732,10 @@ Final V6 exit criteria:
 
 ### Current V6 Implementation Status
 
-As of 2026-07-28, the footnote vertical slice is complete:
+As of 2026-07-28, the footnote and standard front-matter vertical slices are
+complete.
+
+Footnotes:
 
 - `\footnote`, `\footnotemark`, `\footnotetext`, and `\tablefootnote` emit
   primitive or macro-produced events only when execution reaches them;
@@ -747,13 +750,34 @@ As of 2026-07-28, the footnote vertical slice is complete:
 - false-conditional, macro, alias, override, nested-mark, package-shim, and
   table-cell cases have focused tests.
 
+Standard front matter:
+
+- `\title`, `\author`, `\date`, and `\maketitle` emit typed metadata and title
+  flush events from VM execution;
+- the mini-kernel and article, authblk, LLNCS, and REVTeX compatibility macros
+  delegate to internal semantic primitives without changing legacy text
+  output;
+- false conditionals emit nothing, aliases preserve primitive meaning, and
+  user redefinitions suppress matching scanner recovery;
+- author arguments expand user macros while preserving top-level `\and`, `\\`,
+  and `\thanks` semantics, including separators introduced by expansion;
+- primitive events carry argument-content and invocation spans, while
+  macro-produced events carry the actual expansion stack;
+- reconciliation retains compatible scanner event IDs but replaces selected
+  recovery events with high-confidence primitive or macro events;
+- snapshot schema 16 preserves selected scanner IDs and pending executed
+  front-matter events across continuation replay.
+
+Affiliation, correspondence, keywords, PACS, and profile-specific metadata are
+not part of this slice and remain explicit scanner recovery.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and title metadata, bibliography, and
-parts of math, table, and wrapper recovery remain scanner-only. The next
-vertical slices should migrate title/front-matter emission and bibliography
-semantics, then narrow the scanner entry point to source regions that execution
-explicitly delegates for recovery.
+from stable cross-revision identity, and bibliography plus parts of math,
+table, wrapper, and profile-metadata recovery remain scanner-only. The next
+vertical slice should migrate bibliography semantics, then continue the
+remaining families and narrow the scanner entry point to source regions that
+execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 

@@ -292,8 +292,14 @@ arithmetic는 같은 scope resolver를 사용한다.
 - footnote slice는 `\footnote`, `\footnotemark`/`\footnotetext`,
   `\tablefootnote`까지 완료됐다. 본문 inline/math event를 transaction으로
   보존하고, detached mark identity와 snapshot/replay를 함께 검증한다.
-- title metadata, bibliography, 일부 math/table/wrapper text는 아직
-  scanner recovery이며 family별 이전을 계속한다.
+- standard front-matter slice는 `\title`, `\author`, `\date`, `\maketitle`
+  및 article/mini-kernel/authblk/LLNCS/REVTeX bridge까지 완료됐다.
+  conditional, alias, override, macro-expanded author separator/note,
+  provenance, snapshot schema 16, compact IR/display-list golden을 함께
+  검증한다.
+- affiliation/correspondence/keywords/PACS 같은 profile metadata,
+  bibliography, 일부 math/table/wrapper text는 아직 scanner recovery이며
+  family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
