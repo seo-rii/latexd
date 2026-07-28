@@ -730,6 +730,31 @@ Final V6 exit criteria:
 - sequence and stable identity are separate, and replay preserves next-ID
   state.
 
+### Current V6 Implementation Status
+
+As of 2026-07-28, the footnote vertical slice is complete:
+
+- `\footnote`, `\footnotemark`, `\footnotetext`, and `\tablefootnote` emit
+  primitive or macro-produced events only when execution reaches them;
+- note bodies collect executed text, inline semantic events, and math in one
+  ordered transaction rather than rebuilding them from raw source;
+- detached marks use a one-shot pending identity that survives continuation
+  snapshots, changed-child replay, and cross-file mark/body boundaries;
+- note IDs are remapped across pending, active, queued, and already committed
+  events when scanner recovery IDs are atomically replaced;
+- snapshot schema 15 validates that a pending mark refers to exactly one
+  captured `FootnoteMark`;
+- false-conditional, macro, alias, override, nested-mark, package-shim, and
+  table-cell cases have focused tests.
+
+This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
+the whole-source scanner before execution, event sequence is not yet separated
+from stable cross-revision identity, and title metadata, bibliography, and
+parts of math, table, and wrapper recovery remain scanner-only. The next
+vertical slices should migrate title/front-matter emission and bibliography
+semantics, then narrow the scanner entry point to source regions that execution
+explicitly delegates for recovery.
+
 ## Shared Diagnostic Contract
 
 Introduce the shared schema in V2 and migrate command-specific diagnostics with

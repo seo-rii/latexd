@@ -286,10 +286,13 @@ arithmetic는 같은 scope resolver를 사용한다.
 상태: `in progress`
 
 현재 구현:
-- text/space/paragraph, math 일부, heading, citation/reference/link,
-  environment/list, float/caption/graphic, table 일부가 VM 실행 event로
-  scanner recovery를 대체한다.
-- title metadata, label, bibliography, 일부 math/table/wrapper text는 아직
+- text/space/paragraph, math 일부, heading, citation/reference/label/link,
+  environment/list, page break, float/caption/graphic, table 일부가 VM 실행
+  event로 scanner recovery를 대체한다.
+- footnote slice는 `\footnote`, `\footnotemark`/`\footnotetext`,
+  `\tablefootnote`까지 완료됐다. 본문 inline/math event를 transaction으로
+  보존하고, detached mark identity와 snapshot/replay를 함께 검증한다.
+- title metadata, bibliography, 일부 math/table/wrapper text는 아직
   scanner recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
