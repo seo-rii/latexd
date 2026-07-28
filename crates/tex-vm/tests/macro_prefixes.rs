@@ -176,3 +176,56 @@ fn outer_macros_close_macro_replacement_scanning_at_the_error_site() {
         "forbidden control sequence \\stop while scanning definition of \\use"
     );
 }
+
+#[test]
+fn outer_macros_close_parameter_text_with_an_empty_replacement() {
+    let outcome = run(r"\outer\def\stop{OUT}\def\use#1\stop{BAD}\use{X}\stop tail");
+
+    assert_eq!(outcome.output, "OUTBADOUTtail");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while scanning definition of \\use"
+    );
+}
+
+#[test]
+fn outer_macros_interrupt_false_branch_skipping() {
+    let outcome = run(r"\outer\def\stop{OUT}before\iffalse WRONG\stop\fi after");
+
+    assert_eq!(outcome.output, "beforeOUTafter");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while skipping conditional text"
+    );
+}
+
+#[test]
+fn outer_macros_interrupt_else_branch_skipping() {
+    let outcome = run(r"\outer\def\stop{OUT}\iftrue before\else WRONG\stop\fi after");
+
+    assert_eq!(outcome.output, "beforeOUTafter");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while skipping conditional text"
+    );
+}
+
+#[test]
+fn snapshot_restore_preserves_outer_scanner_restrictions() {
+    let mut initial_interner = ControlSequenceInterner::new();
+    let snapshot = {
+        let mut vm = Vm::new(&mut initial_interner);
+        vm.run_plain(r"\outer\global\def\stop{OUT}");
+        vm.snapshot()
+    };
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+
+    let outcome = vm.run_plain(r"\def\use#1{BAD}before\use{\stop}after");
+
+    assert_eq!(outcome.output, "beforeOUTafter");
+    assert_eq!(outcome.diagnostics.len(), 1);
+}

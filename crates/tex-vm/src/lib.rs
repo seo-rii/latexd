@@ -16885,6 +16885,7 @@ impl<'i> Vm<'i> {
                 let mut parameter_count = 0u8;
                 let mut parameter_text = Vec::new();
                 let mut next_parameter = 1u8;
+                let mut definition_interrupted = false;
                 while let Some(token) = self.peek_next_token(queue) {
                     if matches!(
                         token.kind,
@@ -16898,6 +16899,11 @@ impl<'i> Vm<'i> {
                     let Some(marker) = self.pop_next_token(queue) else {
                         return;
                     };
+                    if let Some(outer_name) = self.outer_macro_name(&marker) {
+                        self.reject_outer_macro_definition(queue, marker, &target, &outer_name);
+                        definition_interrupted = true;
+                        break;
+                    }
                     parameter_text.push(marker.clone());
                     if matches!(
                         marker.kind,
@@ -16909,6 +16915,16 @@ impl<'i> Vm<'i> {
                         let Some(parameter) = self.pop_next_token(queue) else {
                             return;
                         };
+                        if let Some(outer_name) = self.outer_macro_name(&parameter) {
+                            self.reject_outer_macro_definition(
+                                queue,
+                                parameter,
+                                &target,
+                                &outer_name,
+                            );
+                            definition_interrupted = true;
+                            break;
+                        }
                         parameter_text.push(parameter.clone());
                         if matches!(
                             parameter.kind,
@@ -16932,10 +16948,15 @@ impl<'i> Vm<'i> {
                         next_parameter += 1;
                     }
                 }
-                let Some(mut body) =
-                    self.read_balanced_group_with_outer_policy(queue, Some(&target))
-                else {
-                    return;
+                let mut body = if definition_interrupted {
+                    Vec::new()
+                } else {
+                    let Some(body) =
+                        self.read_balanced_group_with_outer_policy(queue, Some(&target))
+                    else {
+                        return;
+                    };
+                    body
                 };
                 if matches!(
                     primitive,
@@ -22056,13 +22077,7 @@ impl<'i> Vm<'i> {
             if let Some(definition_name) = definition_name
                 && let Some(outer_name) = self.outer_macro_name(&token)
             {
-                self.push_token_front(queue, token);
-                self.diagnostics.push(VmDiagnostic {
-                    kind: VmDiagnosticKind::ExplicitError,
-                    detail: format!(
-                        "forbidden control sequence \\{outer_name} while scanning definition of \\{definition_name}"
-                    ),
-                });
+                self.reject_outer_macro_definition(queue, token, definition_name, &outer_name);
                 return Some(body);
             }
             match token.kind {
@@ -22203,6 +22218,22 @@ impl<'i> Vm<'i> {
             kind: VmDiagnosticKind::ExplicitError,
             detail: format!(
                 "forbidden control sequence \\{outer_name} while scanning use of \\{macro_name}"
+            ),
+        });
+    }
+
+    fn reject_outer_macro_definition(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        token: Token,
+        definition_name: &str,
+        outer_name: &str,
+    ) {
+        self.push_token_front(queue, token);
+        self.diagnostics.push(VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: format!(
+                "forbidden control sequence \\{outer_name} while scanning definition of \\{definition_name}"
             ),
         });
     }
@@ -23722,6 +23753,10 @@ impl<'i> Vm<'i> {
     fn skip_to_else_or_fi(&mut self, queue: &mut VecDeque<QueueItem>) -> bool {
         let mut depth = 0;
         while let Some(token) = self.pop_next_token(queue) {
+            if let Some(outer_name) = self.outer_macro_name(&token) {
+                self.reject_outer_conditional_skip(queue, token, &outer_name);
+                return false;
+            }
             let TokenKind::ControlSequence { name } = token.kind else {
                 continue;
             };
@@ -23740,6 +23775,10 @@ impl<'i> Vm<'i> {
     fn skip_to_fi(&mut self, queue: &mut VecDeque<QueueItem>) {
         let mut depth = 0;
         while let Some(token) = self.pop_next_token(queue) {
+            if let Some(outer_name) = self.outer_macro_name(&token) {
+                self.reject_outer_conditional_skip(queue, token, &outer_name);
+                return;
+            }
             let TokenKind::ControlSequence { name } = token.kind else {
                 continue;
             };
@@ -23750,6 +23789,21 @@ impl<'i> Vm<'i> {
                 _ => {}
             }
         }
+    }
+
+    fn reject_outer_conditional_skip(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        token: Token,
+        outer_name: &str,
+    ) {
+        self.push_token_front(queue, token);
+        self.diagnostics.push(VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: format!(
+                "forbidden control sequence \\{outer_name} while skipping conditional text"
+            ),
+        });
     }
 
     fn define(&mut self, name: String, meaning: Meaning, force_global: bool) {
