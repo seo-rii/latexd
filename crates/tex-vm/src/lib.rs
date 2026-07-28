@@ -43,7 +43,8 @@ mod snapshot;
 
 use command::{
     CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
-    LegacyGraphicSyntax, LinkCommand, MacroDefinition, Meaning, Primitive, ReferenceCommand,
+    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, Meaning, Primitive,
+    ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -1049,6 +1050,7 @@ pub struct Vm<'i> {
     next_read_stream: u32,
     next_write_stream: u32,
     global_prefix: bool,
+    macro_prefixes: MacroFlags,
     legacy_math_output_active: bool,
     legacy_math_pending_word_boundary: bool,
     legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
@@ -1121,6 +1123,7 @@ impl<'i> Vm<'i> {
             next_read_stream: default_next_read_stream(),
             next_write_stream: default_next_write_stream(),
             global_prefix: false,
+            macro_prefixes: MacroFlags::default(),
             legacy_math_output_active: false,
             legacy_math_pending_word_boundary: false,
             legacy_math_text_wrapper_restore_scope_depth: None,
@@ -1131,6 +1134,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "@empty".to_string(),
             Meaning::Macro(MacroDefinition {
+                flags: MacroFlags::default(),
                 parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
@@ -1141,6 +1145,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "@nil".to_string(),
             Meaning::Macro(MacroDefinition {
+                flags: MacroFlags::default(),
                 parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
@@ -1159,6 +1164,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    flags: MacroFlags::default(),
                     parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
@@ -1187,6 +1193,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    flags: MacroFlags::default(),
                     parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
@@ -1218,6 +1225,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    flags: MacroFlags::default(),
                     parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
@@ -1241,6 +1249,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    flags: MacroFlags::default(),
                     parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
@@ -1252,6 +1261,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "p@".to_string(),
             Meaning::Macro(MacroDefinition {
+                flags: MacroFlags::default(),
                 parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
@@ -1274,6 +1284,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    flags: MacroFlags::default(),
                     parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
@@ -15694,7 +15705,7 @@ impl<'i> Vm<'i> {
         if !self.source_stack.is_empty() && !input_continuation_captured {
             blockers.push(VmContinuationBlocker::ActiveInput);
         }
-        if self.global_prefix {
+        if self.global_prefix || self.macro_prefixes != MacroFlags::default() {
             blockers.push(VmContinuationBlocker::PendingGlobalPrefix);
         }
         VmContinuationSafety {
@@ -16592,6 +16603,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -16697,6 +16709,7 @@ impl<'i> Vm<'i> {
                     self.define(
                         target,
                         Meaning::Macro(MacroDefinition {
+                            flags: MacroFlags::default(),
                             parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
@@ -16723,6 +16736,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -16836,7 +16850,9 @@ impl<'i> Vm<'i> {
                 };
                 self.after_assignment_token = Some(token);
             }
-            Primitive::Long | Primitive::Protected | Primitive::Outer => {}
+            Primitive::Long => self.macro_prefixes.long = true,
+            Primitive::Protected => self.macro_prefixes.protected = true,
+            Primitive::Outer => self.macro_prefixes.outer = true,
             Primitive::Global => self.global_prefix = true,
             Primitive::Unless => {
                 self.negate_next_conditional = !self.negate_next_conditional;
@@ -16854,6 +16870,7 @@ impl<'i> Vm<'i> {
                 } else {
                     mem::take(&mut self.global_prefix)
                 };
+                let macro_flags = mem::take(&mut self.macro_prefixes);
                 let Some(target) = self.read_control_sequence_name(queue) else {
                     return;
                 };
@@ -16921,6 +16938,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target,
                     Meaning::Macro(MacroDefinition {
+                        flags: macro_flags,
                         parameter_text,
                         parameter_count,
                         optional_first_argument_default: None,
@@ -17062,6 +17080,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@area".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17075,6 +17094,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@base".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17088,6 +17108,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@ext".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17448,6 +17469,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     format!("{stem}true"),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17462,6 +17484,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     format!("{stem}false"),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17622,6 +17645,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filedate".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17635,6 +17659,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "fileversion".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17648,6 +17673,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "fileinfo".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -17682,6 +17708,7 @@ impl<'i> Vm<'i> {
                     self.define(
                         format!("ver@{module_path}"),
                         Meaning::Macro(MacroDefinition {
+                            flags: MacroFlags::default(),
                             parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
@@ -18072,6 +18099,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18107,6 +18135,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18142,6 +18171,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18190,6 +18220,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18238,6 +18269,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18286,6 +18318,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18413,6 +18446,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18478,6 +18512,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18526,6 +18561,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18588,6 +18624,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count,
                         optional_first_argument_default,
@@ -18616,6 +18653,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18864,6 +18902,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "@filef@und".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -18900,6 +18939,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "@filef@und".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -19058,6 +19098,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     iterate_name,
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -19385,6 +19426,7 @@ impl<'i> Vm<'i> {
                     scope.insert(
                         target,
                         Meaning::Macro(MacroDefinition {
+                            flags: MacroFlags::default(),
                             parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
@@ -19475,6 +19517,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target,
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -20146,12 +20189,14 @@ impl<'i> Vm<'i> {
                         Meaning::Macro(definition)
                     }
                     Some(Meaning::Token(token)) => Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: std::iter::once(token).chain(argument).collect(),
                     }),
                     Some(Meaning::Primitive(_)) | None => Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -20173,6 +20218,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -20194,6 +20240,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
                         parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
@@ -21634,7 +21681,12 @@ impl<'i> Vm<'i> {
                 break;
             }
             if let TokenKind::ControlSequence { name } = token.kind.clone() {
-                match self.interner.resolve(name).unwrap_or("") {
+                let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+                if self.macro_is_protected(&control_sequence) {
+                    expanded_tokens.push(token);
+                    continue;
+                }
+                match control_sequence.as_str() {
                     "expandafter" | "@xa" => {
                         let Some(first) = self.pop_next_token(&mut queue) else {
                             continue;
@@ -21643,7 +21695,7 @@ impl<'i> Vm<'i> {
                             expanded_tokens.push(first);
                             continue;
                         };
-                        let expanded = self.expand_once(second, &mut queue);
+                        let expanded = self.expand_once_for_full_expansion(second, &mut queue);
                         for token in expanded.into_iter().rev() {
                             self.push_token_front(&mut queue, token);
                         }
@@ -21679,6 +21731,33 @@ impl<'i> Vm<'i> {
             }
         }
         expanded_tokens
+    }
+
+    fn macro_is_protected(&self, name: &str) -> bool {
+        matches!(
+            self.lookup_meaning(name),
+            Some(Meaning::Macro(MacroDefinition {
+                flags: MacroFlags {
+                    protected: true,
+                    ..
+                },
+                ..
+            }))
+        )
+    }
+
+    fn expand_once_for_full_expansion(
+        &mut self,
+        token: Token,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Vec<Token> {
+        if let TokenKind::ControlSequence { name } = &token.kind {
+            let name = self.interner.resolve(*name).unwrap_or("").to_string();
+            if self.macro_is_protected(&name) {
+                return vec![token];
+            }
+        }
+        self.expand_once(token, queue)
     }
 
     fn read_csname_name(&mut self, queue: &mut VecDeque<QueueItem>) -> String {
@@ -21800,6 +21879,9 @@ impl<'i> Vm<'i> {
     fn meaning_to_snapshot(&self, meaning: &Meaning) -> SnapshotMeaning {
         match meaning {
             Meaning::Macro(definition) => SnapshotMeaning::Macro {
+                long: definition.flags.long,
+                outer: definition.flags.outer,
+                protected: definition.flags.protected,
                 parameter_count: definition.parameter_count,
                 parameter_text: definition
                     .parameter_text
@@ -21833,11 +21915,19 @@ impl<'i> Vm<'i> {
     fn snapshot_to_meaning(&mut self, meaning: &SnapshotMeaning) -> Meaning {
         match meaning {
             SnapshotMeaning::Macro {
+                long,
+                outer,
+                protected,
                 parameter_count,
                 parameter_text,
                 optional_first_argument_default,
                 body,
             } => Meaning::Macro(MacroDefinition {
+                flags: MacroFlags {
+                    long: *long,
+                    outer: *outer,
+                    protected: *protected,
+                },
                 parameter_text: parameter_text
                     .iter()
                     .map(|token| self.snapshot_to_token(token))
@@ -23315,6 +23405,7 @@ impl<'i> Vm<'i> {
             Primitive(Primitive),
             Token(TokenKind),
             Macro {
+                flags: MacroFlags,
                 parameter_count: u8,
                 parameter_text: Vec<TokenKind>,
                 optional_first_argument_default: Option<Vec<TokenKind>>,
@@ -23332,6 +23423,7 @@ impl<'i> Vm<'i> {
                     Some(Meaning::Primitive(primitive)) => IfxMeaning::Primitive(primitive),
                     Some(Meaning::Token(token)) => IfxMeaning::Token(token.kind),
                     Some(Meaning::Macro(definition)) => IfxMeaning::Macro {
+                        flags: definition.flags,
                         parameter_count: definition.parameter_count,
                         parameter_text: definition
                             .parameter_text

@@ -1037,6 +1037,12 @@ pub struct VmActiveModuleOptionsSnapshot {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SnapshotMeaning {
     Macro {
+        #[serde(default)]
+        long: bool,
+        #[serde(default)]
+        outer: bool,
+        #[serde(default)]
+        protected: bool,
         parameter_count: u8,
         #[serde(default)]
         parameter_text: Vec<SnapshotToken>,

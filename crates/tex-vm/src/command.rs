@@ -1,6 +1,13 @@
 use tex_render_model::CaptionKind;
 use tex_tokens::Token;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MacroFlags {
+    pub(crate) long: bool,
+    pub(crate) outer: bool,
+    pub(crate) protected: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Meaning {
     Macro(MacroDefinition),
@@ -10,6 +17,7 @@ pub(crate) enum Meaning {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MacroDefinition {
+    pub(crate) flags: MacroFlags,
     pub(crate) parameter_count: u8,
     pub(crate) parameter_text: Vec<Token>,
     pub(crate) optional_first_argument_default: Option<Vec<Token>>,
