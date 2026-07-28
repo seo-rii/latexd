@@ -119,3 +119,60 @@ fn starred_newcommand_definitions_reject_paragraphs_in_optional_arguments() {
         "paragraph ended before \\short was complete"
     );
 }
+
+#[test]
+fn outer_macros_expand_normally_at_execution_level() {
+    let outcome = run(r"\outer\def\stop{OUT}\stop");
+
+    assert_eq!(outcome.output, "OUT");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn outer_macros_interrupt_macro_argument_scanning_without_disappearing() {
+    let outcome = run(r"\outer\def\stop{OUT}\def\use#1{BAD}before\use{\stop}after");
+
+    assert_eq!(outcome.output, "beforeOUTafter");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while scanning use of \\use"
+    );
+}
+
+#[test]
+fn outer_macros_interrupt_delimited_argument_scanning() {
+    let outcome = run(r"\outer\def\stop{OUT}\def\use#1;{BAD}before\use value\stop;after");
+
+    assert_eq!(outcome.output, "beforeOUT;after");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while scanning use of \\use"
+    );
+}
+
+#[test]
+fn outer_macros_interrupt_optional_argument_scanning() {
+    let outcome =
+        run(r"\outer\def\stop{OUT}\newcommand{\use}[1][default]{BAD}before\use[\stop]after");
+
+    assert_eq!(outcome.output, "beforeOUT]after");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while scanning use of \\use"
+    );
+}
+
+#[test]
+fn outer_macros_close_macro_replacement_scanning_at_the_error_site() {
+    let outcome = run(r"\outer\def\stop{OUT}\def\use{A\stop}before\use{}after");
+
+    assert_eq!(outcome.output, "OUTbeforeAafter");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "forbidden control sequence \\stop while scanning definition of \\use"
+    );
+}

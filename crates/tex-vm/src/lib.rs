@@ -990,6 +990,7 @@ struct RenderReadableWrapperMacro {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MacroArgumentError {
     Missing,
+    Outer,
     Paragraph,
 }
 
@@ -16931,7 +16932,9 @@ impl<'i> Vm<'i> {
                         next_parameter += 1;
                     }
                 }
-                let Some(mut body) = self.read_balanced_group(queue) else {
+                let Some(mut body) =
+                    self.read_balanced_group_with_outer_policy(queue, Some(&target))
+                else {
                     return;
                 };
                 if matches!(
@@ -21851,6 +21854,7 @@ impl<'i> Vm<'i> {
                 let argument = match argument {
                     Ok(argument) => argument,
                     Err(MacroArgumentError::Missing) => return definition.body,
+                    Err(MacroArgumentError::Outer) => return Vec::new(),
                     Err(MacroArgumentError::Paragraph) => return Vec::new(),
                 };
                 arguments.push(argument);
@@ -22028,6 +22032,14 @@ impl<'i> Vm<'i> {
     }
 
     fn read_balanced_group(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
+        self.read_balanced_group_with_outer_policy(queue, None)
+    }
+
+    fn read_balanced_group_with_outer_policy(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        definition_name: Option<&str>,
+    ) -> Option<Vec<Token>> {
         self.skip_optional_spaces(queue);
         let open = self.pop_next_token(queue)?;
         let TokenKind::Character {
@@ -22041,6 +22053,18 @@ impl<'i> Vm<'i> {
         let mut depth = 1;
         let mut body = Vec::new();
         while let Some(token) = self.pop_next_token(queue) {
+            if let Some(definition_name) = definition_name
+                && let Some(outer_name) = self.outer_macro_name(&token)
+            {
+                self.push_token_front(queue, token);
+                self.diagnostics.push(VmDiagnostic {
+                    kind: VmDiagnosticKind::ExplicitError,
+                    detail: format!(
+                        "forbidden control sequence \\{outer_name} while scanning definition of \\{definition_name}"
+                    ),
+                });
+                return Some(body);
+            }
             match token.kind {
                 TokenKind::Character {
                     catcode: CatCode::BeginGroup,
@@ -22098,6 +22122,12 @@ impl<'i> Vm<'i> {
             let mut depth = 1usize;
             let mut body = Vec::new();
             while let Some(token) = self.pop_next_token(queue) {
+                if !macro_name.is_empty()
+                    && let Some(outer_name) = self.outer_macro_name(&token)
+                {
+                    self.reject_outer_macro_argument(queue, token, macro_name, &outer_name);
+                    return Err(MacroArgumentError::Outer);
+                }
                 if self.is_paragraph_token(&token) {
                     self.reject_paragraph_macro_argument(queue, token, macro_name);
                     return Err(MacroArgumentError::Paragraph);
@@ -22126,12 +22156,55 @@ impl<'i> Vm<'i> {
             return Err(MacroArgumentError::Missing);
         }
 
+        if !macro_name.is_empty()
+            && let Some(outer_name) = self.outer_macro_name(&token)
+        {
+            self.reject_outer_macro_argument(queue, token, macro_name, &outer_name);
+            return Err(MacroArgumentError::Outer);
+        }
         if !allow_paragraph && self.is_paragraph_token(&token) {
             self.reject_paragraph_macro_argument(queue, token, macro_name);
             return Err(MacroArgumentError::Paragraph);
         }
 
         Ok(vec![token])
+    }
+
+    fn outer_macro_name(&self, token: &Token) -> Option<String> {
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name)?.to_string();
+        matches!(
+            self.lookup_meaning(&name),
+            Some(Meaning::Macro(MacroDefinition {
+                flags: MacroFlags { outer: true, .. },
+                ..
+            }))
+        )
+        .then_some(name)
+    }
+
+    fn reject_outer_macro_argument(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        token: Token,
+        macro_name: &str,
+        outer_name: &str,
+    ) {
+        let span = token.span;
+        self.push_token_front(queue, token);
+        let par = self.interner.intern("par");
+        self.push_token_front(
+            queue,
+            Token::control_sequence(par, span.start as usize, span.end as usize),
+        );
+        self.diagnostics.push(VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: format!(
+                "forbidden control sequence \\{outer_name} while scanning use of \\{macro_name}"
+            ),
+        });
     }
 
     fn is_paragraph_token(&self, token: &Token) -> bool {
@@ -22181,6 +22254,12 @@ impl<'i> Vm<'i> {
         let mut argument = Vec::new();
         let mut group_depth = 0usize;
         while let Some(token) = self.pop_next_token(queue) {
+            if !macro_name.is_empty()
+                && let Some(outer_name) = self.outer_macro_name(&token)
+            {
+                self.reject_outer_macro_argument(queue, token, macro_name, &outer_name);
+                return Err(MacroArgumentError::Outer);
+            }
             match token.kind {
                 TokenKind::Character {
                     catcode: CatCode::BeginGroup,
@@ -23321,6 +23400,12 @@ impl<'i> Vm<'i> {
         let mut depth = 0;
         let mut content = Vec::new();
         while let Some(token) = self.pop_next_token(queue) {
+            if !macro_name.is_empty()
+                && let Some(outer_name) = self.outer_macro_name(&token)
+            {
+                self.reject_outer_macro_argument(queue, token, macro_name, &outer_name);
+                return Some(Err(MacroArgumentError::Outer));
+            }
             if !allow_paragraph && self.is_paragraph_token(&token) {
                 self.reject_paragraph_macro_argument(queue, token, macro_name);
                 return Some(Err(MacroArgumentError::Paragraph));
