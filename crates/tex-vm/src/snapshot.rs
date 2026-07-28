@@ -12,7 +12,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 12;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -256,6 +256,8 @@ pub struct VmExecutedMathCaptureSnapshot {
     pub display: bool,
     #[serde(default)]
     pub command_delimited: bool,
+    #[serde(default)]
+    pub environment: Option<String>,
     pub raw_source: String,
     pub source_path: Utf8PathBuf,
     pub invocation_start_utf8: u32,

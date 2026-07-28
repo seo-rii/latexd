@@ -3580,15 +3580,28 @@ impl<'i> Vm<'i> {
                                         }
                                         body_index = command_index;
                                     }
+                                    let mut math_source = SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        body_start as u32,
+                                        body_end as u32,
+                                    );
+                                    if semantic_math::is_simple_display_math_environment(
+                                        environment,
+                                    ) {
+                                        math_source = math_source.with_related(
+                                            SourceSpanRole::Invocation,
+                                            ProvenanceSpan::File(SourceSpan {
+                                                path: source_path.to_owned(),
+                                                start_utf8: command_start as u32,
+                                                end_utf8: raw_end as u32,
+                                            }),
+                                        );
+                                    }
                                     self.emit_render_event(
                                         RenderEvent::DisplayMath(math_source_event(
                                             &source[body_start..body_end],
                                         )),
-                                        SourceProvenance::file(
-                                            source_path.to_owned(),
-                                            body_start as u32,
-                                            body_end as u32,
-                                        ),
+                                        math_source,
                                     );
                                     index = raw_end;
                                 }
@@ -15299,6 +15312,7 @@ impl<'i> Vm<'i> {
                         source.starts_with(r"\(")
                             || source.starts_with(r"\[")
                             || source.starts_with(r"\ensuremath")
+                            || semantic_math::starts_with_simple_display_math_environment(source)
                     })
         });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
@@ -16321,7 +16335,10 @@ impl<'i> Vm<'i> {
                         }
                         if !matches!(
                             primitive,
-                            Primitive::MathDelimiter(_) | Primitive::EnsureMath
+                            Primitive::MathDelimiter(_)
+                                | Primitive::EnsureMath
+                                | Primitive::BeginEnvironment
+                                | Primitive::EndEnvironment
                         ) {
                             self.capture_executed_math_control_sequence(&control_sequence);
                         }
@@ -17401,6 +17418,12 @@ impl<'i> Vm<'i> {
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
+                self.execute_math_environment_boundary(
+                    environment,
+                    true,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 self.emit_executed_environment_boundary(
                     environment,
                     true,
@@ -17515,6 +17538,12 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let environment = environment.trim();
+                self.execute_math_environment_boundary(
+                    environment,
+                    false,
+                    source_offset_utf8,
+                    environment_end_utf8.max(source_end_utf8),
+                );
                 self.emit_executed_environment_boundary(
                     environment,
                     false,

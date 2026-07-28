@@ -24,6 +24,7 @@ use crate::{
 pub(super) struct ExecutedMathCapture {
     display: bool,
     command_delimited: bool,
+    environment: Option<String>,
     raw_source: String,
     source_path: Utf8PathBuf,
     invocation_start_utf8: u32,
@@ -64,6 +65,7 @@ impl Vm<'_> {
                 VmExecutedMathCaptureSnapshot {
                     display: capture.display,
                     command_delimited: capture.command_delimited,
+                    environment: capture.environment.clone(),
                     raw_source: capture.raw_source.clone(),
                     source_path: capture.source_path.clone(),
                     invocation_start_utf8: capture.invocation_start_utf8,
@@ -93,6 +95,7 @@ impl Vm<'_> {
                 .map(|capture| ExecutedMathCapture {
                     display: capture.display,
                     command_delimited: capture.command_delimited,
+                    environment: capture.environment.clone(),
                     raw_source: capture.raw_source.clone(),
                     source_path: capture.source_path.clone(),
                     invocation_start_utf8: capture.invocation_start_utf8,
@@ -139,12 +142,15 @@ impl Vm<'_> {
                 self.begin_executed_math_capture(
                     true,
                     false,
+                    None,
                     start_utf8,
                     second_shift.span.end,
                     second_shift.span.end,
                 );
             } else {
-                self.begin_executed_math_capture(false, false, start_utf8, end_utf8, end_utf8);
+                self.begin_executed_math_capture(
+                    false, false, None, start_utf8, end_utf8, end_utf8,
+                );
             }
             return;
         }
@@ -218,6 +224,7 @@ impl Vm<'_> {
             self.begin_executed_math_capture(
                 delimiter.is_display(),
                 true,
+                None,
                 start_utf8,
                 end_utf8,
                 end_utf8,
@@ -226,7 +233,9 @@ impl Vm<'_> {
         }
 
         let closes_active_capture = self.executed_math_capture.as_ref().is_some_and(|capture| {
-            capture.command_delimited && capture.display == delimiter.is_display()
+            capture.command_delimited
+                && capture.environment.is_none()
+                && capture.display == delimiter.is_display()
         });
         if !closes_active_capture {
             self.capture_executed_math_command(delimiter.source());
@@ -285,6 +294,60 @@ impl Vm<'_> {
         );
     }
 
+    pub(super) fn execute_math_environment_boundary(
+        &mut self,
+        environment: &str,
+        begin: bool,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            return;
+        }
+
+        if begin {
+            if is_simple_display_math_environment(environment)
+                && self.executed_math_capture.is_none()
+            {
+                self.begin_executed_math_capture(
+                    true,
+                    true,
+                    Some(environment.to_string()),
+                    start_utf8,
+                    end_utf8,
+                    end_utf8,
+                );
+                return;
+            }
+            self.capture_executed_math_environment_boundary(environment, true);
+            return;
+        }
+
+        let closes_active_capture = self
+            .executed_math_capture
+            .as_ref()
+            .and_then(|capture| capture.environment.as_deref())
+            == Some(environment);
+        if closes_active_capture {
+            self.finish_executed_math_capture(start_utf8, end_utf8);
+        } else {
+            self.capture_executed_math_environment_boundary(environment, false);
+        }
+    }
+
+    fn capture_executed_math_environment_boundary(&mut self, environment: &str, begin: bool) {
+        let Some(capture) = &mut self.executed_math_capture else {
+            return;
+        };
+        if begin {
+            capture.raw_source.push_str(r"\begin{");
+        } else {
+            capture.raw_source.push_str(r"\end{");
+        }
+        capture.raw_source.push_str(environment);
+        capture.raw_source.push('}');
+    }
+
     fn push_legacy_command_math_shift(&mut self, display: bool) {
         self.push_legacy_math_shift('$');
         if display {
@@ -304,6 +367,7 @@ impl Vm<'_> {
         &mut self,
         display: bool,
         command_delimited: bool,
+        environment: Option<String>,
         invocation_start_utf8: u32,
         invocation_end_utf8: u32,
         content_start_utf8: u32,
@@ -323,6 +387,7 @@ impl Vm<'_> {
         self.executed_math_capture = Some(ExecutedMathCapture {
             display,
             command_delimited,
+            environment,
             raw_source: String::new(),
             source_path,
             invocation_start_utf8,
@@ -477,6 +542,20 @@ impl Vm<'_> {
         reconciled.append(&mut executed);
         self.render_events.replace_events(reconciled);
     }
+}
+
+pub(super) fn is_simple_display_math_environment(environment: &str) -> bool {
+    matches!(environment, "equation" | "equation*" | "displaymath")
+}
+
+pub(super) fn starts_with_simple_display_math_environment(source: &str) -> bool {
+    let Some(source) = source.strip_prefix(r"\begin{") else {
+        return false;
+    };
+    let Some(environment_end) = source.find('}') else {
+        return false;
+    };
+    is_simple_display_math_environment(&source[..environment_end])
 }
 
 fn provenance_primary_key(source: &SourceProvenance) -> Option<(Utf8PathBuf, u32)> {

@@ -168,6 +168,10 @@ fn input_enter_snapshot_replaces_changed_child_math_event() {
         (r"\(x^2\)", r"\(\alpha \le \beta\)"),
         (r"\[x^2\]", r"\[\alpha \le \beta\]"),
         (r"\ensuremath{x^2}", r"\ensuremath{\alpha \le \beta}"),
+        (
+            r"\begin{equation}x^2\end{equation}",
+            r"\begin{equation}\alpha \le \beta\end{equation}",
+        ),
     ] {
         let (expected, replayed) =
             replay_render_events_after_changed_child(previous_child, current_child);
@@ -365,6 +369,10 @@ fn input_exit_snapshot_resumes_active_math_capture() {
         (
             r"\begin{document}\ensuremath{a\input{barrier}b}\end{document}",
             false,
+        ),
+        (
+            r"\begin{document}\begin{equation}a\input{barrier}b\end{equation}\end{document}",
+            true,
         ),
     ] {
         let (expected, actual) = replay_render_events_after_input_exit(source);
