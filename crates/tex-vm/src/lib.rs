@@ -987,6 +987,12 @@ struct RenderReadableWrapperMacro {
     body: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacroArgumentError {
+    Missing,
+    Paragraph,
+}
+
 #[derive(Debug)]
 pub struct Vm<'i> {
     interner: &'i mut ControlSequenceInterner,
@@ -16196,7 +16202,7 @@ impl<'i> Vm<'i> {
                             );
                             return;
                         }
-                        let expanded = self.expand_macro(definition, queue);
+                        let expanded = self.expand_macro(&control_sequence, definition, queue);
                         let invocation_end_utf8 = self.last_token_end_utf8.max(token_span.end);
                         self.record_overridden_graphic_invocation(
                             &control_sequence,
@@ -18581,10 +18587,11 @@ impl<'i> Vm<'i> {
             | Primitive::ProvideCommand => {
                 let force_global = mem::take(&mut self.global_prefix);
                 self.skip_optional_spaces(queue);
-                if matches!(
+                let starred = matches!(
                     self.peek_next_token(queue).map(|token| token.kind),
                     Some(TokenKind::Character { ch: '*', .. })
-                ) {
+                );
+                if starred {
                     self.pop_next_token(queue);
                 }
                 let Some(target) = self.read_macro_target(queue) else {
@@ -18624,7 +18631,10 @@ impl<'i> Vm<'i> {
                 self.define(
                     target.clone(),
                     Meaning::Macro(MacroDefinition {
-                        flags: MacroFlags::default(),
+                        flags: MacroFlags {
+                            long: !starred,
+                            ..MacroFlags::default()
+                        },
                         parameter_text: Vec::new(),
                         parameter_count,
                         optional_first_argument_default,
@@ -21305,7 +21315,7 @@ impl<'i> Vm<'i> {
                     .lookup_meaning(&name)
                     .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
                 {
-                    Some(Meaning::Macro(definition)) => self.expand_macro(definition, queue),
+                    Some(Meaning::Macro(definition)) => self.expand_macro(&name, definition, queue),
                     Some(Meaning::Token(token)) => vec![token],
                     Some(Meaning::Primitive(Primitive::CsName)) => self.expand_csname(queue),
                     Some(Meaning::Primitive(Primitive::String)) => self
@@ -21779,6 +21789,7 @@ impl<'i> Vm<'i> {
 
     fn expand_macro(
         &mut self,
+        name: &str,
         definition: MacroDefinition,
         queue: &mut VecDeque<QueueItem>,
     ) -> Vec<Token> {
@@ -21800,27 +21811,47 @@ impl<'i> Vm<'i> {
                     return Vec::new();
                 }
                 let argument = if delimiter.is_empty() {
-                    self.read_macro_argument(queue)
+                    self.read_macro_argument_with_paragraph_policy(
+                        queue,
+                        definition.flags.long,
+                        name,
+                    )
                 } else {
-                    self.read_delimited_macro_argument(queue, &delimiter)
+                    self.read_delimited_macro_argument(
+                        queue,
+                        &delimiter,
+                        definition.flags.long,
+                        name,
+                    )
                 };
-                let Some(argument) = argument else {
+                let Ok(argument) = argument else {
                     return Vec::new();
                 };
                 arguments.push(argument);
             }
         } else if let Some(default) = definition.optional_first_argument_default.clone() {
             self.skip_optional_spaces(queue);
-            if let Some(argument) = self.read_optional_bracket_tokens(queue) {
-                arguments.push(argument);
-            } else {
-                arguments.push(default);
+            match self.read_optional_bracket_tokens_with_paragraph_policy(
+                queue,
+                definition.flags.long,
+                name,
+            ) {
+                Some(Ok(argument)) => arguments.push(argument),
+                Some(Err(_)) => return Vec::new(),
+                None => arguments.push(default),
             }
         }
         if definition.parameter_text.is_empty() {
             for _ in arguments.len()..definition.parameter_count as usize {
-                let Some(argument) = self.read_macro_argument(queue) else {
-                    return definition.body;
+                let argument = self.read_macro_argument_with_paragraph_policy(
+                    queue,
+                    definition.flags.long,
+                    name,
+                );
+                let argument = match argument {
+                    Ok(argument) => argument,
+                    Err(MacroArgumentError::Missing) => return definition.body,
+                    Err(MacroArgumentError::Paragraph) => return Vec::new(),
                 };
                 arguments.push(argument);
             }
@@ -22036,8 +22067,20 @@ impl<'i> Vm<'i> {
     }
 
     fn read_macro_argument(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
+        self.read_macro_argument_with_paragraph_policy(queue, true, "")
+            .ok()
+    }
+
+    fn read_macro_argument_with_paragraph_policy(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        allow_paragraph: bool,
+        macro_name: &str,
+    ) -> Result<Vec<Token>, MacroArgumentError> {
         self.skip_optional_spaces(queue);
-        let token = self.pop_next_token(queue)?;
+        let token = self
+            .pop_next_token(queue)
+            .ok_or(MacroArgumentError::Missing)?;
         if matches!(
             token.kind,
             TokenKind::Character {
@@ -22045,11 +22088,71 @@ impl<'i> Vm<'i> {
                 ..
             }
         ) {
-            self.push_token_front(queue, token);
-            return self.read_balanced_group(queue);
+            if allow_paragraph {
+                self.push_token_front(queue, token);
+                return self
+                    .read_balanced_group(queue)
+                    .ok_or(MacroArgumentError::Missing);
+            }
+
+            let mut depth = 1usize;
+            let mut body = Vec::new();
+            while let Some(token) = self.pop_next_token(queue) {
+                if self.is_paragraph_token(&token) {
+                    self.reject_paragraph_macro_argument(queue, token, macro_name);
+                    return Err(MacroArgumentError::Paragraph);
+                }
+                match token.kind {
+                    TokenKind::Character {
+                        catcode: CatCode::BeginGroup,
+                        ..
+                    } => {
+                        depth += 1;
+                        body.push(token);
+                    }
+                    TokenKind::Character {
+                        catcode: CatCode::EndGroup,
+                        ..
+                    } => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Ok(body);
+                        }
+                        body.push(token);
+                    }
+                    _ => body.push(token),
+                }
+            }
+            return Err(MacroArgumentError::Missing);
         }
 
-        Some(vec![token])
+        if !allow_paragraph && self.is_paragraph_token(&token) {
+            self.reject_paragraph_macro_argument(queue, token, macro_name);
+            return Err(MacroArgumentError::Paragraph);
+        }
+
+        Ok(vec![token])
+    }
+
+    fn is_paragraph_token(&self, token: &Token) -> bool {
+        matches!(
+            token.kind,
+            TokenKind::ControlSequence { name }
+                if self.interner.resolve(name).is_some_and(|name| name == "par")
+        )
+    }
+
+    fn reject_paragraph_macro_argument(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        token: Token,
+        macro_name: &str,
+    ) {
+        self.push_token_front(queue, token);
+        self.diagnostics.push(VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: format!("paragraph ended before \\{macro_name} was complete"),
+        });
     }
 
     fn consume_macro_parameter_delimiter(
@@ -22072,7 +22175,9 @@ impl<'i> Vm<'i> {
         &mut self,
         queue: &mut VecDeque<QueueItem>,
         delimiter: &[Token],
-    ) -> Option<Vec<Token>> {
+        allow_paragraph: bool,
+        macro_name: &str,
+    ) -> Result<Vec<Token>, MacroArgumentError> {
         let mut argument = Vec::new();
         let mut group_depth = 0usize;
         while let Some(token) = self.pop_next_token(queue) {
@@ -22087,6 +22192,7 @@ impl<'i> Vm<'i> {
                 } if group_depth > 0 => group_depth -= 1,
                 _ => {}
             }
+            let is_paragraph = self.is_paragraph_token(&token);
             argument.push(token);
             if group_depth == 0
                 && argument.len() >= delimiter.len()
@@ -22096,10 +22202,17 @@ impl<'i> Vm<'i> {
                     .all(|(actual, expected)| actual.kind == expected.kind)
             {
                 argument.truncate(argument.len() - delimiter.len());
-                return Some(strip_macro_argument_outer_group(argument));
+                return Ok(strip_macro_argument_outer_group(argument));
+            }
+            if !allow_paragraph && is_paragraph {
+                let token = argument
+                    .pop()
+                    .expect("paragraph token was just appended to the argument");
+                self.reject_paragraph_macro_argument(queue, token, macro_name);
+                return Err(MacroArgumentError::Paragraph);
             }
         }
-        None
+        Err(MacroArgumentError::Missing)
     }
 
     fn read_loop_body(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
@@ -23187,6 +23300,16 @@ impl<'i> Vm<'i> {
         &mut self,
         queue: &mut VecDeque<QueueItem>,
     ) -> Option<Vec<Token>> {
+        self.read_optional_bracket_tokens_with_paragraph_policy(queue, true, "")
+            .and_then(Result::ok)
+    }
+
+    fn read_optional_bracket_tokens_with_paragraph_policy(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        allow_paragraph: bool,
+        macro_name: &str,
+    ) -> Option<Result<Vec<Token>, MacroArgumentError>> {
         self.skip_optional_spaces(queue);
         if !matches!(
             self.peek_next_token(queue).map(|token| token.kind),
@@ -23198,6 +23321,10 @@ impl<'i> Vm<'i> {
         let mut depth = 0;
         let mut content = Vec::new();
         while let Some(token) = self.pop_next_token(queue) {
+            if !allow_paragraph && self.is_paragraph_token(&token) {
+                self.reject_paragraph_macro_argument(queue, token, macro_name);
+                return Some(Err(MacroArgumentError::Paragraph));
+            }
             match token.kind {
                 TokenKind::Character { ch: '[', .. } => {
                     depth += 1;
@@ -23208,7 +23335,7 @@ impl<'i> Vm<'i> {
                 TokenKind::Character { ch: ']', .. } => {
                     depth -= 1;
                     if depth == 0 {
-                        return Some(content);
+                        return Some(Ok(content));
                     }
                     content.push(token);
                 }
@@ -23220,7 +23347,7 @@ impl<'i> Vm<'i> {
             }
         }
 
-        Some(content)
+        Some(Ok(content))
     }
 
     fn tokens_to_text(&self, tokens: Vec<Token>) -> String {

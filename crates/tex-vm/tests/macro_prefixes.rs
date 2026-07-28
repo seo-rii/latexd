@@ -1,5 +1,5 @@
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::Vm;
+use tex_vm::{Vm, VmDiagnosticKind};
 
 fn run(source: &str) -> tex_vm::VmOutcome {
     let mut interner = ControlSequenceInterner::new();
@@ -45,4 +45,77 @@ fn snapshot_restore_preserves_protected_macro_expansion() {
 
     assert_eq!(outcome.output, "[B]");
     assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn non_long_macros_reject_paragraphs_in_grouped_arguments() {
+    let outcome = run(r"\def\short#1{BAD}\short{before\par after}tail");
+
+    assert_eq!(outcome.output, "aftertail");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "paragraph ended before \\short was complete"
+    );
+}
+
+#[test]
+fn long_macros_accept_paragraphs_in_grouped_arguments() {
+    let outcome = run(r"\long\def\accept#1{[#1]}\accept{before\par after}");
+
+    assert_eq!(outcome.output, "[beforeafter]");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn non_long_delimited_arguments_reject_paragraph_content() {
+    let outcome = run(r"\def\short#1;{BAD}\short before\par after;tail");
+
+    assert_eq!(outcome.output, "after;tail");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "paragraph ended before \\short was complete"
+    );
+}
+
+#[test]
+fn paragraph_tokens_can_terminate_non_long_delimited_arguments() {
+    let outcome = run(r"\def\paragraph#1\par{[#1]}\paragraph before\par tail");
+
+    assert_eq!(outcome.output, "[before]tail");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn unstarred_newcommand_definitions_accept_paragraph_arguments() {
+    let outcome = run(r"\newcommand{\accept}[1]{[#1]}\accept{before\par after}");
+
+    assert_eq!(outcome.output, "[beforeafter]");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn starred_newcommand_definitions_reject_paragraph_arguments() {
+    let outcome = run(r"\newcommand*{\short}[1]{BAD}\short{before\par after}tail");
+
+    assert_eq!(outcome.output, "aftertail");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "paragraph ended before \\short was complete"
+    );
+}
+
+#[test]
+fn starred_newcommand_definitions_reject_paragraphs_in_optional_arguments() {
+    let outcome = run(r"\newcommand*{\short}[1][default]{BAD}\short[before\par after]tail");
+
+    assert_eq!(outcome.output, "after]tail");
+    assert_eq!(outcome.diagnostics.len(), 1);
+    assert_eq!(
+        outcome.diagnostics[0].detail,
+        "paragraph ended before \\short was complete"
+    );
 }
