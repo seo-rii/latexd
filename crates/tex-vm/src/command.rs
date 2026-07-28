@@ -287,6 +287,7 @@ pub(crate) enum Primitive {
     Input,
     Include,
     IncludeOnly,
+    Label,
     Citation,
     Reference(ReferenceCommand),
     Link(LinkCommand),

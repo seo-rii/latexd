@@ -6,10 +6,10 @@
       "kind": "label_definition"
     },
     "meta": {
-      "confidence": "medium",
+      "confidence": "high",
       "event_id": 2,
       "mode_hint": "unknown",
-      "producer": "scanner_recovery",
+      "producer": "primitive",
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

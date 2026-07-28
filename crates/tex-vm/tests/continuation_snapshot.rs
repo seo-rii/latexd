@@ -172,6 +172,7 @@ fn input_enter_snapshot_replaces_changed_child_math_event() {
 #[test]
 fn input_enter_snapshot_replaces_changed_child_structural_events() {
     for (case, previous_child, current_child) in [
+        ("label", r"\label{old}", r"\label{new}"),
         ("reference", r"\ref{old}", r"\pageref{new}"),
         (
             "link",

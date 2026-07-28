@@ -1408,6 +1408,12 @@ impl<'i> Vm<'i> {
         inline
             .scanner_link_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
+        inline
+            .scanner_label_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        inline
+            .overridden_label_invocations
+            .retain(|invocation| &invocation.path != path);
         self.restore_semantic_inline_snapshot(&inline);
         let mut heading = original_heading.clone();
         heading
@@ -1472,6 +1478,7 @@ impl<'i> Vm<'i> {
             remap_event_ids(&mut inline.scanner_citation_event_ids);
             remap_event_ids(&mut inline.scanner_reference_event_ids);
             remap_event_ids(&mut inline.scanner_link_event_ids);
+            remap_event_ids(&mut inline.scanner_label_event_ids);
             self.restore_semantic_inline_snapshot(&inline);
 
             let mut heading = self.semantic_heading_snapshot();
@@ -15274,6 +15281,7 @@ impl<'i> Vm<'i> {
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
+        let scanner_label = matches!(&event, RenderEvent::LabelDefinition(_));
         let scanner_heading = matches!(&event, RenderEvent::Heading(_));
         let scanner_caption = matches!(&event, RenderEvent::Caption(_));
         let scanner_graphic = matches!(
@@ -15306,6 +15314,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_link {
             self.mark_scanner_link_event(event_id);
+        }
+        if scanner_label {
+            self.mark_scanner_label_event(event_id);
         }
         if scanner_heading {
             self.mark_scanner_heading_event(event_id);
@@ -16248,6 +16259,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
+                        self.record_overridden_label_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -16262,9 +16278,21 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             token_span.end,
                         );
+                        self.record_overridden_label_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
                         self.push_token_front(queue, token);
                     }
                     Some(Meaning::Primitive(primitive)) => {
+                        if primitive != Primitive::Label {
+                            self.record_overridden_label_invocation(
+                                &control_sequence,
+                                token_span.start,
+                                token_span.end,
+                            );
+                        }
                         self.capture_executed_math_control_sequence(&control_sequence);
                         self.execute_primitive(
                             primitive,
@@ -16360,6 +16388,25 @@ impl<'i> Vm<'i> {
             }
             Primitive::LegacyTextScriptBoundary => {
                 self.legacy_text_script_boundary_pending = true;
+            }
+            Primitive::Label => {
+                if let Some(key_tokens) = self.read_macro_argument(queue) {
+                    let key_start_utf8 = key_tokens
+                        .first()
+                        .map_or(source_end_utf8, |token| token.span.start);
+                    let key_end_utf8 = key_tokens
+                        .last()
+                        .map_or(key_start_utf8, |token| token.span.end);
+                    let key = self.tokens_to_text(key_tokens).trim().to_string();
+                    self.emit_executed_label(
+                        "label".to_string(),
+                        key,
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        key_start_utf8,
+                        key_end_utf8,
+                    );
+                }
             }
             Primitive::Citation => {
                 self.skip_optional_spaces(queue);
@@ -24241,6 +24288,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "input" => Some(Primitive::Input),
         "include" => Some(Primitive::Include),
         "includeonly" => Some(Primitive::IncludeOnly),
+        "label" => Some(Primitive::Label),
         "ref" => Some(Primitive::Reference(ReferenceCommand {
             canonical_name: "ref",
             key_argument_count: 1,
@@ -24708,6 +24756,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Input => "input",
         Primitive::Include => "include",
         Primitive::IncludeOnly => "includeonly",
+        Primitive::Label => "label",
         Primitive::Citation => "cite",
         Primitive::Reference(reference) => reference.canonical_name,
         Primitive::Link(link) => link.canonical_name,

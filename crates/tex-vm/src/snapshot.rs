@@ -390,11 +390,17 @@ pub struct VmSemanticInlineSnapshot {
     #[serde(default)]
     pub scanner_link_event_ids: Vec<EventId>,
     #[serde(default)]
+    pub scanner_label_event_ids: Vec<EventId>,
+    #[serde(default)]
     pub executed_citations: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub executed_references: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub executed_links: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub executed_labels: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub overridden_label_invocations: Vec<VmSuppressedSourceRangeSnapshot>,
     #[serde(default)]
     pub caption_placeholders: Vec<CaptionInlinePlaceholderEvent>,
     #[serde(default)]
@@ -416,6 +422,7 @@ impl VmSemanticInlineSnapshot {
             .iter()
             .chain(&self.scanner_reference_event_ids)
             .chain(&self.scanner_link_event_ids)
+            .chain(&self.scanner_label_event_ids)
             .copied()
             .collect::<Vec<_>>();
         let executed_event_ids = self
@@ -423,6 +430,7 @@ impl VmSemanticInlineSnapshot {
             .iter()
             .chain(&self.executed_references)
             .chain(&self.executed_links)
+            .chain(&self.executed_labels)
             .map(|event| event.meta.event_id)
             .collect::<Vec<_>>();
         let executed_event_id_set = executed_event_ids.iter().copied().collect::<BTreeSet<_>>();
@@ -447,6 +455,10 @@ impl VmSemanticInlineSnapshot {
             && marker_ids
                 .iter()
                 .all(|marker_id| *marker_id < self.next_link_marker_id)
+            && self
+                .overridden_label_invocations
+                .iter()
+                .all(VmSuppressedSourceRangeSnapshot::is_restorable)
             && self.active_link_actions.iter().all(|capture| {
                 capture.text_event_mark <= text_event_count
                     && capture.citation_event_mark <= citation_event_count

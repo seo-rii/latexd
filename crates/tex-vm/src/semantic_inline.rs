@@ -6,8 +6,8 @@ use std::{
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
     CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance,
-    SourceSpan, SourceSpanRole,
+    InlineReferenceEvent, LabelDefinitionEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
+    SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -16,6 +16,7 @@ use crate::{
     input::QueueItem,
     snapshot::{
         VmActiveLinkCaptureSnapshot, VmExecutedInlineEventMarkSnapshot, VmSemanticInlineSnapshot,
+        VmSuppressedSourceRangeSnapshot,
     },
 };
 
@@ -24,12 +25,22 @@ pub(super) struct SemanticInlineState {
     scanner_citation_event_ids: HashSet<EventId>,
     scanner_reference_event_ids: HashSet<EventId>,
     scanner_link_event_ids: HashSet<EventId>,
+    scanner_label_event_ids: HashSet<EventId>,
     executed_citations: Vec<RenderEventEnvelope>,
     executed_references: Vec<RenderEventEnvelope>,
     executed_links: Vec<RenderEventEnvelope>,
+    executed_labels: Vec<RenderEventEnvelope>,
+    overridden_label_invocations: Vec<LabelInvocationRange>,
     caption_placeholders: Vec<CaptionInlinePlaceholderEvent>,
     link_marker_actions: HashMap<ControlSequenceId, ExecutedLinkCapture>,
     next_link_marker_id: u64,
+}
+
+#[derive(Debug, Clone)]
+struct LabelInvocationRange {
+    path: Utf8PathBuf,
+    start_utf8: u32,
+    end_utf8: u32,
 }
 
 #[derive(Debug)]
@@ -135,9 +146,23 @@ impl Vm<'_> {
                 &self.semantic_inline.scanner_reference_event_ids,
             ),
             scanner_link_event_ids: sorted_event_ids(&self.semantic_inline.scanner_link_event_ids),
+            scanner_label_event_ids: sorted_event_ids(
+                &self.semantic_inline.scanner_label_event_ids,
+            ),
             executed_citations: self.semantic_inline.executed_citations.clone(),
             executed_references: self.semantic_inline.executed_references.clone(),
             executed_links: self.semantic_inline.executed_links.clone(),
+            executed_labels: self.semantic_inline.executed_labels.clone(),
+            overridden_label_invocations: self
+                .semantic_inline
+                .overridden_label_invocations
+                .iter()
+                .map(|invocation| VmSuppressedSourceRangeSnapshot {
+                    path: invocation.path.clone(),
+                    start_utf8: invocation.start_utf8,
+                    end_utf8: invocation.end_utf8,
+                })
+                .collect(),
             caption_placeholders: self.semantic_inline.caption_placeholders.clone(),
             active_link_actions,
             next_link_marker_id: self.semantic_inline.next_link_marker_id,
@@ -157,9 +182,21 @@ impl Vm<'_> {
             .collect();
         self.semantic_inline.scanner_link_event_ids =
             snapshot.scanner_link_event_ids.iter().copied().collect();
+        self.semantic_inline.scanner_label_event_ids =
+            snapshot.scanner_label_event_ids.iter().copied().collect();
         self.semantic_inline.executed_citations = snapshot.executed_citations.clone();
         self.semantic_inline.executed_references = snapshot.executed_references.clone();
         self.semantic_inline.executed_links = snapshot.executed_links.clone();
+        self.semantic_inline.executed_labels = snapshot.executed_labels.clone();
+        self.semantic_inline.overridden_label_invocations = snapshot
+            .overridden_label_invocations
+            .iter()
+            .map(|invocation| LabelInvocationRange {
+                path: invocation.path.clone(),
+                start_utf8: invocation.start_utf8,
+                end_utf8: invocation.end_utf8,
+            })
+            .collect();
         self.semantic_inline.caption_placeholders = snapshot.caption_placeholders.clone();
         self.semantic_inline.link_marker_actions.clear();
         for capture in &snapshot.active_link_actions {
@@ -214,6 +251,34 @@ impl Vm<'_> {
 
     pub(super) fn mark_scanner_link_event(&mut self, event_id: EventId) {
         self.semantic_inline.scanner_link_event_ids.insert(event_id);
+    }
+
+    pub(super) fn mark_scanner_label_event(&mut self, event_id: EventId) {
+        self.semantic_inline
+            .scanner_label_event_ids
+            .insert(event_id);
+    }
+
+    pub(super) fn record_overridden_label_invocation(
+        &mut self,
+        command_name: &str,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if command_name != "label"
+            || !self.render_event_capture
+            || !self.execution_in_document
+            || end_utf8 <= start_utf8
+        {
+            return;
+        }
+        self.semantic_inline
+            .overridden_label_invocations
+            .push(LabelInvocationRange {
+                path: self.current_execution_source_path(),
+                start_utf8,
+                end_utf8,
+            });
     }
 
     pub(super) fn executed_inline_event_mark(&self) -> ExecutedInlineEventMark {
@@ -299,6 +364,62 @@ impl Vm<'_> {
             .caption_placeholders
             .push(CaptionInlinePlaceholderEvent::Reference(reference));
         self.mark_executed_inline_content();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_executed_label(
+        &mut self,
+        command: String,
+        key: String,
+        invocation_start_utf8: u32,
+        invocation_end_utf8: u32,
+        key_start_utf8: u32,
+        key_end_utf8: u32,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            return;
+        }
+        let path = self.current_execution_source_path();
+        let (mut source, producer) =
+            self.executed_inline_source(invocation_start_utf8, invocation_end_utf8);
+        let invocation_span = if producer == EventProducer::Macro {
+            source.primary.clone()
+        } else {
+            ProvenanceSpan::File(SourceSpan {
+                path: path.clone(),
+                start_utf8: invocation_start_utf8,
+                end_utf8: invocation_end_utf8,
+            })
+        };
+        let key_span = ProvenanceSpan::File(SourceSpan {
+            path,
+            start_utf8: key_start_utf8,
+            end_utf8: key_end_utf8,
+        });
+        let key_belongs_to_invocation = match (&source.primary, &key_span) {
+            (ProvenanceSpan::File(invocation), ProvenanceSpan::File(key)) => {
+                invocation.path == key.path
+                    && key.start_utf8 >= invocation.start_utf8
+                    && key.end_utf8 <= invocation.end_utf8
+            }
+            _ => false,
+        };
+        if key_belongs_to_invocation {
+            source.primary = key_span;
+        }
+        source
+            .related
+            .retain(|related| related.role != SourceSpanRole::Invocation);
+        source = source.with_related(SourceSpanRole::Invocation, invocation_span);
+
+        let event_id = self.render_events.allocate_event_id();
+        let mut envelope = RenderEventEnvelope::new(
+            event_id,
+            RenderEvent::LabelDefinition(LabelDefinitionEvent { key, command }),
+            source,
+        );
+        envelope.meta.producer = producer;
+        self.semantic_inline.executed_labels.push(envelope);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -440,15 +561,20 @@ impl Vm<'_> {
     pub(super) fn reconcile_executed_inline_events(&mut self) {
         let citation_ids = mem::take(&mut self.semantic_inline.scanner_citation_event_ids);
         let citations = mem::take(&mut self.semantic_inline.executed_citations);
-        self.reconcile_scanner_inline_events(citation_ids, citations);
+        self.reconcile_scanner_inline_events(citation_ids, citations, &[]);
 
         let reference_ids = mem::take(&mut self.semantic_inline.scanner_reference_event_ids);
         let references = mem::take(&mut self.semantic_inline.executed_references);
-        self.reconcile_scanner_inline_events(reference_ids, references);
+        self.reconcile_scanner_inline_events(reference_ids, references, &[]);
 
         let link_ids = mem::take(&mut self.semantic_inline.scanner_link_event_ids);
         let links = mem::take(&mut self.semantic_inline.executed_links);
-        self.reconcile_scanner_inline_events(link_ids, links);
+        self.reconcile_scanner_inline_events(link_ids, links, &[]);
+
+        let label_ids = mem::take(&mut self.semantic_inline.scanner_label_event_ids);
+        let labels = mem::take(&mut self.semantic_inline.executed_labels);
+        let overridden_labels = mem::take(&mut self.semantic_inline.overridden_label_invocations);
+        self.reconcile_scanner_inline_events(label_ids, labels, &overridden_labels);
         self.semantic_inline.caption_placeholders.clear();
     }
 
@@ -456,8 +582,10 @@ impl Vm<'_> {
         &mut self,
         scanner_ids: HashSet<EventId>,
         mut executed: Vec<RenderEventEnvelope>,
+        overridden_label_invocations: &[LabelInvocationRange],
     ) {
-        if scanner_ids.is_empty() && executed.is_empty() {
+        if scanner_ids.is_empty() && executed.is_empty() && overridden_label_invocations.is_empty()
+        {
             return;
         }
 
@@ -490,13 +618,34 @@ impl Vm<'_> {
                             .cloned(),
                     );
                 }
-                if source.expansion_stack.is_empty() {
+                if !executed_source.expansion_stack.is_empty()
+                    && matches!(executed_event.event, RenderEvent::LabelDefinition(_))
+                {
+                    let scanner_expansion_stack = mem::take(&mut source.expansion_stack);
+                    source.expansion_stack = executed_source.expansion_stack;
+                    for frame in &mut source.expansion_stack {
+                        if frame.definition_span.is_none()
+                            && let Some(scanner_frame) =
+                                scanner_expansion_stack.iter().find(|scanner_frame| {
+                                    scanner_frame.command_name == frame.command_name
+                                })
+                        {
+                            frame.definition_span = scanner_frame.definition_span.clone();
+                        }
+                    }
+                    source.expansion_stack_truncated = executed_source.expansion_stack_truncated;
+                } else if source.expansion_stack.is_empty() {
                     source.expansion_stack = executed_source.expansion_stack;
                     source.expansion_stack_truncated = executed_source.expansion_stack_truncated;
                 }
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
-            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
+            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source)
+                && !provenance_overlaps_label_invocation(
+                    &scanner_event.meta.source,
+                    overridden_label_invocations,
+                )
+            {
                 reconciled.push(scanner_event);
             }
         }
@@ -683,6 +832,9 @@ fn inline_payload_matches(left: &RenderEventEnvelope, right: &RenderEventEnvelop
         (RenderEvent::InlineLink(left), RenderEvent::InlineLink(right)) => {
             left.target == right.target && left.text == right.text && left.command == right.command
         }
+        (RenderEvent::LabelDefinition(left), RenderEvent::LabelDefinition(right)) => {
+            left.key == right.key && left.command == right.command
+        }
         _ => false,
     }
 }
@@ -774,6 +926,19 @@ fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> boo
             left_span.path == right_span.path
                 && left_span.start_utf8 < right_span.end_utf8
                 && right_span.start_utf8 < left_span.end_utf8
+        })
+    })
+}
+
+fn provenance_overlaps_label_invocation(
+    source: &SourceProvenance,
+    invocations: &[LabelInvocationRange],
+) -> bool {
+    provenance_spans(source).any(|span| {
+        invocations.iter().any(|invocation| {
+            span.path == invocation.path
+                && span.start_utf8 < invocation.end_utf8
+                && invocation.start_utf8 < span.end_utf8
         })
     })
 }
