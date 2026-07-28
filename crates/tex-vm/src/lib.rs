@@ -31,6 +31,7 @@ mod outcome;
 mod save_stack;
 mod semantic_caption;
 mod semantic_environment;
+mod semantic_footnote;
 mod semantic_graphic;
 mod semantic_heading;
 mod semantic_inline;
@@ -56,6 +57,7 @@ pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
 use semantic_caption::SemanticCaptionState;
 use semantic_environment::SemanticEnvironmentState;
+use semantic_footnote::SemanticFootnoteState;
 use semantic_graphic::SemanticGraphicState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
@@ -67,18 +69,20 @@ use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveCaptionCaptureSnapshot,
-    VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
-    VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot, VmContinuationBlocker,
-    VmContinuationSafety, VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot,
-    VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot,
-    VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
-    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
-    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingModuleCheckpointSnapshot,
-    VmQueueItemSnapshot, VmReplayFrame, VmScannerTextSlotSnapshot, VmSemanticCaptionSnapshot,
-    VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot, VmSemanticGraphicSnapshot,
-    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
-    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
-    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmActiveFootnoteCaptureSnapshot, VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot,
+    VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
+    VmContinuationBlocker, VmContinuationSafety, VmExecutedInlineEventMarkSnapshot,
+    VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
+    VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExpansionContextSnapshot,
+    VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
+    VmInputContinuationSnapshot, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticCaptionSnapshot,
+    VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot, VmSemanticFootnoteSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
+    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
+    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
+    VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -1035,6 +1039,7 @@ pub struct Vm<'i> {
     executed_math_capture: Option<ExecutedMathCapture>,
     semantic_caption: SemanticCaptionState,
     semantic_environment: SemanticEnvironmentState,
+    semantic_footnote: SemanticFootnoteState,
     semantic_graphic: SemanticGraphicState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
@@ -1109,6 +1114,7 @@ impl<'i> Vm<'i> {
             executed_math_capture: None,
             semantic_caption: SemanticCaptionState::default(),
             semantic_environment: SemanticEnvironmentState::default(),
+            semantic_footnote: SemanticFootnoteState::default(),
             semantic_graphic: SemanticGraphicState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
@@ -1367,6 +1373,7 @@ impl<'i> Vm<'i> {
         let original_environment = self.semantic_environment_snapshot();
         let original_table = self.semantic_table_snapshot();
         let original_inline = self.semantic_inline_snapshot();
+        let original_footnote = self.semantic_footnote_snapshot();
         let original_heading = self.semantic_heading_snapshot();
         let original_caption = self.semantic_caption_snapshot();
 
@@ -1419,6 +1426,9 @@ impl<'i> Vm<'i> {
             .overridden_label_invocations
             .retain(|invocation| &invocation.path != path);
         self.restore_semantic_inline_snapshot(&inline);
+        let mut footnote = original_footnote.clone();
+        footnote.scanner_slots.retain(|slot| &slot.path != path);
+        self.restore_semantic_footnote_snapshot(&footnote);
         let mut heading = original_heading.clone();
         heading
             .scanner_event_ids
@@ -1444,6 +1454,17 @@ impl<'i> Vm<'i> {
             .render_events
             .replace_transaction_since(&removed_event_ids, mark)
         {
+            for event in self.render_events.iter_mut() {
+                let note_id = match &mut event.event {
+                    RenderEvent::BeginFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::EndFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::FootnoteMark(footnote) => &mut footnote.note_id,
+                    _ => continue,
+                };
+                if let Some(committed_note_id) = event_id_remap.get(note_id) {
+                    *note_id = *committed_note_id;
+                }
+            }
             let remap_event_ids = |event_ids: &mut Vec<EventId>| {
                 for event_id in event_ids {
                     if let Some(committed_event_id) = event_id_remap.get(event_id) {
@@ -1486,6 +1507,12 @@ impl<'i> Vm<'i> {
             remap_event_ids(&mut inline.scanner_label_event_ids);
             self.restore_semantic_inline_snapshot(&inline);
 
+            let mut footnote = self.semantic_footnote_snapshot();
+            for slot in &mut footnote.scanner_slots {
+                remap_event_ids(&mut slot.event_ids);
+            }
+            self.restore_semantic_footnote_snapshot(&footnote);
+
             let mut heading = self.semantic_heading_snapshot();
             remap_event_ids(&mut heading.scanner_event_ids);
             self.restore_semantic_heading_snapshot(&heading);
@@ -1504,6 +1531,7 @@ impl<'i> Vm<'i> {
         self.restore_semantic_environment_snapshot(&original_environment);
         self.restore_semantic_table_snapshot(&original_table);
         self.restore_semantic_inline_snapshot(&original_inline);
+        self.restore_semantic_footnote_snapshot(&original_footnote);
         self.restore_semantic_heading_snapshot(&original_heading);
         self.restore_semantic_caption_snapshot(&original_caption);
         self.semantic_recovery_dirty_paths.insert(path.clone());
@@ -7177,6 +7205,8 @@ impl<'i> Vm<'i> {
                 {
                     let detached_note =
                         matches!(command, "footnote" | "footnotetext" | "tablefootnote");
+                    let first_footnote_event_id =
+                        detached_note.then(|| self.render_events.next_event_id());
                     let mut explicit_note_marker = None;
                     index = skip_ascii_whitespace(source, index);
                     if detached_note
@@ -9740,6 +9770,13 @@ impl<'i> Vm<'i> {
                                     command_start as u32,
                                     after as u32,
                                 ),
+                            );
+                            self.record_scanner_footnote_slot(
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                                first_footnote_event_id
+                                    .expect("detached footnote scanner event start"),
                             );
                         }
                         let mut after_space = after;
@@ -15512,6 +15549,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_list_events();
             self.reconcile_executed_environment_events();
             self.reconcile_executed_table_events();
+            self.reconcile_executed_footnote_events();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.semantic_recovery_dirty_paths.clear();
@@ -15640,6 +15678,7 @@ impl<'i> Vm<'i> {
                 let environment = self.semantic_environment_snapshot();
                 let table = self.semantic_table_snapshot();
                 let inline = self.semantic_inline_snapshot();
+                let footnote = self.semantic_footnote_snapshot();
                 let heading = self.semantic_heading_snapshot();
                 let caption = self.semantic_caption_snapshot();
                 let mut source_buffers = self
@@ -15685,6 +15724,7 @@ impl<'i> Vm<'i> {
                     environment,
                     table,
                     inline,
+                    footnote,
                     heading,
                     caption,
                 }
@@ -15934,6 +15974,7 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_environment_snapshot(&semantic_capture.environment);
             vm.restore_semantic_table_snapshot(&semantic_capture.table);
             vm.restore_semantic_inline_snapshot(&semantic_capture.inline);
+            vm.restore_semantic_footnote_snapshot(&semantic_capture.footnote);
             vm.restore_semantic_heading_snapshot(&semantic_capture.heading);
             vm.restore_semantic_caption_snapshot(&semantic_capture.caption);
         }
@@ -16259,6 +16300,7 @@ impl<'i> Vm<'i> {
                     || self.execute_semantic_link_marker(name)
                     || self.execute_semantic_heading_marker(name)
                     || self.execute_semantic_caption_marker(name)
+                    || self.execute_semantic_footnote_marker(name)
                 {
                     return;
                 }
@@ -16310,6 +16352,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
+                        self.record_overridden_footnote_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -16330,6 +16377,11 @@ impl<'i> Vm<'i> {
                             token_span.end,
                         );
                         self.record_overridden_page_break_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
+                        self.record_overridden_footnote_invocation(
                             &control_sequence,
                             token_span.start,
                             token_span.end,
@@ -16355,6 +16407,19 @@ impl<'i> Vm<'i> {
                         );
                         if !preserves_page_break_semantics {
                             self.record_overridden_page_break_invocation(
+                                &control_sequence,
+                                token_span.start,
+                                token_span.end,
+                            );
+                        }
+                        if !matches!(
+                            (&*control_sequence, primitive),
+                            (
+                                "footnote",
+                                Primitive::Footnote(FootnoteCommandKind::Footnote)
+                            )
+                        ) {
+                            self.record_overridden_footnote_invocation(
                                 &control_sequence,
                                 token_span.start,
                                 token_span.end,
@@ -16753,6 +16818,36 @@ impl<'i> Vm<'i> {
                 self.queue_executed_caption(
                     numbered,
                     caption_kind,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                    content_start_utf8,
+                    content_end_utf8,
+                    content_tokens,
+                    queue,
+                );
+            }
+            Primitive::Footnote(command) => {
+                self.skip_optional_spaces(queue);
+                let marker = self.read_optional_bracket_tokens(queue).and_then(|tokens| {
+                    let expanded = self.fully_expand_tokens(tokens);
+                    let marker = normalize_latex_text_with_inline_placeholders(
+                        &self.tokens_to_text(expanded),
+                    );
+                    (!marker.is_empty()).then_some(marker)
+                });
+                self.skip_optional_spaces(queue);
+                let Some(content_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let content_start_utf8 = content_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let content_end_utf8 = content_tokens
+                    .last()
+                    .map_or(content_start_utf8, |token| token.span.end);
+                self.queue_executed_footnote(
+                    command,
+                    marker,
                     source_offset_utf8,
                     self.last_token_end_utf8.max(source_end_utf8),
                     content_start_utf8,
@@ -24143,6 +24238,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "newpage" => Some(Primitive::PageBreak(PageBreakKind::NewPage)),
         "clearpage" => Some(Primitive::PageBreak(PageBreakKind::ClearPage)),
         "cleardoublepage" => Some(Primitive::PageBreak(PageBreakKind::ClearDoublePage)),
+        "footnote" => Some(Primitive::Footnote(FootnoteCommandKind::Footnote)),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
@@ -24633,6 +24729,9 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::PageBreak(PageBreakKind::NewPage) => "newpage",
         Primitive::PageBreak(PageBreakKind::ClearPage) => "clearpage",
         Primitive::PageBreak(PageBreakKind::ClearDoublePage) => "cleardoublepage",
+        Primitive::Footnote(FootnoteCommandKind::Footnote) => "footnote",
+        Primitive::Footnote(FootnoteCommandKind::FootnoteText) => "footnotetext",
+        Primitive::Footnote(FootnoteCommandKind::TableFootnote) => "tablefootnote",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",

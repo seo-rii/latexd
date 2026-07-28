@@ -216,6 +216,11 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
         ),
         ("caption", r"\caption{Old}", r"\caption{New caption}"),
         ("page break", r"\newpage", r"\clearpage"),
+        (
+            "footnote",
+            r"\footnote{Old note.}",
+            r"\footnote{New note \cite{key}.}",
+        ),
     ] {
         let (expected, replayed) =
             replay_render_events_after_changed_child(previous_child, current_child);
@@ -342,6 +347,12 @@ x^2
             .expect("page break event");
         assert_eq!(page_break.meta.producer, EventProducer::Primitive);
         assert_eq!(page_break.meta.confidence, SemanticConfidence::High);
+        let footnote = expected
+            .iter()
+            .find(|event| matches!(event.event, RenderEvent::BeginFootnote(_)))
+            .expect("footnote event");
+        assert_eq!(footnote.meta.producer, EventProducer::Primitive);
+        assert_eq!(footnote.meta.confidence, SemanticConfidence::High);
         assert_eq!(actual, expected);
 
         let expected_stream = RenderEventStream::new(Some("full".to_string()), expected);
@@ -549,6 +560,36 @@ fn input_exit_snapshot_preserves_active_link_capture() {
     assert_eq!(links.len(), 1);
     assert!(links[0].text.contains("Before"));
     assert!(links[0].text.contains("After"));
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_active_footnote_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}Lead\footnote{Before \cite{k}, \ref{x}, and $m$ \input{barrier} After.}Tail\end{document}",
+    );
+
+    let begin = expected
+        .iter()
+        .position(|event| matches!(event.event, RenderEvent::BeginFootnote(_)))
+        .expect("footnote begin");
+    let end = expected
+        .iter()
+        .position(|event| matches!(event.event, RenderEvent::EndFootnote(_)))
+        .expect("footnote end");
+    assert!(expected[begin..=end].iter().any(|event| {
+        matches!(
+            event.event,
+            RenderEvent::InlineCitation(_)
+                | RenderEvent::InlineReference(_)
+                | RenderEvent::InlineMath(_)
+        )
+    }));
+    assert!(
+        expected[begin..=end]
+            .iter()
+            .all(|event| event.meta.producer != EventProducer::ScannerRecovery)
+    );
     assert_eq!(actual, expected);
 }
 

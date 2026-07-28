@@ -12,7 +12,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 13;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -145,6 +145,8 @@ pub struct VmSemanticCaptureSnapshot {
     #[serde(default)]
     pub inline: VmSemanticInlineSnapshot,
     #[serde(default)]
+    pub footnote: VmSemanticFootnoteSnapshot,
+    #[serde(default)]
     pub heading: VmSemanticHeadingSnapshot,
     #[serde(default)]
     pub caption: VmSemanticCaptionSnapshot,
@@ -184,6 +186,11 @@ impl VmSemanticCaptureSnapshot {
             && self.inline.is_restorable(
                 self.text.executed_events.len(),
                 self.math.executed_events.len(),
+            )
+            && self.footnote.is_restorable(
+                self.text.executed_events.len(),
+                self.math.executed_events.len(),
+                &self.inline,
             )
             && self.heading.is_restorable(
                 self.text.executed_events.len(),
@@ -511,7 +518,16 @@ pub struct VmExecutedInlineEventMarkSnapshot {
     pub citations: u64,
     pub references: u64,
     pub links: u64,
+    #[serde(default)]
+    pub labels: u64,
     pub caption_placeholders: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutedTextFlowMarkSnapshot {
+    pub event_mark: u64,
+    pub paragraph_has_content: bool,
+    pub space_run_active: bool,
 }
 
 impl VmExecutedInlineEventMarkSnapshot {
@@ -520,6 +536,7 @@ impl VmExecutedInlineEventMarkSnapshot {
             && self.references
                 <= u64::try_from(inline.executed_references.len()).unwrap_or(u64::MAX)
             && self.links <= u64::try_from(inline.executed_links.len()).unwrap_or(u64::MAX)
+            && self.labels <= u64::try_from(inline.executed_labels.len()).unwrap_or(u64::MAX)
             && self.caption_placeholders
                 <= u64::try_from(inline.caption_placeholders.len()).unwrap_or(u64::MAX)
     }
@@ -679,6 +696,106 @@ pub struct VmActiveCaptionCaptureSnapshot {
     pub inline_event_mark: VmExecutedInlineEventMarkSnapshot,
     pub math_event_mark: u64,
     pub caption_event_mark: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticFootnoteSnapshot {
+    #[serde(default)]
+    pub scanner_slots: Vec<VmScannerFootnoteSlotSnapshot>,
+    #[serde(default)]
+    pub completed_transactions: Vec<Vec<RenderEventEnvelope>>,
+    #[serde(default)]
+    pub active_actions: Vec<VmActiveFootnoteCaptureSnapshot>,
+    #[serde(default)]
+    pub next_marker_id: u64,
+}
+
+impl VmSemanticFootnoteSnapshot {
+    pub fn is_restorable(
+        &self,
+        text_event_count: usize,
+        math_event_count: usize,
+        inline: &VmSemanticInlineSnapshot,
+    ) -> bool {
+        let text_event_count = u64::try_from(text_event_count).unwrap_or(u64::MAX);
+        let math_event_count = u64::try_from(math_event_count).unwrap_or(u64::MAX);
+        let scanner_event_ids = self
+            .scanner_slots
+            .iter()
+            .flat_map(|slot| slot.event_ids.iter().copied())
+            .collect::<Vec<_>>();
+        let completed_event_ids = self
+            .completed_transactions
+            .iter()
+            .flatten()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        let active_event_ids = self
+            .active_actions
+            .iter()
+            .map(|capture| capture.begin_event.meta.event_id)
+            .collect::<Vec<_>>();
+        let mut executed_event_ids = completed_event_ids;
+        executed_event_ids.extend(active_event_ids);
+        let marker_names = self
+            .active_actions
+            .iter()
+            .map(|capture| capture.control_sequence.clone())
+            .collect::<Vec<_>>();
+        let marker_ids = self
+            .active_actions
+            .iter()
+            .map(|capture| capture.marker_id)
+            .collect::<Vec<_>>();
+
+        self.scanner_slots
+            .iter()
+            .all(VmScannerFootnoteSlotSnapshot::is_restorable)
+            && values_are_unique_nonzero(&scanner_event_ids)
+            && self
+                .completed_transactions
+                .iter()
+                .all(|transaction| !transaction.is_empty())
+            && values_are_unique_nonzero(&executed_event_ids)
+            && marker_names.iter().all(|name| !name.is_empty())
+            && values_are_unique(&marker_names)
+            && values_are_unique(&marker_ids)
+            && marker_ids
+                .iter()
+                .all(|marker_id| *marker_id < self.next_marker_id)
+            && self.active_actions.iter().all(|capture| {
+                capture.text_flow_mark.event_mark <= text_event_count
+                    && capture.inline_event_mark.is_restorable(inline)
+                    && capture.math_event_mark <= math_event_count
+                    && capture.transaction_mark
+                        <= u64::try_from(self.completed_transactions.len()).unwrap_or(u64::MAX)
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmScannerFootnoteSlotSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+    pub event_ids: Vec<EventId>,
+}
+
+impl VmScannerFootnoteSlotSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.start_utf8 <= self.end_utf8 && values_are_unique_nonzero(&self.event_ids)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveFootnoteCaptureSnapshot {
+    pub control_sequence: String,
+    pub marker_id: u64,
+    pub begin_event: RenderEventEnvelope,
+    pub text_flow_mark: VmExecutedTextFlowMarkSnapshot,
+    pub inline_event_mark: VmExecutedInlineEventMarkSnapshot,
+    pub math_event_mark: u64,
+    pub transaction_mark: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

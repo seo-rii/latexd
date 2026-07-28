@@ -16,9 +16,9 @@ use crate::{
     Vm,
     input::QueueItem,
     snapshot::{
-        VmExecutedTextCaptureSnapshot, VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot,
-        VmExpansionMarkerSnapshot, VmScannerTextSlotSnapshot, VmSemanticTextSnapshot,
-        VmSuppressedSourceRangeSnapshot,
+        VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExpansionContextSnapshot,
+        VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmScannerTextSlotSnapshot,
+        VmSemanticTextSnapshot, VmSuppressedSourceRangeSnapshot,
     },
 };
 
@@ -58,6 +58,34 @@ struct ExecutedTextCapture {
     producer: EventProducer,
     literal_path: Option<Utf8PathBuf>,
     end_utf8: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ExecutedTextFlowMark {
+    event_mark: usize,
+    paragraph_has_content: bool,
+    space_run_active: bool,
+}
+
+impl ExecutedTextFlowMark {
+    pub(super) fn snapshot(self) -> VmExecutedTextFlowMarkSnapshot {
+        VmExecutedTextFlowMarkSnapshot {
+            event_mark: self.event_mark.try_into().unwrap_or(u64::MAX),
+            paragraph_has_content: self.paragraph_has_content,
+            space_run_active: self.space_run_active,
+        }
+    }
+
+    pub(super) fn restore(snapshot: &VmExecutedTextFlowMarkSnapshot) -> Self {
+        Self {
+            event_mark: snapshot
+                .event_mark
+                .try_into()
+                .expect("validated text flow event mark"),
+            paragraph_has_content: snapshot.paragraph_has_content,
+            space_run_active: snapshot.space_run_active,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -560,6 +588,29 @@ impl Vm<'_> {
     pub(super) fn executed_text_event_mark(&mut self) -> usize {
         self.flush_executed_text_capture();
         self.semantic_text.executed_events.len()
+    }
+
+    pub(super) fn executed_text_flow_mark(&mut self) -> ExecutedTextFlowMark {
+        self.flush_executed_text_capture();
+        ExecutedTextFlowMark {
+            event_mark: self.semantic_text.executed_events.len(),
+            paragraph_has_content: self.semantic_text.paragraph_has_content,
+            space_run_active: self.semantic_text.space_run_active,
+        }
+    }
+
+    pub(super) fn take_executed_text_events_since(
+        &mut self,
+        mark: ExecutedTextFlowMark,
+    ) -> Vec<RenderEventEnvelope> {
+        self.flush_executed_text_capture();
+        let events = self
+            .semantic_text
+            .executed_events
+            .split_off(mark.event_mark);
+        self.semantic_text.paragraph_has_content = mark.paragraph_has_content;
+        self.semantic_text.space_run_active = mark.space_run_active;
+        events
     }
 
     pub(super) fn rollback_executed_text_events(&mut self, mark: usize) {

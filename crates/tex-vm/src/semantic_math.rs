@@ -486,6 +486,28 @@ impl Vm<'_> {
         self.executed_math_invocations = retained_invocations;
     }
 
+    pub(super) fn take_executed_math_events_since(
+        &mut self,
+        mark: usize,
+    ) -> Vec<RenderEventEnvelope> {
+        let events = self.executed_math_events.split_off(mark);
+        let mut retained_invocations = self
+            .executed_math_events
+            .iter()
+            .filter_map(math_invocation_key)
+            .collect::<HashSet<_>>();
+        if let Some(capture) = &self.executed_math_capture {
+            let invocation_key = if capture.producer == EventProducer::Macro {
+                provenance_primary_key(&capture.semantic_source)
+            } else {
+                Some((capture.source_path.clone(), capture.invocation_start_utf8))
+            };
+            retained_invocations.extend(invocation_key);
+        }
+        self.executed_math_invocations = retained_invocations;
+        events
+    }
+
     pub(super) fn reconcile_executed_math_events(&mut self) {
         let mut scanner_math_ids = mem::take(&mut self.scanner_dollar_math_event_ids);
         scanner_math_ids.extend(mem::take(&mut self.scanner_command_math_event_ids));

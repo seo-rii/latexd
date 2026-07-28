@@ -64,6 +64,7 @@ pub(super) struct ExecutedInlineEventMark {
     citations: usize,
     references: usize,
     links: usize,
+    labels: usize,
     caption_placeholders: usize,
 }
 
@@ -73,6 +74,7 @@ impl ExecutedInlineEventMark {
             citations: self.citations.try_into().unwrap_or(u64::MAX),
             references: self.references.try_into().unwrap_or(u64::MAX),
             links: self.links.try_into().unwrap_or(u64::MAX),
+            labels: self.labels.try_into().unwrap_or(u64::MAX),
             caption_placeholders: self.caption_placeholders.try_into().unwrap_or(u64::MAX),
         }
     }
@@ -91,6 +93,10 @@ impl ExecutedInlineEventMark {
                 .links
                 .try_into()
                 .expect("validated link event mark"),
+            labels: snapshot
+                .labels
+                .try_into()
+                .expect("validated label event mark"),
             caption_placeholders: snapshot
                 .caption_placeholders
                 .try_into()
@@ -286,6 +292,7 @@ impl Vm<'_> {
             citations: self.semantic_inline.executed_citations.len(),
             references: self.semantic_inline.executed_references.len(),
             links: self.semantic_inline.executed_links.len(),
+            labels: self.semantic_inline.executed_labels.len(),
             caption_placeholders: self.semantic_inline.caption_placeholders.len(),
         }
     }
@@ -298,9 +305,31 @@ impl Vm<'_> {
             .executed_references
             .truncate(mark.references);
         self.semantic_inline.executed_links.truncate(mark.links);
+        self.semantic_inline.executed_labels.truncate(mark.labels);
         self.semantic_inline
             .caption_placeholders
             .truncate(mark.caption_placeholders);
+    }
+
+    pub(super) fn take_executed_inline_events_since(
+        &mut self,
+        mark: ExecutedInlineEventMark,
+    ) -> Vec<RenderEventEnvelope> {
+        let mut events = self
+            .semantic_inline
+            .executed_citations
+            .split_off(mark.citations);
+        events.extend(
+            self.semantic_inline
+                .executed_references
+                .split_off(mark.references),
+        );
+        events.extend(self.semantic_inline.executed_links.split_off(mark.links));
+        events.extend(self.semantic_inline.executed_labels.split_off(mark.labels));
+        self.semantic_inline
+            .caption_placeholders
+            .truncate(mark.caption_placeholders);
+        events
     }
 
     pub(super) fn caption_inline_placeholders_since(
@@ -658,7 +687,18 @@ impl Vm<'_> {
     pub(super) fn reconcile_embedded_executed_inline_events(&mut self) {
         let mut executed = Vec::new();
         let mut events = Vec::with_capacity(self.render_events.len());
+        let mut footnote_depth = 0usize;
         for event in self.render_events.drain(..) {
+            if matches!(event.event, RenderEvent::BeginFootnote(_)) {
+                footnote_depth += 1;
+                events.push(event);
+                continue;
+            }
+            if matches!(event.event, RenderEvent::EndFootnote(_)) {
+                footnote_depth = footnote_depth.saturating_sub(1);
+                events.push(event);
+                continue;
+            }
             if matches!(
                 event.event,
                 RenderEvent::InlineCitation(_)
@@ -667,7 +707,8 @@ impl Vm<'_> {
             ) && matches!(
                 event.meta.producer,
                 EventProducer::Primitive | EventProducer::Macro
-            ) {
+            ) && footnote_depth == 0
+            {
                 executed.push(event);
             } else {
                 events.push(event);
