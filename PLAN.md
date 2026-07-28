@@ -130,7 +130,15 @@ VM이 실제로 실행하여 문서에 기여한 내용
 
 ### M13.0 Characterization
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- local register scope, delimited macro, conditional event suppression,
+  macro-generated event, runtime catcode, continuation replay
+  characterization이 들어가 있다.
+- unsafe continuation reuse는 보수적으로 차단하고 semantic event prefix를
+  replay 결과의 authoritative prefix로 유지한다.
+- structured diagnostic와 full snapshot equivalence 확대는 계속 진행한다.
 
 - local register assignment
 - delimited macro argument
@@ -146,7 +154,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 
 ### M13.1 Mechanical VM Split
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- command, input, Eqtb, SaveStack, snapshot, semantic family가 독립 module로
+  이동했다.
+- `lib.rs`에는 여전히 source recovery와 compatibility surface가 크게 남아
+  있으므로 mechanical split 완료로 보지는 않는다.
 
 - `tex-vm/src/lib.rs`를 facade로 축소한다.
 - engine/input/mouth/expansion/macro/condition/eqtb/save-stack/assignment/
@@ -161,7 +175,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 
 ### M13.2 Scanner Quarantine And Event Identity
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- scanner event는 `ScannerRecovery`와 medium confidence를 명시한다.
+- migrated family는 primitive/macro 실행 event로 scanner 결과를
+  reconciliation한다.
+- sequence/stable identity 분리와 bounded recovery 전환은 남아 있다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
@@ -184,7 +204,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 
 ### M13.3 Eqtb And SaveStack
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- control-sequence definition과 주요 register/catcode assignment가 공통
+  Eqtb/SaveStack scope 경로를 사용한다.
+- 남은 assignment class 이전, old scope 제거, persistent root/state hash는
+  완료 전이다.
 
 이전 순서:
 1. control sequence definition과 `\let`
@@ -207,7 +233,12 @@ arithmetic는 같은 scope resolver를 사용한다.
 
 ### M13.4 Streaming Mouth And Token Origin
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- production VM은 현재 catcode를 읽는 streaming `Mouth::next_token()`을
+  사용하고 input continuation에 mouth cursor를 보존한다.
+- file/revision-aware `TokenOrigin`과 interned expansion arena는 남아 있다.
 
 - production `run_plain()`에서 eager whole-document `lex_plain()`을 제거한다.
 - `InputStack`이 character source와 token-list cursor를 함께 관리한다.
@@ -223,7 +254,15 @@ arithmetic는 같은 scope resolver를 사용한다.
 
 ### M13.5 Macro, Prefix, And Command Model
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- full macro parameter text와 delimited argument를 보존한다.
+- `\long` paragraph policy, `\protected` full-expansion deferral,
+  `\outer` forbidden scanner contexts, snapshot/`\ifx` flag identity가
+  실행 의미로 연결돼 있다.
+- malformed-parameter structured diagnostic, expandable/unexpandable command
+  split, `EngineState`/`NestFrame` 통합은 남아 있다.
 
 - macro가 parameter count가 아니라 full parameter text와 replacement
   token-list ID를 보존한다.
@@ -244,7 +283,14 @@ arithmetic는 같은 scope resolver를 사용한다.
 
 ### M13.6 VM-Owned SemanticSink
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- text/space/paragraph, math 일부, heading, citation/reference/link,
+  environment/list, float/caption/graphic, table 일부가 VM 실행 event로
+  scanner recovery를 대체한다.
+- title metadata, label, bibliography, 일부 math/table/wrapper text는 아직
+  scanner recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -272,7 +318,13 @@ scanner rule demotion 순서로 직접 완료한다.
 
 ### M13.7 Snapshot V2
 
-상태: `planned`
+상태: `in progress`
+
+현재 구현:
+- semantic sink state, active capture cursor, input continuation과 event prefix가
+  snapshot/replay에 포함된다.
+- 완전한 `ContinuationCheckpoint`, persistent roots, diagnostic/dependency
+  transaction cursor는 남아 있다.
 
 - safe preamble 전용 `FormatSnapshot`
 - 완전 실행 재개용 `ContinuationCheckpoint`
