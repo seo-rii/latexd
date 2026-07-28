@@ -100,8 +100,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\centering{}
 \def\raggedright{}
 \def\raggedleft{}
-\def\newpage{}
-\def\clearpage{}
 \def\pagebreak{}
 \def\nopagebreak{}
 \def\noindent{}

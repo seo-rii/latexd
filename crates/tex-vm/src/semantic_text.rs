@@ -5,9 +5,10 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventId, EventProducer, ExpansionFrame, LineBreakEvent, LineBreakReason, ParagraphBreakEvent,
-    ParagraphBreakReason, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence,
-    SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
+    EventId, EventProducer, ExpansionFrame, LineBreakEvent, LineBreakReason, PageBreakEvent,
+    PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
+    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind,
+    TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -284,6 +285,18 @@ impl Vm<'_> {
             });
     }
 
+    pub(super) fn record_overridden_page_break_invocation(
+        &mut self,
+        command_name: &str,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !matches!(command_name, "newpage" | "clearpage" | "cleardoublepage") {
+            return;
+        }
+        self.record_suppressed_source_range(start_utf8, end_utf8);
+    }
+
     pub(super) fn queue_macro_expansion(
         &mut self,
         command_name: &str,
@@ -497,6 +510,33 @@ impl Vm<'_> {
             end_utf8,
         );
         self.semantic_text.paragraph_has_content = true;
+        self.semantic_text.space_run_active = false;
+    }
+
+    pub(super) fn capture_executed_page_break(
+        &mut self,
+        kind: PageBreakKind,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        self.flush_executed_text_capture();
+        if !self.can_capture_executed_text() {
+            return;
+        }
+        if self
+            .semantic_text
+            .executed_events
+            .last()
+            .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
+        {
+            self.semantic_text.executed_events.pop();
+        }
+        self.push_executed_text_event(
+            RenderEvent::PageBreak(PageBreakEvent { kind }),
+            start_utf8,
+            end_utf8,
+        );
+        self.semantic_text.paragraph_has_content = false;
         self.semantic_text.space_run_active = false;
     }
 
@@ -949,13 +989,13 @@ fn insert_unmatched_macro_events(
             index += 1;
             continue;
         };
-        if unmatched[index].meta.producer != EventProducer::Macro {
+        if !is_insertable_unmatched_event(&unmatched[index]) {
             index += 1;
             continue;
         }
         let mut end = index + 1;
         while end < unmatched.len()
-            && unmatched[end].meta.producer == EventProducer::Macro
+            && is_insertable_unmatched_event(&unmatched[end])
             && event_anchor(&unmatched[end]).as_ref() == Some(&anchor)
         {
             end += 1;
@@ -986,6 +1026,12 @@ fn insert_unmatched_macro_events(
         events.splice(insertion..insertion, unmatched[index..end].iter().cloned());
         index = end;
     }
+}
+
+fn is_insertable_unmatched_event(event: &RenderEventEnvelope) -> bool {
+    event.meta.producer == EventProducer::Macro
+        || (event.meta.producer == EventProducer::Primitive
+            && matches!(event.event, RenderEvent::PageBreak(_)))
 }
 
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {

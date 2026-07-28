@@ -15274,12 +15274,15 @@ impl<'i> Vm<'i> {
         source: SourceProvenance,
     ) -> &mut RenderEventEnvelope {
         let event_id = self.render_events.allocate_event_id();
-        let scanner_boundary_span = matches!(&event, RenderEvent::LineBreak(_))
-            .then(|| match &source.primary {
-                ProvenanceSpan::File(span) => Some(span.clone()),
-                ProvenanceSpan::Generated(_) => None,
-            })
-            .flatten();
+        let scanner_boundary_span = matches!(
+            &event,
+            RenderEvent::LineBreak(_) | RenderEvent::PageBreak(_)
+        )
+        .then(|| match &source.primary {
+            ProvenanceSpan::File(span) => Some(span.clone()),
+            ProvenanceSpan::Generated(_) => None,
+        })
+        .flatten();
         let scanner_dollar_math = matches!(
             &event,
             RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_)
@@ -16302,6 +16305,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
+                        self.record_overridden_page_break_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -16321,11 +16329,32 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             token_span.end,
                         );
+                        self.record_overridden_page_break_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
                         self.push_token_front(queue, token);
                     }
                     Some(Meaning::Primitive(primitive)) => {
                         if primitive != Primitive::Label {
                             self.record_overridden_label_invocation(
+                                &control_sequence,
+                                token_span.start,
+                                token_span.end,
+                            );
+                        }
+                        let preserves_page_break_semantics = matches!(
+                            (&*control_sequence, primitive),
+                            ("newpage", Primitive::PageBreak(PageBreakKind::NewPage))
+                                | ("clearpage", Primitive::PageBreak(PageBreakKind::ClearPage))
+                                | (
+                                    "cleardoublepage",
+                                    Primitive::PageBreak(PageBreakKind::ClearDoublePage)
+                                )
+                        );
+                        if !preserves_page_break_semantics {
+                            self.record_overridden_page_break_invocation(
                                 &control_sequence,
                                 token_span.start,
                                 token_span.end,
@@ -16428,6 +16457,9 @@ impl<'i> Vm<'i> {
                     invocation_end_utf8 = self.last_token_end_utf8.max(invocation_end_utf8);
                 }
                 self.capture_executed_line_break(source_offset_utf8, invocation_end_utf8);
+            }
+            Primitive::PageBreak(kind) => {
+                self.capture_executed_page_break(kind, source_offset_utf8, source_end_utf8);
             }
             Primitive::MathDelimiter(delimiter) => {
                 self.execute_command_math_delimiter(delimiter, source_offset_utf8, source_end_utf8);
@@ -24108,6 +24140,9 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "relax" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
         "\\" | "newline" | "linebreak" => Some(Primitive::LineBreak),
+        "newpage" => Some(Primitive::PageBreak(PageBreakKind::NewPage)),
+        "clearpage" => Some(Primitive::PageBreak(PageBreakKind::ClearPage)),
+        "cleardoublepage" => Some(Primitive::PageBreak(PageBreakKind::ClearDoublePage)),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
@@ -24595,6 +24630,9 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Relax => "relax",
         Primitive::Par => "par",
         Primitive::LineBreak => "\\",
+        Primitive::PageBreak(PageBreakKind::NewPage) => "newpage",
+        Primitive::PageBreak(PageBreakKind::ClearPage) => "clearpage",
+        Primitive::PageBreak(PageBreakKind::ClearDoublePage) => "cleardoublepage",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",

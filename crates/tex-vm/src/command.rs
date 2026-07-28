@@ -1,4 +1,4 @@
-use tex_render_model::CaptionKind;
+use tex_render_model::{CaptionKind, PageBreakKind};
 use tex_tokens::Token;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -86,6 +86,7 @@ pub(crate) enum Primitive {
     Relax,
     Par,
     LineBreak,
+    PageBreak(PageBreakKind),
     MathDelimiter(MathDelimiterCommand),
     EnsureMath,
     LegacyMathWordBoundary,

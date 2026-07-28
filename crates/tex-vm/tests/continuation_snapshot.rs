@@ -215,6 +215,7 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
             r"\begin{tabular}{ll}New & Cell\end{tabular}",
         ),
         ("caption", r"\caption{Old}", r"\caption{New caption}"),
+        ("page break", r"\newpage", r"\clearpage"),
     ] {
         let (expected, replayed) =
             replay_render_events_after_changed_child(previous_child, current_child);
@@ -335,11 +336,12 @@ x^2
                 .iter()
                 .any(|event| matches!(event.event, RenderEvent::LineBreak(_)))
         );
-        assert!(
-            expected
-                .iter()
-                .any(|event| matches!(event.event, RenderEvent::PageBreak(_)))
-        );
+        let page_break = expected
+            .iter()
+            .find(|event| matches!(event.event, RenderEvent::PageBreak(_)))
+            .expect("page break event");
+        assert_eq!(page_break.meta.producer, EventProducer::Primitive);
+        assert_eq!(page_break.meta.confidence, SemanticConfidence::High);
         assert_eq!(actual, expected);
 
         let expected_stream = RenderEventStream::new(Some("full".to_string()), expected);
