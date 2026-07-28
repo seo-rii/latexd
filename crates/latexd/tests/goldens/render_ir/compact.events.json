@@ -17,14 +17,33 @@
             "start_utf8": 7,
             "end_utf8": 14
           },
-          "related": [],
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 7,
+                "end_utf8": 14
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 0,
+                "end_utf8": 15
+              }
+            }
+          ],
           "expansion_stack": [],
           "generated_by": "source",
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -42,14 +61,33 @@
             "start_utf8": 23,
             "end_utf8": 35
           },
-          "related": [],
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23,
+                "end_utf8": 35
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 15,
+                "end_utf8": 36
+              }
+            }
+          ],
           "expansion_stack": [],
           "generated_by": "source",
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -67,14 +105,33 @@
             "start_utf8": 42,
             "end_utf8": 50
           },
-          "related": [],
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 42,
+                "end_utf8": 50
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 36,
+                "end_utf8": 51
+              }
+            }
+          ],
           "expansion_stack": [],
           "generated_by": "source",
           "expansion_stack_truncated": false
         },
         "mode_hint": "preamble",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {
@@ -96,8 +153,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {

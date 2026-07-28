@@ -28,10 +28,10 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\latexdauthor{}
 \def\latexddate{}
 \def\latexdinstitute{}
-\def\title#1{\gdef\latexdtitle{#1}}
-\newcommand{\author}[2][]{\gdef\latexdauthor{#2}}
-\def\date#1{\gdef\latexddate{#1}}
-\def\maketitle{\latexdtitle \latexdauthor \latexdinstitute \latexddate}
+\def\title#1{\gdef\latexdtitle{#1}\latexdsettitle{#1}}
+\renewcommand{\author}[2][]{\gdef\latexdauthor{#2}\latexdsetauthor{#2}}
+\def\date#1{\gdef\latexddate{#1}\latexdsetdate{#1}}
+\def\maketitle{\latexdflushtitle\latexdtitle \latexdauthor \latexdinstitute \latexddate}
 \newcommand{\thanks}[1]{}
 \newcommand{\affil}[2][]{}
 \newcommand{\institute}[1]{\gdef\latexdinstitute{#1}}

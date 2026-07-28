@@ -2901,7 +2901,7 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             "ieee",
             IEEE_FRONTMATTER_SOURCE,
             "IEEE Paper",
-            vec!["Alice Smith and Bob Jones Vision Lab"],
+            vec!["Alice Smith", "Bob Jones Vision Lab"],
             Vec::new(),
             Vec::new(),
             Vec::new(),

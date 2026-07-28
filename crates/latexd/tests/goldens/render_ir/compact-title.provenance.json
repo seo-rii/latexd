@@ -20,6 +20,24 @@
       },
       "related": [
         {
+          "role": "argument_content",
+          "span": {
+            "end_utf8": 14,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 7
+          }
+        },
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 15,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        },
+        {
           "role": "emit_site",
           "span": {
             "end_utf8": 77,
@@ -40,10 +58,10 @@
         "value": "Ada Lovelace"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 2,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -54,7 +72,26 @@
             "path": "main.tex",
             "start_utf8": 23
           },
-          "related": []
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "end_utf8": 35,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 36,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 15
+              }
+            }
+          ]
         }
       }
     },
@@ -65,10 +102,10 @@
         "value": "May 1843"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 3,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -79,7 +116,26 @@
             "path": "main.tex",
             "start_utf8": 42
           },
-          "related": []
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "end_utf8": 50,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 42
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 51,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 36
+              }
+            }
+          ]
         }
       }
     },
@@ -88,10 +144,10 @@
         "kind": "flush_title_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 4,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -113,10 +169,10 @@
         "value": "A Paper"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 1,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -127,7 +183,26 @@
             "path": "main.tex",
             "start_utf8": 7
           },
-          "related": []
+          "related": [
+            {
+              "role": "argument_content",
+              "span": {
+                "end_utf8": 14,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 7
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 15,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 0
+              }
+            }
+          ]
         }
       }
     }
@@ -145,6 +220,24 @@
           "start_utf8": 23
         },
         "related": [
+          {
+            "role": "argument_content",
+            "span": {
+              "end_utf8": 35,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 23
+            }
+          },
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 36,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 15
+            }
+          },
           {
             "role": "emit_site",
             "span": {
@@ -213,6 +306,24 @@
       },
       "related": [
         {
+          "role": "argument_content",
+          "span": {
+            "end_utf8": 50,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 42
+          }
+        },
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 51,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 36
+          }
+        },
+        {
           "role": "emit_site",
           "span": {
             "end_utf8": 77,
@@ -235,6 +346,24 @@
         "start_utf8": 7
       },
       "related": [
+        {
+          "role": "argument_content",
+          "span": {
+            "end_utf8": 14,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 7
+          }
+        },
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 15,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        },
         {
           "role": "emit_site",
           "span": {

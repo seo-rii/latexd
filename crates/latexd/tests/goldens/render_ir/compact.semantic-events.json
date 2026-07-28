@@ -8,10 +8,10 @@
         "value": "A Paper"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 1,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -22,10 +22,10 @@
         "value": "Ada Lovelace"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 2,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -36,10 +36,10 @@
         "value": "May 1843"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 3,
         "mode_hint": "preamble",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },
@@ -48,10 +48,10 @@
         "kind": "flush_title_block"
       },
       "meta": {
-        "confidence": "medium",
+        "confidence": "high",
         "event_id": 4,
         "mode_hint": "vertical",
-        "producer": "scanner_recovery",
+        "producer": "primitive",
         "source": "<present>"
       }
     },

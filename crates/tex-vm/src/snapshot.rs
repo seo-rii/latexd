@@ -13,7 +13,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 15;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -148,6 +148,8 @@ pub struct VmSemanticCaptureSnapshot {
     #[serde(default)]
     pub footnote: VmSemanticFootnoteSnapshot,
     #[serde(default)]
+    pub front_matter: VmSemanticFrontMatterSnapshot,
+    #[serde(default)]
     pub heading: VmSemanticHeadingSnapshot,
     #[serde(default)]
     pub caption: VmSemanticCaptionSnapshot,
@@ -193,6 +195,7 @@ impl VmSemanticCaptureSnapshot {
                 self.math.executed_events.len(),
                 &self.inline,
             )
+            && self.front_matter.is_restorable()
             && self.heading.is_restorable(
                 self.text.executed_events.len(),
                 self.math.executed_events.len(),
@@ -944,6 +947,26 @@ pub struct VmSemanticEnvironmentSnapshot {
 }
 
 impl VmSemanticEnvironmentSnapshot {
+    pub fn is_restorable(&self) -> bool {
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticFrontMatterSnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+}
+
+impl VmSemanticFrontMatterSnapshot {
     pub fn is_restorable(&self) -> bool {
         let executed_event_ids = self
             .executed_events

@@ -1,4 +1,4 @@
-use tex_render_model::{CaptionKind, FootnoteCommandKind, PageBreakKind};
+use tex_render_model::{CaptionKind, FootnoteCommandKind, MetadataField, PageBreakKind};
 use tex_tokens::Token;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -89,6 +89,8 @@ pub(crate) enum Primitive {
     PageBreak(PageBreakKind),
     Footnote(FootnoteCommandKind),
     FootnoteMark,
+    DocumentMetadata(MetadataField),
+    FlushTitleBlock,
     MathDelimiter(MathDelimiterCommand),
     EnsureMath,
     LegacyMathWordBoundary,

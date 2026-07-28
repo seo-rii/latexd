@@ -333,7 +333,7 @@ impl Vm<'_> {
         expanded: Vec<Token>,
         queue: &mut VecDeque<QueueItem>,
     ) {
-        if !self.render_event_capture || !self.execution_in_document {
+        if !self.render_event_capture {
             for token in expanded.into_iter().rev() {
                 self.push_token_front(queue, token);
             }

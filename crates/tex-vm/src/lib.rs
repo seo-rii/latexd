@@ -32,6 +32,7 @@ mod save_stack;
 mod semantic_caption;
 mod semantic_environment;
 mod semantic_footnote;
+mod semantic_front_matter;
 mod semantic_graphic;
 mod semantic_heading;
 mod semantic_inline;
@@ -58,6 +59,7 @@ use save_stack::SaveStack;
 use semantic_caption::SemanticCaptionState;
 use semantic_environment::SemanticEnvironmentState;
 use semantic_footnote::SemanticFootnoteState;
+use semantic_front_matter::SemanticFrontMatterState;
 use semantic_graphic::SemanticGraphicState;
 use semantic_heading::SemanticHeadingState;
 use semantic_inline::SemanticInlineState;
@@ -79,10 +81,10 @@ pub use snapshot::{
     VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
     VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
     VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
-    VmSemanticFootnoteSnapshot, VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot,
-    VmSemanticInlineSnapshot, VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot,
-    VmSemanticMathSnapshot, VmSemanticSinkSnapshot, VmSemanticTableSnapshot,
-    VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot, VmSemanticGraphicSnapshot,
+    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
+    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
+    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -300,11 +302,11 @@ const ARTICLE_CLASS_SHIM: &str = r##"
 \def\@author{}
 \def\@date{}
 \def\@frontmatterspace{ }
-\def\title#1{\gdef\@title{#1}}
-\def\author#1{\gdef\@author{#1}}
-\def\date#1{\gdef\@date{#1}}
+\def\title#1{\gdef\@title{#1}\latexdsettitle{#1}}
+\def\author#1{\gdef\@author{#1}\latexdsetauthor{#1}}
+\def\date#1{\gdef\@date{#1}\latexdsetdate{#1}}
 \def\and{ and }
-\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@date}
+\def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@date}
 \def\@chapapp{Chapter}
 \def\@textbottom{}
 \def\@afterindentfalse{}
@@ -320,11 +322,11 @@ const REVTEX_CLASS_SHIM: &str = r"
 \LoadClass{article}
 \makeatletter
 \def\@institute{}
-\renewcommand{\author}[2][]{#2\space}
+\renewcommand{\author}[2][]{\latexdsetauthor{#2}#2\space}
 \def\email#1{#1\space}
 \def\affiliation#1{#1\space}
 \def\altaffiliation#1{#1\space}
-\def\maketitle{\@title\@frontmatterspace\@date}
+\def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@date}
 \makeatother
 \def\homepage#1{}
 \def\pacs#1{}
@@ -338,7 +340,7 @@ const LLNCS_CLASS_SHIM: &str = r"
 \def\@institute{}
 \def\institute#1{\gdef\@institute{#1}}
 \def\email#1{#1}
-\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
+\def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
 \makeatother
 \providecommand{\orcidID}[1]{}
 \providecommand{\titlerunning}[1]{}
@@ -390,10 +392,10 @@ const AUTHBLK_PACKAGE_SHIM: &str = r"
 \providecommand{\@institute}{}
 \def\thanks#1{\space#1}
 \providecommand{\author}[2][]{}
-\renewcommand{\author}[2][]{\xdef\latexdauthor{\latexdauthor\space#2}\xdef\@author{\@author\space#2}}
+\renewcommand{\author}[2][]{\latexdsetauthor{#2}\xdef\latexdauthor{\latexdauthor\space#2}\xdef\@author{\@author\space#2}}
 \providecommand{\affil}[2][]{}
 \renewcommand{\affil}[2][]{\xdef\latexdinstitute{\latexdinstitute\space#2}\xdef\@institute{\@institute\space#2}}
-\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
+\def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
 \makeatother
 ";
 
@@ -1040,6 +1042,7 @@ pub struct Vm<'i> {
     semantic_caption: SemanticCaptionState,
     semantic_environment: SemanticEnvironmentState,
     semantic_footnote: SemanticFootnoteState,
+    semantic_front_matter: SemanticFrontMatterState,
     semantic_graphic: SemanticGraphicState,
     semantic_heading: SemanticHeadingState,
     semantic_inline: SemanticInlineState,
@@ -1115,6 +1118,7 @@ impl<'i> Vm<'i> {
             semantic_caption: SemanticCaptionState::default(),
             semantic_environment: SemanticEnvironmentState::default(),
             semantic_footnote: SemanticFootnoteState::default(),
+            semantic_front_matter: SemanticFrontMatterState::default(),
             semantic_graphic: SemanticGraphicState::default(),
             semantic_heading: SemanticHeadingState::default(),
             semantic_inline: SemanticInlineState::default(),
@@ -1374,6 +1378,7 @@ impl<'i> Vm<'i> {
         let original_table = self.semantic_table_snapshot();
         let original_inline = self.semantic_inline_snapshot();
         let original_footnote = self.semantic_footnote_snapshot();
+        let original_front_matter = self.semantic_front_matter_snapshot();
         let original_heading = self.semantic_heading_snapshot();
         let original_caption = self.semantic_caption_snapshot();
 
@@ -1429,6 +1434,11 @@ impl<'i> Vm<'i> {
         let mut footnote = original_footnote.clone();
         footnote.scanner_slots.retain(|slot| &slot.path != path);
         self.restore_semantic_footnote_snapshot(&footnote);
+        let mut front_matter = original_front_matter.clone();
+        front_matter
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_front_matter_snapshot(&front_matter);
         let mut heading = original_heading.clone();
         heading
             .scanner_event_ids
@@ -1513,6 +1523,10 @@ impl<'i> Vm<'i> {
             }
             self.restore_semantic_footnote_snapshot(&footnote);
 
+            let mut front_matter = self.semantic_front_matter_snapshot();
+            remap_event_ids(&mut front_matter.scanner_event_ids);
+            self.restore_semantic_front_matter_snapshot(&front_matter);
+
             let mut heading = self.semantic_heading_snapshot();
             remap_event_ids(&mut heading.scanner_event_ids);
             self.restore_semantic_heading_snapshot(&heading);
@@ -1532,6 +1546,7 @@ impl<'i> Vm<'i> {
         self.restore_semantic_table_snapshot(&original_table);
         self.restore_semantic_inline_snapshot(&original_inline);
         self.restore_semantic_footnote_snapshot(&original_footnote);
+        self.restore_semantic_front_matter_snapshot(&original_front_matter);
         self.restore_semantic_heading_snapshot(&original_heading);
         self.restore_semantic_caption_snapshot(&original_caption);
         self.semantic_recovery_dirty_paths.insert(path.clone());
@@ -3042,76 +3057,11 @@ impl<'i> Vm<'i> {
                             "email" => MetadataField::Correspondence,
                             _ => unreachable!(),
                         };
-                        let mut values = Vec::new();
-                        if field == MetadataField::Author {
-                            let value_bytes = value.as_bytes();
-                            let mut value_start = 0usize;
-                            let mut cursor = 0usize;
-                            let mut group_depth = 0usize;
-                            while cursor < value_bytes.len() {
-                                match value_bytes[cursor] {
-                                    b'%' => {
-                                        while cursor < value_bytes.len()
-                                            && !matches!(value_bytes[cursor], b'\r' | b'\n')
-                                        {
-                                            cursor += 1;
-                                        }
-                                        continue;
-                                    }
-                                    b'\\' => {
-                                        let command_start = cursor;
-                                        cursor += 1;
-                                        if cursor >= value_bytes.len() {
-                                            break;
-                                        }
-                                        if value_bytes[cursor].is_ascii_alphabetic() {
-                                            let name_start = cursor;
-                                            while cursor < value_bytes.len()
-                                                && value_bytes[cursor].is_ascii_alphabetic()
-                                            {
-                                                cursor += 1;
-                                            }
-                                            if group_depth == 0
-                                                && &value_bytes[name_start..cursor] == b"and"
-                                            {
-                                                values.push((value_start, command_start));
-                                                value_start = cursor;
-                                            }
-                                        } else {
-                                            let control_symbol = value_bytes[cursor];
-                                            cursor += 1;
-                                            if group_depth == 0 && control_symbol == b'\\' {
-                                                let mut delimiter_end = cursor;
-                                                if value_bytes.get(delimiter_end) == Some(&b'*') {
-                                                    delimiter_end += 1;
-                                                }
-                                                let option_index =
-                                                    skip_ascii_whitespace(value, delimiter_end);
-                                                if let Some((_, _, _, after_option)) =
-                                                    read_bracket_source_argument(
-                                                        value,
-                                                        option_index,
-                                                    )
-                                                {
-                                                    delimiter_end = after_option;
-                                                }
-                                                values.push((value_start, command_start));
-                                                value_start = delimiter_end;
-                                                cursor = delimiter_end;
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                    b'{' => group_depth += 1,
-                                    b'}' => group_depth = group_depth.saturating_sub(1),
-                                    _ => {}
-                                }
-                                cursor += 1;
-                            }
-                            values.push((value_start, value.len()));
+                        let values = if field == MetadataField::Author {
+                            author_metadata_ranges(value)
                         } else {
-                            values.push((0, value.len()));
-                        }
+                            vec![(0, value.len())]
+                        };
                         for (value_start, value_end) in values {
                             let raw_value = &value[value_start..value_end];
                             let leading_whitespace = raw_value.len() - raw_value.trim_start().len();
@@ -3124,11 +3074,53 @@ impl<'i> Vm<'i> {
                             if field == MetadataField::Author {
                                 let (author, author_notes) = normalize_author_metadata(trimmed);
                                 if !author.is_empty() {
-                                    self.emit_render_event(
+                                    let event_id = self
+                                        .emit_render_event(
+                                            RenderEvent::SetDocumentMetadata(
+                                                SetDocumentMetadataEvent {
+                                                    field,
+                                                    value: author,
+                                                },
+                                            ),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                span_start as u32,
+                                                span_end as u32,
+                                            ),
+                                        )
+                                        .meta
+                                        .event_id;
+                                    self.mark_scanner_front_matter_event(event_id);
+                                }
+                                for (note, note_start, note_end) in author_notes {
+                                    let event_id = self
+                                        .emit_render_event(
+                                            RenderEvent::SetDocumentMetadata(
+                                                SetDocumentMetadataEvent {
+                                                    field: MetadataField::AuthorNote,
+                                                    value: note,
+                                                },
+                                            ),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                (span_start + note_start) as u32,
+                                                (span_start + note_end) as u32,
+                                            ),
+                                        )
+                                        .meta
+                                        .event_id;
+                                    self.mark_scanner_front_matter_event(event_id);
+                                }
+                            } else {
+                                let event_id = self
+                                    .emit_render_event(
                                         RenderEvent::SetDocumentMetadata(
                                             SetDocumentMetadataEvent {
                                                 field,
-                                                value: author,
+                                                value:
+                                                    normalize_latex_text_with_inline_placeholders(
+                                                        trimmed,
+                                                    ),
                                             },
                                         ),
                                         SourceProvenance::file(
@@ -3136,51 +3128,30 @@ impl<'i> Vm<'i> {
                                             span_start as u32,
                                             span_end as u32,
                                         ),
-                                    );
+                                    )
+                                    .meta
+                                    .event_id;
+                                if matches!(field, MetadataField::Title | MetadataField::Date) {
+                                    self.mark_scanner_front_matter_event(event_id);
                                 }
-                                for (note, note_start, note_end) in author_notes {
-                                    self.emit_render_event(
-                                        RenderEvent::SetDocumentMetadata(
-                                            SetDocumentMetadataEvent {
-                                                field: MetadataField::AuthorNote,
-                                                value: note,
-                                            },
-                                        ),
-                                        SourceProvenance::file(
-                                            source_path.to_owned(),
-                                            (span_start + note_start) as u32,
-                                            (span_start + note_end) as u32,
-                                        ),
-                                    );
-                                }
-                            } else {
-                                self.emit_render_event(
-                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                        field,
-                                        value: normalize_latex_text_with_inline_placeholders(
-                                            trimmed,
-                                        ),
-                                    }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        span_start as u32,
-                                        span_end as u32,
-                                    ),
-                                );
                             }
                         }
                         index = after;
                     }
                 }
                 "maketitle" if in_document => {
-                    self.emit_render_event(
-                        RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
-                    );
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .event_id;
+                    self.mark_scanner_front_matter_event(event_id);
                 }
                 "excludecomment" | "includecomment" => {
                     if let Some((environment, _, _, after)) =
@@ -15567,6 +15538,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_environment_events();
             self.reconcile_executed_table_events();
             self.reconcile_executed_footnote_events();
+            self.reconcile_executed_front_matter_events();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.semantic_recovery_dirty_paths.clear();
@@ -15696,6 +15668,7 @@ impl<'i> Vm<'i> {
                 let table = self.semantic_table_snapshot();
                 let inline = self.semantic_inline_snapshot();
                 let footnote = self.semantic_footnote_snapshot();
+                let front_matter = self.semantic_front_matter_snapshot();
                 let heading = self.semantic_heading_snapshot();
                 let caption = self.semantic_caption_snapshot();
                 let mut source_buffers = self
@@ -15742,6 +15715,7 @@ impl<'i> Vm<'i> {
                     table,
                     inline,
                     footnote,
+                    front_matter,
                     heading,
                     caption,
                 }
@@ -15992,6 +15966,7 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_table_snapshot(&semantic_capture.table);
             vm.restore_semantic_inline_snapshot(&semantic_capture.inline);
             vm.restore_semantic_footnote_snapshot(&semantic_capture.footnote);
+            vm.restore_semantic_front_matter_snapshot(&semantic_capture.front_matter);
             vm.restore_semantic_heading_snapshot(&semantic_capture.heading);
             vm.restore_semantic_caption_snapshot(&semantic_capture.caption);
         }
@@ -16374,6 +16349,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
+                        self.record_overridden_front_matter_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -16399,6 +16379,11 @@ impl<'i> Vm<'i> {
                             token_span.end,
                         );
                         self.record_overridden_footnote_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
+                        self.record_overridden_front_matter_invocation(
                             &control_sequence,
                             token_span.start,
                             token_span.end,
@@ -16443,6 +16428,20 @@ impl<'i> Vm<'i> {
                             ) | ("footnotemark", Primitive::FootnoteMark)
                         ) {
                             self.record_overridden_footnote_invocation(
+                                &control_sequence,
+                                token_span.start,
+                                token_span.end,
+                            );
+                        }
+                        let preserves_front_matter_semantics = matches!(
+                            (&*control_sequence, primitive),
+                            ("title", Primitive::DocumentMetadata(MetadataField::Title))
+                                | ("author", Primitive::DocumentMetadata(MetadataField::Author))
+                                | ("date", Primitive::DocumentMetadata(MetadataField::Date))
+                                | ("maketitle", Primitive::FlushTitleBlock)
+                        );
+                        if !preserves_front_matter_semantics {
+                            self.record_overridden_front_matter_invocation(
                                 &control_sequence,
                                 token_span.start,
                                 token_span.end,
@@ -16548,6 +16547,37 @@ impl<'i> Vm<'i> {
             }
             Primitive::PageBreak(kind) => {
                 self.capture_executed_page_break(kind, source_offset_utf8, source_end_utf8);
+            }
+            Primitive::DocumentMetadata(field) => {
+                self.skip_optional_spaces(queue);
+                while self.read_optional_bracket_tokens(queue).is_some() {
+                    self.skip_optional_spaces(queue);
+                }
+                let Some(value_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let visible_values = self.emit_executed_document_metadata(
+                    field,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                    value_tokens,
+                );
+                if !primitive_command_name.starts_with("latexdset") {
+                    for value in visible_values {
+                        if self
+                            .last_legacy_output_char()
+                            .is_some_and(|last| !last.is_whitespace())
+                        {
+                            self.push_legacy_output_char(' ');
+                        }
+                        for ch in value.chars() {
+                            self.push_legacy_output_char(ch);
+                        }
+                    }
+                }
+            }
+            Primitive::FlushTitleBlock => {
+                self.emit_executed_flush_title_block(source_offset_utf8, source_end_utf8);
             }
             Primitive::MathDelimiter(delimiter) => {
                 self.execute_command_math_delimiter(delimiter, source_offset_utf8, source_end_utf8);
@@ -24281,6 +24311,17 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "footnotetext" => Some(Primitive::Footnote(FootnoteCommandKind::FootnoteText)),
         "tablefootnote" => Some(Primitive::Footnote(FootnoteCommandKind::TableFootnote)),
         "footnotemark" => Some(Primitive::FootnoteMark),
+        "title" | "latexdsettitle" => Some(Primitive::DocumentMetadata(MetadataField::Title)),
+        "author" | "latexdsetauthor" => Some(Primitive::DocumentMetadata(MetadataField::Author)),
+        "latexdsetauthornote" => Some(Primitive::DocumentMetadata(MetadataField::AuthorNote)),
+        "latexdsetaffiliation" => Some(Primitive::DocumentMetadata(MetadataField::Affiliation)),
+        "latexdsetcorrespondence" => {
+            Some(Primitive::DocumentMetadata(MetadataField::Correspondence))
+        }
+        "date" | "latexdsetdate" => Some(Primitive::DocumentMetadata(MetadataField::Date)),
+        "latexdsetkeywords" => Some(Primitive::DocumentMetadata(MetadataField::Keywords)),
+        "latexdsetpacs" => Some(Primitive::DocumentMetadata(MetadataField::Pacs)),
+        "maketitle" | "latexdflushtitle" => Some(Primitive::FlushTitleBlock),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
@@ -24775,6 +24816,15 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Footnote(FootnoteCommandKind::FootnoteText) => "footnotetext",
         Primitive::Footnote(FootnoteCommandKind::TableFootnote) => "tablefootnote",
         Primitive::FootnoteMark => "footnotemark",
+        Primitive::DocumentMetadata(MetadataField::Title) => "latexdsettitle",
+        Primitive::DocumentMetadata(MetadataField::Author) => "latexdsetauthor",
+        Primitive::DocumentMetadata(MetadataField::AuthorNote) => "latexdsetauthornote",
+        Primitive::DocumentMetadata(MetadataField::Affiliation) => "latexdsetaffiliation",
+        Primitive::DocumentMetadata(MetadataField::Correspondence) => "latexdsetcorrespondence",
+        Primitive::DocumentMetadata(MetadataField::Date) => "latexdsetdate",
+        Primitive::DocumentMetadata(MetadataField::Keywords) => "latexdsetkeywords",
+        Primitive::DocumentMetadata(MetadataField::Pacs) => "latexdsetpacs",
+        Primitive::FlushTitleBlock => "latexdflushtitle",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",
@@ -26414,6 +26464,64 @@ fn strip_latex_line_comments(source: &str) -> String {
         cursor += ch.len_utf8();
     }
     stripped
+}
+
+fn author_metadata_ranges(source: &str) -> Vec<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut ranges = Vec::new();
+    let mut value_start = 0usize;
+    let mut cursor = 0usize;
+    let mut group_depth = 0usize;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'%' => {
+                cursor = skip_latex_line_comment(source, cursor);
+                continue;
+            }
+            b'\\' => {
+                let command_start = cursor;
+                cursor += 1;
+                if cursor >= bytes.len() {
+                    break;
+                }
+                if bytes[cursor].is_ascii_alphabetic() {
+                    let name_start = cursor;
+                    while cursor < bytes.len() && bytes[cursor].is_ascii_alphabetic() {
+                        cursor += 1;
+                    }
+                    if group_depth == 0 && &bytes[name_start..cursor] == b"and" {
+                        ranges.push((value_start, command_start));
+                        value_start = cursor;
+                    }
+                } else {
+                    let control_symbol = bytes[cursor];
+                    cursor += 1;
+                    if group_depth == 0 && control_symbol == b'\\' {
+                        let mut delimiter_end = cursor;
+                        if bytes.get(delimiter_end) == Some(&b'*') {
+                            delimiter_end += 1;
+                        }
+                        let option_index = skip_ascii_whitespace(source, delimiter_end);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, option_index)
+                        {
+                            delimiter_end = after_option;
+                        }
+                        ranges.push((value_start, command_start));
+                        value_start = delimiter_end;
+                        cursor = delimiter_end;
+                    }
+                }
+                continue;
+            }
+            b'{' => group_depth += 1,
+            b'}' => group_depth = group_depth.saturating_sub(1),
+            _ => {}
+        }
+        cursor += 1;
+    }
+    ranges.push((value_start, source.len()));
+    ranges
 }
 
 fn normalize_author_metadata(source: &str) -> (String, Vec<(String, usize, usize)>) {

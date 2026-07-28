@@ -13,6 +13,24 @@
         },
         "related": [
           {
+            "role": "argument_content",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 7,
+              "end_utf8": 14
+            }
+          },
+          {
+            "role": "invocation",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 0,
+              "end_utf8": 15
+            }
+          },
+          {
             "role": "emit_site",
             "span": {
               "kind": "file",
@@ -39,6 +57,24 @@
           },
           "related": [
             {
+              "role": "argument_content",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23,
+                "end_utf8": 35
+              }
+            },
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 15,
+                "end_utf8": 36
+              }
+            },
+            {
               "role": "emit_site",
               "span": {
                 "kind": "file",
@@ -62,6 +98,24 @@
           "end_utf8": 50
         },
         "related": [
+          {
+            "role": "argument_content",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 42,
+              "end_utf8": 50
+            }
+          },
+          {
+            "role": "invocation",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 36,
+              "end_utf8": 51
+            }
+          },
           {
             "role": "emit_site",
             "span": {
