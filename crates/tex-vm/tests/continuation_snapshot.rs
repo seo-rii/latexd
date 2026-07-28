@@ -226,6 +226,11 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
             r"\footnotemark[1]\footnotetext{Old note.}",
             r"\footnotemark[2]\footnotetext{New note.}",
         ),
+        (
+            "table footnote",
+            r"\tablefootnote{Old note.}",
+            r"\tablefootnote[3]{New note.}",
+        ),
     ] {
         let (expected, replayed) =
             replay_render_events_after_changed_child(previous_child, current_child);

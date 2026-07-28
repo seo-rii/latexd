@@ -16437,6 +16437,9 @@ impl<'i> Vm<'i> {
                             ) | (
                                 "footnotetext",
                                 Primitive::Footnote(FootnoteCommandKind::FootnoteText)
+                            ) | (
+                                "tablefootnote",
+                                Primitive::Footnote(FootnoteCommandKind::TableFootnote)
                             ) | ("footnotemark", Primitive::FootnoteMark)
                         ) {
                             self.record_overridden_footnote_invocation(
@@ -24276,6 +24279,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "cleardoublepage" => Some(Primitive::PageBreak(PageBreakKind::ClearDoublePage)),
         "footnote" => Some(Primitive::Footnote(FootnoteCommandKind::Footnote)),
         "footnotetext" => Some(Primitive::Footnote(FootnoteCommandKind::FootnoteText)),
+        "tablefootnote" => Some(Primitive::Footnote(FootnoteCommandKind::TableFootnote)),
         "footnotemark" => Some(Primitive::FootnoteMark),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),

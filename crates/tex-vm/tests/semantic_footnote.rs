@@ -481,3 +481,144 @@ fn conflicting_explicit_markers_do_not_pair() {
     assert_eq!(bodies[1].note_id, mark.note_id);
     assert_eq!(bodies[1].marker.as_deref(), Some("4"));
 }
+
+#[test]
+fn executed_tablefootnote_is_authoritative_inside_a_table() {
+    let outcome = capture(
+        r"\usepackage{tablefootnote}\begin{document}\begin{tabular}{l}Cell\tablefootnote[5]{Note \cite{key}.}\end{tabular}\end{document}",
+    );
+    let begin = outcome
+        .render_events
+        .iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginFootnote(begin)
+                    if begin.command == FootnoteCommandKind::TableFootnote
+            )
+        })
+        .expect("table footnote begin");
+    let begin_index = outcome
+        .render_events
+        .iter()
+        .position(|event| event.meta.event_id == begin.meta.event_id)
+        .expect("table footnote begin index");
+    let end_index = outcome
+        .render_events
+        .iter()
+        .position(|event| matches!(event.event, RenderEvent::EndFootnote(_)))
+        .expect("table footnote end");
+    let RenderEvent::BeginFootnote(begin_payload) = &begin.event else {
+        unreachable!();
+    };
+
+    assert_eq!(begin_payload.marker.as_deref(), Some("5"));
+    assert!(begin_payload.draw_reference);
+    assert_eq!(begin.meta.producer, EventProducer::Primitive);
+    assert!(
+        outcome.render_events[begin_index..=end_index]
+            .iter()
+            .any(|event| matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+            ))
+    );
+    assert!(
+        outcome.render_events[begin_index..=end_index]
+            .iter()
+            .all(|event| event.meta.producer != EventProducer::ScannerRecovery)
+    );
+}
+
+#[test]
+fn false_conditional_does_not_emit_tablefootnotes() {
+    let outcome = capture(
+        r"\begin{document}\iffalse\tablefootnote{Wrong.}\fi\tablefootnote{Right.}\end{document}",
+    );
+    let begins = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginFootnote(begin)
+                    if begin.command == FootnoteCommandKind::TableFootnote
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(begins.len(), 1);
+    assert_eq!(begins[0].meta.producer, EventProducer::Primitive);
+}
+
+#[test]
+fn macro_generated_tablefootnote_preserves_provenance() {
+    let outcome = capture(
+        r"\def\cellnote#1{\tablefootnote{#1}}\begin{document}\cellnote{Macro note.}\end{document}",
+    );
+    let events = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginFootnote(begin)
+                    if begin.command == FootnoteCommandKind::TableFootnote
+            ) || matches!(event.event, RenderEvent::EndFootnote(_))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.meta.producer == EventProducer::Macro)
+    );
+    assert!(events.iter().all(|event| {
+        event
+            .meta
+            .source
+            .expansion_stack
+            .iter()
+            .any(|frame| frame.command_name.as_deref() == Some("cellnote"))
+    }));
+}
+
+#[test]
+fn tablefootnote_alias_uses_primitive_semantics() {
+    let outcome =
+        capture(r"\let\cellnote\tablefootnote\begin{document}\cellnote{Alias note.}\end{document}");
+    let boundaries = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginFootnote(begin)
+                    if begin.command == FootnoteCommandKind::TableFootnote
+            ) || matches!(event.event, RenderEvent::EndFootnote(_))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(boundaries.len(), 2);
+    assert!(
+        boundaries
+            .iter()
+            .all(|event| event.meta.producer == EventProducer::Primitive)
+    );
+}
+
+#[test]
+fn redefining_tablefootnote_suppresses_scanner_semantics() {
+    let outcome = capture(
+        r"\begin{document}\def\tablefootnote#1{Visible #1}\tablefootnote{body}\end{document}",
+    );
+
+    assert!(!outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::BeginFootnote(begin)
+                if begin.command == FootnoteCommandKind::TableFootnote
+        )
+    }));
+}
