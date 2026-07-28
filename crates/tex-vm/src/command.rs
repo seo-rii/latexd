@@ -62,6 +62,14 @@ pub(crate) enum LegacyGraphicSyntax {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MathDelimiterCommand {
+    InlineOpen,
+    InlineClose,
+    DisplayOpen,
+    DisplayClose,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LegacyGraphicCommand {
     pub(crate) canonical_name: &'static str,
     pub(crate) syntax: LegacyGraphicSyntax,
@@ -78,6 +86,7 @@ pub(crate) enum Primitive {
     Relax,
     Par,
     LineBreak,
+    MathDelimiter(MathDelimiterCommand),
     LegacyMathWordBoundary,
     LegacyTextScriptBoundary,
     Def,

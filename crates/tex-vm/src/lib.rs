@@ -43,8 +43,8 @@ mod snapshot;
 
 use command::{
     CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
-    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, Meaning, Primitive,
-    ReferenceCommand,
+    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning,
+    Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -1027,6 +1027,7 @@ pub struct Vm<'i> {
     render_event_capture: bool,
     render_events: SemanticEventBuffer,
     scanner_dollar_math_event_ids: HashSet<EventId>,
+    scanner_command_math_event_ids: HashSet<EventId>,
     render_event_sources: HashMap<Utf8PathBuf, String>,
     semantic_recovery_dirty_paths: HashSet<Utf8PathBuf>,
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
@@ -1100,6 +1101,7 @@ impl<'i> Vm<'i> {
             render_event_capture: false,
             render_events: SemanticEventBuffer::default(),
             scanner_dollar_math_event_ids: HashSet::new(),
+            scanner_command_math_event_ids: HashSet::new(),
             render_event_sources: HashMap::new(),
             semantic_recovery_dirty_paths: HashSet::new(),
             executed_math_invocations: HashSet::new(),
@@ -1371,6 +1373,8 @@ impl<'i> Vm<'i> {
         let mut math = original_math.clone();
         math.scanner_dollar_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
+        math.scanner_command_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
         self.restore_semantic_math_snapshot(&math);
         let mut text = original_text.clone();
         text.scanner_slots.retain(|slot| &slot.path != path);
@@ -1450,6 +1454,7 @@ impl<'i> Vm<'i> {
 
             let mut math = self.semantic_math_snapshot();
             remap_event_ids(&mut math.scanner_dollar_event_ids);
+            remap_event_ids(&mut math.scanner_command_event_ids);
             self.restore_semantic_math_snapshot(&math);
 
             let mut text = self.semantic_text_snapshot();
@@ -15278,6 +15283,20 @@ impl<'i> Vm<'i> {
                     .and_then(|source| source.as_bytes().get(span.start_utf8 as usize))
                     == Some(&b'$')
         });
+        let scanner_command_math = matches!(
+            &event,
+            RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_)
+        ) && source.related.iter().any(|related| {
+            let ProvenanceSpan::File(span) = &related.span else {
+                return false;
+            };
+            related.role == SourceSpanRole::Invocation
+                && self
+                    .render_event_sources
+                    .get(&span.path)
+                    .and_then(|source| source.get(span.start_utf8 as usize..))
+                    .is_some_and(|source| source.starts_with(r"\(") || source.starts_with(r"\["))
+        });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
         let scanner_link = matches!(&event, RenderEvent::InlineLink(_));
@@ -15305,6 +15324,9 @@ impl<'i> Vm<'i> {
         self.render_events.push(envelope);
         if scanner_dollar_math {
             self.scanner_dollar_math_event_ids.insert(event_id);
+        }
+        if scanner_command_math {
+            self.scanner_command_math_event_ids.insert(event_id);
         }
         if scanner_citation {
             self.mark_scanner_citation_event(event_id);
@@ -16293,7 +16315,9 @@ impl<'i> Vm<'i> {
                                 token_span.end,
                             );
                         }
-                        self.capture_executed_math_control_sequence(&control_sequence);
+                        if !matches!(primitive, Primitive::MathDelimiter(_)) {
+                            self.capture_executed_math_control_sequence(&control_sequence);
+                        }
                         self.execute_primitive(
                             primitive,
                             Token {
@@ -16382,6 +16406,9 @@ impl<'i> Vm<'i> {
                     invocation_end_utf8 = self.last_token_end_utf8.max(invocation_end_utf8);
                 }
                 self.capture_executed_line_break(source_offset_utf8, invocation_end_utf8);
+            }
+            Primitive::MathDelimiter(delimiter) => {
+                self.execute_command_math_delimiter(delimiter, source_offset_utf8, source_end_utf8);
             }
             Primitive::LegacyMathWordBoundary => {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
@@ -24065,6 +24092,10 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "relax" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
         "\\" | "newline" | "linebreak" => Some(Primitive::LineBreak),
+        "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
+        ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
+        "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
+        "]" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayClose)),
         "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
         "latexdtextscriptboundary" => Some(Primitive::LegacyTextScriptBoundary),
         "def" => Some(Primitive::Def),
@@ -24547,6 +24578,10 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Relax => "relax",
         Primitive::Par => "par",
         Primitive::LineBreak => "\\",
+        Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
+        Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
+        Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",
+        Primitive::MathDelimiter(MathDelimiterCommand::DisplayClose) => "]",
         Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
         Primitive::LegacyTextScriptBoundary => "latexdtextscriptboundary",
         Primitive::Def => "def",

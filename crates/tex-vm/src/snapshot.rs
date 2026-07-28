@@ -12,7 +12,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 11;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -205,6 +205,8 @@ pub struct VmSemanticMathSnapshot {
     #[serde(default)]
     pub scanner_dollar_event_ids: Vec<EventId>,
     #[serde(default)]
+    pub scanner_command_event_ids: Vec<EventId>,
+    #[serde(default)]
     pub executed_invocations: Vec<VmSemanticMathInvocationSnapshot>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
@@ -222,9 +224,15 @@ impl VmSemanticMathSnapshot {
         let scanner_event_ids = self
             .scanner_dollar_event_ids
             .iter()
+            .chain(&self.scanner_command_event_ids)
             .copied()
             .collect::<BTreeSet<_>>();
         values_are_unique_nonzero(&self.scanner_dollar_event_ids)
+            && values_are_unique_nonzero(&self.scanner_command_event_ids)
+            && self
+                .scanner_dollar_event_ids
+                .iter()
+                .all(|event_id| !self.scanner_command_event_ids.contains(event_id))
             && values_are_unique(&self.executed_invocations)
             && values_are_unique_nonzero(&executed_event_ids)
             && executed_event_ids
@@ -246,15 +254,26 @@ pub struct VmSemanticMathInvocationSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmExecutedMathCaptureSnapshot {
     pub display: bool,
+    #[serde(default)]
+    pub command_delimited: bool,
     pub raw_source: String,
     pub source_path: Utf8PathBuf,
     pub invocation_start_utf8: u32,
     pub content_start_utf8: u32,
+    #[serde(default)]
+    pub semantic_source: Option<SourceProvenance>,
+    #[serde(default)]
+    pub producer: Option<EventProducer>,
 }
 
 impl VmExecutedMathCaptureSnapshot {
     fn is_restorable(&self) -> bool {
         self.invocation_start_utf8 <= self.content_start_utf8
+            && self.semantic_source.is_some()
+            && matches!(
+                self.producer,
+                Some(EventProducer::Primitive | EventProducer::Macro)
+            )
     }
 }
 

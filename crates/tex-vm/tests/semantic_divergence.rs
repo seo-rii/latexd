@@ -235,7 +235,7 @@ fn macro_generated_math_emits_an_event() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(math, vec![("x^2", EventProducer::Primitive)]);
+    assert_eq!(math, vec![("x^{2}", EventProducer::Macro)]);
 }
 
 #[test]

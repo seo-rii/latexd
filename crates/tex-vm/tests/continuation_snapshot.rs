@@ -163,10 +163,16 @@ fn input_enter_snapshot_replaces_changed_child_citation_event() {
 
 #[test]
 fn input_enter_snapshot_replaces_changed_child_math_event() {
-    let (expected, replayed) =
-        replay_render_events_after_changed_child("$x^2$", r"$\alpha \le \beta$");
+    for (previous_child, current_child) in [
+        ("$x^2$", r"$\alpha \le \beta$"),
+        (r"\(x^2\)", r"\(\alpha \le \beta\)"),
+        (r"\[x^2\]", r"\[\alpha \le \beta\]"),
+    ] {
+        let (expected, replayed) =
+            replay_render_events_after_changed_child(previous_child, current_child);
 
-    assert_eq!(replayed, expected);
+        assert_eq!(replayed, expected);
+    }
 }
 
 #[test]
@@ -350,6 +356,11 @@ fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),
         (r"\begin{document}$$a\input{barrier}b$$\end{document}", true),
+        (
+            r"\begin{document}\(a\input{barrier}b\)\end{document}",
+            false,
+        ),
+        (r"\begin{document}\[a\input{barrier}b\]\end{document}", true),
     ] {
         let (expected, actual) = replay_render_events_after_input_exit(source);
         assert_eq!(
