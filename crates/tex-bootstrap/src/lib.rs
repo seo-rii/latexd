@@ -56,7 +56,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\textsubscript#1{#1\latexdtextscriptboundary}
 \newcommand{\textcolor}[3][]{#3}
 \def\color#1{}
-\def\ensuremath#1{#1}
 \def\mbox#1{#1}
 \def\fbox#1{#1}
 \newcommand{\makebox}[2][]{#2}

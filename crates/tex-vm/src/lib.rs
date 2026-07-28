@@ -15295,7 +15295,11 @@ impl<'i> Vm<'i> {
                     .render_event_sources
                     .get(&span.path)
                     .and_then(|source| source.get(span.start_utf8 as usize..))
-                    .is_some_and(|source| source.starts_with(r"\(") || source.starts_with(r"\["))
+                    .is_some_and(|source| {
+                        source.starts_with(r"\(")
+                            || source.starts_with(r"\[")
+                            || source.starts_with(r"\ensuremath")
+                    })
         });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
         let scanner_reference = matches!(&event, RenderEvent::InlineReference(_));
@@ -16315,7 +16319,10 @@ impl<'i> Vm<'i> {
                                 token_span.end,
                             );
                         }
-                        if !matches!(primitive, Primitive::MathDelimiter(_)) {
+                        if !matches!(
+                            primitive,
+                            Primitive::MathDelimiter(_) | Primitive::EnsureMath
+                        ) {
                             self.capture_executed_math_control_sequence(&control_sequence);
                         }
                         self.execute_primitive(
@@ -16409,6 +16416,9 @@ impl<'i> Vm<'i> {
             }
             Primitive::MathDelimiter(delimiter) => {
                 self.execute_command_math_delimiter(delimiter, source_offset_utf8, source_end_utf8);
+            }
+            Primitive::EnsureMath => {
+                self.execute_ensuremath(source_offset_utf8, source_end_utf8, queue);
             }
             Primitive::LegacyMathWordBoundary => {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
@@ -24096,6 +24106,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
         "]" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayClose)),
+        "ensuremath" => Some(Primitive::EnsureMath),
         "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
         "latexdtextscriptboundary" => Some(Primitive::LegacyTextScriptBoundary),
         "def" => Some(Primitive::Def),
@@ -24582,6 +24593,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayClose) => "]",
+        Primitive::EnsureMath => "ensuremath",
         Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
         Primitive::LegacyTextScriptBoundary => "latexdtextscriptboundary",
         Primitive::Def => "def",

@@ -87,6 +87,7 @@ pub(crate) enum Primitive {
     Par,
     LineBreak,
     MathDelimiter(MathDelimiterCommand),
+    EnsureMath,
     LegacyMathWordBoundary,
     LegacyTextScriptBoundary,
     Def,

@@ -8,7 +8,7 @@ use tex_render_model::{
     EventProducer, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
     SourceSpanRole,
 };
-use tex_tokens::{CatCode, TokenKind};
+use tex_tokens::{CatCode, Token, TokenKind};
 
 use crate::{
     Vm,
@@ -235,6 +235,54 @@ impl Vm<'_> {
 
         self.push_legacy_command_math_shift(delimiter.is_display());
         self.finish_executed_math_capture(start_utf8, end_utf8);
+    }
+
+    pub(super) fn execute_ensuremath(
+        &mut self,
+        start_utf8: u32,
+        end_utf8: u32,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        let Some(argument) = self.read_macro_argument(queue) else {
+            return;
+        };
+        if self.legacy_math_output_active || self.executed_math_capture.is_some() {
+            for token in argument.into_iter().rev() {
+                self.push_token_front(queue, token);
+            }
+            return;
+        }
+
+        let invocation_end_utf8 = self.last_token_end_utf8.max(end_utf8);
+        let content_start_utf8 = argument
+            .first()
+            .map_or(invocation_end_utf8.saturating_sub(1), |token| {
+                token.span.start
+            });
+        let content_end_utf8 = argument
+            .last()
+            .map_or(content_start_utf8, |token| token.span.end);
+        self.push_token_front(
+            queue,
+            Token::character(
+                '$',
+                CatCode::MathShift,
+                content_end_utf8 as usize,
+                invocation_end_utf8 as usize,
+            ),
+        );
+        for token in argument.into_iter().rev() {
+            self.push_token_front(queue, token);
+        }
+        self.push_token_front(
+            queue,
+            Token::character(
+                '$',
+                CatCode::MathShift,
+                start_utf8 as usize,
+                content_start_utf8 as usize,
+            ),
+        );
     }
 
     fn push_legacy_command_math_shift(&mut self, display: bool) {
