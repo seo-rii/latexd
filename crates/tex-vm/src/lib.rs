@@ -76,13 +76,13 @@ pub use snapshot::{
     VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExpansionContextSnapshot,
     VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
     VmInputContinuationSnapshot, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
-    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticCaptionSnapshot,
-    VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot, VmSemanticFootnoteSnapshot,
-    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
-    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
-    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
-    VmSuppressedSourceRangeSnapshot,
+    VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
+    VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
+    VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
+    VmSemanticFootnoteSnapshot, VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot,
+    VmSemanticInlineSnapshot, VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot,
+    VmSemanticMathSnapshot, VmSemanticSinkSnapshot, VmSemanticTableSnapshot,
+    VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -7221,11 +7221,21 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, index)
                     {
                         let note_id = if detached_note {
-                            let pending_mark = if command == "footnotetext" {
-                                scan_state.pending_footnote_mark.take()
-                            } else {
-                                None
-                            };
+                            let marker_conflicts_with_pending = explicit_note_marker
+                                .as_ref()
+                                .zip(
+                                    scan_state
+                                        .pending_footnote_mark
+                                        .as_ref()
+                                        .and_then(|(_, marker)| marker.as_ref()),
+                                )
+                                .is_some_and(|(explicit, pending)| explicit != pending);
+                            let pending_mark =
+                                if command == "footnotetext" && !marker_conflicts_with_pending {
+                                    scan_state.pending_footnote_mark.take()
+                                } else {
+                                    None
+                                };
                             let note_id = pending_mark
                                 .as_ref()
                                 .map(|(note_id, _)| *note_id)
@@ -9833,6 +9843,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "footnotemark" if in_document => {
+                    let first_footnote_event_id = self.render_events.next_event_id();
                     index = skip_ascii_whitespace(source, index);
                     let mut marker = None;
                     if let Some((value, _, _, after_option)) =
@@ -9853,6 +9864,12 @@ impl<'i> Vm<'i> {
                             command_start as u32,
                             index as u32,
                         ),
+                    );
+                    self.record_scanner_footnote_slot(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        first_footnote_event_id,
                     );
                     scan_state.pending_footnote_mark = Some((note_id, marker));
                 }
@@ -16417,7 +16434,10 @@ impl<'i> Vm<'i> {
                             (
                                 "footnote",
                                 Primitive::Footnote(FootnoteCommandKind::Footnote)
-                            )
+                            ) | (
+                                "footnotetext",
+                                Primitive::Footnote(FootnoteCommandKind::FootnoteText)
+                            ) | ("footnotemark", Primitive::FootnoteMark)
                         ) {
                             self.record_overridden_footnote_invocation(
                                 &control_sequence,
@@ -16854,6 +16874,21 @@ impl<'i> Vm<'i> {
                     content_end_utf8,
                     content_tokens,
                     queue,
+                );
+            }
+            Primitive::FootnoteMark => {
+                self.skip_optional_spaces(queue);
+                let marker = self.read_optional_bracket_tokens(queue).and_then(|tokens| {
+                    let expanded = self.fully_expand_tokens(tokens);
+                    let marker = normalize_latex_text_with_inline_placeholders(
+                        &self.tokens_to_text(expanded),
+                    );
+                    (!marker.is_empty()).then_some(marker)
+                });
+                self.emit_executed_footnote_mark(
+                    marker,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
             Primitive::Graphic(graphic_command) => {
@@ -17680,6 +17715,7 @@ impl<'i> Vm<'i> {
                 if environment == "document" {
                     self.execution_in_document = false;
                     self.execution_no_hyper_depth = 0;
+                    self.finish_semantic_footnote_document();
                 } else if environment == "NoHyper" {
                     self.execution_no_hyper_depth = self.execution_no_hyper_depth.saturating_sub(1);
                 }
@@ -24239,6 +24275,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "clearpage" => Some(Primitive::PageBreak(PageBreakKind::ClearPage)),
         "cleardoublepage" => Some(Primitive::PageBreak(PageBreakKind::ClearDoublePage)),
         "footnote" => Some(Primitive::Footnote(FootnoteCommandKind::Footnote)),
+        "footnotetext" => Some(Primitive::Footnote(FootnoteCommandKind::FootnoteText)),
+        "footnotemark" => Some(Primitive::FootnoteMark),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
@@ -24732,6 +24770,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Footnote(FootnoteCommandKind::Footnote) => "footnote",
         Primitive::Footnote(FootnoteCommandKind::FootnoteText) => "footnotetext",
         Primitive::Footnote(FootnoteCommandKind::TableFootnote) => "tablefootnote",
+        Primitive::FootnoteMark => "footnotemark",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",

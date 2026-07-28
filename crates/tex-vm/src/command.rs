@@ -88,6 +88,7 @@ pub(crate) enum Primitive {
     LineBreak,
     PageBreak(PageBreakKind),
     Footnote(FootnoteCommandKind),
+    FootnoteMark,
     MathDelimiter(MathDelimiterCommand),
     EnsureMath,
     LegacyMathWordBoundary,

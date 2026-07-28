@@ -163,8 +163,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\nonumber{}
 \def\notag{}
 \def\tag#1{}
-\newcommand{\footnotetext}[2][]{ #2 }
-\newcommand{\footnotemark}[1][]{}
 \def\hline{}
 \def\cline#1{}
 \newcommand{\toprule}[1][]{}

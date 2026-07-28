@@ -4,15 +4,16 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, CaptionKind, EventId, EventProducer, ListKind,
-    RenderEventEnvelope, SourceProvenance, TableCellEvent, TableColumnSpec, TableRowEvent,
+    CaptionInlinePlaceholderEvent, CaptionKind, EventId, EventProducer, FootnoteId, ListKind,
+    RenderEvent, RenderEventEnvelope, SourceProvenance, TableCellEvent, TableColumnSpec,
+    TableRowEvent,
 };
 use tex_tokens::CatCode;
 
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 14;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -708,6 +709,8 @@ pub struct VmSemanticFootnoteSnapshot {
     pub active_actions: Vec<VmActiveFootnoteCaptureSnapshot>,
     #[serde(default)]
     pub next_marker_id: u64,
+    #[serde(default)]
+    pub pending_mark: Option<VmPendingFootnoteMarkSnapshot>,
 }
 
 impl VmSemanticFootnoteSnapshot {
@@ -747,6 +750,23 @@ impl VmSemanticFootnoteSnapshot {
             .iter()
             .map(|capture| capture.marker_id)
             .collect::<Vec<_>>();
+        let pending_mark_is_valid = self.pending_mark.as_ref().is_none_or(|pending| {
+            let mut matching_marks =
+                self.completed_transactions
+                    .iter()
+                    .flatten()
+                    .filter_map(|event| match &event.event {
+                        RenderEvent::FootnoteMark(mark) if mark.note_id == pending.note_id => {
+                            Some(mark)
+                        }
+                        _ => None,
+                    });
+            pending.note_id != 0
+                && matching_marks
+                    .next()
+                    .is_some_and(|mark| mark.marker == pending.marker)
+                && matching_marks.next().is_none()
+        });
 
         self.scanner_slots
             .iter()
@@ -763,6 +783,7 @@ impl VmSemanticFootnoteSnapshot {
             && marker_ids
                 .iter()
                 .all(|marker_id| *marker_id < self.next_marker_id)
+            && pending_mark_is_valid
             && self.active_actions.iter().all(|capture| {
                 capture.text_flow_mark.event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
@@ -771,6 +792,13 @@ impl VmSemanticFootnoteSnapshot {
                         <= u64::try_from(self.completed_transactions.len()).unwrap_or(u64::MAX)
             })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmPendingFootnoteMarkSnapshot {
+    pub note_id: FootnoteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

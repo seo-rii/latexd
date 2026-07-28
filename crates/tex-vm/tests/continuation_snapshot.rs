@@ -221,6 +221,11 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
             r"\footnote{Old note.}",
             r"\footnote{New note \cite{key}.}",
         ),
+        (
+            "detached footnote",
+            r"\footnotemark[1]\footnotetext{Old note.}",
+            r"\footnotemark[2]\footnotetext{New note.}",
+        ),
     ] {
         let (expected, replayed) =
             replay_render_events_after_changed_child(previous_child, current_child);
@@ -234,6 +239,14 @@ fn replay_render_events_after_changed_child(
     current_child: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     let source = r"\begin{document}Before \input{child} After.\end{document}";
+    replay_render_events_after_changed_child_in(source, previous_child, current_child)
+}
+
+fn replay_render_events_after_changed_child_in(
+    source: &str,
+    previous_child: &str,
+    current_child: &str,
+) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
     vm.enable_render_event_capture();
@@ -271,6 +284,32 @@ fn replay_render_events_after_changed_child(
         expected.output
     );
     (expected.render_events, replayed.render_events)
+}
+
+#[test]
+fn changed_child_footnote_text_stays_paired_with_parent_mark() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\begin{document}Before\footnotemark[4]\input{child}After.\end{document}",
+        r"\footnotetext{Old note.}",
+        r"\footnotetext{New note \cite{key}.}",
+    );
+    let mark_id = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::FootnoteMark(mark) => Some(mark.note_id),
+            _ => None,
+        })
+        .expect("parent footnote mark");
+    let body_id = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+            _ => None,
+        })
+        .expect("child footnote text");
+
+    assert_eq!(mark_id, body_id);
+    assert_eq!(replayed, expected);
 }
 
 #[test]
@@ -591,6 +630,63 @@ fn input_exit_snapshot_preserves_active_footnote_capture() {
             .all(|event| event.meta.producer != EventProducer::ScannerRecovery)
     );
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_pending_detached_footnote_mark() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}Lead\footnotemark[4]\input{barrier}\footnotetext{After.}Tail\end{document}",
+    );
+    let mark = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::FootnoteMark(_)))
+        .expect("footnote mark");
+    let begin = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::BeginFootnote(_)))
+        .expect("footnote text begin");
+    let RenderEvent::FootnoteMark(mark_payload) = &mark.event else {
+        unreachable!();
+    };
+    let RenderEvent::BeginFootnote(begin_payload) = &begin.event else {
+        unreachable!();
+    };
+
+    assert_eq!(mark_payload.note_id, begin_payload.note_id);
+    assert_eq!(mark_payload.marker, begin_payload.marker);
+    assert_eq!(mark.meta.producer, EventProducer::Primitive);
+    assert_eq!(begin.meta.producer, EventProducer::Primitive);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn semantic_snapshot_rejects_a_dangling_pending_footnote_mark() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "");
+    let outcome = vm.run_plain(
+        r"\begin{document}Lead\footnotemark[4]\input{barrier}\footnotetext{After.}\end{document}",
+    );
+    let mut semantic_capture = outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
+        .expect("semantic capture with pending mark");
+
+    assert!(semantic_capture.is_restorable());
+    semantic_capture
+        .footnote
+        .pending_mark
+        .as_mut()
+        .expect("pending mark")
+        .note_id += 1_000;
+    assert!(!semantic_capture.is_restorable());
 }
 
 #[test]

@@ -5,8 +5,9 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    BeginFootnoteEvent, EndFootnoteEvent, EventId, EventProducer, FootnoteCommandKind,
-    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
+    BeginFootnoteEvent, EndFootnoteEvent, EventId, EventProducer, FootnoteCommandKind, FootnoteId,
+    FootnoteMarkEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance,
+    SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -16,7 +17,8 @@ use crate::{
     semantic_inline::ExecutedInlineEventMark,
     semantic_text::ExecutedTextFlowMark,
     snapshot::{
-        VmActiveFootnoteCaptureSnapshot, VmScannerFootnoteSlotSnapshot, VmSemanticFootnoteSnapshot,
+        VmActiveFootnoteCaptureSnapshot, VmPendingFootnoteMarkSnapshot,
+        VmScannerFootnoteSlotSnapshot, VmSemanticFootnoteSnapshot,
     },
 };
 
@@ -26,6 +28,7 @@ pub(super) struct SemanticFootnoteState {
     completed_transactions: Vec<Vec<RenderEventEnvelope>>,
     marker_actions: HashMap<ControlSequenceId, ActiveFootnoteCapture>,
     next_marker_id: u64,
+    pending_mark: Option<PendingFootnoteMark>,
 }
 
 #[derive(Debug)]
@@ -44,6 +47,12 @@ struct ActiveFootnoteCapture {
     inline_event_mark: ExecutedInlineEventMark,
     math_event_mark: usize,
     transaction_mark: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PendingFootnoteMark {
+    note_id: FootnoteId,
+    marker: Option<String>,
 }
 
 impl Vm<'_> {
@@ -86,6 +95,12 @@ impl Vm<'_> {
             completed_transactions: self.semantic_footnote.completed_transactions.clone(),
             active_actions,
             next_marker_id: self.semantic_footnote.next_marker_id,
+            pending_mark: self.semantic_footnote.pending_mark.as_ref().map(|pending| {
+                VmPendingFootnoteMarkSnapshot {
+                    note_id: pending.note_id,
+                    marker: pending.marker.clone(),
+                }
+            }),
         }
     }
 
@@ -126,6 +141,14 @@ impl Vm<'_> {
             );
         }
         self.semantic_footnote.next_marker_id = snapshot.next_marker_id;
+        self.semantic_footnote.pending_mark =
+            snapshot
+                .pending_mark
+                .as_ref()
+                .map(|pending| PendingFootnoteMark {
+                    note_id: pending.note_id,
+                    marker: pending.marker.clone(),
+                });
     }
 
     pub(super) fn record_scanner_footnote_slot(
@@ -155,16 +178,60 @@ impl Vm<'_> {
         start_utf8: u32,
         end_utf8: u32,
     ) {
-        if command_name == "footnote" {
+        if matches!(command_name, "footnote" | "footnotemark" | "footnotetext") {
             self.record_suppressed_source_range(start_utf8, end_utf8);
         }
+    }
+
+    pub(super) fn emit_executed_footnote_mark(
+        &mut self,
+        marker: Option<String>,
+        invocation_start_utf8: u32,
+        invocation_end_utf8: u32,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document {
+            return;
+        }
+
+        self.separate_executed_inline_content();
+        let (mut source, producer) =
+            self.executed_semantic_source(invocation_start_utf8, invocation_end_utf8);
+        if producer == EventProducer::Primitive {
+            source = SourceProvenance::file(
+                self.current_execution_source_path(),
+                invocation_start_utf8,
+                invocation_end_utf8,
+            );
+        }
+        let event_id = self.render_events.allocate_event_id();
+        let mut event = RenderEventEnvelope::new(
+            event_id,
+            RenderEvent::FootnoteMark(FootnoteMarkEvent {
+                note_id: event_id,
+                marker: marker.clone(),
+            }),
+            source,
+        );
+        event.meta.producer = producer;
+        self.semantic_footnote
+            .completed_transactions
+            .push(vec![event]);
+        self.semantic_footnote.pending_mark = Some(PendingFootnoteMark {
+            note_id: event_id,
+            marker,
+        });
+        self.mark_executed_inline_content();
+    }
+
+    pub(super) fn finish_semantic_footnote_document(&mut self) {
+        self.semantic_footnote.pending_mark = None;
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn queue_executed_footnote(
         &mut self,
         command: FootnoteCommandKind,
-        marker: Option<String>,
+        mut marker: Option<String>,
         invocation_start_utf8: u32,
         invocation_end_utf8: u32,
         content_start_utf8: u32,
@@ -196,8 +263,28 @@ impl Vm<'_> {
                     );
         }
 
+        let marker_conflicts_with_pending = marker
+            .as_ref()
+            .zip(
+                self.semantic_footnote
+                    .pending_mark
+                    .as_ref()
+                    .and_then(|pending| pending.marker.as_ref()),
+            )
+            .is_some_and(|(explicit, pending)| explicit != pending);
+        let pending_mark =
+            if command == FootnoteCommandKind::FootnoteText && !marker_conflicts_with_pending {
+                self.semantic_footnote.pending_mark.take()
+            } else {
+                None
+            };
+        if marker.is_none() {
+            marker = pending_mark
+                .as_ref()
+                .and_then(|pending| pending.marker.clone());
+        }
         let event_id = self.render_events.allocate_event_id();
-        let note_id = event_id;
+        let note_id = pending_mark.map_or(event_id, |pending| pending.note_id);
         let mut begin_event = RenderEventEnvelope::new(
             event_id,
             RenderEvent::BeginFootnote(BeginFootnoteEvent {
@@ -291,6 +378,7 @@ impl Vm<'_> {
     pub(super) fn reconcile_executed_footnote_events(&mut self) {
         let slots = mem::take(&mut self.semantic_footnote.scanner_slots);
         let mut transactions = mem::take(&mut self.semantic_footnote.completed_transactions);
+        let mut deferred_removed_event_ids = BTreeSet::new();
 
         for slot in slots {
             let original_events = self
@@ -299,57 +387,122 @@ impl Vm<'_> {
                 .filter(|event| slot.event_ids.contains(&event.meta.event_id))
                 .cloned()
                 .collect::<Vec<_>>();
+            let scanner_mark = original_events.iter().find_map(|event| match &event.event {
+                RenderEvent::FootnoteMark(mark) => Some((mark.note_id, event.meta.source.clone())),
+                _ => None,
+            });
             let scanner_begin = original_events.iter().find_map(|event| match &event.event {
-                RenderEvent::BeginFootnote(begin) => Some((begin, event.meta.source.clone())),
+                RenderEvent::BeginFootnote(begin) => {
+                    Some((begin.note_id, begin.command, event.meta.source.clone()))
+                }
                 _ => None,
             });
             let scanner_end_source = original_events.iter().find_map(|event| {
                 matches!(event.event, RenderEvent::EndFootnote(_))
                     .then(|| event.meta.source.clone())
             });
-            let matching = scanner_begin.as_ref().and_then(|(scanner_begin, _)| {
-                transactions.iter().position(|transaction| {
-                    let Some(executed_begin) =
-                        transaction.iter().find_map(|event| match &event.event {
-                            RenderEvent::BeginFootnote(begin) => Some(begin),
-                            _ => None,
-                        })
-                    else {
-                        return false;
-                    };
-                    if executed_begin.command != scanner_begin.command {
-                        return false;
-                    }
-                    transaction.iter().any(|event| {
-                        provenance_spans(&event.meta.source).any(|span| {
-                            span.path == slot.path
-                                && span.start_utf8 < slot.end_utf8
-                                && slot.start_utf8 < span.end_utf8
-                        })
+            let matching = transactions.iter().position(|transaction| {
+                let Some(root) = transaction.first() else {
+                    return false;
+                };
+                let same_kind = if scanner_mark.is_some() {
+                    matches!(root.event, RenderEvent::FootnoteMark(_))
+                } else if let Some((_, scanner_command, _)) = scanner_begin.as_ref() {
+                    matches!(
+                        &root.event,
+                        RenderEvent::BeginFootnote(begin) if begin.command == *scanner_command
+                    )
+                } else {
+                    false
+                };
+                same_kind
+                    && event_anchor(root).is_some_and(|(path, start_utf8, end_utf8)| {
+                        path == slot.path
+                            && start_utf8 == slot.start_utf8
+                            && end_utf8 <= slot.end_utf8
                     })
-                })
             });
 
             if let Some(index) = matching {
                 let mut transaction = transactions.remove(index);
-                let (scanner_note_id, scanner_begin_source) =
-                    scanner_begin.expect("matching transaction requires scanner begin");
-                let scanner_note_id = scanner_note_id.note_id;
+                let scanner_note_id = scanner_mark
+                    .as_ref()
+                    .map(|(note_id, _)| *note_id)
+                    .or_else(|| scanner_begin.as_ref().map(|(note_id, _, _)| *note_id))
+                    .expect("matching transaction requires scanner footnote");
                 let executed_note_id = transaction
                     .iter()
                     .find_map(|event| match &event.event {
+                        RenderEvent::FootnoteMark(mark) => Some(mark.note_id),
                         RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
                         _ => None,
                     })
-                    .expect("executed footnote transaction begin");
-                for event in &mut transaction {
+                    .expect("executed footnote transaction identity");
+                for event in transaction
+                    .iter_mut()
+                    .chain(transactions.iter_mut().flatten())
+                {
                     match &mut event.event {
                         RenderEvent::BeginFootnote(begin) if begin.note_id == executed_note_id => {
                             begin.note_id = scanner_note_id;
-                            event.meta.source = scanner_begin_source.clone();
                         }
                         RenderEvent::EndFootnote(end) if end.note_id == executed_note_id => {
                             end.note_id = scanner_note_id;
+                        }
+                        RenderEvent::FootnoteMark(mark) if mark.note_id == executed_note_id => {
+                            mark.note_id = scanner_note_id;
+                        }
+                        _ => {}
+                    }
+                }
+                for event in self.render_events.iter_mut() {
+                    match &mut event.event {
+                        RenderEvent::BeginFootnote(begin) if begin.note_id == executed_note_id => {
+                            begin.note_id = scanner_note_id;
+                        }
+                        RenderEvent::EndFootnote(end) if end.note_id == executed_note_id => {
+                            end.note_id = scanner_note_id;
+                        }
+                        RenderEvent::FootnoteMark(mark) if mark.note_id == executed_note_id => {
+                            mark.note_id = scanner_note_id;
+                        }
+                        _ => {}
+                    }
+                }
+                for capture in self.semantic_footnote.marker_actions.values_mut() {
+                    match &mut capture.begin_event.event {
+                        RenderEvent::BeginFootnote(begin) if begin.note_id == executed_note_id => {
+                            begin.note_id = scanner_note_id;
+                        }
+                        _ => {}
+                    }
+                }
+                if self
+                    .semantic_footnote
+                    .pending_mark
+                    .as_ref()
+                    .is_some_and(|pending| pending.note_id == executed_note_id)
+                    && let Some(pending) = &mut self.semantic_footnote.pending_mark
+                {
+                    pending.note_id = scanner_note_id;
+                }
+                for event in &mut transaction {
+                    match &mut event.event {
+                        RenderEvent::FootnoteMark(mark) if mark.note_id == scanner_note_id => {
+                            event.meta.source = scanner_mark
+                                .as_ref()
+                                .expect("matching mark transaction")
+                                .1
+                                .clone();
+                        }
+                        RenderEvent::BeginFootnote(begin) if begin.note_id == scanner_note_id => {
+                            event.meta.source = scanner_begin
+                                .as_ref()
+                                .expect("matching body transaction")
+                                .2
+                                .clone();
+                        }
+                        RenderEvent::EndFootnote(end) if end.note_id == scanner_note_id => {
                             if let Some(source) = &scanner_end_source {
                                 event.meta.source = source.clone();
                             }
@@ -361,9 +514,14 @@ impl Vm<'_> {
                     .iter()
                     .map(|event| event.meta.event_id)
                     .collect::<BTreeSet<_>>();
-                let _ = self
+                if self
                     .render_events
-                    .replace_transaction(&removed_event_ids, transaction);
+                    .replace_transaction(&removed_event_ids, transaction.clone())
+                    .is_none()
+                {
+                    deferred_removed_event_ids.extend(&removed_event_ids);
+                    transactions.push(transaction);
+                }
             } else if original_events
                 .iter()
                 .any(|event| self.semantic_source_is_suppressed(&event.meta.source))
@@ -372,13 +530,18 @@ impl Vm<'_> {
                     .iter()
                     .map(|event| event.meta.event_id)
                     .collect::<BTreeSet<_>>();
-                let _ = self
+                if self
                     .render_events
-                    .replace_transaction(&removed_event_ids, Vec::new());
+                    .replace_transaction(&removed_event_ids, Vec::new())
+                    .is_none()
+                {
+                    deferred_removed_event_ids.extend(removed_event_ids);
+                }
             }
         }
 
         let mut events = self.render_events.take_events();
+        events.retain(|event| !deferred_removed_event_ids.contains(&event.meta.event_id));
         for transaction in transactions {
             let Some((path, start_utf8, end_utf8)) = transaction.first().and_then(event_anchor)
             else {
