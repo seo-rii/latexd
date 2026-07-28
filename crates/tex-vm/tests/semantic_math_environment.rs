@@ -57,9 +57,9 @@ fn false_conditional_does_not_emit_display_math_environment() {
     let outcome = capture(
         r"\begin{document}
 \iffalse
-  \begin{equation}wrong\end{equation}
+  \begin{align}wrong&=value\end{align}
 \fi
-\begin{equation}right\end{equation}
+\begin{align}right&=value\end{align}
 \end{document}",
     );
     let math = outcome
@@ -71,13 +71,13 @@ fn false_conditional_does_not_emit_display_math_environment() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(math, vec!["right"]);
+    assert_eq!(math, vec!["right&=value"]);
 }
 
 #[test]
 fn macro_generated_display_math_environment_preserves_expansion_provenance() {
     let outcome = capture(
-        r"\def\formula#1{\begin{equation}#1^2\end{equation}}
+        r"\def\formula#1{\begin{gather}#1^2\end{gather}}
 \begin{document}
 \formula{x}
 \end{document}",
@@ -110,7 +110,7 @@ fn display_math_environment_aliases_use_execution_semantics() {
         r"\let\startenv\begin
 \let\stopenv\end
 \begin{document}
-\startenv{displaymath}x+1\stopenv{displaymath}
+\startenv{multline}x+1\stopenv{multline}
 \end{document}",
     );
     let math = outcome
@@ -131,7 +131,7 @@ fn overridden_environment_commands_do_not_keep_scanner_math() {
         r"\begin{document}
 \def\begin#1{}
 \def\end#1{}
-\begin{equation}not math\end{equation}",
+\begin{eqnarray}not&=&math\end{eqnarray}",
     );
 
     assert!(!outcome.render_events.iter().any(|event| {
@@ -143,18 +143,43 @@ fn overridden_environment_commands_do_not_keep_scanner_math() {
 }
 
 #[test]
-fn aligned_math_environments_remain_explicit_scanner_recovery() {
+fn aligned_math_environments_emit_executed_events() {
     let outcome = capture(
         r"\begin{document}
 \begin{align}a&=b\\c&=d\end{align}
+\begin{flalign*}e&=f\end{flalign*}
+\begin{gather*}g=h\\i=j\end{gather*}
+\begin{multline}k+l\\=m+n\end{multline}
+\begin{eqnarray*}u&=&v\end{eqnarray*}
 \end{document}",
     );
+    let math = outcome
+        .render_events
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::DisplayMath(_)))
+        .collect::<Vec<_>>();
+
+    assert_eq!(math.len(), 5);
+    for event in math {
+        assert_eq!(event.meta.producer, EventProducer::Primitive);
+        assert_eq!(event.meta.confidence, SemanticConfidence::High);
+    }
+}
+
+#[test]
+fn alignat_column_count_is_not_math_content() {
+    let source = r"\begin{document}\begin{alignat*}{2}x&=y & z&=w\end{alignat*}\end{document}";
+    let outcome = capture(source);
     let event = outcome
         .render_events
         .iter()
         .find(|event| matches!(event.event, RenderEvent::DisplayMath(_)))
-        .expect("aligned display math");
+        .expect("alignat display math");
 
-    assert_eq!(event.meta.producer, EventProducer::ScannerRecovery);
-    assert_eq!(event.meta.confidence, SemanticConfidence::Medium);
+    assert!(matches!(
+        &event.event,
+        RenderEvent::DisplayMath(math) if math.raw_source == "x&=y & z&=w"
+    ));
+    assert_eq!(event.meta.producer, EventProducer::Primitive);
+    assert_eq!(event.meta.confidence, SemanticConfidence::High);
 }

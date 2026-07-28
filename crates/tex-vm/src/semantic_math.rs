@@ -300,22 +300,21 @@ impl Vm<'_> {
         begin: bool,
         start_utf8: u32,
         end_utf8: u32,
+        content_start_utf8: u32,
     ) {
         if !self.render_event_capture || !self.execution_in_document {
             return;
         }
 
         if begin {
-            if is_simple_display_math_environment(environment)
-                && self.executed_math_capture.is_none()
-            {
+            if is_display_math_environment(environment) && self.executed_math_capture.is_none() {
                 self.begin_executed_math_capture(
                     true,
                     true,
                     Some(environment.to_string()),
                     start_utf8,
                     end_utf8,
-                    end_utf8,
+                    content_start_utf8,
                 );
                 return;
             }
@@ -544,18 +543,35 @@ impl Vm<'_> {
     }
 }
 
-pub(super) fn is_simple_display_math_environment(environment: &str) -> bool {
-    matches!(environment, "equation" | "equation*" | "displaymath")
+pub(super) fn is_display_math_environment(environment: &str) -> bool {
+    matches!(
+        environment,
+        "equation"
+            | "equation*"
+            | "displaymath"
+            | "align"
+            | "align*"
+            | "flalign"
+            | "flalign*"
+            | "alignat"
+            | "alignat*"
+            | "gather"
+            | "gather*"
+            | "multline"
+            | "multline*"
+            | "eqnarray"
+            | "eqnarray*"
+    )
 }
 
-pub(super) fn starts_with_simple_display_math_environment(source: &str) -> bool {
+pub(super) fn starts_with_display_math_environment(source: &str) -> bool {
     let Some(source) = source.strip_prefix(r"\begin{") else {
         return false;
     };
     let Some(environment_end) = source.find('}') else {
         return false;
     };
-    is_simple_display_math_environment(&source[..environment_end])
+    is_display_math_environment(&source[..environment_end])
 }
 
 fn provenance_primary_key(source: &SourceProvenance) -> Option<(Utf8PathBuf, u32)> {

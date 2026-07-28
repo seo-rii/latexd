@@ -3585,9 +3585,7 @@ impl<'i> Vm<'i> {
                                         body_start as u32,
                                         body_end as u32,
                                     );
-                                    if semantic_math::is_simple_display_math_environment(
-                                        environment,
-                                    ) {
+                                    if semantic_math::is_display_math_environment(environment) {
                                         math_source = math_source.with_related(
                                             SourceSpanRole::Invocation,
                                             ProvenanceSpan::File(SourceSpan {
@@ -15312,7 +15310,7 @@ impl<'i> Vm<'i> {
                         source.starts_with(r"\(")
                             || source.starts_with(r"\[")
                             || source.starts_with(r"\ensuremath")
-                            || semantic_math::starts_with_simple_display_math_environment(source)
+                            || semantic_math::starts_with_display_math_environment(source)
                     })
         });
         let scanner_citation = matches!(&event, RenderEvent::InlineCitation(_));
@@ -17418,11 +17416,23 @@ impl<'i> Vm<'i> {
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
+                let mut math_content_start_utf8 = environment_end_utf8.max(source_end_utf8);
+                if matches!(environment, "alignat" | "alignat*") {
+                    self.skip_optional_spaces(queue);
+                    if self.read_macro_argument(queue).is_some() {
+                        math_content_start_utf8 = self.last_token_end_utf8;
+                    }
+                    self.skip_optional_spaces(queue);
+                    math_content_start_utf8 = self
+                        .peek_next_token(queue)
+                        .map_or(math_content_start_utf8, |token| token.span.start);
+                }
                 self.execute_math_environment_boundary(
                     environment,
                     true,
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
+                    math_content_start_utf8,
                 );
                 self.emit_executed_environment_boundary(
                     environment,
@@ -17433,24 +17443,7 @@ impl<'i> Vm<'i> {
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
                 }
-                if matches!(
-                    environment,
-                    "equation"
-                        | "equation*"
-                        | "displaymath"
-                        | "align"
-                        | "align*"
-                        | "flalign"
-                        | "flalign*"
-                        | "alignat"
-                        | "alignat*"
-                        | "gather"
-                        | "gather*"
-                        | "multline"
-                        | "multline*"
-                        | "eqnarray"
-                        | "eqnarray*"
-                ) {
+                if semantic_math::is_display_math_environment(environment) {
                     self.legacy_math_output_active = true;
                 }
                 if matches!(environment, "abstract" | "abstract*" | "onecolabstract") {
@@ -17543,6 +17536,7 @@ impl<'i> Vm<'i> {
                     false,
                     source_offset_utf8,
                     environment_end_utf8.max(source_end_utf8),
+                    environment_end_utf8.max(source_end_utf8),
                 );
                 self.emit_executed_environment_boundary(
                     environment,
@@ -17562,24 +17556,7 @@ impl<'i> Vm<'i> {
                 } else if environment == "NoHyper" {
                     self.execution_no_hyper_depth = self.execution_no_hyper_depth.saturating_sub(1);
                 }
-                if matches!(
-                    environment,
-                    "equation"
-                        | "equation*"
-                        | "displaymath"
-                        | "align"
-                        | "align*"
-                        | "flalign"
-                        | "flalign*"
-                        | "alignat"
-                        | "alignat*"
-                        | "gather"
-                        | "gather*"
-                        | "multline"
-                        | "multline*"
-                        | "eqnarray"
-                        | "eqnarray*"
-                ) {
+                if semantic_math::is_display_math_environment(environment) {
                     self.legacy_math_output_active = false;
                 }
             }
