@@ -1131,6 +1131,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "@empty".to_string(),
             Meaning::Macro(MacroDefinition {
+                parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
                 body: Vec::new(),
@@ -1140,6 +1141,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "@nil".to_string(),
             Meaning::Macro(MacroDefinition {
+                parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
                 body: Vec::new(),
@@ -1157,6 +1159,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
                     body: value
@@ -1184,6 +1187,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
                     body,
@@ -1214,6 +1218,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
                     body,
@@ -1236,6 +1241,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
                     body,
@@ -1246,6 +1252,7 @@ impl<'i> Vm<'i> {
         vm.define(
             "p@".to_string(),
             Meaning::Macro(MacroDefinition {
+                parameter_text: Vec::new(),
                 parameter_count: 0,
                 optional_first_argument_default: None,
                 body: "1pt"
@@ -1267,6 +1274,7 @@ impl<'i> Vm<'i> {
             vm.define(
                 name.to_string(),
                 Meaning::Macro(MacroDefinition {
+                    parameter_text: Vec::new(),
                     parameter_count: 0,
                     optional_first_argument_default: None,
                     body: vec![token],
@@ -16162,6 +16170,21 @@ impl<'i> Vm<'i> {
 
                 match meaning {
                     Some(Meaning::Macro(definition)) => {
+                        if self.macro_uses_builtin_graphic_semantics(&control_sequence, &definition)
+                        {
+                            let primitive = builtin_primitive(&control_sequence)
+                                .expect("graphic compatibility macro must have a builtin");
+                            self.capture_executed_math_control_sequence(&control_sequence);
+                            self.execute_primitive(
+                                primitive,
+                                Token {
+                                    kind: TokenKind::ControlSequence { name },
+                                    span: token_span,
+                                },
+                                queue,
+                            );
+                            return;
+                        }
                         let expanded = self.expand_macro(definition, queue);
                         let invocation_end_utf8 = self.last_token_end_utf8.max(token_span.end);
                         self.record_overridden_graphic_invocation(
@@ -16569,6 +16592,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: stream
@@ -16673,6 +16697,7 @@ impl<'i> Vm<'i> {
                     self.define(
                         target,
                         Meaning::Macro(MacroDefinition {
+                            parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
                             body,
@@ -16698,6 +16723,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: stream
@@ -16833,35 +16859,54 @@ impl<'i> Vm<'i> {
                 };
                 self.skip_optional_spaces(queue);
                 let mut parameter_count = 0u8;
+                let mut parameter_text = Vec::new();
+                let mut next_parameter = 1u8;
                 while let Some(token) = self.peek_next_token(queue) {
-                    let TokenKind::Character {
-                        catcode: CatCode::BeginGroup,
-                        ..
-                    } = token.kind
-                    else {
-                        let Some(marker) = self.pop_next_token(queue) else {
-                            return;
-                        };
-                        let TokenKind::Character {
-                            ch: '#',
-                            catcode: CatCode::Parameter,
-                        } = marker.kind
-                        else {
-                            return;
-                        };
-                        let Some(number) = self.pop_next_token(queue) else {
-                            return;
-                        };
-                        let TokenKind::Character { ch, .. } = number.kind else {
-                            return;
-                        };
-                        if let Some(value) = ch.to_digit(10) {
-                            parameter_count = parameter_count.max(value as u8);
-                            continue;
+                    if matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
                         }
+                    ) {
+                        break;
+                    }
+                    let Some(marker) = self.pop_next_token(queue) else {
                         return;
                     };
-                    break;
+                    parameter_text.push(marker.clone());
+                    if matches!(
+                        marker.kind,
+                        TokenKind::Character {
+                            ch: '#',
+                            catcode: CatCode::Parameter,
+                        }
+                    ) {
+                        let Some(parameter) = self.pop_next_token(queue) else {
+                            return;
+                        };
+                        parameter_text.push(parameter.clone());
+                        if matches!(
+                            parameter.kind,
+                            TokenKind::Character {
+                                ch: '#',
+                                catcode: CatCode::Parameter,
+                            }
+                        ) {
+                            continue;
+                        }
+                        let TokenKind::Character { ch, .. } = parameter.kind else {
+                            return;
+                        };
+                        let Some(value) = ch.to_digit(10).map(|value| value as u8) else {
+                            return;
+                        };
+                        if value == 0 || value != next_parameter {
+                            return;
+                        }
+                        parameter_count = value;
+                        next_parameter += 1;
+                    }
                 }
                 let Some(mut body) = self.read_balanced_group(queue) else {
                     return;
@@ -16876,6 +16921,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target,
                     Meaning::Macro(MacroDefinition {
+                        parameter_text,
                         parameter_count,
                         optional_first_argument_default: None,
                         body,
@@ -17016,6 +17062,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@area".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: area
@@ -17028,6 +17075,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@base".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: base
@@ -17040,6 +17088,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filename@ext".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: ext
@@ -17399,6 +17448,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     format!("{stem}true"),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: vec![
@@ -17412,6 +17462,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     format!("{stem}false"),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: vec![
@@ -17571,6 +17622,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "filedate".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: filedate
@@ -17583,6 +17635,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "fileversion".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: fileversion
@@ -17595,6 +17648,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "fileinfo".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: fileinfo
@@ -17628,6 +17682,7 @@ impl<'i> Vm<'i> {
                     self.define(
                         format!("ver@{module_path}"),
                         Meaning::Macro(MacroDefinition {
+                            parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
                             body: version
@@ -18017,6 +18072,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18051,6 +18107,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18085,6 +18142,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18132,6 +18190,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18179,6 +18238,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18226,6 +18286,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18352,6 +18413,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18416,6 +18478,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18463,6 +18526,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18524,6 +18588,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count,
                         optional_first_argument_default,
                         body,
@@ -18551,6 +18616,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -18798,6 +18864,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "@filef@und".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: path
@@ -18833,6 +18900,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     "@filef@und".to_string(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: path
@@ -18990,6 +19058,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     iterate_name,
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: iterate_body,
@@ -19316,6 +19385,7 @@ impl<'i> Vm<'i> {
                     scope.insert(
                         target,
                         Meaning::Macro(MacroDefinition {
+                            parameter_text: Vec::new(),
                             parameter_count: 0,
                             optional_first_argument_default: None,
                             body,
@@ -19405,6 +19475,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     target,
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -20075,11 +20146,13 @@ impl<'i> Vm<'i> {
                         Meaning::Macro(definition)
                     }
                     Some(Meaning::Token(token)) => Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: std::iter::once(token).chain(argument).collect(),
                     }),
                     Some(Meaning::Primitive(_)) | None => Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body: argument,
@@ -20100,6 +20173,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -20120,6 +20194,7 @@ impl<'i> Vm<'i> {
                 self.define(
                     name.clone(),
                     Meaning::Macro(MacroDefinition {
+                        parameter_text: Vec::new(),
                         parameter_count: 0,
                         optional_first_argument_default: None,
                         body,
@@ -21628,12 +21703,34 @@ impl<'i> Vm<'i> {
         definition: MacroDefinition,
         queue: &mut VecDeque<QueueItem>,
     ) -> Vec<Token> {
-        if definition.parameter_count == 0 {
+        if definition.parameter_count == 0 && definition.parameter_text.is_empty() {
             return definition.body;
         }
 
         let mut arguments = Vec::new();
-        if let Some(default) = definition.optional_first_argument_default.clone() {
+        if !definition.parameter_text.is_empty() {
+            let Some((prefix, parameters)) = parse_macro_parameter_text(&definition.parameter_text)
+            else {
+                return Vec::new();
+            };
+            if !self.consume_macro_parameter_delimiter(queue, &prefix) {
+                return Vec::new();
+            }
+            for (parameter, delimiter) in parameters {
+                if usize::from(parameter) != arguments.len() + 1 {
+                    return Vec::new();
+                }
+                let argument = if delimiter.is_empty() {
+                    self.read_macro_argument(queue)
+                } else {
+                    self.read_delimited_macro_argument(queue, &delimiter)
+                };
+                let Some(argument) = argument else {
+                    return Vec::new();
+                };
+                arguments.push(argument);
+            }
+        } else if let Some(default) = definition.optional_first_argument_default.clone() {
             self.skip_optional_spaces(queue);
             if let Some(argument) = self.read_optional_bracket_tokens(queue) {
                 arguments.push(argument);
@@ -21641,11 +21738,13 @@ impl<'i> Vm<'i> {
                 arguments.push(default);
             }
         }
-        for _ in arguments.len()..definition.parameter_count as usize {
-            let Some(argument) = self.read_macro_argument(queue) else {
-                return definition.body;
-            };
-            arguments.push(argument);
+        if definition.parameter_text.is_empty() {
+            for _ in arguments.len()..definition.parameter_count as usize {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return definition.body;
+                };
+                arguments.push(argument);
+            }
         }
 
         let mut expanded = Vec::new();
@@ -21686,10 +21785,27 @@ impl<'i> Vm<'i> {
         expanded
     }
 
+    fn macro_uses_builtin_graphic_semantics(
+        &self,
+        command_name: &str,
+        definition: &MacroDefinition,
+    ) -> bool {
+        command_name == "includegraphics"
+            && definition.parameter_count == 2
+            && definition.optional_first_argument_default.is_none()
+            && macro_tokens_equal_text(&definition.parameter_text, "[#1]#2")
+            && macro_tokens_equal_text(&definition.body, "[image]")
+    }
+
     fn meaning_to_snapshot(&self, meaning: &Meaning) -> SnapshotMeaning {
         match meaning {
             Meaning::Macro(definition) => SnapshotMeaning::Macro {
                 parameter_count: definition.parameter_count,
+                parameter_text: definition
+                    .parameter_text
+                    .iter()
+                    .map(|token| self.token_to_snapshot(token))
+                    .collect(),
                 optional_first_argument_default: definition
                     .optional_first_argument_default
                     .as_ref()
@@ -21718,9 +21834,14 @@ impl<'i> Vm<'i> {
         match meaning {
             SnapshotMeaning::Macro {
                 parameter_count,
+                parameter_text,
                 optional_first_argument_default,
                 body,
             } => Meaning::Macro(MacroDefinition {
+                parameter_text: parameter_text
+                    .iter()
+                    .map(|token| self.snapshot_to_token(token))
+                    .collect(),
                 parameter_count: *parameter_count,
                 optional_first_argument_default: optional_first_argument_default.as_ref().map(
                     |tokens| {
@@ -21839,6 +21960,56 @@ impl<'i> Vm<'i> {
         }
 
         Some(vec![token])
+    }
+
+    fn consume_macro_parameter_delimiter(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        delimiter: &[Token],
+    ) -> bool {
+        for expected in delimiter {
+            let Some(actual) = self.pop_next_token(queue) else {
+                return false;
+            };
+            if actual.kind != expected.kind {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn read_delimited_macro_argument(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        delimiter: &[Token],
+    ) -> Option<Vec<Token>> {
+        let mut argument = Vec::new();
+        let mut group_depth = 0usize;
+        while let Some(token) = self.pop_next_token(queue) {
+            match token.kind {
+                TokenKind::Character {
+                    catcode: CatCode::BeginGroup,
+                    ..
+                } => group_depth += 1,
+                TokenKind::Character {
+                    catcode: CatCode::EndGroup,
+                    ..
+                } if group_depth > 0 => group_depth -= 1,
+                _ => {}
+            }
+            argument.push(token);
+            if group_depth == 0
+                && argument.len() >= delimiter.len()
+                && argument[argument.len() - delimiter.len()..]
+                    .iter()
+                    .zip(delimiter)
+                    .all(|(actual, expected)| actual.kind == expected.kind)
+            {
+                argument.truncate(argument.len() - delimiter.len());
+                return Some(strip_macro_argument_outer_group(argument));
+            }
+        }
+        None
     }
 
     fn read_loop_body(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
@@ -22288,7 +22459,10 @@ impl<'i> Vm<'i> {
         let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
             return None;
         };
-        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
             return None;
         }
         let mut tokens = definition.body.iter();
@@ -22330,7 +22504,10 @@ impl<'i> Vm<'i> {
         let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
             return None;
         };
-        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
             return None;
         }
         let mut tokens = definition.body.iter();
@@ -22372,7 +22549,10 @@ impl<'i> Vm<'i> {
         let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
             return None;
         };
-        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
             return None;
         }
         let mut tokens = definition.body.iter();
@@ -22406,7 +22586,10 @@ impl<'i> Vm<'i> {
         let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
             return None;
         };
-        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
             return None;
         }
         let mut tokens = definition.body.iter();
@@ -22518,7 +22701,10 @@ impl<'i> Vm<'i> {
         let Meaning::Macro(definition) = self.lookup_meaning(name)? else {
             return None;
         };
-        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
             return None;
         }
         let mut value = String::new();
@@ -23130,6 +23316,7 @@ impl<'i> Vm<'i> {
             Token(TokenKind),
             Macro {
                 parameter_count: u8,
+                parameter_text: Vec<TokenKind>,
                 optional_first_argument_default: Option<Vec<TokenKind>>,
                 body: Vec<TokenKind>,
             },
@@ -23146,6 +23333,11 @@ impl<'i> Vm<'i> {
                     Some(Meaning::Token(token)) => IfxMeaning::Token(token.kind),
                     Some(Meaning::Macro(definition)) => IfxMeaning::Macro {
                         parameter_count: definition.parameter_count,
+                        parameter_text: definition
+                            .parameter_text
+                            .into_iter()
+                            .map(|token| token.kind)
+                            .collect(),
                         optional_first_argument_default: definition
                             .optional_first_argument_default
                             .map(|tokens| tokens.into_iter().map(|token| token.kind).collect()),
@@ -23296,6 +23488,112 @@ impl<'i> Vm<'i> {
             .find_map(|scope| scope.get(name))
             .cloned()
     }
+}
+
+fn macro_tokens_equal_text(tokens: &[Token], expected: &str) -> bool {
+    let mut expected = expected.chars();
+    tokens.iter().all(|token| {
+        let Some(expected) = expected.next() else {
+            return false;
+        };
+        matches!(token.kind, TokenKind::Character { ch, .. } if ch == expected)
+    }) && expected.next().is_none()
+}
+
+fn parse_macro_parameter_text(
+    parameter_text: &[Token],
+) -> Option<(Vec<Token>, Vec<(u8, Vec<Token>)>)> {
+    let mut prefix = Vec::new();
+    let mut parameters = Vec::new();
+    let mut current_parameter: Option<(u8, Vec<Token>)> = None;
+    let mut index = 0usize;
+    while index < parameter_text.len() {
+        let token = parameter_text[index].clone();
+        if matches!(
+            token.kind,
+            TokenKind::Character {
+                ch: '#',
+                catcode: CatCode::Parameter,
+            }
+        ) {
+            let next = parameter_text.get(index + 1)?.clone();
+            if matches!(
+                next.kind,
+                TokenKind::Character {
+                    ch: '#',
+                    catcode: CatCode::Parameter,
+                }
+            ) {
+                if let Some((_, delimiter)) = current_parameter.as_mut() {
+                    delimiter.push(token);
+                } else {
+                    prefix.push(token);
+                }
+                index += 2;
+                continue;
+            }
+            let TokenKind::Character { ch, .. } = next.kind else {
+                return None;
+            };
+            let parameter = ch.to_digit(10).map(|value| value as u8)?;
+            if let Some(previous) = current_parameter.replace((parameter, Vec::new())) {
+                parameters.push(previous);
+            }
+            index += 2;
+            continue;
+        }
+        if let Some((_, delimiter)) = current_parameter.as_mut() {
+            delimiter.push(token);
+        } else {
+            prefix.push(token);
+        }
+        index += 1;
+    }
+    if let Some(parameter) = current_parameter {
+        parameters.push(parameter);
+    }
+    Some((prefix, parameters))
+}
+
+fn strip_macro_argument_outer_group(mut tokens: Vec<Token>) -> Vec<Token> {
+    if !matches!(
+        tokens.first().map(|token| &token.kind),
+        Some(TokenKind::Character {
+            catcode: CatCode::BeginGroup,
+            ..
+        })
+    ) || !matches!(
+        tokens.last().map(|token| &token.kind),
+        Some(TokenKind::Character {
+            catcode: CatCode::EndGroup,
+            ..
+        })
+    ) {
+        return tokens;
+    }
+
+    let mut group_depth = 0usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.kind {
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            } => group_depth += 1,
+            TokenKind::Character {
+                catcode: CatCode::EndGroup,
+                ..
+            } => {
+                group_depth = group_depth.saturating_sub(1);
+                if group_depth == 0 && index + 1 != tokens.len() {
+                    return tokens;
+                }
+            }
+            _ => {}
+        }
+    }
+    tokens.remove(0);
+    tokens.pop();
+    tokens
 }
 
 fn builtin_primitive(name: &str) -> Option<Primitive> {

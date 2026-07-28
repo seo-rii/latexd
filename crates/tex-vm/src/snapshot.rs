@@ -1039,6 +1039,8 @@ pub enum SnapshotMeaning {
     Macro {
         parameter_count: u8,
         #[serde(default)]
+        parameter_text: Vec<SnapshotToken>,
+        #[serde(default)]
         optional_first_argument_default: Option<Vec<SnapshotToken>>,
         body: Vec<SnapshotToken>,
     },

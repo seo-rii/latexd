@@ -133,11 +133,56 @@ fn global_and_globaldefs_control_token_register_assignment_scope() {
 }
 
 #[test]
-#[ignore = "known divergence: macro definitions discard delimited parameter text"]
 fn delimited_macro_arguments_follow_parameter_text() {
     let outcome = run(r"\def\pair#1,#2;{#2/#1}\pair a,b;");
 
     assert_eq!(outcome.output, "b/a");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn delimited_macro_arguments_ignore_delimiters_inside_balanced_groups() {
+    let outcome = run(r"\def\take#1;{[#1]}\take {left;right};");
+
+    assert_eq!(outcome.output, "[left;right]");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn macro_parameter_text_supports_fixed_prefixes_and_multi_token_delimiters() {
+    let outcome = run(r"\def\tag BEGIN#1END{[#1]}\tag BEGINvalueEND");
+
+    assert_eq!(outcome.output, "[value]");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn snapshot_restore_preserves_delimited_macro_parameter_text() {
+    let mut initial_interner = ControlSequenceInterner::new();
+    let snapshot = {
+        let mut vm = Vm::new(&mut initial_interner);
+        vm.run_plain(r"\def\pair#1,#2;{#2/#1}");
+        vm.snapshot()
+    };
+    let snapshot =
+        serde_json::from_str(&serde_json::to_string(&snapshot).expect("serialize VM snapshot"))
+            .expect("deserialize VM snapshot");
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+
+    let outcome = vm.run_plain(r"\pair left,right;");
+
+    assert_eq!(outcome.output, "right/left");
+    assert!(outcome.diagnostics.is_empty());
+}
+
+#[test]
+fn ifx_compares_macro_parameter_delimiters() {
+    let outcome = run(
+        r"\def\comma#1,{#1}\def\alsoComma#1,{#1}\def\semicolon#1;{#1}\ifx\comma\alsoComma T\else F\fi\ifx\comma\semicolon X\else Y\fi",
+    );
+
+    assert_eq!(outcome.output, "TY");
     assert!(outcome.diagnostics.is_empty());
 }
 

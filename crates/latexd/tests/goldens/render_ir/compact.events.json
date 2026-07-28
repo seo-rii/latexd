@@ -138,7 +138,7 @@
             "kind": "file",
             "path": "main.tex",
             "start_utf8": 93,
-            "end_utf8": 108
+            "end_utf8": 98
           },
           "related": [],
           "expansion_stack": [],
@@ -161,8 +161,8 @@
           "primary": {
             "kind": "file",
             "path": "main.tex",
-            "start_utf8": 93,
-            "end_utf8": 108
+            "start_utf8": 98,
+            "end_utf8": 99
           },
           "related": [],
           "expansion_stack": [],
@@ -185,7 +185,7 @@
           "primary": {
             "kind": "file",
             "path": "main.tex",
-            "start_utf8": 93,
+            "start_utf8": 99,
             "end_utf8": 108
           },
           "related": [],
@@ -272,7 +272,7 @@
             "kind": "file",
             "path": "main.tex",
             "start_utf8": 137,
-            "end_utf8": 143
+            "end_utf8": 142
           },
           "related": [],
           "expansion_stack": [],
@@ -295,7 +295,7 @@
           "primary": {
             "kind": "file",
             "path": "main.tex",
-            "start_utf8": 137,
+            "start_utf8": 142,
             "end_utf8": 143
           },
           "related": [],

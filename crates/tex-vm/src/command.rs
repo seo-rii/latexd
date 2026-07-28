@@ -11,6 +11,7 @@ pub(crate) enum Meaning {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MacroDefinition {
     pub(crate) parameter_count: u8,
+    pub(crate) parameter_text: Vec<Token>,
     pub(crate) optional_first_argument_default: Option<Vec<Token>>,
     pub(crate) body: Vec<Token>,
 }
