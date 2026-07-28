@@ -7874,14 +7874,21 @@ impl<'i> Vm<'i> {
                                         );
                                     }
                                     "\\" | "newline" | "linebreak" => {
+                                        let mut option_index = inner_index;
+                                        if inner_command == "\\"
+                                            && source[option_index..].starts_with('*')
+                                        {
+                                            option_index += 1;
+                                        }
+                                        option_index = skip_ascii_whitespace(source, option_index);
                                         let linebreak_end = if inner_command != "newline" {
                                             if let Some((_, _, _, command_after)) =
-                                                read_bracket_source_argument(source, inner_index)
+                                                read_bracket_source_argument(source, option_index)
                                                 && command_after <= content_end
                                             {
                                                 command_after
                                             } else {
-                                                inner_index
+                                                option_index.min(content_end)
                                             }
                                         } else {
                                             inner_index
@@ -8778,6 +8785,18 @@ impl<'i> Vm<'i> {
                                                             );
                                                         }
                                                         "\\" | "newline" | "linebreak" => {
+                                                            let mut option_index =
+                                                                argument_inner_index;
+                                                            if argument_command == "\\"
+                                                                && source[option_index..]
+                                                                    .starts_with('*')
+                                                            {
+                                                                option_index += 1;
+                                                            }
+                                                            option_index = skip_ascii_whitespace(
+                                                                source,
+                                                                option_index,
+                                                            );
                                                             let linebreak_end = if argument_command
                                                                 != "newline"
                                                             {
@@ -8788,12 +8807,12 @@ impl<'i> Vm<'i> {
                                                                     command_after,
                                                                 )) = read_bracket_source_argument(
                                                                     source,
-                                                                    argument_inner_index,
+                                                                    option_index,
                                                                 ) && command_after <= text_end
                                                                 {
                                                                     command_after
                                                                 } else {
-                                                                    argument_inner_index
+                                                                    option_index.min(text_end)
                                                                 }
                                                             } else {
                                                                 argument_inner_index
@@ -9802,12 +9821,17 @@ impl<'i> Vm<'i> {
                     );
                 }
                 "\\" if in_document => {
+                    let mut option_index = index;
+                    if source[option_index..].starts_with('*') {
+                        option_index += 1;
+                    }
+                    option_index = skip_ascii_whitespace(source, option_index);
                     let linebreak_end = if let Some((_, _, _, after)) =
-                        read_bracket_source_argument(source, index)
+                        read_bracket_source_argument(source, option_index)
                     {
                         after
                     } else {
-                        index
+                        option_index
                     };
                     self.emit_render_event(
                         RenderEvent::LineBreak(LineBreakEvent {
@@ -10423,7 +10447,7 @@ impl<'i> Vm<'i> {
                         )
                         .meta
                         .event_id;
-                    self.record_scanner_par_event(
+                    self.record_scanner_boundary_event(
                         source_path,
                         command_start as u32,
                         index as u32,
@@ -15227,6 +15251,12 @@ impl<'i> Vm<'i> {
         source: SourceProvenance,
     ) -> &mut RenderEventEnvelope {
         let event_id = self.render_events.allocate_event_id();
+        let scanner_boundary_span = matches!(&event, RenderEvent::LineBreak(_))
+            .then(|| match &source.primary {
+                ProvenanceSpan::File(span) => Some(span.clone()),
+                ProvenanceSpan::Generated(_) => None,
+            })
+            .flatten();
         let scanner_dollar_math = matches!(
             &event,
             RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_)
@@ -15294,6 +15324,14 @@ impl<'i> Vm<'i> {
         }
         if scanner_table {
             self.mark_scanner_table_event(event_id);
+        }
+        if let Some(span) = scanner_boundary_span {
+            self.record_scanner_boundary_event(
+                &span.path,
+                span.start_utf8,
+                span.end_utf8,
+                event_id,
+            );
         }
         self.render_events
             .last_mut()
@@ -16295,6 +16333,27 @@ impl<'i> Vm<'i> {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
             Primitive::Par => {
                 self.capture_executed_paragraph_break(source_offset_utf8, source_end_utf8);
+            }
+            Primitive::LineBreak => {
+                let mut invocation_end_utf8 = source_end_utf8;
+                if primitive_command_name == "\\"
+                    && matches!(
+                        self.peek_next_token(queue).map(|token| token.kind),
+                        Some(TokenKind::Character {
+                            ch: '*',
+                            catcode: CatCode::Other | CatCode::Letter | CatCode::Active,
+                        })
+                    )
+                    && let Some(star) = self.pop_next_token(queue)
+                {
+                    invocation_end_utf8 = star.span.end;
+                }
+                if primitive_command_name != "newline"
+                    && self.read_optional_bracket_tokens(queue).is_some()
+                {
+                    invocation_end_utf8 = self.last_token_end_utf8.max(invocation_end_utf8);
+                }
+                self.capture_executed_line_break(source_offset_utf8, invocation_end_utf8);
             }
             Primitive::LegacyMathWordBoundary => {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
@@ -23958,6 +24017,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
     match name {
         "relax" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
+        "\\" | "newline" | "linebreak" => Some(Primitive::LineBreak),
         "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
         "latexdtextscriptboundary" => Some(Primitive::LegacyTextScriptBoundary),
         "def" => Some(Primitive::Def),
@@ -24438,6 +24498,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
     match primitive {
         Primitive::Relax => "relax",
         Primitive::Par => "par",
+        Primitive::LineBreak => "\\",
         Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
         Primitive::LegacyTextScriptBoundary => "latexdtextscriptboundary",
         Primitive::Def => "def",

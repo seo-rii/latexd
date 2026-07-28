@@ -266,11 +266,13 @@ impl Vm<'_> {
         end_utf8: u32,
         queue: &mut VecDeque<QueueItem>,
     ) -> bool {
-        if !self.semantic_table.structured_events
-            || self.semantic_table.open_tables.is_empty()
+        if self.semantic_table.open_tables.is_empty()
             || !matches!(control_sequence, "\\" | "tabularnewline" | "cr" | "crcr")
         {
             return false;
+        }
+        if !self.semantic_table.structured_events {
+            return control_sequence == "\\";
         }
         if control_sequence == "\\" {
             let _ = self.read_optional_bracket_tokens(queue);

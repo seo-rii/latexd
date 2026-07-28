@@ -5,9 +5,9 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventId, EventProducer, ExpansionFrame, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance,
-    SourceSpan, SpaceEvent, SpaceKind, TextEvent,
+    EventId, EventProducer, ExpansionFrame, LineBreakEvent, LineBreakReason, ParagraphBreakEvent,
+    ParagraphBreakReason, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence,
+    SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -226,7 +226,7 @@ impl Vm<'_> {
         });
     }
 
-    pub(super) fn record_scanner_par_event(
+    pub(super) fn record_scanner_boundary_event(
         &mut self,
         path: &Utf8Path,
         start_utf8: u32,
@@ -474,6 +474,30 @@ impl Vm<'_> {
             end_utf8,
         );
         self.semantic_text.paragraph_has_content = false;
+    }
+
+    pub(super) fn capture_executed_line_break(&mut self, start_utf8: u32, end_utf8: u32) {
+        self.flush_executed_text_capture();
+        if !self.can_capture_executed_text() {
+            return;
+        }
+        if self
+            .semantic_text
+            .executed_events
+            .last()
+            .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
+        {
+            self.semantic_text.executed_events.pop();
+        }
+        self.push_executed_text_event(
+            RenderEvent::LineBreak(LineBreakEvent {
+                reason: LineBreakReason::Explicit,
+            }),
+            start_utf8,
+            end_utf8,
+        );
+        self.semantic_text.paragraph_has_content = true;
+        self.semantic_text.space_run_active = false;
     }
 
     pub(super) fn flush_executed_text_capture(&mut self) {

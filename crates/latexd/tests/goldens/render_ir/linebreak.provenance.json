@@ -5,10 +5,10 @@
       "reason": "explicit"
     },
     "meta": {
-      "confidence": "medium",
+      "confidence": "high",
       "event_id": 4,
       "mode_hint": "horizontal",
-      "producer": "scanner_recovery",
+      "producer": "primitive",
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

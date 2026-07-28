@@ -77,6 +77,7 @@ pub(crate) enum EpsfDimension {
 pub(crate) enum Primitive {
     Relax,
     Par,
+    LineBreak,
     LegacyMathWordBoundary,
     LegacyTextScriptBoundary,
     Def,
