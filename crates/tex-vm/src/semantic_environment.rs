@@ -11,14 +11,27 @@ use tex_render_model::{
 use tex_tokens::TokenKind;
 
 use crate::{
-    Vm, input::QueueItem, semantic_list::list_kind_for_environment,
-    snapshot::VmSemanticEnvironmentSnapshot,
+    Vm,
+    input::QueueItem,
+    semantic_list::list_kind_for_environment,
+    snapshot::{
+        VmExecutionAnchor, VmIncludedEnvironmentAuthoritySnapshot, VmSemanticEnvironmentSnapshot,
+    },
 };
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticEnvironmentState {
     scanner_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
+    included_authorities: Vec<IncludedEnvironmentAuthority>,
+}
+
+#[derive(Debug, Clone)]
+struct IncludedEnvironmentAuthority {
+    environment: String,
+    path: Utf8PathBuf,
+    start_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
 }
 
 impl Vm<'_> {
@@ -33,6 +46,17 @@ impl Vm<'_> {
         VmSemanticEnvironmentSnapshot {
             scanner_event_ids,
             executed_events: self.semantic_environment.executed_events.clone(),
+            included_authorities: self
+                .semantic_environment
+                .included_authorities
+                .iter()
+                .map(|authority| VmIncludedEnvironmentAuthoritySnapshot {
+                    environment: authority.environment.clone(),
+                    path: authority.path.clone(),
+                    start_utf8: authority.start_utf8,
+                    execution_anchor: authority.execution_anchor.clone(),
+                })
+                .collect(),
         }
     }
 
@@ -43,6 +67,16 @@ impl Vm<'_> {
         self.semantic_environment.scanner_event_ids =
             snapshot.scanner_event_ids.iter().copied().collect();
         self.semantic_environment.executed_events = snapshot.executed_events.clone();
+        self.semantic_environment.included_authorities = snapshot
+            .included_authorities
+            .iter()
+            .map(|authority| IncludedEnvironmentAuthority {
+                environment: authority.environment.clone(),
+                path: authority.path.clone(),
+                start_utf8: authority.start_utf8,
+                execution_anchor: authority.execution_anchor.clone(),
+            })
+            .collect();
     }
 
     pub(super) fn mark_scanner_environment_event(&mut self, event_id: EventSequence) {
@@ -62,7 +96,44 @@ impl Vm<'_> {
     }
 
     pub(super) fn execution_environment_is_hidden(&self, environment: &str) -> bool {
-        environment == "comment"
+        self.execution_hidden_environments.contains(environment)
+    }
+
+    pub(super) fn begin_included_environment_authority(
+        &mut self,
+        environment: &str,
+        start_utf8: u32,
+    ) {
+        if !self.render_event_capture {
+            return;
+        }
+        self.discard_suppression_containing_current_invocation(start_utf8);
+        self.semantic_environment
+            .included_authorities
+            .push(IncludedEnvironmentAuthority {
+                environment: environment.to_string(),
+                path: self.current_execution_source_path(),
+                start_utf8,
+                execution_anchor: self.current_execution_anchor(),
+            });
+    }
+
+    pub(super) fn end_included_environment_authority(&mut self, environment: &str, end_utf8: u32) {
+        let Some(index) = self
+            .semantic_environment
+            .included_authorities
+            .iter()
+            .rposition(|authority| authority.environment == environment)
+        else {
+            return;
+        };
+        let authority = self.semantic_environment.included_authorities.remove(index);
+        self.record_executed_text_authority_range(
+            authority.path,
+            authority.start_utf8,
+            end_utf8,
+            authority.execution_anchor,
+        );
     }
 
     pub(super) fn skip_hidden_environment_body(

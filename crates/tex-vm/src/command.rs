@@ -131,6 +131,8 @@ pub(crate) enum Primitive {
     Unexpanded,
     CsName,
     EndCsName,
+    ExcludeComment,
+    IncludeComment,
     BeginEnvironment,
     EndEnvironment,
     Item,

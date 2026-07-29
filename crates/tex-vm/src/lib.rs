@@ -800,9 +800,14 @@ struct RenderEventScanState {
 }
 
 impl RenderEventScanState {
-    fn new(root_source_continues: bool) -> Self {
+    fn new(
+        root_source_continues: bool,
+        hidden_environments: HashSet<String>,
+        included_comment_environments: &HashSet<String>,
+    ) -> Self {
         let mut state = Self {
             root_source_continues,
+            hidden_environments,
             ..Self::default()
         };
         for environment in [
@@ -899,7 +904,9 @@ impl RenderEventScanState {
                 .structured_environments
                 .insert(environment.to_string());
         }
-        state.hidden_environments.insert("comment".to_string());
+        state
+            .structured_environments
+            .extend(included_comment_environments.iter().cloned());
         state
     }
 
@@ -1062,6 +1069,8 @@ pub struct Vm<'i> {
     semantic_text: SemanticTextState,
     execution_in_document: bool,
     execution_no_hyper_depth: usize,
+    execution_hidden_environments: HashSet<String>,
+    execution_included_comment_environments: HashSet<String>,
     transcript: Vec<String>,
     diagnostics: Vec<VmDiagnostic>,
     read_stream_lines: BTreeMap<u32, Vec<String>>,
@@ -1144,6 +1153,8 @@ impl<'i> Vm<'i> {
             semantic_text: SemanticTextState::default(),
             execution_in_document: false,
             execution_no_hyper_depth: 0,
+            execution_hidden_environments: HashSet::from(["comment".to_string()]),
+            execution_included_comment_environments: HashSet::new(),
             transcript: Vec::new(),
             diagnostics: Vec::new(),
             read_stream_lines: BTreeMap::new(),
@@ -1544,7 +1555,11 @@ impl<'i> Vm<'i> {
         self.render_event_sources.remove(path);
         let mark = self.render_events.mark();
         let first_refreshed_event_sequence = self.render_events.next_event_sequence();
-        let mut scan_state = RenderEventScanState::new(false);
+        let mut scan_state = RenderEventScanState::new(
+            false,
+            self.execution_hidden_environments.clone(),
+            &self.execution_included_comment_environments,
+        );
         self.capture_render_events_from_source(
             path,
             source,
@@ -1747,7 +1762,11 @@ impl<'i> Vm<'i> {
                 .entry_source_path
                 .clone()
                 .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
-            let mut scan_state = RenderEventScanState::new(source_continues);
+            let mut scan_state = RenderEventScanState::new(
+                source_continues,
+                self.execution_hidden_environments.clone(),
+                &self.execution_included_comment_environments,
+            );
             self.capture_render_events_from_source(
                 &source_path,
                 source,
@@ -16146,6 +16165,24 @@ impl<'i> Vm<'i> {
                 include_only.sort();
                 include_only
             }),
+            hidden_environments: {
+                let mut hidden_environments = self
+                    .execution_hidden_environments
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                hidden_environments.sort();
+                hidden_environments
+            },
+            included_comment_environments: {
+                let mut included_environments = self
+                    .execution_included_comment_environments
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                included_environments.sort();
+                included_environments
+            },
             aftergroup_tokens: self
                 .aftergroup_tokens
                 .iter()
@@ -16269,6 +16306,12 @@ impl<'i> Vm<'i> {
             .include_only
             .as_ref()
             .map(|paths| paths.iter().cloned().collect());
+        vm.execution_hidden_environments = snapshot.hidden_environments.iter().cloned().collect();
+        vm.execution_included_comment_environments = snapshot
+            .included_comment_environments
+            .iter()
+            .cloned()
+            .collect();
         vm.aftergroup_tokens = snapshot
             .aftergroup_tokens
             .iter()
@@ -18022,6 +18065,25 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::EndCsName => {}
+            Primitive::ExcludeComment | Primitive::IncludeComment => {
+                let Some(tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let expanded = self.fully_expand_tokens(tokens);
+                let environment = self.tokens_to_text(expanded).trim().to_string();
+                if environment.is_empty() {
+                    return;
+                }
+                if primitive == Primitive::ExcludeComment {
+                    self.execution_included_comment_environments
+                        .remove(&environment);
+                    self.execution_hidden_environments.insert(environment);
+                } else {
+                    self.execution_hidden_environments.remove(&environment);
+                    self.execution_included_comment_environments
+                        .insert(environment);
+                }
+            }
             Primitive::BeginEnvironment => {
                 let Some((environment, environment_end_utf8)) =
                     self.read_executed_environment_name(queue)
@@ -18037,6 +18099,15 @@ impl<'i> Vm<'i> {
                     self.execution_in_document = true;
                 }
                 let mut environment_boundary_end_utf8 = environment_end_utf8.max(source_end_utf8);
+                if self
+                    .execution_included_comment_environments
+                    .contains(environment)
+                {
+                    self.begin_included_environment_authority(
+                        environment,
+                        environment_boundary_end_utf8,
+                    );
+                }
                 if environment == "thebibliography" {
                     self.skip_optional_spaces(queue);
                     if self.read_macro_argument(queue).is_some() {
@@ -18161,6 +18232,7 @@ impl<'i> Vm<'i> {
                 };
                 let environment = environment.trim();
                 let environment_boundary_end_utf8 = environment_end_utf8.max(source_end_utf8);
+                self.end_included_environment_authority(environment, source_offset_utf8);
                 if environment == "thebibliography" {
                     self.end_executed_bibliography_environment(environment_boundary_end_utf8);
                 } else if environment == "document" {
@@ -25014,6 +25086,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "unexpanded" => Some(Primitive::Unexpanded),
         "csname" => Some(Primitive::CsName),
         "endcsname" => Some(Primitive::EndCsName),
+        "excludecomment" => Some(Primitive::ExcludeComment),
+        "includecomment" => Some(Primitive::IncludeComment),
         "begin" => Some(Primitive::BeginEnvironment),
         "end" => Some(Primitive::EndEnvironment),
         "item" => Some(Primitive::Item),
@@ -25515,6 +25589,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Unexpanded => "unexpanded",
         Primitive::CsName => "csname",
         Primitive::EndCsName => "endcsname",
+        Primitive::ExcludeComment => "excludecomment",
+        Primitive::IncludeComment => "includecomment",
         Primitive::BeginEnvironment => "begin",
         Primitive::EndEnvironment => "end",
         Primitive::Item => "item",

@@ -1266,6 +1266,8 @@ pub struct VmSemanticEnvironmentSnapshot {
     pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub included_authorities: Vec<VmIncludedEnvironmentAuthoritySnapshot>,
 }
 
 impl VmSemanticEnvironmentSnapshot {
@@ -1277,6 +1279,27 @@ impl VmSemanticEnvironmentSnapshot {
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
+            && self
+                .included_authorities
+                .iter()
+                .all(VmIncludedEnvironmentAuthoritySnapshot::is_restorable)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmIncludedEnvironmentAuthoritySnapshot {
+    pub environment: String,
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
+}
+
+impl VmIncludedEnvironmentAuthoritySnapshot {
+    fn is_restorable(&self) -> bool {
+        !self.environment.is_empty()
+            && self.path == self.execution_anchor.path
+            && self.execution_anchor.is_restorable()
     }
 }
 
@@ -1391,6 +1414,10 @@ pub struct VmSnapshot {
     pub next_write_stream: u32,
     pub loaded_modules: Vec<Utf8PathBuf>,
     pub include_only: Option<Vec<Utf8PathBuf>>,
+    #[serde(default = "default_hidden_environments")]
+    pub hidden_environments: Vec<String>,
+    #[serde(default)]
+    pub included_comment_environments: Vec<String>,
     #[serde(default)]
     pub aftergroup_tokens: Vec<Vec<SnapshotToken>>,
     #[serde(default)]
@@ -1445,6 +1472,10 @@ pub struct VmSnapshot {
     pub legacy_output_last_char: Option<char>,
     #[serde(default)]
     pub legacy_text_script_boundary_pending: bool,
+}
+
+fn default_hidden_environments() -> Vec<String> {
+    vec!["comment".to_string()]
 }
 
 fn default_next_render_event_sequence() -> EventSequence {

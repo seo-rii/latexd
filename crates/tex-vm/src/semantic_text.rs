@@ -420,6 +420,54 @@ impl Vm<'_> {
             });
     }
 
+    pub(super) fn discard_suppression_containing_current_invocation(
+        &mut self,
+        fallback_start_utf8: u32,
+    ) {
+        let (current_path, start_utf8) = self.current_invocation_end(fallback_start_utf8);
+        let execution_anchor = self.current_execution_anchor();
+        self.semantic_text.suppressed_ranges.retain(|range| {
+            range.execution_anchor != execution_anchor
+                || range.path != current_path
+                || range.end_utf8 <= start_utf8
+                || range.start_utf8 > start_utf8
+        });
+    }
+
+    fn current_invocation_end(&self, fallback_start_utf8: u32) -> (Utf8PathBuf, u32) {
+        let current_path = self.current_execution_source_path();
+        let start_utf8 = self
+            .semantic_text
+            .expansion_stack
+            .last()
+            .and_then(|expansion| match &expansion.source.primary {
+                ProvenanceSpan::File(span) if span.path == current_path => Some(span.end_utf8),
+                ProvenanceSpan::File(_) | ProvenanceSpan::Generated(_) => None,
+            })
+            .unwrap_or(fallback_start_utf8);
+        (current_path, start_utf8)
+    }
+
+    pub(super) fn record_executed_text_authority_range(
+        &mut self,
+        path: Utf8PathBuf,
+        start_utf8: u32,
+        end_utf8: u32,
+        execution_anchor: VmExecutionAnchor,
+    ) {
+        if !self.render_event_capture || end_utf8 <= start_utf8 {
+            return;
+        }
+        self.semantic_text
+            .forced_execution_ranges
+            .push(ExecutionAuthorityRange {
+                path,
+                start_utf8,
+                end_utf8,
+                execution_anchor,
+            });
+    }
+
     pub(super) fn close_executed_text_authority(&mut self, end_utf8: u32) {
         if !self.render_event_capture {
             return;
@@ -1287,6 +1335,19 @@ fn insert_unmatched_execution_events(
                     EventProducer::ScannerRecovery | EventProducer::Fallback
                 )
         });
+        let forced_execution = unmatched[index..end].iter().any(|event| {
+            event_is_in_forced_execution_range(
+                event,
+                forced_execution_ranges,
+                executed_event_anchors.get(&event.meta.sequence),
+            )
+        });
+        if forced_execution {
+            events.retain(|event| {
+                !matches!(event.event, RenderEvent::RawFallback(_))
+                    || !event_overlaps_anchor(event, &anchor.0, anchor.1, anchor.2)
+            });
+        }
         if has_scanner_semantics {
             index = end;
             continue;
@@ -1321,14 +1382,26 @@ fn is_insertable_unmatched_event(
                         | RenderEvent::Space(_)
                         | RenderEvent::LineBreak(_)
                         | RenderEvent::ParagraphBreak(_)
-                ) && forced_execution_ranges.iter().any(|range| {
-                    execution_anchor == Some(&range.execution_anchor)
-                        && provenance_spans(&event.meta.source).any(|span| {
-                            span.path == range.path
-                                && span.start_utf8 < range.end_utf8
-                                && range.start_utf8 < span.end_utf8
-                        })
-                }))))
+                ) && event_is_in_forced_execution_range(
+                    event,
+                    forced_execution_ranges,
+                    execution_anchor,
+                ))))
+}
+
+fn event_is_in_forced_execution_range(
+    event: &RenderEventEnvelope,
+    forced_execution_ranges: &[ExecutionAuthorityRange],
+    execution_anchor: Option<&VmExecutionAnchor>,
+) -> bool {
+    forced_execution_ranges.iter().any(|range| {
+        execution_anchor == Some(&range.execution_anchor)
+            && provenance_spans(&event.meta.source).any(|span| {
+                span.path == range.path
+                    && span.start_utf8 < range.end_utf8
+                    && range.start_utf8 < span.end_utf8
+            })
+    })
 }
 
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
