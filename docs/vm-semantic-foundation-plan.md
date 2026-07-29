@@ -809,13 +809,30 @@ Bibliography materialization:
 - continuation snapshots preserve the entry jobname, external input
   dependency, occurrence authority, and event stream equality after replay.
 
+Non-visible bibliography metadata:
+
+- `\addbibresource`, `\bibliographystyle`, `\nocite`, and `\defcitealias`
+  consume their real optional and mandatory arguments only when VM execution
+  reaches them;
+- direct calls, macro expansion, `\let` aliases, and continuation replay keep
+  resource paths, options, styles, keys, and alias text out of legacy output,
+  RenderEvent text, SemanticDocumentIr, and PageDisplayList text;
+- user definitions continue to take precedence and preserve their visible
+  execution semantics;
+- executed source ranges suppress matching scanner recovery, including
+  aliased invocations whose source command name is not one of the four
+  built-ins;
+- this slice establishes execution and visibility ownership only. Resource
+  registration, style selection, `nocite` inclusion, and citation-alias
+  definitions are not yet first-class semantic aux records.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and package-specific bibliography helpers,
-unbridged profile commands, plus parts of math, table, and wrapper recovery
-remain scanner-only. Subsequent slices must migrate those remaining families
-and narrow the scanner entry point to source regions that execution explicitly
-delegates for recovery.
+from stable cross-revision identity, and package-specific bibliography
+formatting/helpers, unbridged profile commands, plus parts of math, table, and
+wrapper recovery remain scanner-only. Subsequent slices must migrate those
+remaining families and narrow the scanner entry point to source regions that
+execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 

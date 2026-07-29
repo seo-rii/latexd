@@ -292,20 +292,27 @@ The next implementation step has started with a narrow display-list spike:
   keys instead of leaking option or key text;
 - `citetext{...}` is treated as visible citation text, preserving nested
   citation events while avoiding raw command, brace, or key leakage;
-- `defcitealias{key}{alias}` definitions are consumed as non-visible citation
-  metadata so alias keys and replacement text do not leak into body output;
-- `addbibresource[...]{...}` is consumed as non-visible bibliography metadata
-  so resource paths and options do not leak into rendered body text;
+- VM execution consumes `defcitealias{key}{alias}` definitions as non-visible
+  citation metadata, including macro-generated and `\let`-aliased calls, so
+  alias keys and replacement text do not leak into body output;
+- VM execution consumes `addbibresource[...]{...}` as non-visible bibliography
+  metadata, including repeated option groups, so resource paths and options do
+  not leak into rendered body text;
 - `printbibliography[...]` now emits an empty bibliography block boundary while
   consuming options without leaking raw biblatex command text;
 - when a local `jobname.bbl` is available, `printbibliography[...]` now reuses
   the same `.bbl` input execution path as legacy `\bibliography{...}` and emits
   structured bibliography items instead of an empty block;
-- legacy BibTeX `bibliographystyle{...}` is consumed as non-visible metadata,
-  and `bibliography{...}` emits an empty bibliography block boundary without
-  leaking style or database names;
-- `nocite{...}` is consumed as non-visible citation-inclusion metadata for now,
-  avoiding hidden key or wildcard leakage into rendered text;
+- VM execution consumes legacy BibTeX `bibliographystyle{...}` as non-visible
+  metadata, while `bibliography{...}` emits an empty bibliography block
+  boundary without leaking style or database names;
+- VM execution consumes `nocite{...}` as non-visible citation-inclusion
+  metadata for now, avoiding hidden key or wildcard leakage into rendered
+  text;
+- these four metadata commands now have execution, override, continuation
+  replay, and IR/display-list visibility coverage. Their resource, style,
+  inclusion, and alias values are not yet modeled as first-class semantic aux
+  records;
 - bibliography item text now preserves visible punctuation from common biblatex
   formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
   and `mkbibbraces`;

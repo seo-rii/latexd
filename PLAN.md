@@ -314,9 +314,15 @@ arithmetic는 같은 scope resolver를 사용한다.
   만든다. false conditional/override에서는 `.bbl`을 읽지 않으며 macro
   provenance, input dependency, occurrence ordering, jobname snapshot/restore를
   검증한다.
-- package-specific bibliography helper와 아직 bridge되지 않은 profile
-  command, 일부 math/table/wrapper text는 scanner recovery이며 family별
-  이전을 계속한다.
+- non-visible bibliography metadata slice는 `\addbibresource`,
+  `\bibliographystyle`, `\nocite`, `\defcitealias`의 실제 실행이 옵션과
+  인자를 소비하도록 이전됐다. direct/macro/`\let` alias, user override,
+  continuation replay, IR/display-list 비누출을 검증한다. 이 slice는 실행
+  및 visibility 경계만 소유하며 resource 등록, style 선택, `nocite`
+  inclusion, citation alias의 semantic aux 모델링은 아직 남아 있다.
+- package-specific bibliography formatting/helper와 아직 bridge되지 않은
+  profile command, 일부 math/table/wrapper text는 scanner recovery이며
+  family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -333,6 +339,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 7. table/alignment
 8. generic/class/ICML profile metadata
 9. `\bibliography`/`\printbibliography` materialization
+10. non-visible bibliography metadata execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,
