@@ -325,9 +325,13 @@ arithmetic는 같은 scope resolver를 사용한다.
   `\bibopen...`/`\bibclose...`를 VM 실행 text로 이전했다. macro/`\let`,
   conditional, override, continuation replay, IR/display-list와 literal
   brace 보존을 검증한다.
-- package-specific bibliography spacing/wrapper helper와 아직 bridge되지
-  않은 profile command, 일부 math/table/wrapper text는 scanner recovery이며
-  family별 이전을 계속한다.
+- explicit bibliography spacing slice는 `\addspace`, `\addabbrvspace`,
+  `\addnbspace`, `\addthinspace`, `\addlowpenspace`, `\addhighpenspace`를
+  VM 실행 space로 이전했다. punctuation의 `attach_next` 정책과 raw-source
+  whitespace gap, capture on/off legacy output 일치도 함께 검증한다.
+- package-specific bibliography punctuation-state/wrapper helper와 아직
+  bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
+  recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -346,6 +350,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 9. `\bibliography`/`\printbibliography` materialization
 10. non-visible bibliography metadata execution
 11. bibliography punctuation/delimiter execution
+12. explicit bibliography spacing execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

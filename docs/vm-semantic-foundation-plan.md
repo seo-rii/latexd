@@ -844,13 +844,30 @@ Bibliography punctuation and delimiters:
 - bibliography item projection protects literal square and curly delimiters
   after execution, rather than reinterpreting visible braces as TeX grouping.
 
+Explicit bibliography spacing:
+
+- `\addspace`, `\addabbrvspace`, `\addnbspace`, `\addthinspace`,
+  `\addlowpenspace`, and `\addhighpenspace` emit executed interword spaces
+  through the same typed bibliography text primitive;
+- macro expansion, `\let` aliases, false conditionals, user overrides, and
+  continuation replay follow normal VM execution semantics;
+- helper metadata records whether following source whitespace attaches to the
+  emitted punctuation. Range dashes, slashes, and opening delimiters suppress
+  that gap, while periods, em dashes, and closing delimiters preserve a
+  whitespace-only source gap;
+- the source text needed for this compatibility policy is available during
+  both event-capture and legacy-only runs, then discarded after execution, so
+  dual-write legacy output does not depend on capture mode;
+- macro-generated spacing reaches SemanticDocumentIr and PageDisplayList
+  without relying on whole-source scanner expansion.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and package-specific bibliography
-spacing/wrappers, unbridged profile commands, plus parts of math, table, and
-wrapper recovery remain scanner-only. Subsequent slices must migrate those
-remaining families and narrow the scanner entry point to source regions that
-execution explicitly delegates for recovery.
+punctuation-state/wrappers, unbridged profile commands, plus parts of math,
+table, and wrapper recovery remain scanner-only. Subsequent slices must migrate
+those remaining families and narrow the scanner entry point to source regions
+that execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 

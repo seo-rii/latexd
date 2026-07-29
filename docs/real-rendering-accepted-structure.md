@@ -337,8 +337,8 @@ The next implementation step has started with a narrow display-list spike:
   to visible `et al` text instead of leaking the raw bibstring key;
 - VM execution now renders common bibliography punctuation helpers
   `\addcomma`, `\addcolon`, `\addsemicolon`, and `\adddot` without leaking
-  helper command names. Spacing/state helpers such as `\addspace`, `\newunit`,
-  and `\finentry` remain on the compatibility-recovery path;
+  helper command names. Stateful helpers such as `\newunit` and `\finentry`
+  remain on the compatibility-recovery path;
 - `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` now attach their visible
   text to the preceding run instead of inserting artificial interword spaces;
 - VM execution handles low-level bibliography helpers such as `\adddotspace`,
@@ -349,9 +349,10 @@ The next implementation step has started with a narrow display-list spike:
 - VM execution also handles bibliography dash and slash helpers such as
   `\bibrangedash`, `\addslash`, `\addhyphen`, `\textendash`, `\textemdash`,
   and `\bibnamedash` with the expected attachment spacing;
-- bibliography spacing helpers such as `\addabbrvspace`, `\addnbspace`, and
-  `\addthinspace` are consumed as non-visible separators, while
-  `\parentext{...}` renders parenthesized visible text;
+- VM execution emits separators for `\addspace`, `\addabbrvspace`,
+  `\addnbspace`, `\addthinspace`, `\addlowpenspace`, and
+  `\addhighpenspace`; `\parentext{...}` remains a compatibility wrapper that
+  renders parenthesized visible text;
 - `\bibnamedash` now renders as `---`, and `\urlprefix` is consumed without
   leaking before visible `\url{...}` text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
