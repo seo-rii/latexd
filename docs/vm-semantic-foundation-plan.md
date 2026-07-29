@@ -893,9 +893,23 @@ Bibliography one-argument wrappers:
   superscript/subscript layout are not yet represented as structured IR or
   layout nodes.
 
+Bibliography string lookup:
+
+- `\bibstring` is a typed VM primitive that consumes an optional star, fully
+  expands its key argument, and executes the localized visible result through
+  the normal token queue;
+- the first lookup maps `andothers` to `et al`; unknown keys retain a readable
+  normalized fallback, and an empty key emits no artificial separator;
+- capture-disabled legacy output, macro-expanded keys, `\let` aliases, false
+  conditionals, user overrides, continuation replay, SemanticDocumentIr, and
+  PageDisplayList are covered;
+- this is not a complete biblatex localization engine. Locale selection,
+  plural forms, capitalization variants, and the full string table remain
+  future work.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and bibliography string lookup,
+from stable cross-revision identity, and full bibliography localization,
 package-specific multi-argument/style wrappers, full punctuation-state
 fidelity, unbridged profile commands, plus parts of math, table, and wrapper
 recovery remain. Subsequent slices must migrate those remaining families and

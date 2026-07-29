@@ -340,9 +340,14 @@ arithmetic는 같은 scope resolver를 사용한다.
   override, continuation replay, IR/display-list를 검증한다. style과
   super/subscript는 현재 visible text 및 attachment만 보존하며 구조화된
   typography/layout 의미는 아직 만들지 않는다.
-- `\bibstring` semantic lookup, package-specific multi-argument/style
-  bibliography wrapper와 아직 bridge되지 않은 profile command, 일부
-  math/table/wrapper text는 scanner recovery이며 family별 이전을 계속한다.
+- bibliography string slice는 `\bibstring`의 실제 실행이 optional star와
+  완전 확장된 key를 소비하고 `andothers`를 `et al`로 lookup하도록
+  이전했다. unknown key의 readable fallback, capture on/off, macro/`\let`,
+  conditional, override, continuation replay, IR/display-list를 검증한다.
+- full biblatex localization table과 capitalization/plural variant,
+  package-specific multi-argument/style bibliography wrapper, 아직
+  bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
+  recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -364,6 +369,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 12. explicit bibliography spacing execution
 13. bibliography state-helper visibility execution
 14. common one-argument bibliography wrapper execution
+15. bibliography string lookup execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

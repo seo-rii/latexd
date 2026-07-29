@@ -335,8 +335,10 @@ The next implementation step has started with a narrow display-list spike:
   box wrappers while dropping non-visible wrapper options and control commands;
 - `\urlstyle{...}` is treated as a non-visible URL style declaration while
   preserving the visible URL from `\url{...}`;
-- common bibliography string wrappers now normalize `\bibstring{andothers}`
-  to visible `et al` text instead of leaking the raw bibstring key;
+- VM execution now owns `\bibstring`: it fully expands the key and maps
+  `andothers` to visible `et al` text instead of leaking the raw key. Unknown
+  keys retain a readable fallback; full locale, plural, capitalization, and
+  string-table support is not yet implemented;
 - VM execution now renders common bibliography punctuation helpers
   `\addcomma`, `\addcolon`, `\addsemicolon`, and `\adddot` without leaking
   helper command names;
