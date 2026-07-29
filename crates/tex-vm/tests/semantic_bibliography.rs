@@ -433,6 +433,55 @@ fn bibliography_items_absorb_nested_semantic_events() {
 }
 
 #[test]
+fn bibliography_items_mark_structured_inline_projection_as_lossy() {
+    let outcome = capture(
+        r"\begin{document}
+\begin{thebibliography}{1}
+\bibitem{projected} Entry \cite{source} with $x^2$.
+\end{thebibliography}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "projected");
+    assert!(items[0].0.text.contains("[?]"));
+    assert!(items[0].0.text.contains("x^2"));
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert_eq!(items[0].2, SemanticConfidence::Low);
+    assert!(!outcome.render_events.iter().any(|event| {
+        matches!(
+            event.event,
+            RenderEvent::InlineCitation(_) | RenderEvent::InlineMath(_)
+        )
+    }));
+}
+
+#[test]
+fn bibliography_items_mark_nested_block_projection_as_lossy() {
+    let outcome = capture(
+        r"\begin{document}
+\begin{thebibliography}{1}
+\bibitem{projected} Entry \footnote{Nested note}.
+\end{thebibliography}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "projected");
+    assert!(items[0].0.text.contains("Nested note"));
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert_eq!(items[0].2, SemanticConfidence::Low);
+    assert!(!outcome.render_events.iter().any(|event| {
+        matches!(
+            event.event,
+            RenderEvent::BeginFootnote(_) | RenderEvent::EndFootnote(_)
+        )
+    }));
+}
+
+#[test]
 fn expanded_bibliography_arguments_preserve_invocation_and_key_spans() {
     let source = r"\def\entrykey{alpha}
 \def\entrylabel{Alpha 2024}

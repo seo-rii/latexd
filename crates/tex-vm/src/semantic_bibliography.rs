@@ -11,7 +11,7 @@ use tex_render_model::{
 
 use crate::{
     Vm,
-    semantic_inline::ExecutedInlineEventMark,
+    semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{
         VmActiveBibliographyCaptureSnapshot, VmBibliographyNestedSemanticSnapshot,
         VmEventExecutionAnchorSnapshot, VmExecutionAnchor, VmSemanticBibliographySnapshot,
@@ -24,12 +24,17 @@ pub(super) struct SemanticBibliographyState {
     scanner_event_anchors: HashMap<EventId, VmExecutionAnchor>,
     executed_events: Vec<RenderEventEnvelope>,
     executed_event_anchors: HashMap<EventId, VmExecutionAnchor>,
-    environment_depth: usize,
-    active_item: Option<ExecutedBibliographyCapture>,
+    environment: BibliographyEnvironmentFrame,
+}
+
+#[derive(Debug, Default)]
+struct BibliographyEnvironmentFrame {
+    depth: usize,
+    active_item: Option<BibliographyItemTransaction>,
 }
 
 #[derive(Debug)]
-struct ExecutedBibliographyCapture {
+struct BibliographyItemTransaction {
     key: String,
     label_hint: Option<String>,
     source: SourceProvenance,
@@ -39,9 +44,7 @@ struct ExecutedBibliographyCapture {
     output_start: usize,
     lossy_prefix: bool,
     diagnostic_mark: usize,
-    text_event_mark: usize,
-    inline_event_mark: ExecutedInlineEventMark,
-    math_event_mark: usize,
+    event_mark: ExecutedSemanticEventMark,
     nested_semantics: VmBibliographyNestedSemanticSnapshot,
 }
 
@@ -80,6 +83,7 @@ impl Vm<'_> {
         executed_event_anchors.sort_by_key(|anchor| anchor.event_id);
         let active_item = self
             .semantic_bibliography
+            .environment
             .active_item
             .as_ref()
             .map(|capture| {
@@ -98,9 +102,17 @@ impl Vm<'_> {
                     visible_output_prefix,
                     lossy_before_restore: capture.lossy_prefix
                         || self.diagnostics.len() > capture.diagnostic_mark,
-                    text_event_mark: capture.text_event_mark.try_into().unwrap_or(u64::MAX),
-                    inline_event_mark: capture.inline_event_mark.snapshot(),
-                    math_event_mark: capture.math_event_mark.try_into().unwrap_or(u64::MAX),
+                    text_event_mark: capture
+                        .event_mark
+                        .text_event_mark()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    inline_event_mark: capture.event_mark.inline_event_mark().snapshot(),
+                    math_event_mark: capture
+                        .event_mark
+                        .math_event_mark()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
                     nested_semantics: capture.nested_semantics.clone(),
                 }
             });
@@ -111,7 +123,8 @@ impl Vm<'_> {
             executed_event_anchors,
             environment_depth: self
                 .semantic_bibliography
-                .environment_depth
+                .environment
+                .depth
                 .try_into()
                 .unwrap_or(u64::MAX),
             active_item,
@@ -135,15 +148,15 @@ impl Vm<'_> {
             .iter()
             .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
             .collect();
-        self.semantic_bibliography.environment_depth = snapshot
+        self.semantic_bibliography.environment.depth = snapshot
             .environment_depth
             .try_into()
             .expect("validated bibliography environment depth");
-        self.semantic_bibliography.active_item =
+        self.semantic_bibliography.environment.active_item =
             snapshot
                 .active_item
                 .as_ref()
-                .map(|capture| ExecutedBibliographyCapture {
+                .map(|capture| BibliographyItemTransaction {
                     key: capture.key.clone(),
                     label_hint: capture.label_hint.clone(),
                     source: capture.source.clone(),
@@ -153,38 +166,43 @@ impl Vm<'_> {
                     output_start: self.output.len(),
                     lossy_prefix: capture.lossy_before_restore,
                     diagnostic_mark: self.diagnostics.len(),
-                    text_event_mark: capture
-                        .text_event_mark
-                        .try_into()
-                        .expect("validated bibliography text event mark"),
-                    inline_event_mark: ExecutedInlineEventMark::restore(&capture.inline_event_mark),
-                    math_event_mark: capture
-                        .math_event_mark
-                        .try_into()
-                        .expect("validated bibliography math event mark"),
+                    event_mark: ExecutedSemanticEventMark::from_parts(
+                        capture
+                            .text_event_mark
+                            .try_into()
+                            .expect("validated bibliography text event mark"),
+                        crate::semantic_inline::ExecutedInlineEventMark::restore(
+                            &capture.inline_event_mark,
+                        ),
+                        capture
+                            .math_event_mark
+                            .try_into()
+                            .expect("validated bibliography math event mark"),
+                    ),
                     nested_semantics: capture.nested_semantics.clone(),
                 });
     }
 
     pub(super) fn begin_executed_bibliography_environment(&mut self) {
         if self.render_event_capture && self.execution_in_document {
-            self.semantic_bibliography.environment_depth += 1;
+            self.semantic_bibliography.environment.depth += 1;
         }
     }
 
     pub(super) fn end_executed_bibliography_environment(&mut self, end_utf8: u32) {
         self.finish_executed_bibliography_item();
         self.close_executed_text_authority(end_utf8);
-        self.semantic_bibliography.environment_depth = self
+        self.semantic_bibliography.environment.depth = self
             .semantic_bibliography
-            .environment_depth
+            .environment
+            .depth
             .saturating_sub(1);
     }
 
     pub(super) fn finish_executed_bibliography_document(&mut self, end_utf8: u32) {
         self.finish_executed_bibliography_item();
         self.close_executed_text_authority(end_utf8);
-        self.semantic_bibliography.environment_depth = 0;
+        self.semantic_bibliography.environment.depth = 0;
     }
 
     pub(super) fn mark_scanner_bibliography_event(&mut self, event_id: EventId) {
@@ -223,7 +241,7 @@ impl Vm<'_> {
         if !self.render_event_capture || !self.execution_in_document {
             return;
         }
-        if self.semantic_bibliography.environment_depth == 0 {
+        if self.semantic_bibliography.environment.depth == 0 {
             self.record_suppressed_source_range(invocation_start_utf8, invocation_end_utf8);
             self.force_executed_text_after(invocation_end_utf8);
             return;
@@ -250,7 +268,7 @@ impl Vm<'_> {
 
         let nested_semantics = self.capture_bibliography_nested_semantics();
         let execution_anchor = self.current_execution_anchor();
-        self.semantic_bibliography.active_item = Some(ExecutedBibliographyCapture {
+        self.semantic_bibliography.environment.active_item = Some(BibliographyItemTransaction {
             key,
             label_hint,
             source,
@@ -260,15 +278,13 @@ impl Vm<'_> {
             output_start: self.output.len(),
             lossy_prefix: lossy_label,
             diagnostic_mark: self.diagnostics.len(),
-            text_event_mark: self.executed_text_event_mark(),
-            inline_event_mark: self.executed_inline_event_mark(),
-            math_event_mark: self.executed_math_event_mark(),
+            event_mark: self.mark_executed_semantic_events(),
             nested_semantics,
         });
     }
 
     pub(super) fn finish_executed_bibliography_item(&mut self) {
-        let Some(capture) = self.semantic_bibliography.active_item.take() else {
+        let Some(capture) = self.semantic_bibliography.environment.active_item.take() else {
             return;
         };
 
@@ -280,9 +296,9 @@ impl Vm<'_> {
             .replace('\u{e000}', "[")
             .replace('\u{e001}', "]");
 
-        self.rollback_executed_text_events(capture.text_event_mark);
-        self.rollback_executed_inline_events(capture.inline_event_mark);
-        self.rollback_executed_math_events(capture.math_event_mark);
+        let nested_projection_loss =
+            self.capture_bibliography_nested_semantics() != capture.nested_semantics;
+        let event_projection_loss = self.rollback_executed_semantic_events(capture.event_mark);
         self.restore_bibliography_nested_semantics(&capture.nested_semantics);
         self.finish_executed_block_content();
 
@@ -297,11 +313,18 @@ impl Vm<'_> {
             }),
             capture.source,
         );
-        if capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark {
+        let execution_is_lossy =
+            capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
+        let projection_is_lossy = event_projection_loss.is_lossy() || nested_projection_loss;
+        if execution_is_lossy {
             envelope.meta.producer = EventProducer::Fallback;
             envelope.meta.confidence = SemanticConfidence::Low;
         } else {
             envelope.meta.producer = capture.producer;
+            if projection_is_lossy {
+                // VM execution is authoritative even when this string-only node loses structure.
+                envelope.meta.confidence = SemanticConfidence::Low;
+            }
         }
         self.semantic_bibliography.executed_events.push(envelope);
         self.semantic_bibliography

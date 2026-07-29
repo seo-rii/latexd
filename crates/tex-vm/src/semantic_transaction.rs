@@ -68,6 +68,18 @@ impl ExecutedSemanticFlowMark {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SemanticProjectionLoss {
+    pub(super) inline_events: usize,
+    pub(super) math_events: usize,
+}
+
+impl SemanticProjectionLoss {
+    pub(super) fn is_lossy(self) -> bool {
+        self.inline_events > 0 || self.math_events > 0
+    }
+}
+
 impl Vm<'_> {
     pub(super) fn mark_executed_semantic_events(&mut self) -> ExecutedSemanticEventMark {
         ExecutedSemanticEventMark::from_parts(
@@ -77,10 +89,19 @@ impl Vm<'_> {
         )
     }
 
-    pub(super) fn rollback_executed_semantic_events(&mut self, mark: ExecutedSemanticEventMark) {
+    pub(super) fn rollback_executed_semantic_events(
+        &mut self,
+        mark: ExecutedSemanticEventMark,
+    ) -> SemanticProjectionLoss {
         self.rollback_executed_text_events(mark.text_event_mark());
-        self.rollback_executed_inline_events(mark.inline_event_mark());
-        self.rollback_executed_math_events(mark.math_event_mark());
+        SemanticProjectionLoss {
+            inline_events: self
+                .take_executed_inline_events_since(mark.inline_event_mark())
+                .len(),
+            math_events: self
+                .take_executed_math_events_since(mark.math_event_mark())
+                .len(),
+        }
     }
 
     pub(super) fn mark_executed_semantic_flow(&mut self) -> ExecutedSemanticFlowMark {
