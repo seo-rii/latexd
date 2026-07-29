@@ -903,6 +903,16 @@ fn semantic_snapshot_rejects_a_dangling_pending_footnote_mark() {
         .expect("semantic capture with pending mark");
 
     assert!(semantic_capture.is_restorable());
+    let mut invalid_allocator = semantic_capture.clone();
+    let pending_note_id = invalid_allocator
+        .footnote
+        .pending_mark
+        .as_ref()
+        .expect("pending mark")
+        .note_id;
+    invalid_allocator.footnote.next_note_id = pending_note_id;
+    assert!(!invalid_allocator.is_restorable());
+
     semantic_capture
         .footnote
         .pending_mark

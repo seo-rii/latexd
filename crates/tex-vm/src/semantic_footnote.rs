@@ -21,13 +21,27 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct SemanticFootnoteState {
     scanner_slots: Vec<ScannerFootnoteSlot>,
     completed_transactions: Vec<Vec<RenderEventEnvelope>>,
     marker_actions: HashMap<ControlSequenceId, ActiveFootnoteCapture>,
     next_marker_id: u64,
+    next_note_id: FootnoteId,
     pending_mark: Option<PendingFootnoteMark>,
+}
+
+impl Default for SemanticFootnoteState {
+    fn default() -> Self {
+        Self {
+            scanner_slots: Vec::new(),
+            completed_transactions: Vec::new(),
+            marker_actions: HashMap::new(),
+            next_marker_id: 0,
+            next_note_id: 1,
+            pending_mark: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -96,6 +110,7 @@ impl Vm<'_> {
             completed_transactions: self.semantic_footnote.completed_transactions.clone(),
             active_actions,
             next_marker_id: self.semantic_footnote.next_marker_id,
+            next_note_id: self.semantic_footnote.next_note_id,
             pending_mark: self.semantic_footnote.pending_mark.as_ref().map(|pending| {
                 VmPendingFootnoteMarkSnapshot {
                     note_id: pending.note_id,
@@ -148,6 +163,7 @@ impl Vm<'_> {
             );
         }
         self.semantic_footnote.next_marker_id = snapshot.next_marker_id;
+        self.semantic_footnote.next_note_id = snapshot.next_note_id;
         self.semantic_footnote.pending_mark =
             snapshot
                 .pending_mark
@@ -156,6 +172,14 @@ impl Vm<'_> {
                     note_id: pending.note_id,
                     marker: pending.marker.clone(),
                 });
+    }
+
+    pub(super) fn allocate_footnote_id(&mut self) -> FootnoteId {
+        let note_id = self.semantic_footnote.next_note_id;
+        self.semantic_footnote.next_note_id = note_id
+            .checked_add(1)
+            .expect("semantic footnote identity exhausted");
+        note_id
     }
 
     pub(super) fn record_scanner_footnote_slot(
@@ -214,11 +238,12 @@ impl Vm<'_> {
                 invocation_end_utf8,
             );
         }
+        let note_id = self.allocate_footnote_id();
         let event_id = self.render_events.allocate_event_sequence();
         let mut event = RenderEventEnvelope::new(
             event_id,
             RenderEvent::FootnoteMark(FootnoteMarkEvent {
-                note_id: event_id,
+                note_id,
                 marker: marker.clone(),
             }),
             source,
@@ -227,10 +252,7 @@ impl Vm<'_> {
         self.semantic_footnote
             .completed_transactions
             .push(vec![event]);
-        self.semantic_footnote.pending_mark = Some(PendingFootnoteMark {
-            note_id: event_id,
-            marker,
-        });
+        self.semantic_footnote.pending_mark = Some(PendingFootnoteMark { note_id, marker });
         self.mark_executed_inline_content();
     }
 
@@ -294,8 +316,9 @@ impl Vm<'_> {
                 .as_ref()
                 .and_then(|pending| pending.marker.clone());
         }
+        let note_id =
+            pending_mark.map_or_else(|| self.allocate_footnote_id(), |pending| pending.note_id);
         let event_id = self.render_events.allocate_event_sequence();
-        let note_id = pending_mark.map_or(event_id, |pending| pending.note_id);
         let mut begin_event = RenderEventEnvelope::new(
             event_id,
             RenderEvent::BeginFootnote(BeginFootnoteEvent {

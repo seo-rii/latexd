@@ -13,7 +13,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 20;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 21;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -955,6 +955,8 @@ pub struct VmSemanticFootnoteSnapshot {
     pub active_actions: Vec<VmActiveFootnoteCaptureSnapshot>,
     #[serde(default)]
     pub next_marker_id: u64,
+    #[serde(default = "default_next_footnote_id")]
+    pub next_note_id: FootnoteId,
     #[serde(default)]
     pub pending_mark: Option<VmPendingFootnoteMarkSnapshot>,
 }
@@ -996,6 +998,24 @@ impl VmSemanticFootnoteSnapshot {
             .iter()
             .map(|capture| capture.marker_id)
             .collect::<Vec<_>>();
+        let note_ids = self
+            .completed_transactions
+            .iter()
+            .flatten()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+                RenderEvent::EndFootnote(end) => Some(end.note_id),
+                RenderEvent::FootnoteMark(mark) => Some(mark.note_id),
+                _ => None,
+            })
+            .chain(self.active_actions.iter().filter_map(
+                |capture| match &capture.begin_event.event {
+                    RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+                    _ => None,
+                },
+            ))
+            .chain(self.pending_mark.iter().map(|pending| pending.note_id))
+            .collect::<Vec<_>>();
         let pending_mark_is_valid = self.pending_mark.as_ref().is_none_or(|pending| {
             let mut matching_marks =
                 self.completed_transactions
@@ -1029,6 +1049,10 @@ impl VmSemanticFootnoteSnapshot {
             && marker_ids
                 .iter()
                 .all(|marker_id| *marker_id < self.next_marker_id)
+            && self.next_note_id >= 1
+            && note_ids
+                .iter()
+                .all(|note_id| *note_id >= 1 && *note_id < self.next_note_id)
             && pending_mark_is_valid
             && self.active_actions.iter().all(|capture| {
                 capture.text_flow_mark.event_mark <= text_event_count
@@ -1395,6 +1419,10 @@ pub struct VmSnapshot {
 }
 
 fn default_next_render_event_sequence() -> EventSequence {
+    1
+}
+
+fn default_next_footnote_id() -> FootnoteId {
     1
 }
 

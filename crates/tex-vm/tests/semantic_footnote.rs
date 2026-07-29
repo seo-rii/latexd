@@ -51,6 +51,21 @@ fn executed_footnote_is_authoritative() {
 }
 
 #[test]
+fn footnote_identity_is_independent_of_event_sequence() {
+    let outcome = capture(r"\begin{document}Lead \cite{key}.\footnote{Note.} Tail\end{document}");
+    let begin_event = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::BeginFootnote(_)))
+        .expect("footnote begin");
+    let RenderEvent::BeginFootnote(begin) = &begin_event.event else {
+        unreachable!();
+    };
+
+    assert_ne!(begin.note_id, begin_event.meta.sequence);
+}
+
+#[test]
 fn footnote_body_preserves_executed_inline_event_order() {
     let outcome = capture(
         r"\begin{document}A\footnote{Text \cite{key}, \ref{sec:intro}, and $x^2$.} B\end{document}",
@@ -385,6 +400,45 @@ fn pending_footnote_mark_does_not_leak_into_the_next_document() {
         .expect("second document footnote text");
 
     assert_ne!(first_note_id, second_note_id);
+}
+
+#[test]
+fn snapshot_restore_preserves_the_footnote_identity_allocator() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let first = vm.run_plain(r"\begin{document}A\footnote{First.}\end{document}");
+    let first_note_id = first
+        .render_events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+            _ => None,
+        })
+        .expect("first footnote");
+    let snapshot = vm.snapshot();
+    let next_note_id = snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture")
+        .footnote
+        .next_note_id;
+    drop(vm);
+
+    let mut restored = Vm::restore(&mut interner, &snapshot);
+    let second = restored.run_plain(r"\begin{document}B\footnote{Second.}\end{document}");
+    let second_note_id = second
+        .render_events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+            _ => None,
+        })
+        .expect("second footnote");
+
+    assert!(next_note_id > first_note_id);
+    assert_eq!(second_note_id, next_note_id);
 }
 
 #[test]

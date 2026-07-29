@@ -10,15 +10,15 @@ use tex_render_model::{
     BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, CitationStyleHint,
     DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent,
     EndLayoutContainerEvent, EventSequence, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
-    FootnoteCommandKind, FootnoteMarkEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
-    GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
-    InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, LayoutAlignment, LineBreakEvent,
-    LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField, ModeHint,
-    PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
-    TableRuleSpan, TextEvent, latex_math_symbol,
+    FootnoteCommandKind, FootnoteId, FootnoteMarkEvent, GraphicAssetDensity,
+    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent,
+    MetadataField, ModeHint, PageBreakEvent, PageBreakKind, ParagraphBreakEvent,
+    ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent,
+    RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
+    SpaceEvent, SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec,
+    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent, latex_math_symbol,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
@@ -796,7 +796,7 @@ struct RenderEventScanState {
     theorem_like_environments: HashSet<String>,
     hidden_environments: HashSet<String>,
     heading_counters: [u32; 6],
-    pending_footnote_mark: Option<(EventSequence, Option<String>)>,
+    pending_footnote_mark: Option<(FootnoteId, Option<String>)>,
 }
 
 impl RenderEventScanState {
@@ -1400,6 +1400,20 @@ impl<'i> Vm<'i> {
                 .insert(path.clone(), source.to_string());
             return;
         }
+        let previous_footnote_ids = self
+            .render_events
+            .iter()
+            .filter(|event| removed_event_ids.contains(&event.meta.sequence))
+            .filter_map(|event| {
+                let note_id = match &event.event {
+                    RenderEvent::BeginFootnote(footnote) => footnote.note_id,
+                    RenderEvent::EndFootnote(footnote) => footnote.note_id,
+                    RenderEvent::FootnoteMark(footnote) => footnote.note_id,
+                    _ => return None,
+                };
+                Some((event.meta.sequence, note_id))
+            })
+            .collect::<BTreeMap<_, _>>();
 
         let original_scanner_event_anchors = self.scanner_event_anchors.clone();
         let original_math = self.semantic_math_snapshot();
@@ -1503,10 +1517,42 @@ impl<'i> Vm<'i> {
             &mut scan_state,
             return_to_parent,
         );
+        let emitted_footnote_ids = self
+            .render_events
+            .iter()
+            .filter_map(|event| {
+                let note_id = match &event.event {
+                    RenderEvent::BeginFootnote(footnote) => footnote.note_id,
+                    RenderEvent::EndFootnote(footnote) => footnote.note_id,
+                    RenderEvent::FootnoteMark(footnote) => footnote.note_id,
+                    _ => return None,
+                };
+                Some((event.meta.sequence, note_id))
+            })
+            .collect::<BTreeMap<_, _>>();
         if let Some(event_id_remap) = self
             .render_events
             .replace_transaction_since(&removed_event_ids, mark)
         {
+            let mut note_id_remap = BTreeMap::new();
+            let mut conflicting_note_ids = BTreeSet::new();
+            for (emitted_event_id, committed_event_id) in &event_id_remap {
+                let Some(emitted_note_id) = emitted_footnote_ids.get(emitted_event_id) else {
+                    continue;
+                };
+                let Some(committed_note_id) = previous_footnote_ids.get(committed_event_id) else {
+                    continue;
+                };
+                if note_id_remap
+                    .insert(*emitted_note_id, *committed_note_id)
+                    .is_some_and(|previous| previous != *committed_note_id)
+                {
+                    conflicting_note_ids.insert(*emitted_note_id);
+                }
+            }
+            for note_id in conflicting_note_ids {
+                note_id_remap.remove(&note_id);
+            }
             for event in self.render_events.iter_mut() {
                 let note_id = match &mut event.event {
                     RenderEvent::BeginFootnote(footnote) => &mut footnote.note_id,
@@ -1514,7 +1560,7 @@ impl<'i> Vm<'i> {
                     RenderEvent::FootnoteMark(footnote) => &mut footnote.note_id,
                     _ => continue,
                 };
-                if let Some(committed_note_id) = event_id_remap.get(note_id) {
+                if let Some(committed_note_id) = note_id_remap.get(note_id) {
                     *note_id = *committed_note_id;
                 }
             }
@@ -7451,7 +7497,7 @@ impl<'i> Vm<'i> {
                             let note_id = pending_mark
                                 .as_ref()
                                 .map(|(note_id, _)| *note_id)
-                                .unwrap_or(self.render_events.next_event_sequence());
+                                .unwrap_or_else(|| self.allocate_footnote_id());
                             let marker = explicit_note_marker
                                 .clone()
                                 .or_else(|| pending_mark.and_then(|(_, marker)| marker));
@@ -10065,7 +10111,7 @@ impl<'i> Vm<'i> {
                         marker = (!value.is_empty()).then_some(value);
                         index = after_option;
                     }
-                    let note_id = self.render_events.next_event_sequence();
+                    let note_id = self.allocate_footnote_id();
                     self.emit_render_event(
                         RenderEvent::FootnoteMark(FootnoteMarkEvent {
                             note_id,
