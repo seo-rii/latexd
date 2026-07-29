@@ -46,9 +46,10 @@ mod semantic_transaction;
 mod snapshot;
 
 use command::{
-    BibliographyMetadataCommand, BibliographyTextCommand, CaptionCommand, EpsfDimension,
-    GraphicCommand, HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand,
-    MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
+    BibliographyMetadataCommand, BibliographyTextCommand, BibliographyWrapperCommand,
+    CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
+    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning,
+    Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18603,6 +18604,62 @@ impl<'i> Vm<'i> {
                     }
                 }
             }
+            Primitive::BibliographyWrapper(command) => {
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character {
+                        ch: '*',
+                        catcode: CatCode::Other | CatCode::Letter | CatCode::Active,
+                    })
+                ) {
+                    let _ = self.pop_next_token(queue);
+                    self.skip_optional_spaces(queue);
+                }
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for ch in command.suffix.chars().rev() {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ch,
+                            CatCode::Other,
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+                for token in argument.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+                for ch in command.prefix.chars().rev() {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ch,
+                            CatCode::Other,
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+                if command.separate_before
+                    && self.last_legacy_output_char().is_some_and(|ch| {
+                        !ch.is_whitespace() && !matches!(ch, '"' | '(' | '[' | '{')
+                    })
+                {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ' ',
+                            CatCode::Space,
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25282,6 +25339,17 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
                 attach_next,
             }))
         };
+    let bibliography_wrapper = |canonical_name: &'static str,
+                                prefix: &'static str,
+                                suffix: &'static str,
+                                separate_before: bool| {
+        Some(Primitive::BibliographyWrapper(BibliographyWrapperCommand {
+            canonical_name,
+            prefix,
+            suffix,
+            separate_before,
+        }))
+    };
     match name {
         "relax" | "newblock" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
@@ -25415,6 +25483,20 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "unspace" => bibliography_text("unspace", "", true),
         "nopunct" => bibliography_text("nopunct", "", false),
         "urlprefix" => bibliography_text("urlprefix", "", true),
+        "mkbibquote" => bibliography_wrapper("mkbibquote", "\"", "\"", true),
+        "mkbibparens" => bibliography_wrapper("mkbibparens", "(", ")", true),
+        "mkbibbrackets" => bibliography_wrapper("mkbibbrackets", "[", "]", true),
+        "mkbibbraces" => bibliography_wrapper("mkbibbraces", "{", "}", true),
+        "mkbibemph" => bibliography_wrapper("mkbibemph", "", "", true),
+        "mkbibbold" => bibliography_wrapper("mkbibbold", "", "", true),
+        "mkbibitalic" => bibliography_wrapper("mkbibitalic", "", "", true),
+        "mkbibnamefamily" => bibliography_wrapper("mkbibnamefamily", "", "", true),
+        "mkbibnameaffix" => bibliography_wrapper("mkbibnameaffix", "", "", true),
+        "mkbibacro" => bibliography_wrapper("mkbibacro", "", "", true),
+        "mkbibsuperscript" => bibliography_wrapper("mkbibsuperscript", "", "", false),
+        "mkbibsubscript" => bibliography_wrapper("mkbibsubscript", "", "", false),
+        "enquote" => bibliography_wrapper("enquote", "\"", "\"", true),
+        "parentext" => bibliography_wrapper("parentext", "(", ")", true),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -25929,6 +26011,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
         Primitive::BibliographyText(command) => command.canonical_name,
+        Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",
