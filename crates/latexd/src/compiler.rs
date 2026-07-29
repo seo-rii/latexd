@@ -5401,6 +5401,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn internal_compiler_executes_explicit_bibliography_input_in_vm() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let bibliography_source = concat!(
+            r"\begin{thebibliography}{1}",
+            r"\iffalse\bibitem{wrong}Wrong entry.\fi",
+            r"\bibitem{alpha}Executed entry.",
+            r"\end{thebibliography}",
+        );
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\iffalse\input{refs.bbl}\fi\input{refs.bbl}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(root.join("refs.bbl"), bibliography_source).expect("refs bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("refs.bbl")],
+            })
+            .await
+            .expect("internal compile");
+
+        let events = serde_json::from_slice::<RenderEventStream>(
+            &fs::read(build_root.join("rev-1/render-ir/events.json")).expect("read render events"),
+        )
+        .expect("parse render events");
+        let bibliography_items = events
+            .events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some((item, &event.meta)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bibliography_items.len(), 1, "{:#?}", events.events);
+        assert_eq!(bibliography_items[0].0.key, "alpha");
+        assert_eq!(bibliography_items[0].0.text, "Executed entry.");
+        assert_eq!(bibliography_items[0].1.producer, EventProducer::Primitive);
+        assert_eq!(bibliography_items[0].1.confidence, SemanticConfidence::High);
+        assert!(matches!(
+            &bibliography_items[0].1.source.primary,
+            ProvenanceSpan::File(span) if span.path == Utf8PathBuf::from("refs.bbl")
+        ));
+        assert!(
+            outcome
+                .dep_trace
+                .inputs
+                .contains(&Utf8PathBuf::from("refs.bbl"))
+        );
+
+        let sources = serde_json::from_slice::<StoredSourceTexts>(
+            &fs::read(build_root.join("rev-1/sources.json")).expect("read source snapshots"),
+        )
+        .expect("parse source snapshots");
+        assert_eq!(
+            sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
+            bibliography_source
+        );
+    }
+
+    #[tokio::test]
     async fn internal_compiler_replays_semantically_equal_jobname_bibliography_edit() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

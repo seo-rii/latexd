@@ -1517,6 +1517,17 @@ pub fn materialize_project(
     let preserve_jobname_bibliography = scan.bibliography_files.len() == 1
         && scan.bibliography_files.first() == Some(&jobname_bibliography)
         && scan.files.contains_key(&jobname_bibliography);
+    let explicit_bibliography_inputs = scan
+        .files
+        .values()
+        .flat_map(|source| scan_source(source))
+        .filter_map(|event| match event {
+            CommandEvent::Input { path, .. } if path.extension() == Some("bbl") => {
+                Some(resolve_existing_project_path(root, &path).unwrap_or(path))
+            }
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
     let mut block_numbers = BTreeMap::<usize, String>::new();
     let mut block_counters = BTreeMap::<(String, Option<String>), u32>::new();
     for block in scan.blocks.iter().filter(|block| block.numbered) {
@@ -1546,7 +1557,9 @@ pub fn materialize_project(
     let mut files = BTreeMap::new();
     let mut rewrite_spans = BTreeMap::new();
     for (path, source) in &scan.files {
-        if preserve_jobname_bibliography && path == &jobname_bibliography {
+        if (preserve_jobname_bibliography && path == &jobname_bibliography)
+            || explicit_bibliography_inputs.contains(path)
+        {
             files.insert(path.clone(), source.clone());
             rewrite_spans.insert(path.clone(), Vec::new());
             continue;
@@ -9135,6 +9148,33 @@ mod tests {
         assert!(!main.contains("\\nocite"));
         assert!(main.contains("cite [1]."));
         assert!(main.contains("\\input{refs.bbl}"));
+    }
+
+    #[test]
+    fn materialize_project_preserves_explicit_bibliography_input_for_vm_execution() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let bibliography_source =
+            r"\begin{thebibliography}{1}\bibitem{alpha} Alpha entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Before.\input{refs.bbl}After.\end{document}",
+        )
+        .expect("write main");
+        fs::write(root.join("refs.bbl"), bibliography_source).expect("write bibliography");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+
+        assert_eq!(
+            materialized.files[&Utf8PathBuf::from("refs.bbl")],
+            bibliography_source
+        );
+        assert!(materialized.files[&Utf8PathBuf::from("main.tex")].contains(r"\input{refs.bbl}"));
     }
 
     #[test]
