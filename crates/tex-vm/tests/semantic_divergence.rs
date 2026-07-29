@@ -889,6 +889,34 @@ fn executed_text_keeps_semantic_event_order() {
 }
 
 #[test]
+fn input_if_file_exists_text_uses_the_executed_input_anchor() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Included body.");
+    vm.enable_render_event_capture();
+
+    let outcome =
+        vm.run_plain(r"\begin{document}\InputIfFileExists{child.tex}{}{} After.\end{document}");
+    let included = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(&event.event, RenderEvent::Text(text) if text.text == "Included" || text.text == "body.")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(included.len(), 2, "{:#?}", outcome.render_events);
+    assert!(
+        included.iter().all(|event| {
+            event.meta.producer == EventProducer::Primitive
+                && event.meta.confidence == SemanticConfidence::High
+        }),
+        "{included:#?}"
+    );
+}
+
+#[test]
 fn runtime_catcode_change_affects_unread_characters() {
     let outcome = run(r"\catcode`\@=11
 \def\foo@bar{ok}

@@ -1,4 +1,7 @@
-use std::{collections::HashSet, mem};
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
@@ -11,14 +14,16 @@ use crate::{
     semantic_inline::ExecutedInlineEventMark,
     snapshot::{
         VmActiveBibliographyCaptureSnapshot, VmBibliographyNestedSemanticSnapshot,
-        VmSemanticBibliographySnapshot,
+        VmEventExecutionAnchorSnapshot, VmExecutionAnchor, VmSemanticBibliographySnapshot,
     },
 };
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticBibliographyState {
     scanner_event_ids: HashSet<EventId>,
+    scanner_event_anchors: HashMap<EventId, VmExecutionAnchor>,
     executed_events: Vec<RenderEventEnvelope>,
+    executed_event_anchors: HashMap<EventId, VmExecutionAnchor>,
     environment_depth: usize,
     active_item: Option<ExecutedBibliographyCapture>,
 }
@@ -29,6 +34,7 @@ struct ExecutedBibliographyCapture {
     label_hint: Option<String>,
     source: SourceProvenance,
     producer: EventProducer,
+    execution_anchor: VmExecutionAnchor,
     visible_output_prefix: String,
     output_start: usize,
     lossy_prefix: bool,
@@ -48,6 +54,30 @@ impl Vm<'_> {
             .copied()
             .collect::<Vec<_>>();
         scanner_event_ids.sort_unstable();
+        let mut scanner_event_anchors = self
+            .semantic_bibliography
+            .scanner_event_anchors
+            .iter()
+            .map(
+                |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
+                    event_id: *event_id,
+                    execution_anchor: execution_anchor.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+        scanner_event_anchors.sort_by_key(|anchor| anchor.event_id);
+        let mut executed_event_anchors = self
+            .semantic_bibliography
+            .executed_event_anchors
+            .iter()
+            .map(
+                |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
+                    event_id: *event_id,
+                    execution_anchor: execution_anchor.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+        executed_event_anchors.sort_by_key(|anchor| anchor.event_id);
         let active_item = self
             .semantic_bibliography
             .active_item
@@ -64,6 +94,7 @@ impl Vm<'_> {
                     label_hint: capture.label_hint.clone(),
                     source: capture.source.clone(),
                     producer: capture.producer,
+                    execution_anchor: capture.execution_anchor.clone(),
                     visible_output_prefix,
                     lossy_before_restore: capture.lossy_prefix
                         || self.diagnostics.len() > capture.diagnostic_mark,
@@ -75,7 +106,9 @@ impl Vm<'_> {
             });
         VmSemanticBibliographySnapshot {
             scanner_event_ids,
+            scanner_event_anchors,
             executed_events: self.semantic_bibliography.executed_events.clone(),
+            executed_event_anchors,
             environment_depth: self
                 .semantic_bibliography
                 .environment_depth
@@ -91,7 +124,17 @@ impl Vm<'_> {
     ) {
         self.semantic_bibliography.scanner_event_ids =
             snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_bibliography.scanner_event_anchors = snapshot
+            .scanner_event_anchors
+            .iter()
+            .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
+            .collect();
         self.semantic_bibliography.executed_events = snapshot.executed_events.clone();
+        self.semantic_bibliography.executed_event_anchors = snapshot
+            .executed_event_anchors
+            .iter()
+            .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
+            .collect();
         self.semantic_bibliography.environment_depth = snapshot
             .environment_depth
             .try_into()
@@ -105,6 +148,7 @@ impl Vm<'_> {
                     label_hint: capture.label_hint.clone(),
                     source: capture.source.clone(),
                     producer: capture.producer,
+                    execution_anchor: capture.execution_anchor.clone(),
                     visible_output_prefix: capture.visible_output_prefix.clone(),
                     output_start: self.output.len(),
                     lossy_prefix: capture.lossy_before_restore,
@@ -128,23 +172,29 @@ impl Vm<'_> {
         }
     }
 
-    pub(super) fn end_executed_bibliography_environment(&mut self) {
+    pub(super) fn end_executed_bibliography_environment(&mut self, end_utf8: u32) {
         self.finish_executed_bibliography_item();
+        self.close_executed_text_authority(end_utf8);
         self.semantic_bibliography.environment_depth = self
             .semantic_bibliography
             .environment_depth
             .saturating_sub(1);
     }
 
-    pub(super) fn finish_executed_bibliography_document(&mut self) {
+    pub(super) fn finish_executed_bibliography_document(&mut self, end_utf8: u32) {
         self.finish_executed_bibliography_item();
+        self.close_executed_text_authority(end_utf8);
         self.semantic_bibliography.environment_depth = 0;
     }
 
     pub(super) fn mark_scanner_bibliography_event(&mut self, event_id: EventId) {
+        let execution_anchor = self.current_scanner_execution_anchor();
         self.semantic_bibliography
             .scanner_event_ids
             .insert(event_id);
+        self.semantic_bibliography
+            .scanner_event_anchors
+            .insert(event_id, execution_anchor);
     }
 
     pub(super) fn record_overridden_bibliography_invocation(
@@ -199,11 +249,13 @@ impl Vm<'_> {
         }
 
         let nested_semantics = self.capture_bibliography_nested_semantics();
+        let execution_anchor = self.current_execution_anchor();
         self.semantic_bibliography.active_item = Some(ExecutedBibliographyCapture {
             key,
             label_hint,
             source,
             producer,
+            execution_anchor,
             visible_output_prefix: String::new(),
             output_start: self.output.len(),
             lossy_prefix: lossy_label,
@@ -235,6 +287,7 @@ impl Vm<'_> {
         self.finish_executed_block_content();
 
         let event_id = self.render_events.allocate_event_id();
+        let execution_anchor = capture.execution_anchor;
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::BibliographyItem(BibliographyItemEvent {
@@ -251,11 +304,18 @@ impl Vm<'_> {
             envelope.meta.producer = capture.producer;
         }
         self.semantic_bibliography.executed_events.push(envelope);
+        self.semantic_bibliography
+            .executed_event_anchors
+            .insert(event_id, execution_anchor);
     }
 
     pub(super) fn reconcile_executed_bibliography_events(&mut self) {
         let scanner_ids = mem::take(&mut self.semantic_bibliography.scanner_event_ids);
+        let scanner_event_anchors =
+            mem::take(&mut self.semantic_bibliography.scanner_event_anchors);
         let mut executed = mem::take(&mut self.semantic_bibliography.executed_events);
+        let mut executed_event_anchors =
+            mem::take(&mut self.semantic_bibliography.executed_event_anchors);
         if scanner_ids.is_empty() && executed.is_empty() {
             return;
         }
@@ -267,20 +327,26 @@ impl Vm<'_> {
                 reconciled.push(scanner_event);
                 continue;
             }
+            let scanner_execution_anchor = scanner_event_anchors.get(&scanner_event.meta.event_id);
             let exact = executed.iter().position(|candidate| {
                 candidate.meta.producer != EventProducer::Fallback
+                    && executed_event_anchors.get(&candidate.meta.event_id)
+                        == scanner_execution_anchor
                     && bibliography_payloads_match(candidate, &scanner_event)
                     && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
             });
             let compatible = exact.or_else(|| {
                 executed.iter().position(|candidate| {
                     candidate.meta.producer != EventProducer::Fallback
+                        && executed_event_anchors.get(&candidate.meta.event_id)
+                            == scanner_execution_anchor
                         && bibliography_shapes_match(candidate, &scanner_event)
                         && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
                 })
             });
             if let Some(index) = compatible {
                 let mut executed_event = executed.remove(index);
+                executed_event_anchors.remove(&executed_event.meta.event_id);
                 let payloads_match = bibliography_payloads_match(&executed_event, &scanner_event);
                 let executed_source = executed_event.meta.source;
                 let mut source = if payloads_match {
@@ -299,10 +365,12 @@ impl Vm<'_> {
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
             } else if let Some(index) = executed.iter().position(|candidate| {
-                bibliography_shapes_match(candidate, &scanner_event)
+                executed_event_anchors.get(&candidate.meta.event_id) == scanner_execution_anchor
+                    && bibliography_shapes_match(candidate, &scanner_event)
                     && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
             }) {
-                executed.remove(index);
+                let removed = executed.remove(index);
+                executed_event_anchors.remove(&removed.meta.event_id);
                 if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
                     reconciled.push(scanner_event);
                 }
@@ -312,7 +380,12 @@ impl Vm<'_> {
         }
 
         executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
-        insert_unmatched_bibliography_events(&mut reconciled, executed);
+        insert_unmatched_bibliography_events(
+            &mut reconciled,
+            executed,
+            &scanner_event_anchors,
+            &executed_event_anchors,
+        );
         self.render_events.replace_events(reconciled);
     }
 
@@ -388,24 +461,42 @@ fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSp
 fn insert_unmatched_bibliography_events(
     events: &mut Vec<RenderEventEnvelope>,
     executed: Vec<RenderEventEnvelope>,
+    scanner_event_anchors: &HashMap<EventId, VmExecutionAnchor>,
+    executed_event_anchors: &HashMap<EventId, VmExecutionAnchor>,
 ) {
     for event in executed {
         let Some((path, start_utf8, end_utf8)) = event_anchor(&event) else {
             continue;
         };
+        let execution_anchor = executed_event_anchors.get(&event.meta.event_id);
         let insertion = events
             .iter()
             .position(|existing| {
-                event_anchor(existing).is_some_and(
-                    |(existing_path, existing_start, existing_end)| {
-                        existing_path == path
-                            && (existing_start > start_utf8
-                                || (existing_start == start_utf8
-                                    && (existing_end > end_utf8
-                                        || (existing_end == end_utf8
-                                            && existing.meta.event_id > event.meta.event_id))))
-                    },
-                )
+                scanner_event_anchors.get(&existing.meta.event_id) == execution_anchor
+                    && event_anchor(existing).is_some_and(
+                        |(existing_path, existing_start, existing_end)| {
+                            existing_path == path
+                                && (existing_start > start_utf8
+                                    || (existing_start == start_utf8
+                                        && (existing_end > end_utf8
+                                            || (existing_end == end_utf8
+                                                && existing.meta.event_id > event.meta.event_id))))
+                        },
+                    )
+            })
+            .or_else(|| {
+                events.iter().position(|existing| {
+                    event_anchor(existing).is_some_and(
+                        |(existing_path, existing_start, existing_end)| {
+                            existing_path == path
+                                && (existing_start > start_utf8
+                                    || (existing_start == start_utf8
+                                        && (existing_end > end_utf8
+                                            || (existing_end == end_utf8
+                                                && existing.meta.event_id > event.meta.event_id))))
+                        },
+                    )
+                })
             })
             .unwrap_or(events.len());
         events.insert(insertion, event);

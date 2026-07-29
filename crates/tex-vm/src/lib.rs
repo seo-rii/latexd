@@ -77,11 +77,12 @@ pub use snapshot::{
     VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
     VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
     VmBibliographyNestedSemanticSnapshot, VmContinuationBlocker, VmContinuationSafety,
-    VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
-    VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot,
-    VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
-    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
-    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
+    VmEventExecutionAnchorSnapshot, VmExecutedInlineEventMarkSnapshot,
+    VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
+    VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExecutionAnchor,
+    VmExecutionAuthorityRangeSnapshot, VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot,
+    VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot,
+    VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
     VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
     VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticBibliographySnapshot,
     VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
@@ -1037,10 +1038,12 @@ pub struct Vm<'i> {
     output: String,
     render_event_capture: bool,
     render_events: SemanticEventBuffer,
+    scanner_event_anchors: HashMap<EventId, VmExecutionAnchor>,
     scanner_dollar_math_event_ids: HashSet<EventId>,
     scanner_command_math_event_ids: HashSet<EventId>,
     render_event_sources: HashMap<Utf8PathBuf, String>,
     semantic_recovery_dirty_paths: HashSet<Utf8PathBuf>,
+    deferred_semantic_recovery_paths: HashSet<Utf8PathBuf>,
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
@@ -1062,6 +1065,7 @@ pub struct Vm<'i> {
     read_stream_lines: BTreeMap<u32, Vec<String>>,
     read_stream_eof: BTreeMap<u32, bool>,
     entry_source_path: Option<Utf8PathBuf>,
+    scanner_execution_anchors: Vec<VmExecutionAnchor>,
     source_stack: Vec<ActiveSourceFrame>,
     restored_input_continuation: Option<RestoredInputContinuation>,
     last_token_end_utf8: u32,
@@ -1114,10 +1118,12 @@ impl<'i> Vm<'i> {
             output: String::new(),
             render_event_capture: false,
             render_events: SemanticEventBuffer::default(),
+            scanner_event_anchors: HashMap::new(),
             scanner_dollar_math_event_ids: HashSet::new(),
             scanner_command_math_event_ids: HashSet::new(),
             render_event_sources: HashMap::new(),
             semantic_recovery_dirty_paths: HashSet::new(),
+            deferred_semantic_recovery_paths: HashSet::new(),
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
@@ -1139,6 +1145,7 @@ impl<'i> Vm<'i> {
             read_stream_lines: BTreeMap::new(),
             read_stream_eof: BTreeMap::new(),
             entry_source_path: None,
+            scanner_execution_anchors: Vec::new(),
             source_stack: Vec::new(),
             restored_input_continuation: None,
             last_token_end_utf8: 0,
@@ -1334,12 +1341,17 @@ impl<'i> Vm<'i> {
         let path = path.into();
         let source = source.into();
         self.mounted_files.insert(path.clone(), source.clone());
+        let continuation_pending = self.restored_input_continuation.is_some();
+        if continuation_pending {
+            self.deferred_semantic_recovery_paths.insert(path.clone());
+        }
         let is_entry_source = self.entry_source_path.as_ref() == Some(&path);
         self.refresh_render_recovery_source(
             &path,
             &source,
             !is_entry_source && self.execution_in_document,
             usize::from(!is_entry_source),
+            None,
         );
     }
 
@@ -1349,16 +1361,20 @@ impl<'i> Vm<'i> {
         source: &str,
         initial_in_document: bool,
         include_depth: usize,
+        return_to_parent: Option<VmReplayFrame>,
     ) {
         let previous_recovery_source = self.render_event_sources.get(path).cloned();
+        let deferred_refresh = self.deferred_semantic_recovery_paths.contains(path);
         if !self.render_event_capture
             || previous_recovery_source
                 .as_ref()
-                .is_none_or(|previous| previous == source)
+                .is_none_or(|previous| previous == source && !deferred_refresh)
         {
             return;
         }
 
+        let execution_anchor =
+            self.scanner_execution_anchor_for_source(path, return_to_parent.as_ref());
         let removed_event_ids = self
             .render_events
             .iter()
@@ -1366,17 +1382,22 @@ impl<'i> Vm<'i> {
                 let belongs_to_source = matches!(
                     &event.meta.source.primary,
                     ProvenanceSpan::File(span) if &span.path == path
-                );
+                ) && self.scanner_event_anchors.get(&event.meta.event_id)
+                    == Some(&execution_anchor);
                 belongs_to_source.then_some(event.meta.event_id)
             })
             .collect::<BTreeSet<_>>();
         if removed_event_ids.is_empty() {
+            if deferred_refresh && return_to_parent.is_none() {
+                return;
+            }
             self.semantic_recovery_dirty_paths.insert(path.clone());
             self.render_event_sources
                 .insert(path.clone(), source.to_string());
             return;
         }
 
+        let original_scanner_event_anchors = self.scanner_event_anchors.clone();
         let original_math = self.semantic_math_snapshot();
         let original_text = self.semantic_text_snapshot();
         let original_graphic = self.semantic_graphic_snapshot();
@@ -1397,16 +1418,16 @@ impl<'i> Vm<'i> {
             .retain(|event_id| !removed_event_ids.contains(event_id));
         self.restore_semantic_math_snapshot(&math);
         let mut text = original_text.clone();
-        text.scanner_slots.retain(|slot| &slot.path != path);
-        text.suppressed_ranges.retain(|range| &range.path != path);
+        text.scanner_slots.retain(|slot| {
+            slot.event_ids
+                .iter()
+                .all(|event_id| !removed_event_ids.contains(event_id))
+        });
         self.restore_semantic_text_snapshot(&text);
         let mut graphic = original_graphic.clone();
         graphic
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
-        graphic
-            .overridden_invocations
-            .retain(|invocation| &invocation.path != path);
         self.restore_semantic_graphic_snapshot(&graphic);
         let mut list = original_list.clone();
         list.scanner_item_event_ids
@@ -1435,12 +1456,13 @@ impl<'i> Vm<'i> {
         inline
             .scanner_label_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
-        inline
-            .overridden_label_invocations
-            .retain(|invocation| &invocation.path != path);
         self.restore_semantic_inline_snapshot(&inline);
         let mut footnote = original_footnote.clone();
-        footnote.scanner_slots.retain(|slot| &slot.path != path);
+        footnote.scanner_slots.retain(|slot| {
+            slot.event_ids
+                .iter()
+                .all(|event_id| !removed_event_ids.contains(event_id))
+        });
         self.restore_semantic_footnote_snapshot(&footnote);
         let mut front_matter = original_front_matter.clone();
         front_matter
@@ -1461,6 +1483,9 @@ impl<'i> Vm<'i> {
         bibliography
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
+        bibliography
+            .scanner_event_anchors
+            .retain(|anchor| !removed_event_ids.contains(&anchor.event_id));
         self.restore_semantic_bibliography_snapshot(&bibliography);
 
         self.render_event_sources.remove(path);
@@ -1472,6 +1497,7 @@ impl<'i> Vm<'i> {
             initial_in_document,
             include_depth,
             &mut scan_state,
+            return_to_parent,
         );
         if let Some(event_id_remap) = self
             .render_events
@@ -1550,11 +1576,27 @@ impl<'i> Vm<'i> {
 
             let mut bibliography = self.semantic_bibliography_snapshot();
             remap_event_ids(&mut bibliography.scanner_event_ids);
+            for anchor in &mut bibliography.scanner_event_anchors {
+                if let Some(committed_event_id) = event_id_remap.get(&anchor.event_id) {
+                    anchor.event_id = *committed_event_id;
+                }
+            }
             self.restore_semantic_bibliography_snapshot(&bibliography);
+            for event_id in &removed_event_ids {
+                self.scanner_event_anchors.remove(event_id);
+            }
+            for (emitted_event_id, committed_event_id) in &event_id_remap {
+                if let Some(execution_anchor) = self.scanner_event_anchors.remove(emitted_event_id)
+                {
+                    self.scanner_event_anchors
+                        .insert(*committed_event_id, execution_anchor);
+                }
+            }
             return;
         }
 
         let _ = self.render_events.rollback(mark);
+        self.scanner_event_anchors = original_scanner_event_anchors;
         self.restore_semantic_math_snapshot(&original_math);
         self.restore_semantic_text_snapshot(&original_text);
         self.restore_semantic_graphic_snapshot(&original_graphic);
@@ -1603,6 +1645,7 @@ impl<'i> Vm<'i> {
                 self.execution_in_document,
                 0,
                 &mut scan_state,
+                None,
             );
         }
         let queue = VecDeque::from([QueueItem::CharacterSource(Mouth::new(source))]);
@@ -1641,11 +1684,59 @@ impl<'i> Vm<'i> {
             true,
             include_depth + 1,
             scan_state,
+            None,
         );
         true
     }
 
     fn capture_render_events_from_source(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        initial_in_document: bool,
+        include_depth: usize,
+        scan_state: &mut RenderEventScanState,
+        return_to_parent: Option<VmReplayFrame>,
+    ) {
+        let execution_anchor =
+            self.scanner_execution_anchor_for_source(source_path, return_to_parent.as_ref());
+        self.scanner_execution_anchors.push(execution_anchor);
+        self.capture_render_events_from_source_inner(
+            source_path,
+            source,
+            initial_in_document,
+            include_depth,
+            scan_state,
+        );
+        self.scanner_execution_anchors
+            .pop()
+            .expect("scanner execution anchor must match source recursion");
+    }
+
+    fn scanner_execution_anchor_for_source(
+        &self,
+        source_path: &Utf8Path,
+        return_to_parent: Option<&VmReplayFrame>,
+    ) -> VmExecutionAnchor {
+        let mut continuation_stack = self
+            .scanner_execution_anchors
+            .last()
+            .map(|anchor| anchor.continuation_stack.clone())
+            .unwrap_or_else(|| {
+                return_to_parent
+                    .map(|_| self.current_continuation_stack())
+                    .unwrap_or_default()
+            });
+        if let Some(return_to_parent) = return_to_parent {
+            continuation_stack.insert(0, return_to_parent.clone());
+        }
+        VmExecutionAnchor {
+            path: source_path.to_owned(),
+            continuation_stack,
+        }
+    }
+
+    fn capture_render_events_from_source_inner(
         &mut self,
         source_path: &Utf8Path,
         source: &str,
@@ -6257,6 +6348,10 @@ impl<'i> Vm<'i> {
                                             false,
                                             include_depth + 1,
                                             scan_state,
+                                            Some(VmReplayFrame {
+                                                path: source_path.to_owned(),
+                                                source_offset_utf8: after_packages as u32,
+                                            }),
                                         );
                                     }
                                 }
@@ -6417,6 +6512,10 @@ impl<'i> Vm<'i> {
                                         false,
                                         include_depth + 1,
                                         scan_state,
+                                        Some(VmReplayFrame {
+                                            path: source_path.to_owned(),
+                                            source_offset_utf8: after_class as u32,
+                                        }),
                                     );
                                 }
                             }
@@ -6555,6 +6654,10 @@ impl<'i> Vm<'i> {
                                         in_document,
                                         include_depth + 1,
                                         scan_state,
+                                        Some(VmReplayFrame {
+                                            path: source_path.to_owned(),
+                                            source_offset_utf8: after_else as u32,
+                                        }),
                                     );
                                 }
                             }
@@ -6566,6 +6669,7 @@ impl<'i> Vm<'i> {
                             in_document,
                             include_depth,
                             scan_state,
+                            None,
                         );
                         index = after_else;
                     }
@@ -6645,6 +6749,10 @@ impl<'i> Vm<'i> {
                                         in_document,
                                         include_depth + 1,
                                         scan_state,
+                                        Some(VmReplayFrame {
+                                            path: source_path.to_owned(),
+                                            source_offset_utf8: after_path as u32,
+                                        }),
                                     );
                                 }
                             }
@@ -15388,7 +15496,10 @@ impl<'i> Vm<'i> {
                     .is_some_and(semantic_table::is_table_environment)
         );
         let envelope = RenderEventEnvelope::from_scanner_recovery(event_id, event, source);
+        let execution_anchor = self.current_scanner_execution_anchor();
         self.render_events.push(envelope);
+        self.scanner_event_anchors
+            .insert(event_id, execution_anchor);
         if scanner_dollar_math {
             self.scanner_dollar_math_event_ids.insert(event_id);
         }
@@ -15570,6 +15681,8 @@ impl<'i> Vm<'i> {
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.semantic_recovery_dirty_paths.clear();
+            self.deferred_semantic_recovery_paths.clear();
+            self.scanner_event_anchors.clear();
             self.render_event_sources.clear();
         }
 
@@ -15700,6 +15813,17 @@ impl<'i> Vm<'i> {
                 let heading = self.semantic_heading_snapshot();
                 let caption = self.semantic_caption_snapshot();
                 let bibliography = self.semantic_bibliography_snapshot();
+                let mut scanner_event_anchors = self
+                    .scanner_event_anchors
+                    .iter()
+                    .map(
+                        |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
+                            event_id: *event_id,
+                            execution_anchor: execution_anchor.clone(),
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                scanner_event_anchors.sort_by_key(|anchor| anchor.event_id);
                 let mut source_buffers = self
                     .render_event_sources
                     .iter()
@@ -15731,6 +15855,7 @@ impl<'i> Vm<'i> {
                 VmSemanticCaptureSnapshot {
                     schema_version: VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
                     source_buffers,
+                    scanner_event_anchors,
                     execution_in_document: self.execution_in_document,
                     execution_no_hyper_depth: self
                         .execution_no_hyper_depth
@@ -15985,6 +16110,11 @@ impl<'i> Vm<'i> {
                 .source_buffers
                 .iter()
                 .map(|(path, source)| (path.clone(), source.clone()))
+                .collect();
+            vm.scanner_event_anchors = semantic_capture
+                .scanner_event_anchors
+                .iter()
+                .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
                 .collect();
             vm.execution_in_document = semantic_capture.execution_in_document;
             vm.execution_no_hyper_depth = semantic_capture.execution_no_hyper_depth as usize;
@@ -17784,28 +17914,29 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let environment = environment.trim();
+                let environment_boundary_end_utf8 = environment_end_utf8.max(source_end_utf8);
                 if environment == "thebibliography" {
-                    self.end_executed_bibliography_environment();
+                    self.end_executed_bibliography_environment(environment_boundary_end_utf8);
                 } else if environment == "document" {
-                    self.finish_executed_bibliography_document();
+                    self.finish_executed_bibliography_document(environment_boundary_end_utf8);
                 }
                 self.execute_math_environment_boundary(
                     environment,
                     false,
                     source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
-                    environment_end_utf8.max(source_end_utf8),
+                    environment_boundary_end_utf8,
+                    environment_boundary_end_utf8,
                 );
                 self.emit_executed_environment_boundary(
                     environment,
                     false,
                     source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
+                    environment_boundary_end_utf8,
                 );
                 self.end_executed_table(
                     environment,
                     source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
+                    environment_boundary_end_utf8,
                 );
                 self.end_executed_list(environment);
                 if environment == "document" {
@@ -21674,6 +21805,7 @@ impl<'i> Vm<'i> {
                 continue;
             }
             queue.pop_front();
+            self.close_executed_text_authority(source_end_utf8);
             if self
                 .source_stack
                 .last()
@@ -21782,7 +21914,7 @@ impl<'i> Vm<'i> {
         queue.push_front(QueueItem::Token(token));
     }
 
-    fn current_continuation_stack(&self) -> Vec<VmReplayFrame> {
+    pub(crate) fn current_continuation_stack(&self) -> Vec<VmReplayFrame> {
         let mut continuation_stack = Vec::new();
         for frame in self.source_stack.iter().rev() {
             if let Some(return_to_parent) = &frame.return_to_parent {
@@ -21790,6 +21922,26 @@ impl<'i> Vm<'i> {
             }
         }
         continuation_stack
+    }
+
+    pub(crate) fn current_execution_anchor(&self) -> VmExecutionAnchor {
+        VmExecutionAnchor {
+            path: self.current_execution_source_path(),
+            continuation_stack: self.current_continuation_stack(),
+        }
+    }
+
+    pub(crate) fn current_scanner_execution_anchor(&self) -> VmExecutionAnchor {
+        self.scanner_execution_anchors
+            .last()
+            .cloned()
+            .unwrap_or_else(|| VmExecutionAnchor {
+                path: self
+                    .entry_source_path
+                    .clone()
+                    .unwrap_or_else(|| Utf8PathBuf::from("texput.tex")),
+                continuation_stack: Vec::new(),
+            })
     }
 
     fn expand_once(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
@@ -24017,6 +24169,10 @@ impl<'i> Vm<'i> {
             &source,
             label == "input" && self.execution_in_document,
             1,
+            resume_path.as_ref().map(|path| VmReplayFrame {
+                path: path.clone(),
+                source_offset_utf8: resume_source_offset_utf8,
+            }),
         );
 
         self.record_graphic_module_options(label, &path, &module_options);

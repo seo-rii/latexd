@@ -13,12 +13,34 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 17;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 18;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {
     pub path: Utf8PathBuf,
     pub source_offset_utf8: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VmExecutionAnchor {
+    pub path: Utf8PathBuf,
+    pub continuation_stack: Vec<VmReplayFrame>,
+}
+
+impl VmExecutionAnchor {
+    fn is_restorable(&self) -> bool {
+        !self.path.as_str().is_empty()
+            && self
+                .continuation_stack
+                .iter()
+                .all(|frame| !frame.path.as_str().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmEventExecutionAnchorSnapshot {
+    pub event_id: EventId,
+    pub execution_anchor: VmExecutionAnchor,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +150,8 @@ pub struct VmSemanticCaptureSnapshot {
     #[serde(default)]
     pub source_buffers: BTreeMap<Utf8PathBuf, String>,
     #[serde(default)]
+    pub scanner_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
+    #[serde(default)]
     pub execution_in_document: bool,
     #[serde(default)]
     pub execution_no_hyper_depth: u32,
@@ -182,6 +206,7 @@ impl VmSemanticCaptureSnapshot {
             end_utf8 <= source.len() && source.is_char_boundary(end_utf8)
         });
         self.schema_version == VM_SEMANTIC_CAPTURE_SCHEMA_VERSION
+            && event_execution_anchors_are_valid(&self.scanner_event_anchors)
             && self.math.is_restorable()
             && self.text.is_restorable()
             && self.graphic.is_restorable()
@@ -304,9 +329,11 @@ pub struct VmSemanticTextSnapshot {
     #[serde(default)]
     pub suppressed_ranges: Vec<VmSuppressedSourceRangeSnapshot>,
     #[serde(default)]
-    pub forced_execution_ranges: Vec<VmSuppressedSourceRangeSnapshot>,
+    pub forced_execution_ranges: Vec<VmExecutionAuthorityRangeSnapshot>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub executed_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
     #[serde(default)]
     pub active_capture: Option<VmExecutedTextCaptureSnapshot>,
     #[serde(default)]
@@ -389,8 +416,12 @@ impl VmSemanticTextSnapshot {
             && self
                 .forced_execution_ranges
                 .iter()
-                .all(VmSuppressedSourceRangeSnapshot::is_restorable)
+                .all(VmExecutionAuthorityRangeSnapshot::is_restorable)
             && values_are_unique_nonzero(&executed_event_ids)
+            && event_execution_anchors_are_restorable(
+                &self.executed_event_anchors,
+                &executed_event_ids,
+            )
             && self
                 .active_capture
                 .as_ref()
@@ -720,7 +751,11 @@ pub struct VmSemanticBibliographySnapshot {
     #[serde(default)]
     pub scanner_event_ids: Vec<EventId>,
     #[serde(default)]
+    pub scanner_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
+    #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub executed_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
     #[serde(default)]
     pub environment_depth: u64,
     #[serde(default)]
@@ -747,13 +782,22 @@ impl VmSemanticBibliographySnapshot {
             .map(|event| event.meta.event_id)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
+            && event_execution_anchors_are_restorable(
+                &self.scanner_event_anchors,
+                &self.scanner_event_ids,
+            )
             && values_are_unique_nonzero(&executed_event_ids)
+            && event_execution_anchors_are_restorable(
+                &self.executed_event_anchors,
+                &executed_event_ids,
+            )
             && executed_event_ids
                 .iter()
                 .all(|event_id| !scanner_event_ids.contains(event_id))
             && usize::try_from(self.environment_depth).is_ok()
             && self.active_item.as_ref().is_none_or(|capture| {
                 self.environment_depth > 0
+                    && capture.execution_anchor.is_restorable()
                     && capture.text_event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
                     && capture.math_event_mark <= math_event_count
@@ -772,6 +816,8 @@ pub struct VmActiveBibliographyCaptureSnapshot {
     pub label_hint: Option<String>,
     pub source: SourceProvenance,
     pub producer: EventProducer,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
     pub visible_output_prefix: String,
     pub lossy_before_restore: bool,
     pub text_event_mark: u64,
@@ -951,12 +997,33 @@ pub struct VmScannerTextSlotSnapshot {
     pub end_utf8: u32,
     pub event_ids: Vec<EventId>,
     #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
+    #[serde(default)]
     pub preserve_leading_space: bool,
 }
 
 impl VmScannerTextSlotSnapshot {
     fn is_restorable(&self) -> bool {
-        self.start_utf8 <= self.end_utf8 && values_are_unique_nonzero(&self.event_ids)
+        self.start_utf8 <= self.end_utf8
+            && values_are_unique_nonzero(&self.event_ids)
+            && self.execution_anchor.is_restorable()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutionAuthorityRangeSnapshot {
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
+}
+
+impl VmExecutionAuthorityRangeSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.start_utf8 <= self.end_utf8
+            && self.path == self.execution_anchor.path
+            && self.execution_anchor.is_restorable()
     }
 }
 
@@ -980,15 +1047,18 @@ pub struct VmExecutedTextCaptureSnapshot {
     pub producer: EventProducer,
     pub literal_path: Option<Utf8PathBuf>,
     pub end_utf8: u32,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
 }
 
 impl VmExecutedTextCaptureSnapshot {
     fn is_restorable(&self) -> bool {
-        self.literal_path.is_none()
-            || matches!(&self.source.primary, tex_render_model::ProvenanceSpan::File(span)
-                if Some(&span.path) == self.literal_path.as_ref()
-                    && span.start_utf8 <= span.end_utf8
-                    && span.end_utf8 == self.end_utf8)
+        self.execution_anchor.is_restorable()
+            && (self.literal_path.is_none()
+                || matches!(&self.source.primary, tex_render_model::ProvenanceSpan::File(span)
+                    if Some(&span.path) == self.literal_path.as_ref()
+                        && span.start_utf8 <= span.end_utf8
+                        && span.end_utf8 == self.end_utf8))
     }
 }
 
@@ -1240,6 +1310,33 @@ pub struct VmSnapshot {
 
 fn default_next_render_event_id() -> EventId {
     1
+}
+
+fn event_execution_anchors_are_restorable(
+    anchors: &[VmEventExecutionAnchorSnapshot],
+    event_ids: &[EventId],
+) -> bool {
+    let anchored_event_ids = anchors
+        .iter()
+        .map(|anchor| anchor.event_id)
+        .collect::<Vec<_>>();
+    let expected_event_ids = event_ids.iter().copied().collect::<BTreeSet<_>>();
+    values_are_unique_nonzero(&anchored_event_ids)
+        && anchored_event_ids.iter().copied().collect::<BTreeSet<_>>() == expected_event_ids
+        && anchors
+            .iter()
+            .all(|anchor| anchor.execution_anchor.is_restorable())
+}
+
+fn event_execution_anchors_are_valid(anchors: &[VmEventExecutionAnchorSnapshot]) -> bool {
+    let event_ids = anchors
+        .iter()
+        .map(|anchor| anchor.event_id)
+        .collect::<Vec<_>>();
+    values_are_unique_nonzero(&event_ids)
+        && anchors
+            .iter()
+            .all(|anchor| anchor.execution_anchor.is_restorable())
 }
 
 fn values_are_unique_nonzero(values: &[EventId]) -> bool {

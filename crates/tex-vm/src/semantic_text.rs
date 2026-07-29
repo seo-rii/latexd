@@ -16,9 +16,10 @@ use crate::{
     Vm,
     input::QueueItem,
     snapshot::{
-        VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExpansionContextSnapshot,
-        VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmScannerTextSlotSnapshot,
-        VmSemanticTextSnapshot, VmSuppressedSourceRangeSnapshot,
+        VmEventExecutionAnchorSnapshot, VmExecutedTextCaptureSnapshot,
+        VmExecutedTextFlowMarkSnapshot, VmExecutionAnchor, VmExecutionAuthorityRangeSnapshot,
+        VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
+        VmScannerTextSlotSnapshot, VmSemanticTextSnapshot, VmSuppressedSourceRangeSnapshot,
     },
 };
 
@@ -26,8 +27,9 @@ use crate::{
 pub(super) struct SemanticTextState {
     scanner_slots: Vec<ScannerTextSlot>,
     suppressed_ranges: Vec<SuppressedSourceRange>,
-    forced_execution_ranges: Vec<SuppressedSourceRange>,
+    forced_execution_ranges: Vec<ExecutionAuthorityRange>,
     executed_events: Vec<RenderEventEnvelope>,
+    executed_event_anchors: HashMap<EventId, VmExecutionAnchor>,
     capture: Option<ExecutedTextCapture>,
     paragraph_has_content: bool,
     space_run_active: bool,
@@ -42,6 +44,7 @@ struct ScannerTextSlot {
     start_utf8: u32,
     end_utf8: u32,
     event_ids: Vec<EventId>,
+    execution_anchor: VmExecutionAnchor,
     preserve_leading_space: bool,
 }
 
@@ -52,6 +55,14 @@ struct SuppressedSourceRange {
     end_utf8: u32,
 }
 
+#[derive(Debug, Clone)]
+struct ExecutionAuthorityRange {
+    path: Utf8PathBuf,
+    start_utf8: u32,
+    end_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
+}
+
 #[derive(Debug)]
 struct ExecutedTextCapture {
     text: String,
@@ -59,6 +70,7 @@ struct ExecutedTextCapture {
     producer: EventProducer,
     literal_path: Option<Utf8PathBuf>,
     end_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -135,6 +147,7 @@ impl Vm<'_> {
                     start_utf8: slot.start_utf8,
                     end_utf8: slot.end_utf8,
                     event_ids: slot.event_ids.clone(),
+                    execution_anchor: slot.execution_anchor.clone(),
                     preserve_leading_space: slot.preserve_leading_space,
                 })
                 .collect(),
@@ -152,13 +165,29 @@ impl Vm<'_> {
                 .semantic_text
                 .forced_execution_ranges
                 .iter()
-                .map(|range| VmSuppressedSourceRangeSnapshot {
+                .map(|range| VmExecutionAuthorityRangeSnapshot {
                     path: range.path.clone(),
                     start_utf8: range.start_utf8,
                     end_utf8: range.end_utf8,
+                    execution_anchor: range.execution_anchor.clone(),
                 })
                 .collect(),
             executed_events: self.semantic_text.executed_events.clone(),
+            executed_event_anchors: {
+                let mut anchors = self
+                    .semantic_text
+                    .executed_event_anchors
+                    .iter()
+                    .map(
+                        |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
+                            event_id: *event_id,
+                            execution_anchor: execution_anchor.clone(),
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                anchors.sort_by_key(|anchor| anchor.event_id);
+                anchors
+            },
             active_capture: self.semantic_text.capture.as_ref().map(|capture| {
                 VmExecutedTextCaptureSnapshot {
                     text: capture.text.clone(),
@@ -166,6 +195,7 @@ impl Vm<'_> {
                     producer: capture.producer,
                     literal_path: capture.literal_path.clone(),
                     end_utf8: capture.end_utf8,
+                    execution_anchor: capture.execution_anchor.clone(),
                 }
             }),
             paragraph_has_content: self.semantic_text.paragraph_has_content,
@@ -193,6 +223,7 @@ impl Vm<'_> {
                 start_utf8: slot.start_utf8,
                 end_utf8: slot.end_utf8,
                 event_ids: slot.event_ids.clone(),
+                execution_anchor: slot.execution_anchor.clone(),
                 preserve_leading_space: slot.preserve_leading_space,
             })
             .collect();
@@ -208,13 +239,19 @@ impl Vm<'_> {
         self.semantic_text.forced_execution_ranges = snapshot
             .forced_execution_ranges
             .iter()
-            .map(|range| SuppressedSourceRange {
+            .map(|range| ExecutionAuthorityRange {
                 path: range.path.clone(),
                 start_utf8: range.start_utf8,
                 end_utf8: range.end_utf8,
+                execution_anchor: range.execution_anchor.clone(),
             })
             .collect();
         self.semantic_text.executed_events = snapshot.executed_events.clone();
+        self.semantic_text.executed_event_anchors = snapshot
+            .executed_event_anchors
+            .iter()
+            .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
+            .collect();
         self.semantic_text.capture =
             snapshot
                 .active_capture
@@ -225,6 +262,7 @@ impl Vm<'_> {
                     producer: capture.producer,
                     literal_path: capture.literal_path.clone(),
                     end_utf8: capture.end_utf8,
+                    execution_anchor: capture.execution_anchor.clone(),
                 });
         self.semantic_text.paragraph_has_content = snapshot.paragraph_has_content;
         self.semantic_text.space_run_active = snapshot.space_run_active;
@@ -271,6 +309,7 @@ impl Vm<'_> {
             start_utf8,
             end_utf8,
             event_ids,
+            execution_anchor: self.current_scanner_execution_anchor(),
             preserve_leading_space: start_utf8 == 0 && self.semantic_text.paragraph_has_content,
         });
     }
@@ -287,6 +326,7 @@ impl Vm<'_> {
             start_utf8,
             end_utf8,
             event_ids: vec![event_id],
+            execution_anchor: self.current_scanner_execution_anchor(),
             preserve_leading_space: false,
         });
     }
@@ -346,13 +386,32 @@ impl Vm<'_> {
         if end_utf8 <= start_utf8 {
             return;
         }
+        let execution_anchor = self.current_execution_anchor();
         self.semantic_text
             .forced_execution_ranges
-            .push(SuppressedSourceRange {
+            .push(ExecutionAuthorityRange {
                 path,
                 start_utf8,
                 end_utf8,
+                execution_anchor,
             });
+    }
+
+    pub(super) fn close_executed_text_authority(&mut self, end_utf8: u32) {
+        if !self.render_event_capture {
+            return;
+        }
+        let execution_anchor = self.current_execution_anchor();
+        for range in self
+            .semantic_text
+            .forced_execution_ranges
+            .iter_mut()
+            .filter(|range| range.execution_anchor == execution_anchor)
+        {
+            if range.start_utf8 < end_utf8 && end_utf8 < range.end_utf8 {
+                range.end_utf8 = end_utf8;
+            }
+        }
     }
 
     pub(super) fn record_overridden_page_break_invocation(
@@ -471,8 +530,10 @@ impl Vm<'_> {
             return;
         }
         let (source, producer, literal_path) = self.executed_text_source(start_utf8, end_utf8);
+        let execution_anchor = self.current_execution_anchor();
         let can_extend = self.semantic_text.capture.as_ref().is_some_and(|capture| {
             capture.producer == producer
+                && capture.execution_anchor == execution_anchor
                 && if let Some(path) = &literal_path {
                     capture.literal_path.as_ref() == Some(path) && start_utf8 >= capture.end_utf8
                 } else {
@@ -487,6 +548,7 @@ impl Vm<'_> {
                 producer,
                 literal_path,
                 end_utf8,
+                execution_anchor,
             });
         }
         let capture = self
@@ -537,7 +599,7 @@ impl Vm<'_> {
             .last()
             .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
         {
-            self.semantic_text.executed_events.pop();
+            self.pop_executed_text_event();
         }
         self.semantic_text.space_run_active = false;
         let path = self.current_execution_source_path();
@@ -570,7 +632,7 @@ impl Vm<'_> {
             .last()
             .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
         {
-            self.semantic_text.executed_events.pop();
+            self.pop_executed_text_event();
         }
         self.push_executed_text_event(
             RenderEvent::LineBreak(LineBreakEvent {
@@ -599,7 +661,7 @@ impl Vm<'_> {
             .last()
             .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
         {
-            self.semantic_text.executed_events.pop();
+            self.pop_executed_text_event();
         }
         self.push_executed_text_event(
             RenderEvent::PageBreak(PageBreakEvent { kind }),
@@ -625,6 +687,9 @@ impl Vm<'_> {
         );
         envelope.meta.producer = capture.producer;
         self.semantic_text.executed_events.push(envelope);
+        self.semantic_text
+            .executed_event_anchors
+            .insert(event_id, capture.execution_anchor);
     }
 
     pub(super) fn executed_text_event_mark(&mut self) -> usize {
@@ -650,6 +715,11 @@ impl Vm<'_> {
             .semantic_text
             .executed_events
             .split_off(mark.event_mark);
+        for event in &events {
+            self.semantic_text
+                .executed_event_anchors
+                .remove(&event.meta.event_id);
+        }
         self.semantic_text.paragraph_has_content = mark.paragraph_has_content;
         self.semantic_text.space_run_active = mark.space_run_active;
         events
@@ -657,7 +727,20 @@ impl Vm<'_> {
 
     pub(super) fn rollback_executed_text_events(&mut self, mark: usize) {
         self.flush_executed_text_capture();
+        for event in self.semantic_text.executed_events.iter().skip(mark) {
+            self.semantic_text
+                .executed_event_anchors
+                .remove(&event.meta.event_id);
+        }
         self.semantic_text.executed_events.truncate(mark);
+    }
+
+    fn pop_executed_text_event(&mut self) {
+        if let Some(event) = self.semantic_text.executed_events.pop() {
+            self.semantic_text
+                .executed_event_anchors
+                .remove(&event.meta.event_id);
+        }
     }
 
     pub(super) fn mark_executed_inline_content(&mut self) {
@@ -702,6 +785,7 @@ impl Vm<'_> {
         self.flush_executed_text_capture();
         let mut slots = mem::take(&mut self.semantic_text.scanner_slots);
         let mut executed = mem::take(&mut self.semantic_text.executed_events);
+        let executed_event_anchors = mem::take(&mut self.semantic_text.executed_event_anchors);
         self.replace_dirty_scanner_text_transactions(&mut slots, &mut executed);
         attach_trailing_scanner_spaces_to_eof_slots(
             &mut slots,
@@ -715,6 +799,7 @@ impl Vm<'_> {
                 &mut self.render_events,
                 executed,
                 &forced_execution_ranges,
+                &executed_event_anchors,
             );
             return;
         }
@@ -725,6 +810,7 @@ impl Vm<'_> {
             if let Some(index) = slots.iter().position(|slot| {
                 event_belongs_to_slot(
                     &event,
+                    executed_event_anchors.get(&event.meta.event_id),
                     slot,
                     self.render_event_sources
                         .get(&slot.path)
@@ -856,7 +942,12 @@ impl Vm<'_> {
                 reconciled.push(event);
             }
         }
-        insert_unmatched_execution_events(&mut reconciled, unmatched, &forced_execution_ranges);
+        insert_unmatched_execution_events(
+            &mut reconciled,
+            unmatched,
+            &forced_execution_ranges,
+            &executed_event_anchors,
+        );
         self.render_events.replace_events(reconciled);
     }
 
@@ -951,9 +1042,13 @@ impl Vm<'_> {
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {
         let event_id = self.render_events.allocate_event_id();
         let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
+        let execution_anchor = self.current_execution_anchor();
         let mut envelope = RenderEventEnvelope::new(event_id, event, source);
         envelope.meta.producer = producer;
         self.semantic_text.executed_events.push(envelope);
+        self.semantic_text
+            .executed_event_anchors
+            .insert(event_id, execution_anchor);
     }
 
     fn executed_text_source(
@@ -989,6 +1084,7 @@ impl Vm<'_> {
 
 fn event_belongs_to_slot(
     event: &RenderEventEnvelope,
+    execution_anchor: Option<&VmExecutionAnchor>,
     slot: &ScannerTextSlot,
     saved_source_len: Option<u32>,
 ) -> bool {
@@ -1000,7 +1096,8 @@ fn event_belongs_to_slot(
     else {
         return false;
     };
-    path == &slot.path
+    execution_anchor == Some(&slot.execution_anchor)
+        && path == &slot.path
         && ((*start_utf8 >= slot.start_utf8 && *end_utf8 <= slot.end_utf8)
             || (matches!(
                 event.event,
@@ -1081,7 +1178,8 @@ fn event_payloads_match(
 fn insert_unmatched_execution_events(
     events: &mut Vec<RenderEventEnvelope>,
     unmatched: Vec<RenderEventEnvelope>,
-    forced_execution_ranges: &[SuppressedSourceRange],
+    forced_execution_ranges: &[ExecutionAuthorityRange],
+    executed_event_anchors: &HashMap<EventId, VmExecutionAnchor>,
 ) {
     let mut index = 0;
     while index < unmatched.len() {
@@ -1089,13 +1187,23 @@ fn insert_unmatched_execution_events(
             index += 1;
             continue;
         };
-        if !is_insertable_unmatched_event(&unmatched[index], forced_execution_ranges) {
+        if !is_insertable_unmatched_event(
+            &unmatched[index],
+            forced_execution_ranges,
+            executed_event_anchors.get(&unmatched[index].meta.event_id),
+        ) {
             index += 1;
             continue;
         }
         let mut end = index + 1;
         while end < unmatched.len()
-            && is_insertable_unmatched_event(&unmatched[end], forced_execution_ranges)
+            && is_insertable_unmatched_event(
+                &unmatched[end],
+                forced_execution_ranges,
+                executed_event_anchors.get(&unmatched[end].meta.event_id),
+            )
+            && executed_event_anchors.get(&unmatched[end].meta.event_id)
+                == executed_event_anchors.get(&unmatched[index].meta.event_id)
             && event_anchor(&unmatched[end]).as_ref() == Some(&anchor)
         {
             end += 1;
@@ -1130,7 +1238,8 @@ fn insert_unmatched_execution_events(
 
 fn is_insertable_unmatched_event(
     event: &RenderEventEnvelope,
-    forced_execution_ranges: &[SuppressedSourceRange],
+    forced_execution_ranges: &[ExecutionAuthorityRange],
+    execution_anchor: Option<&VmExecutionAnchor>,
 ) -> bool {
     event.meta.producer == EventProducer::Macro
         || (event.meta.producer == EventProducer::Primitive
@@ -1142,11 +1251,12 @@ fn is_insertable_unmatched_event(
                         | RenderEvent::LineBreak(_)
                         | RenderEvent::ParagraphBreak(_)
                 ) && forced_execution_ranges.iter().any(|range| {
-                    provenance_spans(&event.meta.source).any(|span| {
-                        span.path == range.path
-                            && span.start_utf8 < range.end_utf8
-                            && range.start_utf8 < span.end_utf8
-                    })
+                    execution_anchor == Some(&range.execution_anchor)
+                        && provenance_spans(&event.meta.source).any(|span| {
+                            span.path == range.path
+                                && span.start_utf8 < range.end_utf8
+                                && range.start_utf8 < span.end_utf8
+                        })
                 }))))
 }
 
@@ -1195,6 +1305,10 @@ mod tests {
             start_utf8: 0,
             end_utf8: 4,
             event_ids: vec![1],
+            execution_anchor: VmExecutionAnchor {
+                path: path.clone(),
+                continuation_stack: Vec::new(),
+            },
             preserve_leading_space: false,
         }];
         let mut trailing_space = RenderEventEnvelope::new(

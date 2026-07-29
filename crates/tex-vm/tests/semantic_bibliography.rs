@@ -3,7 +3,7 @@ use tex_render_model::{
     SemanticConfidence, SourceSpanRole,
 };
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{Vm, VmOutcome};
+use tex_vm::{Vm, VmModuleCheckpointKind, VmOutcome};
 
 fn capture(source: &str) -> VmOutcome {
     let mut interner = ControlSequenceInterner::new();
@@ -168,6 +168,169 @@ Before \bibitem{misplaced} visible body after the misplaced command.
         visible_text.contains("visible body after"),
         "{visible_text:?}"
     );
+}
+
+#[test]
+fn misplaced_bibliography_items_do_not_retype_later_structure() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+Before \bibitem{misplaced} visible body after the misplaced command.
+\section{After misplaced item}
+Paragraph after the heading.\footnote{Note after the heading.}
+\begin{itemize}\item Item after the heading.\end{itemize}
+\begin{tabular}{l}Cell after the heading.\end{tabular}
+\ifnum1=0 Hidden conditional.\else Visible conditional.\fi
+\end{document}",
+    );
+
+    assert!(bibliography_items(&outcome).is_empty());
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::Heading(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::BeginFootnote(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::ListItem(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::Table(_)))
+            .count(),
+        1
+    );
+    let visible_text = top_level_text(&outcome);
+    assert_eq!(visible_text.matches("visible body after").count(), 1);
+    assert_eq!(visible_text.matches("Visible conditional").count(), 1);
+    assert!(!visible_text.contains("Hidden conditional"));
+}
+
+#[test]
+fn scanner_resynchronization_closes_bibliography_text_authority() {
+    let source = r"\count0=0
+\begin{document}
+\ifnum\count0>0\begin{thebibliography}{1}\fi
+Before \bibitem{misplaced} gap text.
+\end{thebibliography}
+\section{After synchronization}
+After synchronization text.
+\input{barrier}
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "Barrier.");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+
+    let checkpoint = outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier input checkpoint");
+    let semantic_capture = checkpoint
+        .snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture");
+    let resynchronization_end = source
+        .find(r"\end{thebibliography}")
+        .map(|start| start + r"\end{thebibliography}".len())
+        .expect("bibliography end");
+    assert_eq!(
+        semantic_capture
+            .text
+            .forced_execution_ranges
+            .iter()
+            .map(|range| range.end_utf8)
+            .collect::<Vec<_>>(),
+        vec![resynchronization_end as u32],
+        "bibliography recovery authority must end at structural resynchronization"
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(event.event, RenderEvent::Heading(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        top_level_text(&outcome)
+            .matches("After synchronization text")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn repeated_input_bibliography_items_keep_execution_order() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "child.tex",
+        r"\ifnum\count0>0\begin{thebibliography}{1}\fi
+\bibitem{shared}
+\ifnum\count0>0 Second item.\else First body.\fi
+\ifnum\count0>0\end{thebibliography}\fi",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\count0=0 Before first. \input{child} After first.
+\count0=1 Before second. \input{child} After second.
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].0.key, "shared");
+    assert_eq!(items[0].0.text, "Second item.");
+    let trace = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.clone()),
+            RenderEvent::Space(_) => Some(" ".to_string()),
+            RenderEvent::BibliographyItem(item) => {
+                Some(format!("<bib:{}:{}>", item.key, item.text))
+            }
+            _ => None,
+        })
+        .collect::<String>();
+    let before_second = trace.find("Before second").expect("second input prefix");
+    let bibliography_item = trace.find("<bib:shared:").expect("executed item");
+    assert!(
+        bibliography_item > before_second,
+        "second-execution item was ordered at the first scanner occurrence: {trace:?}"
+    );
+    assert_eq!(trace.matches("First body.").count(), 1);
 }
 
 #[test]

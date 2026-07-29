@@ -146,6 +146,74 @@ fn input_enter_snapshot_replaces_changed_child_render_events() {
 }
 
 #[test]
+fn input_enter_snapshot_replaces_each_changed_child_occurrence() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\begin{document}Before \input{child} Between \input{child} After.\end{document}",
+        "Old child.",
+        "New child.",
+    );
+
+    assert_eq!(
+        replayed
+            .iter()
+            .filter(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "New"))
+            .count(),
+        2,
+        "{replayed:#?}"
+    );
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn restored_continuation_refreshes_changed_scanner_only_bbl() {
+    let source = r"\begin{document}Before \input{barrier} \bibliography{refs}\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "Barrier.");
+    vm.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{k} Old entry.\end{thebibliography}",
+    );
+    let previous = vm.run_plain(source);
+    let checkpoint = previous
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier enter checkpoint");
+    let snapshot = checkpoint.snapshot.clone();
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    restored.mount_file("barrier.tex", "Barrier.");
+    restored.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{k} New entry.\end{thebibliography}",
+    );
+    let replayed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+
+    let mut clean_interner = ControlSequenceInterner::new();
+    let mut clean = Vm::new(&mut clean_interner);
+    clean.enable_render_event_capture();
+    clean.set_entry_source_path("main.tex");
+    clean.mount_file("barrier.tex", "Barrier.");
+    clean.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{k} New entry.\end{thebibliography}",
+    );
+    let expected = clean.run_plain(source);
+
+    assert_eq!(replayed.render_events, expected.render_events);
+}
+
+#[test]
 fn input_enter_snapshot_replaces_changed_child_heading_event() {
     let (expected, replayed) =
         replay_render_events_after_changed_child(r"\section{Old}", r"\section{New heading}");
@@ -902,6 +970,89 @@ fn semantic_snapshot_rejects_invalid_active_bibliography_marks() {
         .expect("active item")
         .math_event_mark = u64::MAX;
     assert!(!invalid_math.is_restorable());
+}
+
+#[test]
+fn v17_semantic_capture_deserializes_before_schema_rejection() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "Child.");
+    let outcome = vm.run_plain(
+        r"\begin{document}\bibitem{misplaced}Stray.
+\begin{thebibliography}{1}\bibitem{k}Before \input{barrier} After.
+\end{thebibliography}\end{document}",
+    );
+    let checkpoint = outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier input checkpoint");
+    let mut value = serde_json::to_value(&checkpoint.snapshot).expect("snapshot json");
+    let semantic = value
+        .get_mut("semantic_capture")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("semantic capture object");
+    semantic.insert("schema_version".to_string(), serde_json::json!(17));
+    semantic.remove("scanner_event_anchors");
+
+    let text = semantic
+        .get_mut("text")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("text snapshot");
+    text.remove("executed_event_anchors");
+    for slot in text
+        .get_mut("scanner_slots")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("scanner slots")
+    {
+        slot.as_object_mut()
+            .expect("scanner slot object")
+            .remove("execution_anchor");
+    }
+    for range in text
+        .get_mut("forced_execution_ranges")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("execution authority ranges")
+    {
+        range
+            .as_object_mut()
+            .expect("authority range object")
+            .remove("execution_anchor");
+    }
+    if let Some(active_capture) = text
+        .get_mut("active_capture")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        active_capture.remove("execution_anchor");
+    }
+
+    let bibliography = semantic
+        .get_mut("bibliography")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("bibliography snapshot");
+    bibliography.remove("scanner_event_anchors");
+    bibliography.remove("executed_event_anchors");
+    if let Some(active_item) = bibliography
+        .get_mut("active_item")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        active_item.remove("execution_anchor");
+    }
+
+    let snapshot = serde_json::from_value::<VmSnapshot>(value)
+        .expect("v17 snapshot must deserialize for graceful schema rejection");
+    assert!(
+        !snapshot
+            .semantic_capture
+            .as_ref()
+            .expect("semantic capture")
+            .is_restorable()
+    );
 }
 
 fn replay_render_events_after_input_exit(
