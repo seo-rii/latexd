@@ -18569,6 +18569,68 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
+            Primitive::BibliographyString => {
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character {
+                        ch: '*',
+                        catcode: CatCode::Other | CatCode::Letter | CatCode::Active,
+                    })
+                ) {
+                    let _ = self.pop_next_token(queue);
+                    self.skip_optional_spaces(queue);
+                }
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let expanded_argument = self.fully_expand_tokens(argument);
+                let mut key = String::new();
+                for token in expanded_argument {
+                    match token.kind {
+                        TokenKind::Character { ch, .. } => key.push(ch),
+                        TokenKind::ControlSequence { name } => {
+                            key.push('\\');
+                            key.push_str(self.interner.resolve(name).unwrap_or_default());
+                        }
+                    }
+                }
+                let key = key.trim();
+                let visible_text = match key {
+                    "andothers" => "et al".to_string(),
+                    _ => normalize_latex_text_with_inline_placeholders(key),
+                };
+                for ch in visible_text.chars().rev() {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ch,
+                            if ch.is_whitespace() {
+                                CatCode::Space
+                            } else {
+                                CatCode::Other
+                            },
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+                if !visible_text.is_empty()
+                    && self.last_legacy_output_char().is_some_and(|ch| {
+                        !ch.is_whitespace() && !matches!(ch, '"' | '(' | '[' | '{')
+                    })
+                {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ' ',
+                            CatCode::Space,
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+            }
             Primitive::BibliographyText(command) => {
                 for ch in command.visible_text.chars() {
                     if ch.is_whitespace() {
@@ -25454,6 +25516,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "defcitealias" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::DefineAlias,
         )),
+        "bibstring" => Some(Primitive::BibliographyString),
         "addcomma" => bibliography_text("addcomma", ",", false),
         "addcolon" => bibliography_text("addcolon", ":", false),
         "addsemicolon" => bibliography_text("addsemicolon", ";", false),
@@ -26010,6 +26073,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
+        Primitive::BibliographyString => "bibstring",
         Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",

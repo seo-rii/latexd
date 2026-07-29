@@ -167,6 +167,7 @@ pub(crate) enum Primitive {
     Bibliography,
     PrintBibliography,
     BibliographyMetadata(BibliographyMetadataCommand),
+    BibliographyString,
     BibliographyText(BibliographyTextCommand),
     BibliographyWrapper(BibliographyWrapperCommand),
     BeginGroupCommand,
