@@ -502,14 +502,24 @@
             "start_utf8": 187,
             "end_utf8": 215
           },
-          "related": [],
+          "related": [
+            {
+              "role": "citation_key",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 196,
+                "end_utf8": 199
+              }
+            }
+          ],
           "expansion_stack": [],
           "generated_by": "source",
           "expansion_stack_truncated": false
         },
         "mode_hint": "vertical",
-        "confidence": "medium",
-        "producer": "scanner_recovery"
+        "confidence": "high",
+        "producer": "primitive"
       }
     },
     {

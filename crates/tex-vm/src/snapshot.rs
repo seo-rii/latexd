@@ -13,7 +13,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 16;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 17;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -153,6 +153,8 @@ pub struct VmSemanticCaptureSnapshot {
     pub heading: VmSemanticHeadingSnapshot,
     #[serde(default)]
     pub caption: VmSemanticCaptionSnapshot,
+    #[serde(default)]
+    pub bibliography: VmSemanticBibliographySnapshot,
 }
 
 impl VmSemanticCaptureSnapshot {
@@ -202,6 +204,11 @@ impl VmSemanticCaptureSnapshot {
                 &self.inline,
             )
             && self.caption.is_restorable(
+                self.text.executed_events.len(),
+                self.math.executed_events.len(),
+                &self.inline,
+            )
+            && self.bibliography.is_restorable(
                 self.text.executed_events.len(),
                 self.math.executed_events.len(),
                 &self.inline,
@@ -297,6 +304,8 @@ pub struct VmSemanticTextSnapshot {
     #[serde(default)]
     pub suppressed_ranges: Vec<VmSuppressedSourceRangeSnapshot>,
     #[serde(default)]
+    pub forced_execution_ranges: Vec<VmSuppressedSourceRangeSnapshot>,
+    #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub active_capture: Option<VmExecutedTextCaptureSnapshot>,
@@ -375,6 +384,10 @@ impl VmSemanticTextSnapshot {
             && values_are_unique_nonzero(&scanner_event_ids)
             && self
                 .suppressed_ranges
+                .iter()
+                .all(VmSuppressedSourceRangeSnapshot::is_restorable)
+            && self
+                .forced_execution_ranges
                 .iter()
                 .all(VmSuppressedSourceRangeSnapshot::is_restorable)
             && values_are_unique_nonzero(&executed_event_ids)
@@ -700,6 +713,108 @@ pub struct VmActiveCaptionCaptureSnapshot {
     pub inline_event_mark: VmExecutedInlineEventMarkSnapshot,
     pub math_event_mark: u64,
     pub caption_event_mark: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSemanticBibliographySnapshot {
+    #[serde(default)]
+    pub scanner_event_ids: Vec<EventId>,
+    #[serde(default)]
+    pub executed_events: Vec<RenderEventEnvelope>,
+    #[serde(default)]
+    pub environment_depth: u64,
+    #[serde(default)]
+    pub active_item: Option<VmActiveBibliographyCaptureSnapshot>,
+}
+
+impl VmSemanticBibliographySnapshot {
+    pub fn is_restorable(
+        &self,
+        text_event_count: usize,
+        math_event_count: usize,
+        inline: &VmSemanticInlineSnapshot,
+    ) -> bool {
+        let text_event_count = u64::try_from(text_event_count).unwrap_or(u64::MAX);
+        let math_event_count = u64::try_from(math_event_count).unwrap_or(u64::MAX);
+        let scanner_event_ids = self
+            .scanner_event_ids
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let executed_event_ids = self
+            .executed_events
+            .iter()
+            .map(|event| event.meta.event_id)
+            .collect::<Vec<_>>();
+        values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&executed_event_ids)
+            && executed_event_ids
+                .iter()
+                .all(|event_id| !scanner_event_ids.contains(event_id))
+            && usize::try_from(self.environment_depth).is_ok()
+            && self.active_item.as_ref().is_none_or(|capture| {
+                self.environment_depth > 0
+                    && capture.text_event_mark <= text_event_count
+                    && capture.inline_event_mark.is_restorable(inline)
+                    && capture.math_event_mark <= math_event_count
+                    && capture.nested_semantics.is_restorable(
+                        text_event_count,
+                        math_event_count,
+                        inline,
+                    )
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmActiveBibliographyCaptureSnapshot {
+    pub key: String,
+    pub label_hint: Option<String>,
+    pub source: SourceProvenance,
+    pub producer: EventProducer,
+    pub visible_output_prefix: String,
+    pub lossy_before_restore: bool,
+    pub text_event_mark: u64,
+    pub inline_event_mark: VmExecutedInlineEventMarkSnapshot,
+    pub math_event_mark: u64,
+    pub nested_semantics: VmBibliographyNestedSemanticSnapshot,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmBibliographyNestedSemanticSnapshot {
+    pub caption: VmSemanticCaptionSnapshot,
+    pub environment: VmSemanticEnvironmentSnapshot,
+    pub footnote: VmSemanticFootnoteSnapshot,
+    pub front_matter: VmSemanticFrontMatterSnapshot,
+    pub graphic: VmSemanticGraphicSnapshot,
+    pub heading: VmSemanticHeadingSnapshot,
+    pub list: VmSemanticListSnapshot,
+    pub table: VmSemanticTableSnapshot,
+}
+
+impl VmBibliographyNestedSemanticSnapshot {
+    fn is_restorable(
+        &self,
+        text_event_count: u64,
+        math_event_count: u64,
+        inline: &VmSemanticInlineSnapshot,
+    ) -> bool {
+        let text_event_count = usize::try_from(text_event_count).unwrap_or(usize::MAX);
+        let math_event_count = usize::try_from(math_event_count).unwrap_or(usize::MAX);
+        self.caption
+            .is_restorable(text_event_count, math_event_count, inline)
+            && self.environment.is_restorable()
+            && self
+                .footnote
+                .is_restorable(text_event_count, math_event_count, inline)
+            && self.front_matter.is_restorable()
+            && self.graphic.is_restorable()
+            && self
+                .heading
+                .is_restorable(text_event_count, math_event_count, inline)
+            && self.list.is_restorable()
+            && self.table.is_restorable()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

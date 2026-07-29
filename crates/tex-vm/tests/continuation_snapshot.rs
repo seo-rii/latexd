@@ -239,6 +239,36 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
     }
 }
 
+#[test]
+fn input_enter_snapshot_rebuilds_an_active_bibliography_item() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{child} After.\end{thebibliography}\end{document}",
+        "Old child.",
+        "New child with \\footnote{nested note}.",
+    );
+    let items = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some((item, event.meta.producer)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(items.len(), 1);
+    assert!(items[0].0.text.contains("New child"));
+    assert!(items[0].0.text.contains("nested note"));
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert!(!expected.iter().any(|event| {
+        matches!(
+            event.event,
+            RenderEvent::BeginFootnote(_)
+                | RenderEvent::EndFootnote(_)
+                | RenderEvent::FootnoteMark(_)
+        )
+    }));
+    assert_eq!(replayed, expected);
+}
+
 fn replay_render_events_after_changed_child(
     previous_child: &str,
     current_child: &str,
@@ -761,6 +791,117 @@ fn input_exit_snapshot_preserves_active_lossy_caption_capture() {
     assert_eq!(caption.meta.producer, EventProducer::ScannerRecovery);
     assert_eq!(caption.meta.confidence, SemanticConfidence::Medium);
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_active_bibliography_item_capture() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{thebibliography}{1}\bibitem[Alpha]{alpha}Before \cite{k} \input{barrier} After.\end{thebibliography}\end{document}",
+    );
+
+    let items = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some((item, event.meta.producer)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].0.key, "alpha");
+    assert_eq!(items[0].0.label_hint.as_deref(), Some("Alpha"));
+    assert!(items[0].0.text.contains("Before"));
+    assert!(items[0].0.text.contains("After"));
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_a_lossy_bibliography_prefix() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \undefinedentry \input{barrier} After.\end{thebibliography}\end{document}",
+    );
+
+    let item = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::BibliographyItem(_)))
+        .expect("bibliography item");
+    assert_eq!(item.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(item.meta.confidence, SemanticConfidence::Medium);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn input_exit_snapshot_preserves_forced_text_after_a_misplaced_bibitem() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\count0=0\begin{document}\ifnum\count0>0\begin{thebibliography}{1}\fi\bibitem{misplaced}Before \input{barrier} After.\end{document}",
+    );
+    let visible_text = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect::<String>();
+
+    assert!(
+        !expected
+            .iter()
+            .any(|event| matches!(event.event, RenderEvent::BibliographyItem(_)))
+    );
+    assert!(visible_text.contains("Before"));
+    assert!(visible_text.contains("After"));
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn semantic_snapshot_rejects_invalid_active_bibliography_marks() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "Child.");
+    let outcome = vm.run_plain(
+        r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{barrier} After.\end{thebibliography}\end{document}",
+    );
+    let semantic_capture = outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
+        .expect("semantic capture with active bibliography item");
+
+    assert!(semantic_capture.is_restorable());
+    let mut invalid_text = semantic_capture.clone();
+    invalid_text
+        .bibliography
+        .active_item
+        .as_mut()
+        .expect("active item")
+        .text_event_mark = u64::MAX;
+    assert!(!invalid_text.is_restorable());
+
+    let mut invalid_inline = semantic_capture.clone();
+    invalid_inline
+        .bibliography
+        .active_item
+        .as_mut()
+        .expect("active item")
+        .inline_event_mark
+        .citations = u64::MAX;
+    assert!(!invalid_inline.is_restorable());
+
+    let mut invalid_math = semantic_capture;
+    invalid_math
+        .bibliography
+        .active_item
+        .as_mut()
+        .expect("active item")
+        .math_event_mark = u64::MAX;
+    assert!(!invalid_math.is_restorable());
 }
 
 fn replay_render_events_after_input_exit(

@@ -347,7 +347,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \newcommand{\includegraphics}[2][]{[image]}
 \newcommand{\caption}[2][]{#2}
 \def\item{}
-\newcommand{\bibitem}[2][]{}
+\let\bibitem\latexdbibitem
 \def\bibliographystyle#1{}
 \def\bibliography#1{}
 \def\DeclareMathOperator#1#2{\def#1{#2}}
@@ -1864,6 +1864,7 @@ mod tests {
 
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
+    use tex_render_model::{EventProducer, RenderEvent};
     use tex_vm::{VmDiagnosticKind, VmReplayFrame};
     use tex_world::ProjectWorld;
 
@@ -2851,6 +2852,38 @@ mod tests {
         assert!(result.output.contains("1843"));
         assert!(result.output.contains("Body"));
         assert!(result.output.find("A Paper") < result.output.find("Body"));
+    }
+
+    #[test]
+    fn mini_kernel_bibliography_items_are_vm_authoritative() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}\begin{thebibliography}{1}\bibitem[Alpha]{alpha}Author. Title.\end{thebibliography}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+        let item = result
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some((item, event.meta.producer)),
+                _ => None,
+            })
+            .expect("bibliography item event");
+
+        assert_eq!(item.0.key, "alpha");
+        assert_eq!(item.0.label_hint.as_deref(), Some("Alpha"));
+        assert_eq!(item.0.text, "Author. Title.");
+        assert_eq!(item.1, EventProducer::Primitive);
     }
 
     #[test]

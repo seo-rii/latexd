@@ -26,6 +26,7 @@ use crate::{
 pub(super) struct SemanticTextState {
     scanner_slots: Vec<ScannerTextSlot>,
     suppressed_ranges: Vec<SuppressedSourceRange>,
+    forced_execution_ranges: Vec<SuppressedSourceRange>,
     executed_events: Vec<RenderEventEnvelope>,
     capture: Option<ExecutedTextCapture>,
     paragraph_has_content: bool,
@@ -147,6 +148,16 @@ impl Vm<'_> {
                     end_utf8: range.end_utf8,
                 })
                 .collect(),
+            forced_execution_ranges: self
+                .semantic_text
+                .forced_execution_ranges
+                .iter()
+                .map(|range| VmSuppressedSourceRangeSnapshot {
+                    path: range.path.clone(),
+                    start_utf8: range.start_utf8,
+                    end_utf8: range.end_utf8,
+                })
+                .collect(),
             executed_events: self.semantic_text.executed_events.clone(),
             active_capture: self.semantic_text.capture.as_ref().map(|capture| {
                 VmExecutedTextCaptureSnapshot {
@@ -187,6 +198,15 @@ impl Vm<'_> {
             .collect();
         self.semantic_text.suppressed_ranges = snapshot
             .suppressed_ranges
+            .iter()
+            .map(|range| SuppressedSourceRange {
+                path: range.path.clone(),
+                start_utf8: range.start_utf8,
+                end_utf8: range.end_utf8,
+            })
+            .collect();
+        self.semantic_text.forced_execution_ranges = snapshot
+            .forced_execution_ranges
             .iter()
             .map(|range| SuppressedSourceRange {
                 path: range.path.clone(),
@@ -306,6 +326,28 @@ impl Vm<'_> {
         }
         self.semantic_text
             .suppressed_ranges
+            .push(SuppressedSourceRange {
+                path,
+                start_utf8,
+                end_utf8,
+            });
+    }
+
+    pub(super) fn force_executed_text_after(&mut self, start_utf8: u32) {
+        if !self.render_event_capture {
+            return;
+        }
+        let path = self.current_execution_source_path();
+        let end_utf8 = self
+            .render_event_sources
+            .get(&path)
+            .and_then(|source| source.len().try_into().ok())
+            .unwrap_or(u32::MAX);
+        if end_utf8 <= start_utf8 {
+            return;
+        }
+        self.semantic_text
+            .forced_execution_ranges
             .push(SuppressedSourceRange {
                 path,
                 start_utf8,
@@ -667,8 +709,13 @@ impl Vm<'_> {
             &self.render_event_sources,
         );
         let suppressed_ranges = self.semantic_text.suppressed_ranges.clone();
+        let forced_execution_ranges = self.semantic_text.forced_execution_ranges.clone();
         if slots.is_empty() {
-            insert_unmatched_macro_events(&mut self.render_events, executed);
+            insert_unmatched_execution_events(
+                &mut self.render_events,
+                executed,
+                &forced_execution_ranges,
+            );
             return;
         }
 
@@ -809,7 +856,7 @@ impl Vm<'_> {
                 reconciled.push(event);
             }
         }
-        insert_unmatched_macro_events(&mut reconciled, unmatched);
+        insert_unmatched_execution_events(&mut reconciled, unmatched, &forced_execution_ranges);
         self.render_events.replace_events(reconciled);
     }
 
@@ -898,6 +945,7 @@ impl Vm<'_> {
 
     pub(super) fn clear_semantic_suppression_ranges(&mut self) {
         self.semantic_text.suppressed_ranges.clear();
+        self.semantic_text.forced_execution_ranges.clear();
     }
 
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {
@@ -1030,9 +1078,10 @@ fn event_payloads_match(
             .all(|(original, replacement)| original.event == replacement.event)
 }
 
-fn insert_unmatched_macro_events(
+fn insert_unmatched_execution_events(
     events: &mut Vec<RenderEventEnvelope>,
     unmatched: Vec<RenderEventEnvelope>,
+    forced_execution_ranges: &[SuppressedSourceRange],
 ) {
     let mut index = 0;
     while index < unmatched.len() {
@@ -1040,13 +1089,13 @@ fn insert_unmatched_macro_events(
             index += 1;
             continue;
         };
-        if !is_insertable_unmatched_event(&unmatched[index]) {
+        if !is_insertable_unmatched_event(&unmatched[index], forced_execution_ranges) {
             index += 1;
             continue;
         }
         let mut end = index + 1;
         while end < unmatched.len()
-            && is_insertable_unmatched_event(&unmatched[end])
+            && is_insertable_unmatched_event(&unmatched[end], forced_execution_ranges)
             && event_anchor(&unmatched[end]).as_ref() == Some(&anchor)
         {
             end += 1;
@@ -1079,10 +1128,26 @@ fn insert_unmatched_macro_events(
     }
 }
 
-fn is_insertable_unmatched_event(event: &RenderEventEnvelope) -> bool {
+fn is_insertable_unmatched_event(
+    event: &RenderEventEnvelope,
+    forced_execution_ranges: &[SuppressedSourceRange],
+) -> bool {
     event.meta.producer == EventProducer::Macro
         || (event.meta.producer == EventProducer::Primitive
-            && matches!(event.event, RenderEvent::PageBreak(_)))
+            && (matches!(event.event, RenderEvent::PageBreak(_))
+                || (matches!(
+                    event.event,
+                    RenderEvent::Text(_)
+                        | RenderEvent::Space(_)
+                        | RenderEvent::LineBreak(_)
+                        | RenderEvent::ParagraphBreak(_)
+                ) && forced_execution_ranges.iter().any(|range| {
+                    provenance_spans(&event.meta.source).any(|span| {
+                        span.path == range.path
+                            && span.start_utf8 < range.end_utf8
+                            && range.start_utf8 < span.end_utf8
+                    })
+                }))))
 }
 
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {

@@ -29,6 +29,7 @@ mod eqtb;
 mod input;
 mod outcome;
 mod save_stack;
+mod semantic_bibliography;
 mod semantic_caption;
 mod semantic_environment;
 mod semantic_footnote;
@@ -56,6 +57,7 @@ use input::{
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
+use semantic_bibliography::SemanticBibliographyState;
 use semantic_caption::SemanticCaptionState;
 use semantic_environment::SemanticEnvironmentState;
 use semantic_footnote::SemanticFootnoteState;
@@ -70,16 +72,18 @@ use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveCaptionCaptureSnapshot,
-    VmActiveFootnoteCaptureSnapshot, VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot,
-    VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
-    VmContinuationBlocker, VmContinuationSafety, VmExecutedInlineEventMarkSnapshot,
-    VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
-    VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExpansionContextSnapshot,
-    VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
-    VmInputContinuationSnapshot, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
-    VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
-    VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
+    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveBibliographyCaptureSnapshot,
+    VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
+    VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
+    VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
+    VmBibliographyNestedSemanticSnapshot, VmContinuationBlocker, VmContinuationSafety,
+    VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
+    VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot,
+    VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
+    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
+    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
+    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticBibliographySnapshot,
     VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
     VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot, VmSemanticGraphicSnapshot,
     VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
@@ -769,6 +773,7 @@ enum ConditionalState {
 struct RenderEventScanState {
     root_source_continues: bool,
     no_hyper_depth: usize,
+    bibliography_depth: usize,
     active_input_paths: Vec<Utf8PathBuf>,
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
@@ -1039,6 +1044,7 @@ pub struct Vm<'i> {
     executed_math_invocations: HashSet<(Utf8PathBuf, u32)>,
     executed_math_events: Vec<RenderEventEnvelope>,
     executed_math_capture: Option<ExecutedMathCapture>,
+    semantic_bibliography: SemanticBibliographyState,
     semantic_caption: SemanticCaptionState,
     semantic_environment: SemanticEnvironmentState,
     semantic_footnote: SemanticFootnoteState,
@@ -1115,6 +1121,7 @@ impl<'i> Vm<'i> {
             executed_math_invocations: HashSet::new(),
             executed_math_events: Vec::new(),
             executed_math_capture: None,
+            semantic_bibliography: SemanticBibliographyState::default(),
             semantic_caption: SemanticCaptionState::default(),
             semantic_environment: SemanticEnvironmentState::default(),
             semantic_footnote: SemanticFootnoteState::default(),
@@ -1381,6 +1388,7 @@ impl<'i> Vm<'i> {
         let original_front_matter = self.semantic_front_matter_snapshot();
         let original_heading = self.semantic_heading_snapshot();
         let original_caption = self.semantic_caption_snapshot();
+        let original_bibliography = self.semantic_bibliography_snapshot();
 
         let mut math = original_math.clone();
         math.scanner_dollar_event_ids
@@ -1449,6 +1457,11 @@ impl<'i> Vm<'i> {
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
         self.restore_semantic_caption_snapshot(&caption);
+        let mut bibliography = original_bibliography.clone();
+        bibliography
+            .scanner_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        self.restore_semantic_bibliography_snapshot(&bibliography);
 
         self.render_event_sources.remove(path);
         let mark = self.render_events.mark();
@@ -1534,6 +1547,10 @@ impl<'i> Vm<'i> {
             let mut caption = self.semantic_caption_snapshot();
             remap_event_ids(&mut caption.scanner_event_ids);
             self.restore_semantic_caption_snapshot(&caption);
+
+            let mut bibliography = self.semantic_bibliography_snapshot();
+            remap_event_ids(&mut bibliography.scanner_event_ids);
+            self.restore_semantic_bibliography_snapshot(&bibliography);
             return;
         }
 
@@ -1549,6 +1566,7 @@ impl<'i> Vm<'i> {
         self.restore_semantic_front_matter_snapshot(&original_front_matter);
         self.restore_semantic_heading_snapshot(&original_heading);
         self.restore_semantic_caption_snapshot(&original_caption);
+        self.restore_semantic_bibliography_snapshot(&original_bibliography);
         self.semantic_recovery_dirty_paths.insert(path.clone());
         self.render_event_sources
             .insert(path.clone(), source.to_string());
@@ -3211,6 +3229,7 @@ impl<'i> Vm<'i> {
                                 );
                             }
                             "thebibliography" if in_document => {
+                                scan_state.bibliography_depth += 1;
                                 if let Some((_, _, _, after_width)) =
                                     read_braced_source_argument(source, index)
                                 {
@@ -5656,6 +5675,7 @@ impl<'i> Vm<'i> {
                         match environment {
                             "document" => {
                                 in_document = false;
+                                scan_state.bibliography_depth = 0;
                             }
                             "icmlauthorlist" if in_document => {}
                             "abstract" | "abstract*" | "onecolabstract" if in_document => {
@@ -5671,6 +5691,8 @@ impl<'i> Vm<'i> {
                                 );
                             }
                             "thebibliography" if in_document => {
+                                scan_state.bibliography_depth =
+                                    scan_state.bibliography_depth.saturating_sub(1);
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(EndBlockEvent {
                                         block: BlockKind::Bibliography,
@@ -10443,7 +10465,7 @@ impl<'i> Vm<'i> {
                         index = math_end + 2;
                     }
                 }
-                "bibitem" if in_document => {
+                "bibitem" if in_document && scan_state.bibliography_depth > 0 => {
                     let mut label_hint = None;
                     index = skip_ascii_whitespace(source, index);
                     if let Some((label, _, _, after)) = read_bracket_source_argument(source, index)
@@ -15352,6 +15374,7 @@ impl<'i> Vm<'i> {
             RenderEvent::GraphicRef(_) | RenderEvent::IncludePdf(_)
         );
         let scanner_list_item = matches!(&event, RenderEvent::ListItem(_));
+        let scanner_bibliography = matches!(&event, RenderEvent::BibliographyItem(_));
         let scanner_environment = matches!(
             &event,
             RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
@@ -15395,6 +15418,9 @@ impl<'i> Vm<'i> {
         }
         if scanner_list_item {
             self.mark_scanner_list_item_event(event_id);
+        }
+        if scanner_bibliography {
+            self.mark_scanner_bibliography_event(event_id);
         }
         if scanner_environment {
             self.mark_scanner_environment_event(event_id);
@@ -15528,6 +15554,8 @@ impl<'i> Vm<'i> {
             .next_back()
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
+            self.finish_executed_bibliography_item();
+            self.reconcile_executed_bibliography_events();
             self.reconcile_executed_math_events();
             self.reconcile_executed_heading_events();
             self.reconcile_executed_caption_events();
@@ -15671,6 +15699,7 @@ impl<'i> Vm<'i> {
                 let front_matter = self.semantic_front_matter_snapshot();
                 let heading = self.semantic_heading_snapshot();
                 let caption = self.semantic_caption_snapshot();
+                let bibliography = self.semantic_bibliography_snapshot();
                 let mut source_buffers = self
                     .render_event_sources
                     .iter()
@@ -15718,6 +15747,7 @@ impl<'i> Vm<'i> {
                     front_matter,
                     heading,
                     caption,
+                    bibliography,
                 }
             }),
             diagnostics: self.diagnostics.clone(),
@@ -15969,6 +15999,7 @@ impl<'i> Vm<'i> {
             vm.restore_semantic_front_matter_snapshot(&semantic_capture.front_matter);
             vm.restore_semantic_heading_snapshot(&semantic_capture.heading);
             vm.restore_semantic_caption_snapshot(&semantic_capture.caption);
+            vm.restore_semantic_bibliography_snapshot(&semantic_capture.bibliography);
         }
         let render_events = snapshot.semantic_sink.as_ref().and_then(|sink| {
             if snapshot.input_continuation.is_some() && semantic_capture.is_none() {
@@ -16354,6 +16385,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
+                        self.record_overridden_bibliography_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            invocation_end_utf8,
+                        );
                         self.queue_macro_expansion(
                             &control_sequence,
                             token_span.start,
@@ -16384,6 +16420,11 @@ impl<'i> Vm<'i> {
                             token_span.end,
                         );
                         self.record_overridden_front_matter_invocation(
+                            &control_sequence,
+                            token_span.start,
+                            token_span.end,
+                        );
+                        self.record_overridden_bibliography_invocation(
                             &control_sequence,
                             token_span.start,
                             token_span.end,
@@ -16442,6 +16483,14 @@ impl<'i> Vm<'i> {
                         );
                         if !preserves_front_matter_semantics {
                             self.record_overridden_front_matter_invocation(
+                                &control_sequence,
+                                token_span.start,
+                                token_span.end,
+                            );
+                        }
+                        if control_sequence == "bibitem" && primitive != Primitive::BibliographyItem
+                        {
+                            self.record_overridden_bibliography_invocation(
                                 &control_sequence,
                                 token_span.start,
                                 token_span.end,
@@ -17611,7 +17660,16 @@ impl<'i> Vm<'i> {
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
-                let mut math_content_start_utf8 = environment_end_utf8.max(source_end_utf8);
+                let mut environment_boundary_end_utf8 = environment_end_utf8.max(source_end_utf8);
+                if environment == "thebibliography" {
+                    self.skip_optional_spaces(queue);
+                    if self.read_macro_argument(queue).is_some() {
+                        environment_boundary_end_utf8 =
+                            self.last_token_end_utf8.max(environment_boundary_end_utf8);
+                    }
+                    self.begin_executed_bibliography_environment();
+                }
+                let mut math_content_start_utf8 = environment_boundary_end_utf8;
                 if matches!(environment, "alignat" | "alignat*") {
                     self.skip_optional_spaces(queue);
                     if self.read_macro_argument(queue).is_some() {
@@ -17626,14 +17684,14 @@ impl<'i> Vm<'i> {
                     environment,
                     true,
                     source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
+                    environment_boundary_end_utf8,
                     math_content_start_utf8,
                 );
                 self.emit_executed_environment_boundary(
                     environment,
                     true,
                     source_offset_utf8,
-                    environment_end_utf8.max(source_end_utf8),
+                    environment_boundary_end_utf8,
                 );
                 if environment == "NoHyper" {
                     self.execution_no_hyper_depth += 1;
@@ -17726,6 +17784,11 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let environment = environment.trim();
+                if environment == "thebibliography" {
+                    self.end_executed_bibliography_environment();
+                } else if environment == "document" {
+                    self.finish_executed_bibliography_document();
+                }
                 self.execute_math_environment_boundary(
                     environment,
                     false,
@@ -17775,6 +17838,59 @@ impl<'i> Vm<'i> {
                     marker,
                     source_offset_utf8,
                     self.last_token_end_utf8.max(source_end_utf8),
+                );
+            }
+            Primitive::BibliographyItem => {
+                self.finish_executed_bibliography_item();
+                self.skip_optional_spaces(queue);
+                let label_tokens = self.read_optional_bracket_tokens(queue);
+                self.skip_optional_spaces(queue);
+                let Some(key_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let key_start_utf8 = key_tokens
+                    .first()
+                    .map_or(source_end_utf8, |token| token.span.start);
+                let key_end_utf8 = key_tokens
+                    .last()
+                    .map_or(key_start_utf8, |token| token.span.end);
+                let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+                let expanded_label = label_tokens.map(|tokens| self.fully_expand_tokens(tokens));
+                let expanded_key = self.fully_expand_tokens(key_tokens);
+                let lossy_label = expanded_label
+                    .iter()
+                    .flatten()
+                    .chain(&expanded_key)
+                    .any(|token| matches!(token.kind, TokenKind::ControlSequence { .. }));
+                let tokens_to_source = |tokens: &[Token]| {
+                    let mut source = String::new();
+                    for token in tokens {
+                        match token.kind {
+                            TokenKind::Character { ch, .. } => source.push(ch),
+                            TokenKind::ControlSequence { name } => {
+                                source.push('\\');
+                                let name = self.interner.resolve(name).unwrap_or_default();
+                                source.push_str(name);
+                                if name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '@') {
+                                    source.push(' ');
+                                }
+                            }
+                        }
+                    }
+                    source
+                };
+                let key = tokens_to_source(&expanded_key).trim().to_string();
+                let label_hint = expanded_label.map(|tokens| {
+                    normalize_latex_text_with_inline_placeholders(&tokens_to_source(&tokens))
+                });
+                self.begin_executed_bibliography_item(
+                    key,
+                    label_hint,
+                    source_offset_utf8,
+                    invocation_end_utf8,
+                    key_start_utf8,
+                    key_end_utf8,
+                    lossy_label,
                 );
             }
             Primitive::MakeAtLetter | Primitive::MakeAtOther => {
@@ -24377,6 +24493,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "begin" => Some(Primitive::BeginEnvironment),
         "end" => Some(Primitive::EndEnvironment),
         "item" => Some(Primitive::Item),
+        "bibitem" | "latexdbibitem" => Some(Primitive::BibliographyItem),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -24875,6 +24992,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BeginEnvironment => "begin",
         Primitive::EndEnvironment => "end",
         Primitive::Item => "item",
+        Primitive::BibliographyItem => "bibitem",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",
