@@ -11,7 +11,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use hmr_protocol::{Diagnostic, DiagnosticLevel, PagePatchOp, PagePreviewArtifact};
 use tex_aux::{
     MaterializedProject, MaterializedRewriteSpan, PageSourceSlice, SemanticAux, SourceSpan,
-    derive_semantic_aux, derive_semantic_aux_index, materialize_project,
+    derive_semantic_aux, derive_semantic_aux_index, materialize_project_for_vm,
     parse_concrete_semantic_aux, scan_project,
     serialize_concrete_semantic_aux_backdated_with_previous,
     serialize_semantic_aux_backdated_with_previous,
@@ -1428,20 +1428,21 @@ impl CompilerDriver {
                     .map(|(_, checkpoint_id)| checkpoint_id.clone());
                 for _ in 0..MAX_SEMANTIC_AUX_PASSES {
                     semantic_pass_count += 1;
-                    let materialized = materialize_project(
-                        &request.root,
-                        &request.toplevel,
-                        &next_aux,
-                    )
-                    .map_err(|error| CompileFailure {
-                        diagnostics: vec![Diagnostic {
-                            level: DiagnosticLevel::Error,
-                            file: Some(request.toplevel.to_string()),
-                            line: None,
-                            message: format!("failed to materialize semantic aux sources: {error}"),
-                        }],
-                        message: format!("failed to materialize semantic aux sources: {error}"),
-                    })?;
+                    let materialized =
+                        materialize_project_for_vm(&request.root, &request.toplevel, &next_aux)
+                            .map_err(|error| CompileFailure {
+                                diagnostics: vec![Diagnostic {
+                                    level: DiagnosticLevel::Error,
+                                    file: Some(request.toplevel.to_string()),
+                                    line: None,
+                                    message: format!(
+                                        "failed to materialize semantic aux sources: {error}"
+                                    ),
+                                }],
+                                message: format!(
+                                    "failed to materialize semantic aux sources: {error}"
+                                ),
+                            })?;
                     let (candidate_build, candidate_preamble_checkpoint) = if let Some((
                         checkpoint,
                         _,

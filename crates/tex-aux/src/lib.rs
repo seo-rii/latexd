@@ -1591,6 +1591,14 @@ pub fn materialize_project(
     })
 }
 
+pub fn materialize_project_for_vm(
+    root: &Utf8Path,
+    toplevel: &Utf8Path,
+    aux: &SemanticAux,
+) -> Result<MaterializedProject> {
+    materialize_project(root, toplevel, aux)
+}
+
 pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> SemanticAux {
     let mut toc = Vec::new();
     let mut labels = Vec::new();
