@@ -292,20 +292,31 @@ arithmetic는 같은 scope resolver를 사용한다.
 - footnote slice는 `\footnote`, `\footnotemark`/`\footnotetext`,
   `\tablefootnote`까지 완료됐다. 본문 inline/math event를 transaction으로
   보존하고, detached mark identity와 snapshot/replay를 함께 검증한다.
-- standard front-matter slice는 `\title`, `\author`, `\date`, `\maketitle`
-  및 article/mini-kernel/authblk/LLNCS/REVTeX bridge까지 완료됐다.
-  conditional, alias, override, macro-expanded author separator/note,
-  provenance, snapshot schema 16, compact IR/display-list golden을 함께
+- front-matter slice는 `\title`, `\author`, `\date`, `\maketitle`뿐 아니라
+  `\affil`/`\affiliation`/`\institute`, `\email`, `\keywords`, `\pacs`까지
+  VM 실행 event로 이전됐다. article/mini-kernel/authblk/LLNCS/REVTeX/WACV
+  bridge, conditional, alias, override, macro-expanded author separator/note,
+  provenance, continuation replay, compact IR/display-list golden을 함께
+  검증한다.
+- ICML slice는 `\icmltitle`, 두 인자 `\icmlauthor`/`\icmlaffiliation`/
+  `\icmlcorrespondingauthor`, `\icmlkeywords`,
+  `\printAffiliationsAndNotice`를 실행 기반으로 처리한다. `icmlYYYY.sty`는
+  preview shim으로 격리하며 affiliation label을 visible text로 내보내지
+  않고 conditional/macro/override, snapshot replay, IR/display-list 경계를
   검증한다.
 - direct bibliography slice는 실행된 `thebibliography` 안의 `\bibitem`과
   mini-kernel `\latexdbibitem` bridge까지 완료됐다. conditional, macro,
   alias, override, environment depth, nested semantic capture, invocation/key
-  provenance, snapshot schema 17, compact IR/display-list golden을 함께
+  provenance, continuation snapshot, compact IR/display-list golden을 함께
   검증한다.
-- affiliation/correspondence/keywords/PACS 같은 profile metadata,
-  legacy `\bibliography`/`\printbibliography`, `.bbl` parser와 package-specific
-  bibliography helper, 일부 math/table/wrapper text는 아직 scanner
-  recovery이며 family별 이전을 계속한다.
+- legacy `\bibliography`와 optioned `\printbibliography`도 실제 실행된
+  occurrence만 local `jobname.bbl`을 읽고 구조화된 bibliography event를
+  만든다. false conditional/override에서는 `.bbl`을 읽지 않으며 macro
+  provenance, input dependency, occurrence ordering, jobname snapshot/restore를
+  검증한다.
+- package-specific bibliography helper와 아직 bridge되지 않은 profile
+  command, 일부 math/table/wrapper text는 scanner recovery이며 family별
+  이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -320,6 +331,8 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 5. environment/list/footnote/direct bibliography
 6. float/caption/graphic
 7. table/alignment
+8. generic/class/ICML profile metadata
+9. `\bibliography`/`\printbibliography` materialization
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

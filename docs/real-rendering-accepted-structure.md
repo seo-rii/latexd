@@ -299,7 +299,7 @@ The next implementation step has started with a narrow display-list spike:
 - `printbibliography[...]` now emits an empty bibliography block boundary while
   consuming options without leaking raw biblatex command text;
 - when a local `jobname.bbl` is available, `printbibliography[...]` now reuses
-  the same `.bbl` scan path as legacy `\bibliography{...}` and emits
+  the same `.bbl` input execution path as legacy `\bibliography{...}` and emits
   structured bibliography items instead of an empty block;
 - legacy BibTeX `bibliographystyle{...}` is consumed as non-visible metadata,
   and `bibliography{...}` emits an empty bibliography block boundary without
@@ -434,13 +434,17 @@ The next implementation step has started with a narrow display-list spike:
   placeholder redaction before becoming `TitleBlock` text, preventing raw keys
   from leaking into extracted or display-list text;
 - authblk-style `\author[...]{...}` and `\affil[...]{...}` front matter now
-  survives metadata capture; affiliation lines are preserved as title-block
-  author lines until a dedicated affiliation IR field exists, and `\thanks`
-  text is separated instead of being concatenated into the author name;
+  survives metadata capture; affiliation lines use the dedicated title-block
+  affiliation field, and `\thanks` text is separated instead of being
+  concatenated into the author name;
 - class/package front matter shims now preserve visible title-block content for
   `llncs`, `revtex4-2`, `wacv`, and `IEEEtran`, including `\institute`,
   `\affiliation`, `\email`, and IEEE author-block wrappers without leaking
   affiliation command names or numeric author markers;
+- generic affiliation/correspondence/keywords/PACS commands and ICML's
+  one-/two-argument front-matter commands now emit execution-owned metadata.
+  ICML affiliation labels remain non-visible, and mounted `icmlYYYY.sty`
+  implementations are replaced by a bounded preview shim;
 - `\footnote{...}` and `\footnotetext[...]{...}` now preserve their body text
   through the same nested inline-event path as text wrappers, so citation and
   reference placeholders survive without leaking raw braces or optional marks;
@@ -491,10 +495,10 @@ The next implementation step has started with a narrow display-list spike:
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
-- legacy `\bibliography{...}` now scans a local `jobname.bbl` when it is
-  available, so BibTeX-style arXiv drops can produce structured
-  `BibliographyItem` events/IR/display-list text instead of an empty
-  bibliography block;
+- legacy `\bibliography{...}` and optioned `\printbibliography[...]` now read
+  and execute a local `jobname.bbl` only when the command occurrence executes,
+  so BibTeX-style arXiv drops can produce structured `BibliographyItem`
+  events/IR/display-list text instead of an empty bibliography block;
 - structured text normalization for captions, headings, metadata, bibliography,
   and fallback text now treats nested `\href{target}{visible}` as visible text
   only, preventing hidden targets from being concatenated into rendered text;

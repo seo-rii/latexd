@@ -732,8 +732,9 @@ Final V6 exit criteria:
 
 ### Current V6 Implementation Status
 
-As of 2026-07-29, the footnote, standard front-matter, and direct bibliography
-item vertical slices are complete.
+As of 2026-07-29, the footnote, standard/common-profile front-matter, direct
+bibliography item, and bibliography materialization vertical slices are
+complete.
 
 Footnotes:
 
@@ -745,18 +746,24 @@ Footnotes:
   snapshots, changed-child replay, and cross-file mark/body boundaries;
 - note IDs are remapped across pending, active, queued, and already committed
   events when scanner recovery IDs are atomically replaced;
-- snapshot schema 15 validates that a pending mark refers to exactly one
-  captured `FootnoteMark`;
+- the current semantic snapshot schema validates that a pending mark refers to
+  exactly one captured `FootnoteMark`;
 - false-conditional, macro, alias, override, nested-mark, package-shim, and
   table-cell cases have focused tests.
 
-Standard front matter:
+Front matter and migrated profile metadata:
 
 - `\title`, `\author`, `\date`, and `\maketitle` emit typed metadata and title
   flush events from VM execution;
-- the mini-kernel and article, authblk, LLNCS, and REVTeX compatibility macros
-  delegate to internal semantic primitives without changing legacy text
-  output;
+- `\affil`, `\affiliation`, `\institute`, `\email`, `\keywords`, and `\pacs`
+  use the same execution-owned metadata path;
+- the mini-kernel and article, authblk, LLNCS, REVTeX, and WACV compatibility
+  macros delegate to internal semantic primitives without changing legacy
+  text output;
+- ICML title, author, affiliation, correspondence, keywords, and title-block
+  flush commands consume their real one- or two-argument signatures. The
+  `icmlYYYY.sty` preview shim keeps package execution bounded, and affiliation
+  labels do not leak into visible text;
 - false conditionals emit nothing, aliases preserve primitive meaning, and
   user redefinitions suppress matching scanner recovery;
 - author arguments expand user macros while preserving top-level `\and`, `\\`,
@@ -765,8 +772,10 @@ Standard front matter:
   macro-produced events carry the actual expansion stack;
 - reconciliation retains compatible scanner event IDs but replaces selected
   recovery events with high-confidence primitive or macro events;
-- snapshot schema 16 preserves selected scanner IDs and pending executed
-  front-matter events across continuation replay.
+- the current semantic snapshot preserves selected scanner IDs and pending
+  executed front-matter events across continuation replay;
+- compact event-to-IR-to-display-list tests cover generic, class-shim, and ICML
+  metadata.
 
 Direct bibliography items:
 
@@ -784,18 +793,26 @@ Direct bibliography items:
   macro-produced items carry their actual expansion frames;
 - reconciliation retains compatible scanner event IDs but promotes only
   actually executed items to high-confidence primitive or macro events;
-- snapshot schema 17 preserves bibliography depth, active item captures,
-  nested semantic baselines, and the scoped forced-text recovery range across
-  input continuation replay.
+- the current semantic snapshot preserves bibliography depth, active item
+  captures, nested semantic baselines, and the scoped forced-text recovery
+  range across input continuation replay.
 
-Affiliation, correspondence, keywords, PACS, and profile-specific metadata are
-not part of this slice and remain explicit scanner recovery.
+Bibliography materialization:
+
+- `\bibliography{...}` and optioned `\printbibliography[...]` consume their
+  arguments only when execution reaches them, then execute local
+  `jobname.bbl` content through the normal input/event path;
+- false conditionals, user overrides, and skipped dynamic occurrences do not
+  read the `.bbl` or retain its scanner recovery events;
+- macro-generated commands preserve call provenance and source-order event
+  placement;
+- continuation snapshots preserve the entry jobname, external input
+  dependency, occurrence authority, and event stream equality after replay.
 
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and legacy `\bibliography`,
-`\printbibliography`, `.bbl` parser paths, package-specific bibliography
-helpers, plus parts of math, table, wrapper, and profile-metadata recovery
+from stable cross-revision identity, and package-specific bibliography helpers,
+unbridged profile commands, plus parts of math, table, and wrapper recovery
 remain scanner-only. Subsequent slices must migrate those remaining families
 and narrow the scanner entry point to source regions that execution explicitly
 delegates for recovery.
