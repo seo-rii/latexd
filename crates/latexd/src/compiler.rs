@@ -4430,7 +4430,7 @@ mod tests {
     use tex_checkpoint::{
         CheckpointKind, InputBoundaryCheckpoint, ShipoutCheckpoint,
         build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
-        preamble_key_for_source,
+        load_checkpoint_bundle, preamble_key_for_source,
     };
     use tex_layout::TextSpan;
     use tex_render_model::{
@@ -5398,6 +5398,240 @@ mod tests {
                 checkpoint.kind == kind && checkpoint.module_path == Utf8PathBuf::from("main.bbl")
             }));
         }
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_replays_semantically_equal_jobname_bibliography_edit() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let filler = "jobname bibliography replay filler ".repeat(220);
+        fs::write(
+            root.join("main.tex"),
+            format!(
+                r"\begin{{document}}Cite \cite{{alpha}}.\section{{Intro}}{filler}\bibliography{{refs}}\end{{document}}"
+            ),
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("main.bbl"),
+            concat!(
+                "\\begin{thebibliography}{1}\n",
+                "\\bibitem{alpha} Alpha entry.\n",
+                "\\end{thebibliography}\n",
+            ),
+        )
+        .expect("main bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        let first = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("main.bbl")],
+            })
+            .await
+            .expect("first internal compile");
+        assert!(
+            first.page_metadata.len() >= 2,
+            "fixture should place the bibliography after a page boundary"
+        );
+        let first_bundle =
+            load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json")).expect("bundle");
+        let bibliography_checkpoint = first_bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.module_path.as_deref() == Some(Utf8Path::new("main.bbl"))
+            })
+            .expect("main.bbl input boundary");
+        let expected_checkpoint_id = bibliography_checkpoint.meta.checkpoint_id.clone();
+        let expected_page_index = bibliography_checkpoint.meta.page_index_after;
+
+        fs::write(
+            root.join("main.bbl"),
+            concat!(
+                "\\begin{thebibliography}{1}\n",
+                "\\bibitem{alpha} Alpha   entry.\n",
+                "\\end{thebibliography}\n",
+            ),
+        )
+        .expect("rewrite main bbl");
+        let second = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.bbl")],
+            })
+            .await
+            .expect("second internal compile");
+
+        assert_eq!(
+            second.reused_checkpoint_id.as_deref(),
+            Some(expected_checkpoint_id.as_str())
+        );
+        assert!(second.page_patches.is_empty());
+        let tail = second.unchanged_tail.as_ref().expect("unchanged tail");
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, first.page_metadata.len());
+        let build_meta = serde_json::from_slice::<BuildMeta>(
+            &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+        )
+        .expect("parse build meta");
+        assert_eq!(
+            build_meta.start_checkpoint_id.as_deref(),
+            Some(expected_checkpoint_id.as_str())
+        );
+        assert_eq!(build_meta.start_page_index, expected_page_index);
+        assert_eq!(build_meta.rebuilt_page_count, 0);
+        assert_eq!(build_meta.reused_page_count, build_meta.page_count);
+        assert!(build_meta.semantic_aux_backdated);
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_rebuilds_jobname_bibliography_when_item_order_changes() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Cite \cite{alpha}.\bibliography{refs}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("main.bbl"),
+            concat!(
+                "\\begin{thebibliography}{2}\n",
+                "\\bibitem{alpha} Alpha entry.\n",
+                "\\bibitem{beta} Beta entry.\n",
+                "\\end{thebibliography}\n",
+            ),
+        )
+        .expect("main bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("main.bbl")],
+            })
+            .await
+            .expect("first internal compile");
+        let first_output =
+            fs::read_to_string(build_root.join("rev-1/output.txt")).expect("first output");
+        assert!(first_output.contains("[1]"), "{first_output}");
+
+        fs::write(
+            root.join("main.bbl"),
+            concat!(
+                "\\begin{thebibliography}{2}\n",
+                "\\bibitem{beta} Beta entry.\n",
+                "\\bibitem{alpha} Alpha entry.\n",
+                "\\end{thebibliography}\n",
+            ),
+        )
+        .expect("reorder main bbl");
+        let second = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.bbl")],
+            })
+            .await
+            .expect("second internal compile");
+
+        assert_eq!(second.reused_checkpoint_id, None);
+        let second_output =
+            fs::read_to_string(build_root.join("rev-2/output.txt")).expect("second output");
+        assert!(second_output.contains("[2]"), "{second_output}");
+        let build_meta = serde_json::from_slice::<BuildMeta>(
+            &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+        )
+        .expect("parse build meta");
+        assert_eq!(build_meta.start_checkpoint_id, None);
+        assert_eq!(build_meta.start_page_index, 0);
+        assert!(build_meta.semantic_fixpoint_reached);
+        assert!(!build_meta.semantic_aux_backdated);
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_uses_toplevel_jobname_bibliography_from_included_file() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(root.join("sections")).expect("sections dir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\input{sections/body}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("sections/body.tex"),
+            r"Before.\bibliography{refs}After.",
+        )
+        .expect("body tex");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{1}\bibitem{alpha}Included entry.\end{thebibliography}",
+        )
+        .expect("main bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![
+                    Utf8PathBuf::from("main.tex"),
+                    Utf8PathBuf::from("sections/body.tex"),
+                    Utf8PathBuf::from("main.bbl"),
+                ],
+            })
+            .await
+            .expect("internal compile");
+
+        let events = serde_json::from_slice::<RenderEventStream>(
+            &fs::read(build_root.join("rev-1/render-ir/events.json")).expect("read render events"),
+        )
+        .expect("parse render events");
+        assert!(events.events.iter().any(|event| {
+            matches!(
+                (&event.event, &event.meta.source.primary),
+                (RenderEvent::BibliographyItem(item), ProvenanceSpan::File(span))
+                    if item.key == "alpha"
+                        && item.text == "Included entry."
+                        && span.path == Utf8PathBuf::from("main.bbl")
+            )
+        }));
+        let sources = serde_json::from_slice::<StoredSourceTexts>(
+            &fs::read(build_root.join("rev-1/sources.json")).expect("read source snapshots"),
+        )
+        .expect("parse source snapshots");
+        assert!(sources.module_checkpoints.iter().any(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path == Utf8PathBuf::from("main.bbl")
+                && checkpoint.resume_path.as_deref() == Some(Utf8Path::new("sections/body.tex"))
+        }));
     }
 
     #[tokio::test]
