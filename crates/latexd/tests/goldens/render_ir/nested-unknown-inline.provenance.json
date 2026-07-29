@@ -48,9 +48,9 @@
         },
         "meta": {
           "confidence": "high",
-          "event_id": 7,
           "mode_hint": "horizontal",
           "producer": "primitive",
+          "sequence": 7,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -145,9 +145,9 @@
         },
         "meta": {
           "confidence": "high",
-          "event_id": 13,
           "mode_hint": "horizontal",
           "producer": "primitive",
+          "sequence": 13,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

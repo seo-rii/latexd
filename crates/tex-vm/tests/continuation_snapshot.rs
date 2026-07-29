@@ -1195,14 +1195,14 @@ fn child_text_execution_anchors(
         .iter()
         .filter_map(|event| {
             matches!(&event.event, RenderEvent::Text(text) if text.text == "Child.")
-                .then_some(event.meta.event_id)
+                .then_some(event.meta.sequence)
         })
         .collect::<Vec<_>>();
     let completed = semantic
         .text
         .executed_event_anchors
         .iter()
-        .filter(|anchor| child_event_ids.contains(&anchor.event_id))
+        .filter(|anchor| child_event_ids.contains(&anchor.event_sequence))
         .map(|anchor| anchor.execution_anchor.clone())
         .collect();
     let active = semantic

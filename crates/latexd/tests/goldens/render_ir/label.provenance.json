@@ -7,9 +7,9 @@
     },
     "meta": {
       "confidence": "high",
-      "event_id": 2,
       "mode_hint": "unknown",
       "producer": "primitive",
+      "sequence": 2,
       "source": {
         "expansion_stack": [],
         "expansion_stack_truncated": false,

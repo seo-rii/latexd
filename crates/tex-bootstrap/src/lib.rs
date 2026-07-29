@@ -463,16 +463,16 @@ pub fn render_event_prefix_for_snapshot(
     events: &[RenderEventEnvelope],
     snapshot: &VmSnapshot,
 ) -> Vec<RenderEventEnvelope> {
-    let Some(batch_start_event_id) = snapshot
+    let Some(batch_start_event_sequence) = snapshot
         .semantic_sink
         .as_ref()
-        .map(|sink| sink.batch_start_event_id)
+        .map(|sink| sink.batch_start_event_sequence)
     else {
         return Vec::new();
     };
     events
         .iter()
-        .take_while(|event| event.meta.event_id < batch_start_event_id)
+        .take_while(|event| event.meta.sequence < batch_start_event_sequence)
         .cloned()
         .collect()
 }
@@ -486,10 +486,10 @@ fn append_render_event_batch(
 ) {
     let existing_max_event_id = max_render_event_id(events);
     for mut event in batch {
-        if event.meta.event_id <= existing_max_event_id {
+        if event.meta.sequence <= existing_max_event_id {
             continue;
         }
-        if event.meta.event_id > already_absolute_through_event_id && source_offset_utf8 > 0 {
+        if event.meta.sequence > already_absolute_through_event_id && source_offset_utf8 > 0 {
             shift_render_event_source(&mut event, source_path, source_offset_utf8);
         }
         events.push(event);
@@ -499,7 +499,7 @@ fn append_render_event_batch(
 fn max_render_event_id(events: &[RenderEventEnvelope]) -> u64 {
     events
         .iter()
-        .map(|event| event.meta.event_id)
+        .map(|event| event.meta.sequence)
         .max()
         .unwrap_or_default()
 }
@@ -578,7 +578,7 @@ fn snapshot_absolute_render_event_max(snapshot: &VmSnapshot) -> u64 {
     snapshot
         .semantic_sink
         .as_ref()
-        .map_or(0, |sink| sink.batch_start_event_id.saturating_sub(1))
+        .map_or(0, |sink| sink.batch_start_event_sequence.saturating_sub(1))
 }
 
 fn shift_render_event_source(

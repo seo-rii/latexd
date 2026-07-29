@@ -766,7 +766,7 @@ fn expand_included_pdf_events(events: &mut RenderEventStream, root: &Utf8Path) {
         }
     }
     for (index, envelope) in expanded.iter_mut().enumerate() {
-        envelope.meta.event_id = index as u64 + 1;
+        envelope.meta.sequence = index as u64 + 1;
     }
     events.events = expanded;
 }
@@ -4999,7 +4999,7 @@ mod tests {
                 .events
                 .events
                 .iter()
-                .map(|event| event.meta.event_id)
+                .map(|event| event.meta.sequence)
                 .collect::<Vec<_>>(),
             (1..=capture.events.events.len() as u64).collect::<Vec<_>>()
         );

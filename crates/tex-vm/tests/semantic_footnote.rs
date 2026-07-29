@@ -501,7 +501,7 @@ fn executed_tablefootnote_is_authoritative_inside_a_table() {
     let begin_index = outcome
         .render_events
         .iter()
-        .position(|event| event.meta.event_id == begin.meta.event_id)
+        .position(|event| event.meta.sequence == begin.meta.sequence)
         .expect("table footnote begin index");
     let end_index = outcome
         .render_events

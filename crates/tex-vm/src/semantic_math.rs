@@ -418,7 +418,7 @@ impl Vm<'_> {
         } else {
             RenderEvent::InlineMath(math_source_event(raw_source))
         };
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let source_path = capture.source_path.clone();
         let invocation_span = if capture.producer == EventProducer::Macro {
             capture.semantic_source.primary.clone()
@@ -520,7 +520,7 @@ impl Vm<'_> {
 
         let mut reconciled = Vec::with_capacity(self.render_events.len() + executed.len());
         for scanner_event in self.render_events.drain(..) {
-            if !scanner_math_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_math_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -555,7 +555,7 @@ impl Vm<'_> {
                 continue;
             };
             let mut executed_event = executed.remove(index);
-            executed_event.meta.event_id = scanner_event.meta.event_id;
+            executed_event.meta.sequence = scanner_event.meta.sequence;
             executed_event.meta.source =
                 reconcile_math_source(executed_event.meta.source, scanner_event.meta.source);
             reconciled.push(executed_event);

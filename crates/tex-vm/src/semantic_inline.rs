@@ -5,9 +5,9 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, EventId, EventProducer, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, LabelDefinitionEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
-    SourceProvenance, SourceSpan, SourceSpanRole,
+    CaptionInlinePlaceholderEvent, EventProducer, EventSequence, InlineCitationEvent,
+    InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, ProvenanceSpan, RenderEvent,
+    RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -22,10 +22,10 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticInlineState {
-    scanner_citation_event_ids: HashSet<EventId>,
-    scanner_reference_event_ids: HashSet<EventId>,
-    scanner_link_event_ids: HashSet<EventId>,
-    scanner_label_event_ids: HashSet<EventId>,
+    scanner_citation_event_ids: HashSet<EventSequence>,
+    scanner_reference_event_ids: HashSet<EventSequence>,
+    scanner_link_event_ids: HashSet<EventSequence>,
+    scanner_label_event_ids: HashSet<EventSequence>,
     executed_citations: Vec<RenderEventEnvelope>,
     executed_references: Vec<RenderEventEnvelope>,
     executed_links: Vec<RenderEventEnvelope>,
@@ -108,7 +108,7 @@ impl ExecutedInlineEventMark {
 
 impl Vm<'_> {
     pub(super) fn semantic_inline_snapshot(&self) -> VmSemanticInlineSnapshot {
-        let sorted_event_ids = |event_ids: &HashSet<EventId>| {
+        let sorted_event_ids = |event_ids: &HashSet<EventSequence>| {
             let mut event_ids = event_ids.iter().copied().collect::<Vec<_>>();
             event_ids.sort_unstable();
             event_ids
@@ -246,23 +246,23 @@ impl Vm<'_> {
         self.semantic_inline.next_link_marker_id = snapshot.next_link_marker_id;
     }
 
-    pub(super) fn mark_scanner_citation_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_citation_event(&mut self, event_id: EventSequence) {
         self.semantic_inline
             .scanner_citation_event_ids
             .insert(event_id);
     }
 
-    pub(super) fn mark_scanner_reference_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_reference_event(&mut self, event_id: EventSequence) {
         self.semantic_inline
             .scanner_reference_event_ids
             .insert(event_id);
     }
 
-    pub(super) fn mark_scanner_link_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_link_event(&mut self, event_id: EventSequence) {
         self.semantic_inline.scanner_link_event_ids.insert(event_id);
     }
 
-    pub(super) fn mark_scanner_label_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_label_event(&mut self, event_id: EventSequence) {
         self.semantic_inline
             .scanner_label_event_ids
             .insert(event_id);
@@ -356,7 +356,7 @@ impl Vm<'_> {
             return;
         }
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let citation = InlineCitationEvent {
             keys,
             style_hint: citation_style_hint_for_command(&command),
@@ -386,7 +386,7 @@ impl Vm<'_> {
             return;
         }
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let reference = InlineReferenceEvent { keys, command };
         let mut envelope = RenderEventEnvelope::new(
             event_id,
@@ -447,7 +447,7 @@ impl Vm<'_> {
             .retain(|related| related.role != SourceSpanRole::Invocation);
         source = source.with_related(SourceSpanRole::Invocation, invocation_span);
 
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::LabelDefinition(LabelDefinitionEvent { key, command }),
@@ -577,7 +577,7 @@ impl Vm<'_> {
             .truncate(capture.link_event_mark);
         self.executed_math_events.truncate(capture.math_event_mark);
 
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::InlineLink(InlineLinkEvent {
@@ -615,7 +615,7 @@ impl Vm<'_> {
 
     fn reconcile_scanner_inline_events(
         &mut self,
-        scanner_ids: HashSet<EventId>,
+        scanner_ids: HashSet<EventSequence>,
         mut executed: Vec<RenderEventEnvelope>,
         overridden_label_invocations: &[LabelInvocationRange],
     ) {
@@ -627,7 +627,7 @@ impl Vm<'_> {
         let mut reconciled = Vec::with_capacity(self.render_events.len() + executed.len());
         let scanner_events = self.render_events.take_events();
         for scanner_event in scanner_events {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -637,7 +637,7 @@ impl Vm<'_> {
             });
             if let Some(index) = matching {
                 let mut executed_event = executed.remove(index);
-                executed_event.meta.event_id = scanner_event.meta.event_id;
+                executed_event.meta.sequence = scanner_event.meta.sequence;
                 let executed_source = executed_event.meta.source;
                 let mut source = scanner_event.meta.source;
                 if !source
@@ -723,17 +723,21 @@ impl Vm<'_> {
         self.replace_embedded_inline_placeholders(&mut events, &mut executed);
         executed.retain(|event| !recovery_container_represents(&events, event));
         insert_unmatched_inline_events(&mut events, executed);
-        let first_event_id = self.render_events.batch_start_event_id();
+        let first_event_id = self.render_events.batch_start_event_sequence();
         let mut next_batch_event_id = first_event_id;
         for event in &mut events {
-            if event.meta.event_id < first_event_id {
+            if event.meta.sequence < first_event_id {
                 continue;
             }
-            event.meta.event_id = next_batch_event_id;
+            event.meta.sequence = next_batch_event_id;
             next_batch_event_id = next_batch_event_id.saturating_add(1);
         }
-        let next_event_id = self.render_events.next_event_id().max(next_batch_event_id);
-        self.render_events.set_next_event_id(next_event_id);
+        let next_event_sequence = self
+            .render_events
+            .next_event_sequence()
+            .max(next_batch_event_id);
+        self.render_events
+            .set_next_event_sequence(next_event_sequence);
         self.render_events.replace_events(events);
     }
 

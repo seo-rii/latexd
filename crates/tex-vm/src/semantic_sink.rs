@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use tex_render_model::{EventId, RenderEventEnvelope};
+use tex_render_model::{EventSequence, RenderEventEnvelope};
 
 use crate::snapshot::VmSemanticSinkSnapshot;
 
@@ -11,15 +11,15 @@ use crate::snapshot::VmSemanticSinkSnapshot;
 #[allow(dead_code)] // Used by the next Snapshot v2 integration step.
 pub(super) struct SemanticSinkMark {
     event_len: usize,
-    next_event_id: EventId,
+    next_event_sequence: EventSequence,
     epoch: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SemanticEventBuffer {
     events: Vec<RenderEventEnvelope>,
-    next_event_id: EventId,
-    batch_start_event_id: EventId,
+    next_event_sequence: EventSequence,
+    batch_start_event_sequence: EventSequence,
     epoch: u64,
 }
 
@@ -27,8 +27,8 @@ impl Default for SemanticEventBuffer {
     fn default() -> Self {
         Self {
             events: Vec::new(),
-            next_event_id: 1,
-            batch_start_event_id: 1,
+            next_event_sequence: 1,
+            batch_start_event_sequence: 1,
             epoch: 0,
         }
     }
@@ -38,8 +38,8 @@ impl SemanticEventBuffer {
     pub(super) fn snapshot(&self) -> VmSemanticSinkSnapshot {
         VmSemanticSinkSnapshot {
             events: self.events.clone(),
-            next_event_id: self.next_event_id,
-            batch_start_event_id: self.batch_start_event_id,
+            next_event_sequence: self.next_event_sequence,
+            batch_start_event_sequence: self.batch_start_event_sequence,
             epoch: self.epoch,
         }
     }
@@ -47,35 +47,35 @@ impl SemanticEventBuffer {
     pub(super) fn restore(snapshot: &VmSemanticSinkSnapshot) -> Option<Self> {
         snapshot.is_restorable().then(|| Self {
             events: snapshot.events.clone(),
-            next_event_id: snapshot.next_event_id,
-            batch_start_event_id: snapshot.batch_start_event_id,
+            next_event_sequence: snapshot.next_event_sequence,
+            batch_start_event_sequence: snapshot.batch_start_event_sequence,
             epoch: snapshot.epoch,
         })
     }
 
-    pub(super) fn allocate_event_id(&mut self) -> EventId {
-        let event_id = self.next_event_id;
-        self.next_event_id += 1;
-        event_id
+    pub(super) fn allocate_event_sequence(&mut self) -> EventSequence {
+        let event_sequence = self.next_event_sequence;
+        self.next_event_sequence += 1;
+        event_sequence
     }
 
-    pub(super) fn next_event_id(&self) -> EventId {
-        self.next_event_id
+    pub(super) fn next_event_sequence(&self) -> EventSequence {
+        self.next_event_sequence
     }
 
-    pub(super) fn batch_start_event_id(&self) -> EventId {
-        self.batch_start_event_id
+    pub(super) fn batch_start_event_sequence(&self) -> EventSequence {
+        self.batch_start_event_sequence
     }
 
-    pub(super) fn set_next_event_id(&mut self, next_event_id: EventId) {
-        self.next_event_id = next_event_id.max(1);
+    pub(super) fn set_next_event_sequence(&mut self, next_event_sequence: EventSequence) {
+        self.next_event_sequence = next_event_sequence.max(1);
     }
 
     #[allow(dead_code)]
     pub(super) fn mark(&self) -> SemanticSinkMark {
         SemanticSinkMark {
             event_len: self.events.len(),
-            next_event_id: self.next_event_id,
+            next_event_sequence: self.next_event_sequence,
             epoch: self.epoch,
         }
     }
@@ -86,7 +86,7 @@ impl SemanticEventBuffer {
             return false;
         }
         self.events.truncate(mark.event_len);
-        self.next_event_id = mark.next_event_id;
+        self.next_event_sequence = mark.next_event_sequence;
         true
     }
 
@@ -94,7 +94,7 @@ impl SemanticEventBuffer {
     pub(super) fn commit(&self, mark: SemanticSinkMark) -> bool {
         mark.epoch == self.epoch
             && mark.event_len <= self.events.len()
-            && mark.next_event_id <= self.next_event_id
+            && mark.next_event_sequence <= self.next_event_sequence
     }
 
     pub(super) fn replace_events(&mut self, events: Vec<RenderEventEnvelope>) {
@@ -104,59 +104,61 @@ impl SemanticEventBuffer {
 
     pub(super) fn replace_transaction(
         &mut self,
-        removed_event_ids: &BTreeSet<EventId>,
+        removed_event_sequences: &BTreeSet<EventSequence>,
         mut replacements: Vec<RenderEventEnvelope>,
-    ) -> Option<BTreeMap<EventId, EventId>> {
-        if removed_event_ids.is_empty() {
+    ) -> Option<BTreeMap<EventSequence, EventSequence>> {
+        if removed_event_sequences.is_empty() {
             return None;
         }
-        let present_event_ids = self
+        let present_event_sequences = self
             .events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<BTreeSet<_>>();
-        if !removed_event_ids.is_subset(&present_event_ids) {
+        if !removed_event_sequences.is_subset(&present_event_sequences) {
             return None;
         }
-        let emitted_event_ids = replacements
+        let emitted_event_sequences = replacements
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
-        let reusable_event_ids = self
+        let reusable_event_sequences = self
             .events
             .iter()
-            .filter(|event| removed_event_ids.contains(&event.meta.event_id))
-            .map(|event| event.meta.event_id)
+            .filter(|event| removed_event_sequences.contains(&event.meta.sequence))
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
-        for (replacement, event_id) in replacements.iter_mut().zip(reusable_event_ids) {
-            replacement.meta.event_id = event_id;
+        for (replacement, event_sequence) in replacements.iter_mut().zip(reusable_event_sequences) {
+            replacement.meta.sequence = event_sequence;
         }
-        let retained_event_ids = present_event_ids
-            .difference(removed_event_ids)
+        let retained_event_sequences = present_event_sequences
+            .difference(removed_event_sequences)
             .copied()
             .collect::<BTreeSet<_>>();
-        let replacement_event_ids = replacements
+        let replacement_event_sequences = replacements
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<BTreeSet<_>>();
-        let event_id_remap = emitted_event_ids
+        let event_sequence_remap = emitted_event_sequences
             .into_iter()
-            .zip(replacements.iter().map(|event| event.meta.event_id))
+            .zip(replacements.iter().map(|event| event.meta.sequence))
             .collect::<BTreeMap<_, _>>();
-        if event_id_remap.len() != replacements.len()
-            || replacement_event_ids.len() != replacements.len()
-            || !retained_event_ids.is_disjoint(&replacement_event_ids)
+        if event_sequence_remap.len() != replacements.len()
+            || replacement_event_sequences.len() != replacements.len()
+            || !retained_event_sequences.is_disjoint(&replacement_event_sequences)
         {
             return None;
         }
 
         let mut replacements = Some(replacements);
         let mut events = Vec::with_capacity(
-            self.events.len().saturating_sub(removed_event_ids.len())
+            self.events
+                .len()
+                .saturating_sub(removed_event_sequences.len())
                 + replacements.as_ref().map_or(0, Vec::len),
         );
         for event in self.events.drain(..) {
-            if removed_event_ids.contains(&event.meta.event_id) {
+            if removed_event_sequences.contains(&event.meta.sequence) {
                 if let Some(replacements) = replacements.take() {
                     events.extend(replacements);
                 }
@@ -164,28 +166,28 @@ impl SemanticEventBuffer {
                 events.push(event);
             }
         }
-        self.next_event_id = events
+        self.next_event_sequence = events
             .iter()
-            .map(|event| event.meta.event_id.saturating_add(1))
+            .map(|event| event.meta.sequence.saturating_add(1))
             .max()
             .unwrap_or(1)
-            .max(self.next_event_id);
+            .max(self.next_event_sequence);
         self.events = events;
         self.epoch = self.epoch.wrapping_add(1);
-        Some(event_id_remap)
+        Some(event_sequence_remap)
     }
 
     pub(super) fn replace_transaction_since(
         &mut self,
-        removed_event_ids: &BTreeSet<EventId>,
+        removed_event_sequences: &BTreeSet<EventSequence>,
         mark: SemanticSinkMark,
-    ) -> Option<BTreeMap<EventId, EventId>> {
+    ) -> Option<BTreeMap<EventSequence, EventSequence>> {
         if !self.commit(mark) {
             return None;
         }
         let replacements = self.events.split_off(mark.event_len);
-        match self.replace_transaction(removed_event_ids, replacements.clone()) {
-            Some(event_id_remap) => Some(event_id_remap),
+        match self.replace_transaction(removed_event_sequences, replacements.clone()) {
+            Some(event_sequence_remap) => Some(event_sequence_remap),
             None => {
                 self.events.extend(replacements);
                 None
@@ -194,13 +196,13 @@ impl SemanticEventBuffer {
     }
 
     pub(super) fn set_replay_prefix(&mut self, events: Vec<RenderEventEnvelope>) {
-        self.next_event_id = events
+        self.next_event_sequence = events
             .iter()
-            .map(|event| event.meta.event_id.saturating_add(1))
+            .map(|event| event.meta.sequence.saturating_add(1))
             .max()
-            .unwrap_or(self.next_event_id)
-            .max(self.next_event_id);
-        self.batch_start_event_id = self.next_event_id;
+            .unwrap_or(self.next_event_sequence)
+            .max(self.next_event_sequence);
+        self.batch_start_event_sequence = self.next_event_sequence;
         self.events = events;
         self.epoch = self.epoch.wrapping_add(1);
     }
@@ -212,7 +214,7 @@ impl SemanticEventBuffer {
 
     pub(super) fn finish_batch(&mut self) -> Vec<RenderEventEnvelope> {
         let events = self.take_events();
-        self.batch_start_event_id = self.next_event_id;
+        self.batch_start_event_sequence = self.next_event_sequence;
         events
     }
 }
@@ -240,19 +242,19 @@ mod tests {
     use super::SemanticEventBuffer;
 
     fn emit_text(buffer: &mut SemanticEventBuffer, text: &str) -> u64 {
-        let event_id = buffer.allocate_event_id();
+        let event_sequence = buffer.allocate_event_sequence();
         buffer.push(RenderEventEnvelope::new(
-            event_id,
+            event_sequence,
             RenderEvent::Text(TextEvent {
                 text: text.to_string(),
             }),
             SourceProvenance::file("main.tex", 0, text.len() as u32),
         ));
-        event_id
+        event_sequence
     }
 
     #[test]
-    fn rollback_discards_events_and_reuses_event_ids() {
+    fn rollback_discards_events_and_reuses_event_sequences() {
         let mut buffer = SemanticEventBuffer::default();
         assert_eq!(emit_text(&mut buffer, "before"), 1);
         let mark = buffer.mark();
@@ -295,7 +297,7 @@ mod tests {
 
         let events = buffer.finish_batch();
         assert!(buffer.is_empty());
-        assert_eq!(buffer.batch_start_event_id(), 2);
+        assert_eq!(buffer.batch_start_event_sequence(), 2);
         buffer.replace_events(events);
 
         assert_eq!(emit_text(&mut buffer, "second"), 2);
@@ -315,6 +317,31 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_accepts_legacy_event_id_allocator_fields() {
+        let mut buffer = SemanticEventBuffer::default();
+        assert_eq!(emit_text(&mut buffer, "first"), 1);
+        let mut encoded = serde_json::to_value(buffer.snapshot()).expect("encode snapshot");
+        let snapshot = encoded.as_object_mut().expect("semantic sink snapshot");
+        let next_event_sequence = snapshot
+            .remove("next_event_sequence")
+            .expect("next event sequence");
+        snapshot.insert("next_event_id".to_string(), next_event_sequence);
+        let batch_start_event_sequence = snapshot
+            .remove("batch_start_event_sequence")
+            .expect("batch start event sequence");
+        snapshot.insert(
+            "batch_start_event_id".to_string(),
+            batch_start_event_sequence,
+        );
+
+        let legacy_snapshot: crate::snapshot::VmSemanticSinkSnapshot =
+            serde_json::from_value(encoded).expect("decode legacy snapshot");
+        let restored = SemanticEventBuffer::restore(&legacy_snapshot).expect("restorable snapshot");
+
+        assert_eq!(restored, buffer);
+    }
+
+    #[test]
     fn replay_prefix_starts_a_new_event_batch_after_the_prefix() {
         let mut buffer = SemanticEventBuffer::default();
         emit_text(&mut buffer, "prefix");
@@ -322,7 +349,7 @@ mod tests {
 
         buffer.set_replay_prefix(prefix);
 
-        assert_eq!(buffer.batch_start_event_id(), 2);
+        assert_eq!(buffer.batch_start_event_sequence(), 2);
         assert_eq!(emit_text(&mut buffer, "body"), 2);
         assert!(SemanticEventBuffer::restore(&buffer.snapshot()).is_some());
     }
@@ -334,7 +361,7 @@ mod tests {
         let old_start = emit_text(&mut buffer, "old start");
         let old_end = emit_text(&mut buffer, "old end");
         emit_text(&mut buffer, "after");
-        let replacement_id = buffer.allocate_event_id();
+        let replacement_id = buffer.allocate_event_sequence();
         let replacement = RenderEventEnvelope::new(
             replacement_id,
             RenderEvent::Text(TextEvent {
@@ -343,10 +370,10 @@ mod tests {
             SourceProvenance::file("child.tex", 0, 11),
         );
 
-        let event_id_remap = buffer
+        let event_sequence_remap = buffer
             .replace_transaction(&BTreeSet::from([old_start, old_end]), vec![replacement])
             .expect("valid source transaction");
-        assert_eq!(event_id_remap.get(&replacement_id), Some(&old_start));
+        assert_eq!(event_sequence_remap.get(&replacement_id), Some(&old_start));
         assert_eq!(
             buffer
                 .iter()
@@ -394,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_rejects_duplicate_or_out_of_range_event_ids() {
+    fn restore_rejects_duplicate_or_out_of_range_event_sequences() {
         let mut buffer = SemanticEventBuffer::default();
         emit_text(&mut buffer, "first");
         let mut snapshot = buffer.snapshot();
@@ -403,15 +430,15 @@ mod tests {
         assert!(SemanticEventBuffer::restore(&snapshot).is_none());
 
         snapshot.events.pop();
-        snapshot.next_event_id = 1;
+        snapshot.next_event_sequence = 1;
         assert!(SemanticEventBuffer::restore(&snapshot).is_none());
 
-        snapshot.next_event_id = 2;
-        snapshot.batch_start_event_id = 3;
+        snapshot.next_event_sequence = 2;
+        snapshot.batch_start_event_sequence = 3;
         assert!(SemanticEventBuffer::restore(&snapshot).is_none());
 
-        snapshot.next_event_id = 3;
-        snapshot.batch_start_event_id = 2;
+        snapshot.next_event_sequence = 3;
+        snapshot.batch_start_event_sequence = 2;
         assert!(SemanticEventBuffer::restore(&snapshot).is_some());
     }
 }

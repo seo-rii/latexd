@@ -9,9 +9,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 1,
         "mode_hint": "preamble",
         "producer": "primitive",
+        "sequence": 1,
         "source": "<present>"
       }
     },
@@ -23,9 +23,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 2,
         "mode_hint": "preamble",
         "producer": "primitive",
+        "sequence": 2,
         "source": "<present>"
       }
     },
@@ -37,9 +37,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 3,
         "mode_hint": "preamble",
         "producer": "primitive",
+        "sequence": 3,
         "source": "<present>"
       }
     },
@@ -49,9 +49,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 4,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 4,
         "source": "<present>"
       }
     },
@@ -64,9 +64,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 5,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 5,
         "source": "<present>"
       }
     },
@@ -77,9 +77,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 6,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 6,
         "source": "<present>"
       }
     },
@@ -90,9 +90,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 7,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 7,
         "source": "<present>"
       }
     },
@@ -103,9 +103,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 8,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 8,
         "source": "<present>"
       }
     },
@@ -118,9 +118,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 9,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 9,
         "source": "<present>"
       }
     },
@@ -133,9 +133,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 10,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 10,
         "source": "<present>"
       }
     },
@@ -146,9 +146,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 11,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 11,
         "source": "<present>"
       }
     },
@@ -159,9 +159,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 12,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 12,
         "source": "<present>"
       }
     },
@@ -176,9 +176,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 13,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 13,
         "source": "<present>"
       }
     },
@@ -189,9 +189,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 14,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 14,
         "source": "<present>"
       }
     },
@@ -202,9 +202,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 15,
         "mode_hint": "math",
         "producer": "primitive",
+        "sequence": 15,
         "source": "<present>"
       }
     },
@@ -217,9 +217,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 16,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 16,
         "source": "<present>"
       }
     },
@@ -231,9 +231,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 17,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 17,
         "source": "<present>"
       }
     },
@@ -246,9 +246,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 18,
         "mode_hint": "vertical",
         "producer": "primitive",
+        "sequence": 18,
         "source": "<present>"
       }
     },
@@ -265,12 +265,12 @@
       },
       "meta": {
         "confidence": "fallback",
-        "event_id": 19,
         "mode_hint": "vertical",
         "producer": "fallback",
+        "sequence": 19,
         "source": "<present>"
       }
     }
   ],
-  "schema_version": 4
+  "schema_version": 5
 }

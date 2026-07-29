@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "case": "main.tex",
   "events": [
     {
@@ -9,7 +9,7 @@
         "value": "A Paper"
       },
       "meta": {
-        "event_id": 1,
+        "sequence": 1,
         "source": {
           "primary": {
             "kind": "file",
@@ -53,7 +53,7 @@
         "value": "Ada Lovelace"
       },
       "meta": {
-        "event_id": 2,
+        "sequence": 2,
         "source": {
           "primary": {
             "kind": "file",
@@ -97,7 +97,7 @@
         "value": "May 1843"
       },
       "meta": {
-        "event_id": 3,
+        "sequence": 3,
         "source": {
           "primary": {
             "kind": "file",
@@ -139,7 +139,7 @@
         "kind": "flush_title_block"
       },
       "meta": {
-        "event_id": 4,
+        "sequence": 4,
         "source": {
           "primary": {
             "kind": "file",
@@ -165,7 +165,7 @@
         }
       },
       "meta": {
-        "event_id": 5,
+        "sequence": 5,
         "source": {
           "primary": {
             "kind": "file",
@@ -189,7 +189,7 @@
         "text": "Short"
       },
       "meta": {
-        "event_id": 6,
+        "sequence": 6,
         "source": {
           "primary": {
             "kind": "file",
@@ -213,7 +213,7 @@
         "space_kind": "interword"
       },
       "meta": {
-        "event_id": 7,
+        "sequence": 7,
         "source": {
           "primary": {
             "kind": "file",
@@ -237,7 +237,7 @@
         "text": "abstract."
       },
       "meta": {
-        "event_id": 8,
+        "sequence": 8,
         "source": {
           "primary": {
             "kind": "file",
@@ -263,7 +263,7 @@
         }
       },
       "meta": {
-        "event_id": 9,
+        "sequence": 9,
         "source": {
           "primary": {
             "kind": "file",
@@ -289,7 +289,7 @@
         "number": "1"
       },
       "meta": {
-        "event_id": 10,
+        "sequence": 10,
         "source": {
           "primary": {
             "kind": "file",
@@ -323,7 +323,7 @@
         "text": "Hello"
       },
       "meta": {
-        "event_id": 11,
+        "sequence": 11,
         "source": {
           "primary": {
             "kind": "file",
@@ -347,7 +347,7 @@
         "space_kind": "interword"
       },
       "meta": {
-        "event_id": 12,
+        "sequence": 12,
         "source": {
           "primary": {
             "kind": "file",
@@ -375,7 +375,7 @@
         "style_hint": "numeric"
       },
       "meta": {
-        "event_id": 13,
+        "sequence": 13,
         "source": {
           "primary": {
             "kind": "file",
@@ -409,7 +409,7 @@
         "text": "."
       },
       "meta": {
-        "event_id": 14,
+        "sequence": 14,
         "source": {
           "primary": {
             "kind": "file",
@@ -433,7 +433,7 @@
         "raw_source": "x^2"
       },
       "meta": {
-        "event_id": 15,
+        "sequence": 15,
         "source": {
           "primary": {
             "kind": "file",
@@ -469,7 +469,7 @@
         }
       },
       "meta": {
-        "event_id": 16,
+        "sequence": 16,
         "source": {
           "primary": {
             "kind": "file",
@@ -494,7 +494,7 @@
         "text": "Author. Title."
       },
       "meta": {
-        "event_id": 17,
+        "sequence": 17,
         "source": {
           "primary": {
             "kind": "file",
@@ -530,7 +530,7 @@
         }
       },
       "meta": {
-        "event_id": 18,
+        "sequence": 18,
         "source": {
           "primary": {
             "kind": "file",
@@ -560,7 +560,7 @@
         "truncated": false
       },
       "meta": {
-        "event_id": 19,
+        "sequence": 19,
         "source": {
           "primary": {
             "kind": "file",

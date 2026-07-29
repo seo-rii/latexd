@@ -52,9 +52,9 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 3,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
+          "sequence": 3,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -173,9 +173,9 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 6,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
+          "sequence": 6,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -294,9 +294,9 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 11,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
+          "sequence": 11,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

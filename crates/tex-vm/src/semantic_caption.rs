@@ -5,7 +5,7 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    CaptionEvent, CaptionKind, EventId, EventProducer, ProvenanceSpan, RenderEvent,
+    CaptionEvent, CaptionKind, EventProducer, EventSequence, ProvenanceSpan, RenderEvent,
     RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticCaptionState {
-    scanner_event_ids: HashSet<EventId>,
+    scanner_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
     marker_actions: HashMap<ControlSequenceId, ExecutedCaptionCapture>,
     next_marker_id: u64,
@@ -130,7 +130,7 @@ impl Vm<'_> {
         self.semantic_caption.next_marker_id = snapshot.next_marker_id;
     }
 
-    pub(super) fn mark_scanner_caption_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_caption_event(&mut self, event_id: EventSequence) {
         self.semantic_caption.scanner_event_ids.insert(event_id);
     }
 
@@ -234,7 +234,7 @@ impl Vm<'_> {
             .truncate(capture.caption_event_mark);
         self.finish_executed_block_content();
 
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let lossy = capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
         let mut envelope = RenderEventEnvelope::new(
             event_id,
@@ -266,7 +266,7 @@ impl Vm<'_> {
         let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -356,7 +356,7 @@ fn insert_unmatched_caption_events(
                                 || (existing_start == start_utf8
                                     && (existing_end > end_utf8
                                         || (existing_end == end_utf8
-                                            && existing.meta.event_id > event.meta.event_id))))
+                                            && existing.meta.sequence > event.meta.sequence))))
                     },
                 )
             })

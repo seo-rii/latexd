@@ -5,7 +5,7 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventId, EventProducer, ExpansionFrame, LineBreakEvent, LineBreakReason, PageBreakEvent,
+    EventProducer, EventSequence, ExpansionFrame, LineBreakEvent, LineBreakReason, PageBreakEvent,
     PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
     RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind,
     TextEvent,
@@ -29,7 +29,7 @@ pub(super) struct SemanticTextState {
     suppressed_ranges: Vec<SuppressedSourceRange>,
     forced_execution_ranges: Vec<ExecutionAuthorityRange>,
     executed_events: Vec<RenderEventEnvelope>,
-    executed_event_anchors: HashMap<EventId, VmExecutionAnchor>,
+    executed_event_anchors: HashMap<EventSequence, VmExecutionAnchor>,
     capture: Option<ExecutedTextCapture>,
     paragraph_has_content: bool,
     space_run_active: bool,
@@ -43,7 +43,7 @@ struct ScannerTextSlot {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
-    event_ids: Vec<EventId>,
+    event_ids: Vec<EventSequence>,
     execution_anchor: VmExecutionAnchor,
     preserve_leading_space: bool,
 }
@@ -182,12 +182,12 @@ impl Vm<'_> {
                     .iter()
                     .map(
                         |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
-                            event_id: *event_id,
+                            event_sequence: *event_id,
                             execution_anchor: execution_anchor.clone(),
                         },
                     )
                     .collect::<Vec<_>>();
-                anchors.sort_by_key(|anchor| anchor.event_id);
+                anchors.sort_by_key(|anchor| anchor.event_sequence);
                 anchors
             },
             active_capture: self.semantic_text.capture.as_ref().map(|capture| {
@@ -253,7 +253,7 @@ impl Vm<'_> {
         self.semantic_text.executed_event_anchors = snapshot
             .executed_event_anchors
             .iter()
-            .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
+            .map(|anchor| (anchor.event_sequence, anchor.execution_anchor.clone()))
             .collect();
         self.semantic_text.capture =
             snapshot
@@ -301,9 +301,10 @@ impl Vm<'_> {
         path: &Utf8Path,
         start_utf8: u32,
         end_utf8: u32,
-        first_event_id: EventId,
+        first_event_id: EventSequence,
     ) {
-        let event_ids = (first_event_id..self.render_events.next_event_id()).collect::<Vec<_>>();
+        let event_ids =
+            (first_event_id..self.render_events.next_event_sequence()).collect::<Vec<_>>();
         if event_ids.is_empty() {
             return;
         }
@@ -322,7 +323,7 @@ impl Vm<'_> {
         path: &Utf8Path,
         start_utf8: u32,
         end_utf8: u32,
-        event_id: EventId,
+        event_id: EventSequence,
     ) {
         self.semantic_text.scanner_slots.push(ScannerTextSlot {
             path: path.to_owned(),
@@ -704,7 +705,7 @@ impl Vm<'_> {
         if capture.text.is_empty() {
             return;
         }
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::Text(TextEvent { text: capture.text }),
@@ -743,7 +744,7 @@ impl Vm<'_> {
         for event in &events {
             self.semantic_text
                 .executed_event_anchors
-                .remove(&event.meta.event_id);
+                .remove(&event.meta.sequence);
         }
         self.semantic_text.paragraph_has_content = mark.paragraph_has_content;
         self.semantic_text.space_run_active = mark.space_run_active;
@@ -755,7 +756,7 @@ impl Vm<'_> {
         for event in self.semantic_text.executed_events.iter().skip(mark) {
             self.semantic_text
                 .executed_event_anchors
-                .remove(&event.meta.event_id);
+                .remove(&event.meta.sequence);
         }
         self.semantic_text.executed_events.truncate(mark);
     }
@@ -764,7 +765,7 @@ impl Vm<'_> {
         if let Some(event) = self.semantic_text.executed_events.pop() {
             self.semantic_text
                 .executed_event_anchors
-                .remove(&event.meta.event_id);
+                .remove(&event.meta.sequence);
         }
     }
 
@@ -844,7 +845,7 @@ impl Vm<'_> {
             if let Some(index) = slots.iter().position(|slot| {
                 event_belongs_to_slot(
                     &event,
-                    executed_event_anchors.get(&event.meta.event_id),
+                    executed_event_anchors.get(&event.meta.sequence),
                     slot,
                     self.render_event_sources
                         .get(&slot.path)
@@ -867,7 +868,7 @@ impl Vm<'_> {
             let originals = self
                 .render_events
                 .iter()
-                .filter(|event| slot.event_ids.contains(&event.meta.event_id))
+                .filter(|event| slot.event_ids.contains(&event.meta.sequence))
                 .cloned()
                 .collect::<Vec<_>>();
             let leading_space = originals.first().filter(|event| {
@@ -926,7 +927,7 @@ impl Vm<'_> {
                 for (original, replacement) in
                     matching_originals.iter().zip(replacements.iter_mut())
                 {
-                    replacement.meta.event_id = original.meta.event_id;
+                    replacement.meta.sequence = original.meta.sequence;
                     let original_has_extent = provenance_spans(&original.meta.source)
                         .any(|span| span.start_utf8 < span.end_utf8);
                     if original_has_extent {
@@ -969,10 +970,10 @@ impl Vm<'_> {
             .collect::<HashMap<_, _>>();
         let mut reconciled = Vec::with_capacity(self.render_events.len());
         for event in self.render_events.drain(..) {
-            if let Some(index) = replacement_by_first_id.get(&event.meta.event_id) {
+            if let Some(index) = replacement_by_first_id.get(&event.meta.sequence) {
                 reconciled.append(&mut events_by_slot[*index]);
             }
-            if !scanner_event_ids.contains(&event.meta.event_id) {
+            if !scanner_event_ids.contains(&event.meta.sequence) {
                 reconciled.push(event);
             }
         }
@@ -1008,7 +1009,7 @@ impl Vm<'_> {
                         &event.meta.source.primary,
                         ProvenanceSpan::File(span) if span.path == path
                     );
-                is_dirty_scanner_text.then_some(event.meta.event_id)
+                is_dirty_scanner_text.then_some(event.meta.sequence)
             }));
             if removed_event_ids.is_empty() {
                 continue;
@@ -1043,7 +1044,7 @@ impl Vm<'_> {
                             !crate::is_escaped_percent(source, last_line_start + offset)
                         });
                 if !last_line_has_comment {
-                    let event_id = self.render_events.allocate_event_id();
+                    let event_id = self.render_events.allocate_event_sequence();
                     let source_end = source.len().try_into().unwrap_or(u32::MAX);
                     let mut trailing_space = RenderEventEnvelope::new(
                         event_id,
@@ -1074,7 +1075,7 @@ impl Vm<'_> {
     }
 
     fn push_executed_text_event(&mut self, event: RenderEvent, start_utf8: u32, end_utf8: u32) {
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
         let execution_anchor = self.current_execution_anchor();
         let mut envelope = RenderEventEnvelope::new(event_id, event, source);
@@ -1168,7 +1169,7 @@ fn attach_trailing_scanner_spaces_to_eof_slots(
             continue;
         }
         let is_trailing_scanner_space = events.iter().any(|event| {
-            event.meta.event_id == candidate_id
+            event.meta.sequence == candidate_id
                 && event.meta.producer == EventProducer::ScannerRecovery
                 && matches!(
                     event.event,
@@ -1216,7 +1217,7 @@ fn insert_unmatched_execution_events(
     events: &mut Vec<RenderEventEnvelope>,
     unmatched: Vec<RenderEventEnvelope>,
     forced_execution_ranges: &[ExecutionAuthorityRange],
-    executed_event_anchors: &HashMap<EventId, VmExecutionAnchor>,
+    executed_event_anchors: &HashMap<EventSequence, VmExecutionAnchor>,
 ) {
     let mut index = 0;
     while index < unmatched.len() {
@@ -1227,7 +1228,7 @@ fn insert_unmatched_execution_events(
         if !is_insertable_unmatched_event(
             &unmatched[index],
             forced_execution_ranges,
-            executed_event_anchors.get(&unmatched[index].meta.event_id),
+            executed_event_anchors.get(&unmatched[index].meta.sequence),
         ) {
             index += 1;
             continue;
@@ -1237,10 +1238,10 @@ fn insert_unmatched_execution_events(
             && is_insertable_unmatched_event(
                 &unmatched[end],
                 forced_execution_ranges,
-                executed_event_anchors.get(&unmatched[end].meta.event_id),
+                executed_event_anchors.get(&unmatched[end].meta.sequence),
             )
-            && executed_event_anchors.get(&unmatched[end].meta.event_id)
-                == executed_event_anchors.get(&unmatched[index].meta.event_id)
+            && executed_event_anchors.get(&unmatched[end].meta.sequence)
+                == executed_event_anchors.get(&unmatched[index].meta.sequence)
             && event_anchor(&unmatched[end]).as_ref() == Some(&anchor)
         {
             end += 1;

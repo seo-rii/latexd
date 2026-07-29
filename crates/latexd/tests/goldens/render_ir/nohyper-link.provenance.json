@@ -52,9 +52,9 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 4,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
+          "sequence": 4,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -164,9 +164,9 @@
         },
         "meta": {
           "confidence": "medium",
-          "event_id": 8,
           "mode_hint": "horizontal",
           "producer": "scanner_recovery",
+          "sequence": 8,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

@@ -94,16 +94,16 @@ fn render_event_capture_snapshot_is_replay_safe() {
         .expect("semantic sink snapshot");
     assert_eq!(semantic_sink["events"], serde_json::json!([]));
     assert!(
-        semantic_sink["next_event_id"]
+        semantic_sink["next_event_sequence"]
             .as_u64()
             .is_some_and(|event_id| event_id > 1)
     );
 
-    let next_event_id = snapshot
+    let next_event_sequence = snapshot
         .semantic_sink
         .as_ref()
         .expect("typed semantic sink snapshot")
-        .next_event_id;
+        .next_event_sequence;
     drop(vm);
     let mut restored = Vm::restore(&mut interner, &snapshot);
     let outcome = restored.run_plain(r"\begin{document}Next.\end{document}");
@@ -113,8 +113,8 @@ fn render_event_capture_snapshot_is_replay_safe() {
             .first()
             .expect("restored semantic event capture")
             .meta
-            .event_id,
-        next_event_id
+            .sequence,
+        next_event_sequence
     );
 }
 

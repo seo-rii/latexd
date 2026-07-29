@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 
-pub type EventId = u64;
+pub type EventSequence = u64;
 pub type FootnoteId = u64;
 
-pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 4;
+pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventStream {
@@ -32,7 +32,7 @@ pub struct RenderEventEnvelope {
 }
 
 impl RenderEventEnvelope {
-    pub fn new(event_id: EventId, event: RenderEvent, mut source: SourceProvenance) -> Self {
+    pub fn new(sequence: EventSequence, event: RenderEvent, mut source: SourceProvenance) -> Self {
         let (confidence, producer) = match &event {
             RenderEvent::RawFallback(_) => {
                 source = source.with_generated_by(GeneratedBy::Fallback);
@@ -45,7 +45,7 @@ impl RenderEventEnvelope {
         Self {
             event,
             meta: EventMeta {
-                event_id,
+                sequence,
                 source,
                 mode_hint,
                 confidence,
@@ -60,11 +60,11 @@ impl RenderEventEnvelope {
     }
 
     pub fn from_scanner_recovery(
-        event_id: EventId,
+        sequence: EventSequence,
         event: RenderEvent,
         source: SourceProvenance,
     ) -> Self {
-        let mut envelope = Self::new(event_id, event, source);
+        let mut envelope = Self::new(sequence, event, source);
         if !matches!(
             envelope.event,
             RenderEvent::RawFallback(_) | RenderEvent::Diagnostic(_)
@@ -78,7 +78,8 @@ impl RenderEventEnvelope {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventMeta {
-    pub event_id: EventId,
+    #[serde(alias = "event_id")]
+    pub sequence: EventSequence,
     pub source: SourceProvenance,
     pub mode_hint: ModeHint,
     pub confidence: SemanticConfidence,
@@ -809,7 +810,7 @@ mod tests {
                     value: "A Paper".to_string(),
                 }),
                 meta: EventMeta {
-                    event_id: 1,
+                    sequence: 1,
                     source: SourceProvenance::file("main.tex", 0, 10),
                     mode_hint: ModeHint::Preamble,
                     confidence: SemanticConfidence::High,
@@ -820,7 +821,34 @@ mod tests {
         let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
 
         assert!(encoded.contains(&format!("\"schema_version\": {}", stream.schema_version)));
-        assert!(!encoded.contains("\"event_id\": 0"));
+        assert!(encoded.contains("\"sequence\": 1"));
+        assert!(!encoded.contains("\"event_id\""));
+    }
+
+    #[test]
+    fn event_meta_accepts_the_legacy_event_id_field() {
+        let envelope = RenderEventEnvelope::new(
+            7,
+            RenderEvent::Text(TextEvent {
+                text: "legacy".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 6),
+        );
+        let mut encoded = serde_json::to_value(&envelope).expect("encode event");
+        let meta = encoded
+            .get_mut("meta")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("event metadata");
+        let sequence = meta.remove("sequence").expect("event sequence");
+        meta.insert("event_id".to_string(), sequence);
+
+        let decoded: RenderEventEnvelope =
+            serde_json::from_value(encoded).expect("decode legacy event");
+
+        assert_eq!(decoded.meta.sequence, 7);
+        let reencoded = serde_json::to_value(decoded).expect("re-encode event");
+        assert_eq!(reencoded["meta"]["sequence"], serde_json::json!(7));
+        assert!(reencoded["meta"].get("event_id").is_none());
     }
 
     #[test]

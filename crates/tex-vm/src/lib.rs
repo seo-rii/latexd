@@ -9,7 +9,7 @@ use tex_render_model::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
     BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, CitationStyleHint,
     DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent,
-    EndLayoutContainerEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
+    EndLayoutContainerEvent, EventSequence, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
     FootnoteCommandKind, FootnoteMarkEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
     GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
     InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, LayoutAlignment, LineBreakEvent,
@@ -796,7 +796,7 @@ struct RenderEventScanState {
     theorem_like_environments: HashSet<String>,
     hidden_environments: HashSet<String>,
     heading_counters: [u32; 6],
-    pending_footnote_mark: Option<(EventId, Option<String>)>,
+    pending_footnote_mark: Option<(EventSequence, Option<String>)>,
 }
 
 impl RenderEventScanState {
@@ -1040,9 +1040,9 @@ pub struct Vm<'i> {
     output: String,
     render_event_capture: bool,
     render_events: SemanticEventBuffer,
-    scanner_event_anchors: HashMap<EventId, VmExecutionAnchor>,
-    scanner_dollar_math_event_ids: HashSet<EventId>,
-    scanner_command_math_event_ids: HashSet<EventId>,
+    scanner_event_anchors: HashMap<EventSequence, VmExecutionAnchor>,
+    scanner_dollar_math_event_ids: HashSet<EventSequence>,
+    scanner_command_math_event_ids: HashSet<EventSequence>,
     render_event_sources: HashMap<Utf8PathBuf, String>,
     semantic_recovery_dirty_paths: HashSet<Utf8PathBuf>,
     deferred_semantic_recovery_paths: HashSet<Utf8PathBuf>,
@@ -1386,9 +1386,9 @@ impl<'i> Vm<'i> {
                 let belongs_to_source = matches!(
                     &event.meta.source.primary,
                     ProvenanceSpan::File(span) if &span.path == path
-                ) && self.scanner_event_anchors.get(&event.meta.event_id)
+                ) && self.scanner_event_anchors.get(&event.meta.sequence)
                     == Some(&execution_anchor);
-                belongs_to_source.then_some(event.meta.event_id)
+                belongs_to_source.then_some(event.meta.sequence)
             })
             .collect::<BTreeSet<_>>();
         if removed_event_ids.is_empty() {
@@ -1489,7 +1489,7 @@ impl<'i> Vm<'i> {
             .retain(|event_id| !removed_event_ids.contains(event_id));
         bibliography
             .scanner_event_anchors
-            .retain(|anchor| !removed_event_ids.contains(&anchor.event_id));
+            .retain(|anchor| !removed_event_ids.contains(&anchor.event_sequence));
         self.restore_semantic_bibliography_snapshot(&bibliography);
 
         self.render_event_sources.remove(path);
@@ -1518,7 +1518,7 @@ impl<'i> Vm<'i> {
                     *note_id = *committed_note_id;
                 }
             }
-            let remap_event_ids = |event_ids: &mut Vec<EventId>| {
+            let remap_event_ids = |event_ids: &mut Vec<EventSequence>| {
                 for event_id in event_ids {
                     if let Some(committed_event_id) = event_id_remap.get(event_id) {
                         *event_id = *committed_event_id;
@@ -1581,8 +1581,8 @@ impl<'i> Vm<'i> {
             let mut bibliography = self.semantic_bibliography_snapshot();
             remap_event_ids(&mut bibliography.scanner_event_ids);
             for anchor in &mut bibliography.scanner_event_anchors {
-                if let Some(committed_event_id) = event_id_remap.get(&anchor.event_id) {
-                    anchor.event_id = *committed_event_id;
+                if let Some(committed_event_id) = event_id_remap.get(&anchor.event_sequence) {
+                    anchor.event_sequence = *committed_event_id;
                 }
             }
             self.restore_semantic_bibliography_snapshot(&bibliography);
@@ -3294,7 +3294,7 @@ impl<'i> Vm<'i> {
                             if field == MetadataField::Author {
                                 let (author, author_notes) = normalize_author_metadata(trimmed);
                                 if !author.is_empty() {
-                                    let event_id = self
+                                    let event_sequence = self
                                         .emit_render_event(
                                             RenderEvent::SetDocumentMetadata(
                                                 SetDocumentMetadataEvent {
@@ -3309,11 +3309,11 @@ impl<'i> Vm<'i> {
                                             ),
                                         )
                                         .meta
-                                        .event_id;
-                                    self.mark_scanner_front_matter_event(event_id);
+                                        .sequence;
+                                    self.mark_scanner_front_matter_event(event_sequence);
                                 }
                                 for (note, note_start, note_end) in author_notes {
-                                    let event_id = self
+                                    let event_sequence = self
                                         .emit_render_event(
                                             RenderEvent::SetDocumentMetadata(
                                                 SetDocumentMetadataEvent {
@@ -3328,11 +3328,11 @@ impl<'i> Vm<'i> {
                                             ),
                                         )
                                         .meta
-                                        .event_id;
-                                    self.mark_scanner_front_matter_event(event_id);
+                                        .sequence;
+                                    self.mark_scanner_front_matter_event(event_sequence);
                                 }
                             } else {
-                                let event_id = self
+                                let event_sequence = self
                                     .emit_render_event(
                                         RenderEvent::SetDocumentMetadata(
                                             SetDocumentMetadataEvent {
@@ -3350,9 +3350,9 @@ impl<'i> Vm<'i> {
                                         ),
                                     )
                                     .meta
-                                    .event_id;
+                                    .sequence;
                                 if matches!(field, MetadataField::Title | MetadataField::Date) {
-                                    self.mark_scanner_front_matter_event(event_id);
+                                    self.mark_scanner_front_matter_event(event_sequence);
                                 }
                             }
                         }
@@ -3360,7 +3360,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "maketitle" if in_document => {
-                    let event_id = self
+                    let event_sequence = self
                         .emit_render_event(
                             RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
                             SourceProvenance::file(
@@ -3370,8 +3370,8 @@ impl<'i> Vm<'i> {
                             ),
                         )
                         .meta
-                        .event_id;
-                    self.mark_scanner_front_matter_event(event_id);
+                        .sequence;
+                    self.mark_scanner_front_matter_event(event_sequence);
                 }
                 "excludecomment" | "includecomment" => {
                     if let Some((environment, _, _, after)) =
@@ -7418,7 +7418,7 @@ impl<'i> Vm<'i> {
                     let detached_note =
                         matches!(command, "footnote" | "footnotetext" | "tablefootnote");
                     let first_footnote_event_id =
-                        detached_note.then(|| self.render_events.next_event_id());
+                        detached_note.then(|| self.render_events.next_event_sequence());
                     let mut explicit_note_marker = None;
                     index = skip_ascii_whitespace(source, index);
                     if detached_note
@@ -7451,7 +7451,7 @@ impl<'i> Vm<'i> {
                             let note_id = pending_mark
                                 .as_ref()
                                 .map(|(note_id, _)| *note_id)
-                                .unwrap_or(self.render_events.next_event_id());
+                                .unwrap_or(self.render_events.next_event_sequence());
                             let marker = explicit_note_marker
                                 .clone()
                                 .or_else(|| pending_mark.and_then(|(_, marker)| marker));
@@ -10055,7 +10055,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "footnotemark" if in_document => {
-                    let first_footnote_event_id = self.render_events.next_event_id();
+                    let first_footnote_event_id = self.render_events.next_event_sequence();
                     index = skip_ascii_whitespace(source, index);
                     let mut marker = None;
                     if let Some((value, _, _, after_option)) =
@@ -10065,7 +10065,7 @@ impl<'i> Vm<'i> {
                         marker = (!value.is_empty()).then_some(value);
                         index = after_option;
                     }
-                    let note_id = self.render_events.next_event_id();
+                    let note_id = self.render_events.next_event_sequence();
                     self.emit_render_event(
                         RenderEvent::FootnoteMark(FootnoteMarkEvent {
                             note_id,
@@ -10723,7 +10723,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "par" if in_document => {
-                    let event_id = self
+                    let event_sequence = self
                         .emit_render_event(
                             RenderEvent::ParagraphBreak(ParagraphBreakEvent {
                                 reason: ParagraphBreakReason::ParCommand,
@@ -10735,12 +10735,12 @@ impl<'i> Vm<'i> {
                             ),
                         )
                         .meta
-                        .event_id;
+                        .sequence;
                     self.record_scanner_boundary_event(
                         source_path,
                         command_start as u32,
                         index as u32,
-                        event_id,
+                        event_sequence,
                     );
                 }
                 _ if in_document => {
@@ -11303,7 +11303,7 @@ impl<'i> Vm<'i> {
                             let text =
                                 normalize_latex_text_with_inline_placeholders(&visible_source);
                             if !text.is_empty() {
-                                let first_event_id = self.render_events.next_event_id();
+                                let first_event_id = self.render_events.next_event_sequence();
                                 self.emit_render_event(
                                     RenderEvent::Text(TextEvent { text }),
                                     SourceProvenance::file(
@@ -15420,7 +15420,7 @@ impl<'i> Vm<'i> {
         if !in_document || start >= end {
             return;
         }
-        let first_event_id = self.render_events.next_event_id();
+        let first_event_id = self.render_events.next_event_sequence();
         let mut pending_word = String::new();
         let mut pending_word_start = None;
         let mut pending_space = None;
@@ -15539,7 +15539,7 @@ impl<'i> Vm<'i> {
         event: RenderEvent,
         source: SourceProvenance,
     ) -> &mut RenderEventEnvelope {
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let scanner_boundary_span = matches!(
             &event,
             RenderEvent::LineBreak(_) | RenderEvent::PageBreak(_)
@@ -15936,12 +15936,12 @@ impl<'i> Vm<'i> {
                     .iter()
                     .map(
                         |(event_id, execution_anchor)| VmEventExecutionAnchorSnapshot {
-                            event_id: *event_id,
+                            event_sequence: *event_id,
                             execution_anchor: execution_anchor.clone(),
                         },
                     )
                     .collect::<Vec<_>>();
-                scanner_event_anchors.sort_by_key(|anchor| anchor.event_id);
+                scanner_event_anchors.sort_by_key(|anchor| anchor.event_sequence);
                 let mut execution_occurrences = self
                     .execution_occurrences
                     .iter()
@@ -16245,7 +16245,7 @@ impl<'i> Vm<'i> {
             vm.scanner_event_anchors = semantic_capture
                 .scanner_event_anchors
                 .iter()
-                .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
+                .map(|anchor| (anchor.event_sequence, anchor.execution_anchor.clone()))
                 .collect();
             vm.execution_occurrences = semantic_capture
                 .execution_occurrences

@@ -2,7 +2,7 @@ use std::{collections::HashSet, mem};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventId, ListItemEvent, ListKind, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
+    EventSequence, ListItemEvent, ListKind, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
     SourceProvenance, SourceSpan,
 };
 
@@ -10,7 +10,7 @@ use crate::{Vm, snapshot::VmSemanticListSnapshot};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticListState {
-    scanner_item_event_ids: HashSet<EventId>,
+    scanner_item_event_ids: HashSet<EventSequence>,
     executed_items: Vec<RenderEventEnvelope>,
     active_lists: Vec<ListKind>,
 }
@@ -38,7 +38,7 @@ impl Vm<'_> {
         self.semantic_list.active_lists = snapshot.active_lists.clone();
     }
 
-    pub(super) fn mark_scanner_list_item_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_list_item_event(&mut self, event_id: EventSequence) {
         self.semantic_list.scanner_item_event_ids.insert(event_id);
     }
 
@@ -81,7 +81,7 @@ impl Vm<'_> {
 
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::ListItem(ListItemEvent { marker }),
@@ -102,7 +102,7 @@ impl Vm<'_> {
         let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -112,7 +112,7 @@ impl Vm<'_> {
             });
             if let Some(index) = matching {
                 let mut executed_event = executed.remove(index);
-                executed_event.meta.event_id = scanner_event.meta.event_id;
+                executed_event.meta.sequence = scanner_event.meta.sequence;
                 let executed_source = executed_event.meta.source;
                 let mut source = scanner_event.meta.source;
                 if source.expansion_stack.is_empty() {
@@ -189,7 +189,7 @@ fn insert_unmatched_list_items(
                                 || (existing_start == start_utf8
                                     && (existing_end > end_utf8
                                         || (existing_end == end_utf8
-                                            && existing.meta.event_id > event.meta.event_id))))
+                                            && existing.meta.sequence > event.meta.sequence))))
                     },
                 )
             })

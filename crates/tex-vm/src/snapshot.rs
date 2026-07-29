@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, CaptionKind, EventId, EventProducer, FootnoteId, ListKind,
+    CaptionInlinePlaceholderEvent, CaptionKind, EventProducer, EventSequence, FootnoteId, ListKind,
     RenderEvent, RenderEventEnvelope, SourceProvenance, TableCellEvent, TableColumnSpec,
     TableRowEvent,
 };
@@ -13,7 +13,7 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 19;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -55,7 +55,8 @@ impl VmExecutionOccurrenceSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmEventExecutionAnchorSnapshot {
-    pub event_id: EventId,
+    #[serde(alias = "event_id")]
+    pub event_sequence: EventSequence,
     pub execution_anchor: VmExecutionAnchor,
 }
 
@@ -138,24 +139,30 @@ impl Default for VmContinuationSafety {
 pub struct VmSemanticSinkSnapshot {
     #[serde(default)]
     pub events: Vec<RenderEventEnvelope>,
-    #[serde(default = "default_next_render_event_id")]
-    pub next_event_id: EventId,
-    #[serde(default = "default_next_render_event_id")]
-    pub batch_start_event_id: EventId,
+    #[serde(
+        default = "default_next_render_event_sequence",
+        alias = "next_event_id"
+    )]
+    pub next_event_sequence: EventSequence,
+    #[serde(
+        default = "default_next_render_event_sequence",
+        alias = "batch_start_event_id"
+    )]
+    pub batch_start_event_sequence: EventSequence,
     #[serde(default)]
     pub epoch: u64,
 }
 
 impl VmSemanticSinkSnapshot {
     pub fn is_restorable(&self) -> bool {
-        let mut event_ids = BTreeSet::new();
-        self.next_event_id >= 1
-            && self.batch_start_event_id >= 1
-            && self.batch_start_event_id <= self.next_event_id
+        let mut event_sequences = BTreeSet::new();
+        self.next_event_sequence >= 1
+            && self.batch_start_event_sequence >= 1
+            && self.batch_start_event_sequence <= self.next_event_sequence
             && self.events.iter().all(|event| {
-                event.meta.event_id >= 1
-                    && event.meta.event_id < self.next_event_id
-                    && event_ids.insert(event.meta.event_id)
+                event.meta.sequence >= 1
+                    && event.meta.sequence < self.next_event_sequence
+                    && event_sequences.insert(event.meta.sequence)
             })
     }
 }
@@ -321,9 +328,9 @@ fn execution_occurrences_cover(
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticMathSnapshot {
     #[serde(default)]
-    pub scanner_dollar_event_ids: Vec<EventId>,
+    pub scanner_dollar_event_ids: Vec<EventSequence>,
     #[serde(default)]
-    pub scanner_command_event_ids: Vec<EventId>,
+    pub scanner_command_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_invocations: Vec<VmSemanticMathInvocationSnapshot>,
     #[serde(default)]
@@ -337,7 +344,7 @@ impl VmSemanticMathSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let scanner_event_ids = self
             .scanner_dollar_event_ids
@@ -433,7 +440,7 @@ impl VmSemanticTextSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let marker_names = self
             .marker_actions
@@ -535,13 +542,13 @@ pub struct VmExpansionContextSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticInlineSnapshot {
     #[serde(default)]
-    pub scanner_citation_event_ids: Vec<EventId>,
+    pub scanner_citation_event_ids: Vec<EventSequence>,
     #[serde(default)]
-    pub scanner_reference_event_ids: Vec<EventId>,
+    pub scanner_reference_event_ids: Vec<EventSequence>,
     #[serde(default)]
-    pub scanner_link_event_ids: Vec<EventId>,
+    pub scanner_link_event_ids: Vec<EventSequence>,
     #[serde(default)]
-    pub scanner_label_event_ids: Vec<EventId>,
+    pub scanner_label_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_citations: Vec<RenderEventEnvelope>,
     #[serde(default)]
@@ -582,7 +589,7 @@ impl VmSemanticInlineSnapshot {
             .chain(&self.executed_references)
             .chain(&self.executed_links)
             .chain(&self.executed_labels)
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let executed_event_id_set = executed_event_ids.iter().copied().collect::<BTreeSet<_>>();
         let marker_names = self
@@ -668,7 +675,7 @@ impl VmExecutedInlineEventMarkSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticHeadingSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
@@ -694,7 +701,7 @@ impl VmSemanticHeadingSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let marker_names = self
             .active_heading_actions
@@ -746,7 +753,7 @@ pub struct VmActiveHeadingCaptureSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticCaptionSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
@@ -772,7 +779,7 @@ impl VmSemanticCaptionSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let marker_names = self
             .active_caption_actions
@@ -824,7 +831,7 @@ pub struct VmActiveCaptionCaptureSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticBibliographySnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub scanner_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
     #[serde(default)]
@@ -854,7 +861,7 @@ impl VmSemanticBibliographySnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && event_execution_anchors_are_restorable(
@@ -970,12 +977,12 @@ impl VmSemanticFootnoteSnapshot {
             .completed_transactions
             .iter()
             .flatten()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         let active_event_ids = self
             .active_actions
             .iter()
-            .map(|capture| capture.begin_event.meta.event_id)
+            .map(|capture| capture.begin_event.meta.sequence)
             .collect::<Vec<_>>();
         let mut executed_event_ids = completed_event_ids;
         executed_event_ids.extend(active_event_ids);
@@ -1045,7 +1052,7 @@ pub struct VmScannerFootnoteSlotSnapshot {
     pub path: Utf8PathBuf,
     pub start_utf8: u32,
     pub end_utf8: u32,
-    pub event_ids: Vec<EventId>,
+    pub event_ids: Vec<EventSequence>,
 }
 
 impl VmScannerFootnoteSlotSnapshot {
@@ -1070,7 +1077,7 @@ pub struct VmScannerTextSlotSnapshot {
     pub path: Utf8PathBuf,
     pub start_utf8: u32,
     pub end_utf8: u32,
-    pub event_ids: Vec<EventId>,
+    pub event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub execution_anchor: VmExecutionAnchor,
     #[serde(default)]
@@ -1144,7 +1151,7 @@ impl VmExecutedTextCaptureSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticGraphicSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
@@ -1156,7 +1163,7 @@ impl VmSemanticGraphicSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
@@ -1183,7 +1190,7 @@ impl VmGraphicInvocationRangeSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticListSnapshot {
     #[serde(default)]
-    pub scanner_item_event_ids: Vec<EventId>,
+    pub scanner_item_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_items: Vec<RenderEventEnvelope>,
     #[serde(default)]
@@ -1195,7 +1202,7 @@ impl VmSemanticListSnapshot {
         let executed_event_ids = self
             .executed_items
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_item_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
@@ -1205,7 +1212,7 @@ impl VmSemanticListSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticEnvironmentSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
 }
@@ -1215,7 +1222,7 @@ impl VmSemanticEnvironmentSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
@@ -1225,7 +1232,7 @@ impl VmSemanticEnvironmentSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticFrontMatterSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
 }
@@ -1235,7 +1242,7 @@ impl VmSemanticFrontMatterSnapshot {
         let executed_event_ids = self
             .executed_events
             .iter()
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&executed_event_ids)
@@ -1245,7 +1252,7 @@ impl VmSemanticFrontMatterSnapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticTableSnapshot {
     #[serde(default)]
-    pub scanner_event_ids: Vec<EventId>,
+    pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
     pub open_tables: Vec<VmExecutedTableFrameSnapshot>,
     #[serde(default)]
@@ -1260,7 +1267,7 @@ impl VmSemanticTableSnapshot {
             .executed_tables
             .iter()
             .filter_map(|table| table.native_event.as_ref())
-            .map(|event| event.meta.event_id)
+            .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&native_event_ids)
@@ -1387,17 +1394,17 @@ pub struct VmSnapshot {
     pub legacy_text_script_boundary_pending: bool,
 }
 
-fn default_next_render_event_id() -> EventId {
+fn default_next_render_event_sequence() -> EventSequence {
     1
 }
 
 fn event_execution_anchors_are_restorable(
     anchors: &[VmEventExecutionAnchorSnapshot],
-    event_ids: &[EventId],
+    event_ids: &[EventSequence],
 ) -> bool {
     let anchored_event_ids = anchors
         .iter()
-        .map(|anchor| anchor.event_id)
+        .map(|anchor| anchor.event_sequence)
         .collect::<Vec<_>>();
     let expected_event_ids = event_ids.iter().copied().collect::<BTreeSet<_>>();
     values_are_unique_nonzero(&anchored_event_ids)
@@ -1410,7 +1417,7 @@ fn event_execution_anchors_are_restorable(
 fn event_execution_anchors_are_valid(anchors: &[VmEventExecutionAnchorSnapshot]) -> bool {
     let event_ids = anchors
         .iter()
-        .map(|anchor| anchor.event_id)
+        .map(|anchor| anchor.event_sequence)
         .collect::<Vec<_>>();
     values_are_unique_nonzero(&event_ids)
         && anchors
@@ -1418,7 +1425,7 @@ fn event_execution_anchors_are_valid(anchors: &[VmEventExecutionAnchorSnapshot])
             .all(|anchor| anchor.execution_anchor.is_restorable())
 }
 
-fn values_are_unique_nonzero(values: &[EventId]) -> bool {
+fn values_are_unique_nonzero(values: &[EventSequence]) -> bool {
     values.iter().all(|value| *value >= 1) && values_are_unique(values)
 }
 

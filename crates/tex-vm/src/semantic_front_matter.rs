@@ -2,7 +2,7 @@ use std::{collections::HashSet, mem};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventId, EventProducer, FlushTitleBlockEvent, MetadataField, ProvenanceSpan, RenderEvent,
+    EventProducer, EventSequence, FlushTitleBlockEvent, MetadataField, ProvenanceSpan, RenderEvent,
     RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::Token;
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticFrontMatterState {
-    scanner_event_ids: HashSet<EventId>,
+    scanner_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
 }
 
@@ -42,7 +42,7 @@ impl Vm<'_> {
         self.semantic_front_matter.executed_events = snapshot.executed_events.clone();
     }
 
-    pub(super) fn mark_scanner_front_matter_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_front_matter_event(&mut self, event_id: EventSequence) {
         self.semantic_front_matter
             .scanner_event_ids
             .insert(event_id);
@@ -220,7 +220,7 @@ impl Vm<'_> {
         }
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
@@ -240,7 +240,7 @@ impl Vm<'_> {
         let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -275,7 +275,7 @@ impl Vm<'_> {
                     source.expansion_stack = executed_source.expansion_stack;
                     source.expansion_stack_truncated = executed_source.expansion_stack_truncated;
                 }
-                executed_event.meta.event_id = scanner_event.meta.event_id;
+                executed_event.meta.sequence = scanner_event.meta.sequence;
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
             }
@@ -315,7 +315,7 @@ impl Vm<'_> {
                     }),
                 );
         }
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(event_id, event, source);
         envelope.meta.producer = producer;
         self.semantic_front_matter.executed_events.push(envelope);
@@ -385,7 +385,7 @@ fn insert_unmatched_front_matter_events(
                                 || (existing_start == start_utf8
                                     && (existing_end > end_utf8
                                         || (existing_end == end_utf8
-                                            && existing.meta.event_id > event.meta.event_id))))
+                                            && existing.meta.sequence > event.meta.sequence))))
                     },
                 )
             })

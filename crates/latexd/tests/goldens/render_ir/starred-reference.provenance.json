@@ -9,9 +9,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 3,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 3,
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -45,9 +45,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 6,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 6,
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -81,9 +81,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 9,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 9,
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -117,9 +117,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 12,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 12,
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,
@@ -153,9 +153,9 @@
       },
       "meta": {
         "confidence": "high",
-        "event_id": 17,
         "mode_hint": "horizontal",
         "producer": "primitive",
+        "sequence": 17,
         "source": {
           "expansion_stack": [],
           "expansion_stack_truncated": false,

@@ -93,9 +93,9 @@
         },
         "meta": {
           "confidence": "high",
-          "event_id": 7,
           "mode_hint": "horizontal",
           "producer": "primitive",
+          "sequence": 7,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -238,9 +238,9 @@
         },
         "meta": {
           "confidence": "high",
-          "event_id": 10,
           "mode_hint": "horizontal",
           "producer": "primitive",
+          "sequence": 10,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,
@@ -334,9 +334,9 @@
         },
         "meta": {
           "confidence": "high",
-          "event_id": 15,
           "mode_hint": "math",
           "producer": "primitive",
+          "sequence": 15,
           "source": {
             "expansion_stack": [],
             "expansion_stack_truncated": false,

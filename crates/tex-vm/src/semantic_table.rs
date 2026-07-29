@@ -5,7 +5,7 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventId, EventProducer, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RelatedSourceSpan,
+    EventProducer, EventSequence, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RelatedSourceSpan,
     RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpanRole,
     TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent,
     TableRulePosition,
@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticTableState {
-    scanner_event_ids: HashSet<EventId>,
+    scanner_event_ids: HashSet<EventSequence>,
     open_tables: Vec<ExecutedTableFrame>,
     executed_tables: Vec<ExecutedTable>,
     structured_events: bool,
@@ -170,7 +170,7 @@ impl Vm<'_> {
         self.semantic_table.executed_tables.clear();
     }
 
-    pub(super) fn mark_scanner_table_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_table_event(&mut self, event_id: EventSequence) {
         self.semantic_table.scanner_event_ids.insert(event_id);
     }
 
@@ -305,7 +305,7 @@ impl Vm<'_> {
         let mut frame = self.semantic_table.open_tables.remove(index);
         frame.finish_row(false, end_source);
         let native_event = if self.semantic_table.structured_events && !frame.rows.is_empty() {
-            let event_id = self.render_events.allocate_event_id();
+            let event_id = self.render_events.allocate_event_sequence();
             let mut envelope = RenderEventEnvelope::new(
                 event_id,
                 RenderEvent::Table(TableEvent {
@@ -352,7 +352,7 @@ impl Vm<'_> {
         self.semantic_table.open_tables.clear();
 
         for scanner_event in self.render_events.iter_mut() {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 continue;
             }
             let Some(environment) = table_environment(scanner_event) else {
@@ -400,7 +400,7 @@ impl Vm<'_> {
                             event_path == path
                                 && (event_start_utf8 > start_utf8
                                     || (event_start_utf8 == start_utf8
-                                        && event.meta.event_id > native_event.meta.event_id))
+                                        && event.meta.sequence > native_event.meta.sequence))
                         },
                     )
                 })

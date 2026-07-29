@@ -119,7 +119,7 @@ impl Vm<'_> {
         let mut events = self.take_executed_text_events_since(mark.text_flow_mark());
         events.extend(self.take_executed_inline_events_since(mark.inline_event_mark()));
         events.extend(self.take_executed_math_events_since(mark.math_event_mark()));
-        events.sort_by_key(|event| event.meta.event_id);
+        events.sort_by_key(|event| event.meta.sequence);
         events
     }
 }

@@ -5,9 +5,9 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    BeginFootnoteEvent, EndFootnoteEvent, EventId, EventProducer, FootnoteCommandKind, FootnoteId,
-    FootnoteMarkEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance,
-    SourceSpan, SourceSpanRole,
+    BeginFootnoteEvent, EndFootnoteEvent, EventProducer, EventSequence, FootnoteCommandKind,
+    FootnoteId, FootnoteMarkEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
+    SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -35,7 +35,7 @@ struct ScannerFootnoteSlot {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
-    event_ids: Vec<EventId>,
+    event_ids: Vec<EventSequence>,
 }
 
 #[derive(Debug)]
@@ -163,9 +163,10 @@ impl Vm<'_> {
         path: &Utf8Path,
         start_utf8: u32,
         end_utf8: u32,
-        first_event_id: EventId,
+        first_event_id: EventSequence,
     ) {
-        let event_ids = (first_event_id..self.render_events.next_event_id()).collect::<Vec<_>>();
+        let event_ids =
+            (first_event_id..self.render_events.next_event_sequence()).collect::<Vec<_>>();
         if event_ids.is_empty() {
             return;
         }
@@ -213,7 +214,7 @@ impl Vm<'_> {
                 invocation_end_utf8,
             );
         }
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut event = RenderEventEnvelope::new(
             event_id,
             RenderEvent::FootnoteMark(FootnoteMarkEvent {
@@ -293,7 +294,7 @@ impl Vm<'_> {
                 .as_ref()
                 .and_then(|pending| pending.marker.clone());
         }
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let note_id = pending_mark.map_or(event_id, |pending| pending.note_id);
         let mut begin_event = RenderEventEnvelope::new(
             event_id,
@@ -352,13 +353,13 @@ impl Vm<'_> {
         {
             body_events.extend(transaction);
         }
-        body_events.sort_by_key(|event| event.meta.event_id);
+        body_events.sort_by_key(|event| event.meta.sequence);
 
         let note_id = match capture.begin_event.event {
             RenderEvent::BeginFootnote(ref begin) => begin.note_id,
             _ => unreachable!("footnote capture must begin with a footnote event"),
         };
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut end_event = RenderEventEnvelope::new(
             event_id,
             RenderEvent::EndFootnote(EndFootnoteEvent { note_id }),
@@ -388,7 +389,7 @@ impl Vm<'_> {
             let original_events = self
                 .render_events
                 .iter()
-                .filter(|event| slot.event_ids.contains(&event.meta.event_id))
+                .filter(|event| slot.event_ids.contains(&event.meta.sequence))
                 .cloned()
                 .collect::<Vec<_>>();
             let scanner_mark = original_events.iter().find_map(|event| match &event.event {
@@ -516,7 +517,7 @@ impl Vm<'_> {
                 }
                 let removed_event_ids = original_events
                     .iter()
-                    .map(|event| event.meta.event_id)
+                    .map(|event| event.meta.sequence)
                     .collect::<BTreeSet<_>>();
                 if self
                     .render_events
@@ -532,7 +533,7 @@ impl Vm<'_> {
             {
                 let removed_event_ids = original_events
                     .iter()
-                    .map(|event| event.meta.event_id)
+                    .map(|event| event.meta.sequence)
                     .collect::<BTreeSet<_>>();
                 if self
                     .render_events
@@ -545,7 +546,7 @@ impl Vm<'_> {
         }
 
         let mut events = self.render_events.take_events();
-        events.retain(|event| !deferred_removed_event_ids.contains(&event.meta.event_id));
+        events.retain(|event| !deferred_removed_event_ids.contains(&event.meta.sequence));
         for transaction in transactions {
             let Some((path, start_utf8, end_utf8)) = transaction.first().and_then(event_anchor)
             else {

@@ -5,7 +5,7 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventId, EventProducer, GraphicAssetFormat, GraphicRefEvent, ProvenanceSpan, RenderEvent,
+    EventProducer, EventSequence, GraphicAssetFormat, GraphicRefEvent, ProvenanceSpan, RenderEvent,
     RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{CatCode, Token, TokenKind};
@@ -21,7 +21,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticGraphicState {
-    scanner_event_ids: HashSet<EventId>,
+    scanner_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
     overridden_invocations: Vec<GraphicInvocationRange>,
     pub(super) graphic_paths: Vec<Utf8PathBuf>,
@@ -95,7 +95,7 @@ impl Vm<'_> {
         self.semantic_graphic.overridden_invocations.clear();
     }
 
-    pub(super) fn mark_scanner_graphic_event(&mut self, event_id: EventId) {
+    pub(super) fn mark_scanner_graphic_event(&mut self, event_id: EventSequence) {
         self.semantic_graphic.scanner_event_ids.insert(event_id);
     }
 
@@ -419,7 +419,7 @@ impl Vm<'_> {
             asset_hash,
             asset_dimensions,
         };
-        let event_id = self.render_events.allocate_event_id();
+        let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
             if input.include_pdf {
@@ -444,7 +444,7 @@ impl Vm<'_> {
         let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
         for scanner_event in scanner_events {
-            if !scanner_ids.contains(&scanner_event.meta.event_id) {
+            if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
             }
@@ -719,7 +719,7 @@ fn insert_unmatched_graphic_events(
                                 || (existing_start == start_utf8
                                     && (existing_end > end_utf8
                                         || (existing_end == end_utf8
-                                            && existing.meta.event_id > event.meta.event_id))))
+                                            && existing.meta.sequence > event.meta.sequence))))
                     },
                 )
             })

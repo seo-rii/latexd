@@ -57,9 +57,9 @@
     },
     "meta": {
       "confidence": "high",
-      "event_id": 1,
       "mode_hint": "vertical",
       "producer": "primitive",
+      "sequence": 1,
       "source": {
         "expansion_stack": [
           {

@@ -22,8 +22,8 @@ pub use display_list::{
 pub use events::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,
     BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent, CaptionKind, DocumentClassEvent,
-    DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent, EventId,
-    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, FootnoteCommandKind,
+    DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent, EventMeta,
+    EventProducer, EventSequence, FallbackReason, FlushTitleBlockEvent, FootnoteCommandKind,
     FootnoteId, FootnoteMarkEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
     GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
     HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
