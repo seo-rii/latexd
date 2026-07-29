@@ -46,9 +46,9 @@ mod semantic_transaction;
 mod snapshot;
 
 use command::{
-    BibliographyMetadataCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
-    LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
-    MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
+    BibliographyMetadataCommand, BibliographyPunctuationCommand, CaptionCommand, EpsfDimension,
+    GraphicCommand, HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand,
+    MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18561,6 +18561,20 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
+            Primitive::BibliographyPunctuation(command) => {
+                for ch in command.visible_text.chars() {
+                    if ch.is_whitespace() {
+                        self.capture_executed_space(source_offset_utf8, source_end_utf8);
+                    } else {
+                        self.capture_executed_text_character(
+                            ch,
+                            source_offset_utf8,
+                            source_end_utf8,
+                        );
+                    }
+                    self.push_legacy_output_char(ch);
+                }
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25232,6 +25246,14 @@ fn strip_macro_argument_outer_group(mut tokens: Vec<Token>) -> Vec<Token> {
 }
 
 fn builtin_primitive(name: &str) -> Option<Primitive> {
+    let bibliography_punctuation = |canonical_name: &'static str, visible_text: &'static str| {
+        Some(Primitive::BibliographyPunctuation(
+            BibliographyPunctuationCommand {
+                canonical_name,
+                visible_text,
+            },
+        ))
+    };
     match name {
         "relax" | "newblock" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
@@ -25336,6 +25358,24 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "defcitealias" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::DefineAlias,
         )),
+        "addcomma" => bibliography_punctuation("addcomma", ","),
+        "addcolon" => bibliography_punctuation("addcolon", ":"),
+        "addsemicolon" => bibliography_punctuation("addsemicolon", ";"),
+        "adddot" => bibliography_punctuation("adddot", "."),
+        "adddotspace" => bibliography_punctuation("adddotspace", ". "),
+        "isdot" => bibliography_punctuation("isdot", "."),
+        "bibrangedash" => bibliography_punctuation("bibrangedash", "-"),
+        "addhyphen" => bibliography_punctuation("addhyphen", "-"),
+        "textendash" => bibliography_punctuation("textendash", "-"),
+        "textemdash" => bibliography_punctuation("textemdash", "---"),
+        "addslash" => bibliography_punctuation("addslash", "/"),
+        "bibnamedash" => bibliography_punctuation("bibnamedash", "---"),
+        "bibopenparen" => bibliography_punctuation("bibopenparen", "("),
+        "bibopenbracket" => bibliography_punctuation("bibopenbracket", "["),
+        "bibopenbrace" => bibliography_punctuation("bibopenbrace", "{"),
+        "bibcloseparen" => bibliography_punctuation("bibcloseparen", ")"),
+        "bibclosebracket" => bibliography_punctuation("bibclosebracket", "]"),
+        "bibclosebrace" => bibliography_punctuation("bibclosebrace", "}"),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -25849,6 +25889,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
+        Primitive::BibliographyPunctuation(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

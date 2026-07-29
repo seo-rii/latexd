@@ -402,10 +402,16 @@ impl Vm<'_> {
         self.flush_executed_text_capture();
         let mut raw_text = capture.visible_output_prefix;
         raw_text.push_str(self.output.get(capture.output_start..).unwrap_or_default());
-        let raw_text = raw_text.replace('[', "\u{e000}").replace(']', "\u{e001}");
+        let raw_text = raw_text
+            .replace('[', "\u{e000}")
+            .replace(']', "\u{e001}")
+            .replace('{', "\u{e002}")
+            .replace('}', "\u{e003}");
         let text = crate::normalize_latex_text_with_inline_placeholders(&raw_text)
             .replace('\u{e000}', "[")
-            .replace('\u{e001}', "]");
+            .replace('\u{e001}', "]")
+            .replace('\u{e002}', "{")
+            .replace('\u{e003}', "}");
 
         let nested_projection_loss =
             self.capture_bibliography_nested_semantics() != capture.nested_semantics;

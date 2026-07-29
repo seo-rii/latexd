@@ -3617,6 +3617,46 @@ fn bibliography_item_low_level_punctuation_helpers_render_delimiters() {
 }
 
 #[test]
+fn macro_generated_bibliography_punctuation_reaches_ir_and_display_list() {
+    let source = r"\def\decorate#1{\bibopenparen#1\bibcloseparen\addcomma}
+\let\range\bibrangedash
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}\decorate{Alpha}Beta\range{}Gamma
+\end{thebibliography}
+\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "(Alpha),Beta-Gamma";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    assert!(
+        capture.document_ir.extracted_text().contains(expected),
+        "{}",
+        capture.document_ir.extracted_text()
+    );
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_dash_and_slash_helpers_attach_correctly() {
     let capture = capture_internal_render_ir(
         "main.tex",
