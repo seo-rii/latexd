@@ -330,14 +330,14 @@ const REVTEX_CLASS_SHIM: &str = r"
 \makeatletter
 \def\@institute{}
 \renewcommand{\author}[2][]{\latexdsetauthor{#2}#2\space}
-\def\email#1{#1\space}
-\def\affiliation#1{#1\space}
-\def\altaffiliation#1{#1\space}
+\def\email#1{\latexdsetcorrespondence{#1}#1\space}
+\def\affiliation#1{\latexdsetaffiliation{#1}#1\space}
+\def\altaffiliation#1{\latexdsetaffiliation{#1}#1\space}
 \def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@date}
 \makeatother
 \def\homepage#1{}
-\def\pacs#1{}
-\def\keywords#1{#1}
+\def\pacs#1{\latexdsetpacs{#1}}
+\def\keywords#1{\latexdsetkeywords{#1}#1}
 ";
 
 const LLNCS_CLASS_SHIM: &str = r"
@@ -345,14 +345,14 @@ const LLNCS_CLASS_SHIM: &str = r"
 \LoadClass{article}
 \makeatletter
 \def\@institute{}
-\def\institute#1{\gdef\@institute{#1}}
-\def\email#1{#1}
+\def\institute#1{\latexdsetaffiliation{#1}\gdef\@institute{#1}}
+\protected\def\email#1{\latexdsetcorrespondence{#1}#1}
 \def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
 \makeatother
 \providecommand{\orcidID}[1]{}
 \providecommand{\titlerunning}[1]{}
 \providecommand{\authorrunning}[1]{}
-\providecommand{\keywords}[1]{#1}
+\providecommand{\keywords}[1]{\latexdsetkeywords{#1}#1}
 \def\inst#1{}
 \def\and{ and }
 ";
@@ -377,7 +377,7 @@ const WACV_PACKAGE_SHIM: &str = r"
 \newcommand{\wacvPaperID}{}
 \newcommand{\confName}{WACV}
 \newcommand{\confYear}{}
-\newcommand{\affiliation}[1]{}
+\newcommand{\affiliation}[1]{\latexdsetaffiliation{#1}}
 ";
 
 const BRAKET_PACKAGE_SHIM: &str = r"
@@ -401,7 +401,7 @@ const AUTHBLK_PACKAGE_SHIM: &str = r"
 \providecommand{\author}[2][]{}
 \renewcommand{\author}[2][]{\latexdsetauthor{#2}\xdef\latexdauthor{\latexdauthor\space#2}\xdef\@author{\@author\space#2}}
 \providecommand{\affil}[2][]{}
-\renewcommand{\affil}[2][]{\xdef\latexdinstitute{\latexdinstitute\space#2}\xdef\@institute{\@institute\space#2}}
+\renewcommand{\affil}[2][]{\latexdsetaffiliation{#2}\xdef\latexdinstitute{\latexdinstitute\space#2}\xdef\@institute{\@institute\space#2}}
 \def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
 \makeatother
 ";
@@ -508,7 +508,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\fcapside}[3][]{#2#3}
 \providecommand{\floatbox}[5][]{#4#5}
 \providecommand{\capbeside}{}
-\providecommand{\affil}[2][]{#2}
+\providecommand{\affil}[2][]{\latexdsetaffiliation{#2}#2}
 \providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
 \providecommand{\sout}[1]{#1}
@@ -3503,9 +3503,7 @@ impl<'i> Vm<'i> {
                                     )
                                     .meta
                                     .sequence;
-                                if matches!(field, MetadataField::Title | MetadataField::Date) {
-                                    self.mark_scanner_front_matter_event(event_sequence);
-                                }
+                                self.mark_scanner_front_matter_event(event_sequence);
                             }
                         }
                         index = after;
@@ -16892,6 +16890,27 @@ impl<'i> Vm<'i> {
                             ("title", Primitive::DocumentMetadata(MetadataField::Title))
                                 | ("author", Primitive::DocumentMetadata(MetadataField::Author))
                                 | ("date", Primitive::DocumentMetadata(MetadataField::Date))
+                                | (
+                                    "affil",
+                                    Primitive::DocumentMetadata(MetadataField::Affiliation)
+                                )
+                                | (
+                                    "affiliation",
+                                    Primitive::DocumentMetadata(MetadataField::Affiliation)
+                                )
+                                | (
+                                    "institute",
+                                    Primitive::DocumentMetadata(MetadataField::Affiliation)
+                                )
+                                | (
+                                    "email",
+                                    Primitive::DocumentMetadata(MetadataField::Correspondence)
+                                )
+                                | (
+                                    "keywords",
+                                    Primitive::DocumentMetadata(MetadataField::Keywords)
+                                )
+                                | ("pacs", Primitive::DocumentMetadata(MetadataField::Pacs))
                                 | ("maketitle", Primitive::FlushTitleBlock)
                         );
                         if !preserves_front_matter_semantics {
@@ -25026,13 +25045,17 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "title" | "latexdsettitle" => Some(Primitive::DocumentMetadata(MetadataField::Title)),
         "author" | "latexdsetauthor" => Some(Primitive::DocumentMetadata(MetadataField::Author)),
         "latexdsetauthornote" => Some(Primitive::DocumentMetadata(MetadataField::AuthorNote)),
-        "latexdsetaffiliation" => Some(Primitive::DocumentMetadata(MetadataField::Affiliation)),
-        "latexdsetcorrespondence" => {
+        "affil" | "affiliation" | "institute" | "latexdsetaffiliation" => {
+            Some(Primitive::DocumentMetadata(MetadataField::Affiliation))
+        }
+        "email" | "latexdsetcorrespondence" => {
             Some(Primitive::DocumentMetadata(MetadataField::Correspondence))
         }
         "date" | "latexdsetdate" => Some(Primitive::DocumentMetadata(MetadataField::Date)),
-        "latexdsetkeywords" => Some(Primitive::DocumentMetadata(MetadataField::Keywords)),
-        "latexdsetpacs" => Some(Primitive::DocumentMetadata(MetadataField::Pacs)),
+        "keywords" | "latexdsetkeywords" => {
+            Some(Primitive::DocumentMetadata(MetadataField::Keywords))
+        }
+        "pacs" | "latexdsetpacs" => Some(Primitive::DocumentMetadata(MetadataField::Pacs)),
         "maketitle" | "latexdflushtitle" => Some(Primitive::FlushTitleBlock),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),

@@ -54,7 +54,19 @@ impl Vm<'_> {
         start_utf8: u32,
         end_utf8: u32,
     ) {
-        if matches!(command_name, "title" | "author" | "date" | "maketitle") {
+        if matches!(
+            command_name,
+            "title"
+                | "author"
+                | "date"
+                | "affil"
+                | "affiliation"
+                | "institute"
+                | "email"
+                | "keywords"
+                | "pacs"
+                | "maketitle"
+        ) {
             self.record_suppressed_source_range(start_utf8, end_utf8);
         }
     }

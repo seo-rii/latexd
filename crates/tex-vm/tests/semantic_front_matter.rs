@@ -148,6 +148,125 @@ fn macro_generated_front_matter_tracks_expansion_provenance() {
 }
 
 #[test]
+fn generic_profile_metadata_is_emitted_only_when_executed() {
+    let source = r"\iffalse
+\affiliation{Hidden Institute}
+\email{hidden@example.test}
+\keywords{hidden}
+\pacs{00.00}
+\fi
+\affil[1]{Analytical Engine Institute}
+\institute{Difference Engine Laboratory}
+\email{ada@example.test}
+\keywords{preview, rendering}
+\pacs{12.34.-x}
+\begin{document}\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let metadata = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::SetDocumentMetadata(metadata)
+                if matches!(
+                    metadata.field,
+                    MetadataField::Affiliation
+                        | MetadataField::Correspondence
+                        | MetadataField::Keywords
+                        | MetadataField::Pacs
+                ) =>
+            {
+                Some((
+                    metadata.field,
+                    metadata.value.as_str(),
+                    event.meta.producer,
+                    event.meta.confidence,
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        metadata,
+        vec![
+            (
+                MetadataField::Affiliation,
+                "Analytical Engine Institute",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Affiliation,
+                "Difference Engine Laboratory",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Correspondence,
+                "ada@example.test",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Keywords,
+                "preview, rendering",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Pacs,
+                "12.34.-x",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+        ],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn macro_generated_profile_metadata_tracks_expansion_provenance() {
+    let source = r"\def\setprofile#1#2#3#4{%
+\affiliation{#1}\email{#2}\keywords{#3}\pacs{#4}}
+\setprofile{Analytical Engine Institute}{ada@example.test}{preview}{12.34.-x}
+\begin{document}\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let metadata = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if matches!(
+                        metadata.field,
+                        MetadataField::Affiliation
+                            | MetadataField::Correspondence
+                            | MetadataField::Keywords
+                            | MetadataField::Pacs
+                    )
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(metadata.len(), 4, "{:#?}", outcome.render_events);
+    for event in metadata {
+        assert_eq!(event.meta.producer, EventProducer::Macro);
+        assert_eq!(event.meta.confidence, SemanticConfidence::High);
+        assert!(!event.meta.source.expansion_stack.is_empty());
+    }
+}
+
+#[test]
 fn author_metadata_expands_user_macros_without_losing_separators() {
     let source = r"\def\firstauthor{Ada Lovelace}
 \def\secondauthor{Grace Hopper}
@@ -253,7 +372,7 @@ fn front_matter_aliases_keep_primitive_semantics() {
 }
 
 #[test]
-fn article_bridge_migrates_standard_fields_only() {
+fn article_bridge_executes_generic_affiliation_metadata() {
     let source = r"\documentclass{article}
 \title{Bridge Paper}
 \author{Ada Lovelace}
@@ -299,15 +418,117 @@ fn article_bridge_migrates_standard_fields_only() {
                     if metadata.field == MetadataField::Affiliation
             )
         })
-        .expect("unmigrated affiliation recovery");
-    assert_eq!(affiliation.meta.producer, EventProducer::ScannerRecovery);
-    assert_eq!(affiliation.meta.confidence, SemanticConfidence::Medium);
+        .expect("affiliation metadata");
+    assert_eq!(affiliation.meta.producer, EventProducer::Primitive);
+    assert_eq!(affiliation.meta.confidence, SemanticConfidence::High);
+}
+
+#[test]
+fn profile_shims_delegate_metadata_to_vm_execution() {
+    let cases = [
+        (
+            "authblk",
+            r"\documentclass{article}
+\usepackage{authblk}
+\affil[1]{Analytical Engine Institute}
+\begin{document}\maketitle\end{document}",
+            vec![(MetadataField::Affiliation, "Analytical Engine Institute")],
+        ),
+        (
+            "llncs",
+            r"\documentclass{llncs}
+\institute{Analytical Engine Institute}
+\email{ada@example.test}
+\keywords{preview}
+\begin{document}\maketitle\end{document}",
+            vec![
+                (MetadataField::Affiliation, "Analytical Engine Institute"),
+                (MetadataField::Correspondence, "ada@example.test"),
+                (MetadataField::Keywords, "preview"),
+            ],
+        ),
+        (
+            "revtex",
+            r"\documentclass{revtex4-2}
+\affiliation{Analytical Engine Institute}
+\email{ada@example.test}
+\keywords{preview}
+\pacs{12.34.-x}
+\begin{document}\maketitle\end{document}",
+            vec![
+                (MetadataField::Affiliation, "Analytical Engine Institute"),
+                (MetadataField::Correspondence, "ada@example.test"),
+                (MetadataField::Keywords, "preview"),
+                (MetadataField::Pacs, "12.34.-x"),
+            ],
+        ),
+        (
+            "wacv",
+            r"\documentclass{article}
+\usepackage{wacv}
+\affiliation{Analytical Engine Institute}
+\begin{document}\end{document}",
+            vec![(MetadataField::Affiliation, "Analytical Engine Institute")],
+        ),
+    ];
+
+    for (profile, source, expected) in cases {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let metadata = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if matches!(
+                        metadata.field,
+                        MetadataField::Affiliation
+                            | MetadataField::Correspondence
+                            | MetadataField::Keywords
+                            | MetadataField::Pacs
+                    ) =>
+                {
+                    Some((
+                        metadata.field,
+                        metadata.value.as_str(),
+                        event.meta.producer,
+                        event.meta.confidence,
+                    ))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let actual = metadata
+            .iter()
+            .map(|(field, value, _, _)| (*field, *value))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected, "{profile}: {:#?}", outcome.render_events);
+        assert!(
+            metadata.iter().all(|(_, _, producer, confidence)| {
+                *producer != EventProducer::ScannerRecovery
+                    && *confidence == SemanticConfidence::High
+            }),
+            "{profile}: {metadata:#?}"
+        );
+    }
 }
 
 #[test]
 fn redefined_front_matter_commands_suppress_scanner_recovery() {
     let source = r"\def\title#1{}
+\def\affiliation#1{}
+\def\email#1{}
+\def\keywords#1{}
+\def\pacs#1{}
 \title{Hidden}
+\affiliation{Hidden Institute}
+\email{hidden@example.test}
+\keywords{hidden}
+\pacs{00.00}
 \begin{document}
 \def\maketitle{}
 \maketitle

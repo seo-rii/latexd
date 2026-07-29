@@ -1,6 +1,7 @@
 use tex_layout::{PageDisplayListOptions, build_document_ir, build_page_display_lists};
 use tex_render_model::{
-    EventProducer, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+    EventProducer, MetadataField, RenderEvent, RenderEventEnvelope, RenderEventStream,
+    SemanticConfidence,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
@@ -688,6 +689,9 @@ fn input_boundary_snapshot_preserves_document_ir_and_display_lists() {
     let source = r"\documentclass[11pt]{article}
 \title{Replay Paper}
 \author{Ada}
+\affiliation{Analytical Engine Institute}
+\email{ada@example.test}
+\keywords{incremental preview}
 \begin{document}
 \maketitle
 \begin{abstract}Short abstract.\end{abstract}
@@ -711,6 +715,23 @@ x^2
             event.event,
             RenderEvent::SetDocumentMetadata(_) | RenderEvent::FlushTitleBlock(_)
         )));
+        for field in [
+            MetadataField::Affiliation,
+            MetadataField::Correspondence,
+            MetadataField::Keywords,
+        ] {
+            let metadata = expected
+                .iter()
+                .find(|event| {
+                    matches!(
+                        &event.event,
+                        RenderEvent::SetDocumentMetadata(metadata) if metadata.field == field
+                    )
+                })
+                .expect("profile metadata event");
+            assert_eq!(metadata.meta.producer, EventProducer::Primitive);
+            assert_eq!(metadata.meta.confidence, SemanticConfidence::High);
+        }
         assert!(
             expected
                 .iter()
