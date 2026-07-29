@@ -335,17 +335,20 @@ The next implementation step has started with a narrow display-list spike:
   preserving the visible URL from `\url{...}`;
 - common bibliography string wrappers now normalize `\bibstring{andothers}`
   to visible `et al` text instead of leaking the raw bibstring key;
-- common bibliography punctuation helpers such as `\addcomma`, `\addcolon`,
-  `\addsemicolon`, `\adddot`, `\addspace`, `\newunit`, and `\finentry` now
-  render visible punctuation without leaking helper command names;
+- VM execution now renders common bibliography punctuation helpers
+  `\addcomma`, `\addcolon`, `\addsemicolon`, and `\adddot` without leaking
+  helper command names. Spacing/state helpers such as `\addspace`, `\newunit`,
+  and `\finentry` remain on the compatibility-recovery path;
 - `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` now attach their visible
   text to the preceding run instead of inserting artificial interword spaces;
-- low-level bibliography helpers such as `\adddotspace`, `\isdot`,
-  `\bibopenparen`/`\bibcloseparen`, `\bibopenbracket`/`\bibclosebracket`, and
-  `\bibopenbrace`/`\bibclosebrace` now render visible punctuation/delimiters;
-- bibliography dash and slash helpers such as `\bibrangedash`, `\addslash`,
-  `\addhyphen`, `\textendash`, and `\textemdash` now render visible
-  punctuation with the expected attachment spacing;
+- VM execution handles low-level bibliography helpers such as `\adddotspace`,
+  `\isdot`, `\bibopenparen`/`\bibcloseparen`,
+  `\bibopenbracket`/`\bibclosebracket`, and
+  `\bibopenbrace`/`\bibclosebrace`, preserving visible punctuation and
+  delimiters through bibliography IR projection;
+- VM execution also handles bibliography dash and slash helpers such as
+  `\bibrangedash`, `\addslash`, `\addhyphen`, `\textendash`, `\textemdash`,
+  and `\bibnamedash` with the expected attachment spacing;
 - bibliography spacing helpers such as `\addabbrvspace`, `\addnbspace`, and
   `\addthinspace` are consumed as non-visible separators, while
   `\parentext{...}` renders parenthesized visible text;

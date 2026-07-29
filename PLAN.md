@@ -320,8 +320,13 @@ arithmetic는 같은 scope resolver를 사용한다.
   continuation replay, IR/display-list 비누출을 검증한다. 이 slice는 실행
   및 visibility 경계만 소유하며 resource 등록, style 선택, `nocite`
   inclusion, citation alias의 semantic aux 모델링은 아직 남아 있다.
-- package-specific bibliography formatting/helper와 아직 bridge되지 않은
-  profile command, 일부 math/table/wrapper text는 scanner recovery이며
+- bibliography punctuation/delimiter slice는 `\addcomma`, `\addcolon`,
+  `\addsemicolon`, `\adddot`, `\adddotspace`, `\isdot`, dash/slash helper,
+  `\bibopen...`/`\bibclose...`를 VM 실행 text로 이전했다. macro/`\let`,
+  conditional, override, continuation replay, IR/display-list와 literal
+  brace 보존을 검증한다.
+- package-specific bibliography spacing/wrapper helper와 아직 bridge되지
+  않은 profile command, 일부 math/table/wrapper text는 scanner recovery이며
   family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
@@ -340,6 +345,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 8. generic/class/ICML profile metadata
 9. `\bibliography`/`\printbibliography` materialization
 10. non-visible bibliography metadata execution
+11. bibliography punctuation/delimiter execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

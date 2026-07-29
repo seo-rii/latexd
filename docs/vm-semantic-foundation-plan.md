@@ -826,10 +826,28 @@ Non-visible bibliography metadata:
   registration, style selection, `nocite` inclusion, and citation-alias
   definitions are not yet first-class semantic aux records.
 
+Bibliography punctuation and delimiters:
+
+- `\addcomma`, `\addcolon`, `\addsemicolon`, `\adddot`, `\adddotspace`,
+  `\isdot`, bibliography dash/slash helpers, and
+  `\bibopen...`/`\bibclose...` delimiters are typed VM compatibility
+  primitives;
+- helper output flows through the normal executed text/space capture path, so
+  false conditionals emit nothing, macro and `\let` expansion execute the
+  helper, and user definitions continue to win;
+- canonical command names survive continuation snapshots, while direct and
+  macro-generated bibliography item text reaches SemanticDocumentIr and
+  PageDisplayList unchanged;
+- visible helper execution does not use non-visible source suppression.
+  Executed text replaces compatible scanner payloads, while bounded recovery
+  normalization remains available for unsupported package output;
+- bibliography item projection protects literal square and curly delimiters
+  after execution, rather than reinterpreting visible braces as TeX grouping.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and package-specific bibliography
-formatting/helpers, unbridged profile commands, plus parts of math, table, and
+spacing/wrappers, unbridged profile commands, plus parts of math, table, and
 wrapper recovery remain scanner-only. Subsequent slices must migrate those
 remaining families and narrow the scanner entry point to source regions that
 execution explicitly delegates for recovery.
