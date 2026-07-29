@@ -1511,6 +1511,23 @@ pub fn materialize_project(
     toplevel: &Utf8Path,
     aux: &SemanticAux,
 ) -> Result<MaterializedProject> {
+    materialize_project_with_bibliography_policy(root, toplevel, aux, false)
+}
+
+pub fn materialize_project_for_vm(
+    root: &Utf8Path,
+    toplevel: &Utf8Path,
+    aux: &SemanticAux,
+) -> Result<MaterializedProject> {
+    materialize_project_with_bibliography_policy(root, toplevel, aux, true)
+}
+
+fn materialize_project_with_bibliography_policy(
+    root: &Utf8Path,
+    toplevel: &Utf8Path,
+    aux: &SemanticAux,
+    preserve_single_bibliography_source: bool,
+) -> Result<MaterializedProject> {
     let scan = scan_project(root, toplevel)?;
     let bibliography_text_by_file = bibliography_text_by_file(&scan);
     let jobname_bibliography = toplevel.with_extension("bbl");
@@ -1559,6 +1576,9 @@ pub fn materialize_project(
     for (path, source) in &scan.files {
         if (preserve_jobname_bibliography && path == &jobname_bibliography)
             || explicit_bibliography_inputs.contains(path)
+            || (preserve_single_bibliography_source
+                && scan.bibliography_files.len() == 1
+                && scan.bibliography_files.first() == Some(path))
         {
             files.insert(path.clone(), source.clone());
             rewrite_spans.insert(path.clone(), Vec::new());
@@ -1589,14 +1609,6 @@ pub fn materialize_project(
         rewrite_spans,
         tracked_inputs,
     })
-}
-
-pub fn materialize_project_for_vm(
-    root: &Utf8Path,
-    toplevel: &Utf8Path,
-    aux: &SemanticAux,
-) -> Result<MaterializedProject> {
-    materialize_project(root, toplevel, aux)
 }
 
 pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> SemanticAux {
@@ -8199,9 +8211,9 @@ fn decode_aux_text(encoded: &str) -> Result<String> {
 mod tests {
     use super::{
         PageSourceSlice, SemanticAux, SourceSpan, derive_semantic_aux, derive_semantic_aux_index,
-        load_semantic_aux, materialize_project, parse_bibliography_entries,
-        parse_concrete_semantic_aux, render_concrete_semantic_aux, scan_project,
-        serialize_concrete_semantic_aux_backdated,
+        load_semantic_aux, materialize_project, materialize_project_for_vm,
+        parse_bibliography_entries, parse_concrete_semantic_aux, render_concrete_semantic_aux,
+        scan_project, serialize_concrete_semantic_aux_backdated,
         serialize_concrete_semantic_aux_backdated_with_previous, serialize_semantic_aux_backdated,
         serialize_semantic_aux_backdated_with_previous,
     };
@@ -9156,6 +9168,43 @@ mod tests {
         assert!(!main.contains("\\nocite"));
         assert!(main.contains("cite [1]."));
         assert!(main.contains("\\input{refs.bbl}"));
+    }
+
+    #[test]
+    fn materialize_project_for_vm_preserves_single_stem_bibliography_source() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let bibliography_source =
+            r"\begin{thebibliography}{1}\bibitem{alpha} Alpha entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Before.\bibliography{refs}After.\end{document}",
+        )
+        .expect("write main");
+        fs::write(root.join("refs.bbl"), bibliography_source).expect("write bibliography");
+
+        let compatibility = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("compatibility materialization");
+        let vm = materialize_project_for_vm(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("VM materialization");
+
+        assert_eq!(
+            compatibility.files[&Utf8PathBuf::from("refs.bbl")],
+            "[1] Alpha entry."
+        );
+        assert_eq!(
+            vm.files[&Utf8PathBuf::from("refs.bbl")],
+            bibliography_source
+        );
+        assert!(vm.files[&Utf8PathBuf::from("main.tex")].contains(r"\input{refs.bbl}"));
     }
 
     #[test]
