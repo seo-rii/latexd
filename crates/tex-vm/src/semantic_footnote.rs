@@ -14,8 +14,7 @@ use tex_tokens::{ControlSequenceId, Token};
 use crate::{
     Vm,
     input::QueueItem,
-    semantic_inline::ExecutedInlineEventMark,
-    semantic_text::ExecutedTextFlowMark,
+    semantic_transaction::ExecutedSemanticFlowMark,
     snapshot::{
         VmActiveFootnoteCaptureSnapshot, VmPendingFootnoteMarkSnapshot,
         VmScannerFootnoteSlotSnapshot, VmSemanticFootnoteSnapshot,
@@ -43,9 +42,7 @@ struct ScannerFootnoteSlot {
 struct ActiveFootnoteCapture {
     marker_id: u64,
     begin_event: RenderEventEnvelope,
-    text_flow_mark: ExecutedTextFlowMark,
-    inline_event_mark: ExecutedInlineEventMark,
-    math_event_mark: usize,
+    event_mark: ExecutedSemanticFlowMark,
     transaction_mark: usize,
 }
 
@@ -83,9 +80,13 @@ impl Vm<'_> {
                 control_sequence: self.interner.resolve(*name).unwrap_or("").to_string(),
                 marker_id: capture.marker_id,
                 begin_event: capture.begin_event.clone(),
-                text_flow_mark: capture.text_flow_mark.snapshot(),
-                inline_event_mark: capture.inline_event_mark.snapshot(),
-                math_event_mark: capture.math_event_mark.try_into().unwrap_or(u64::MAX),
+                text_flow_mark: capture.event_mark.text_flow_mark().snapshot(),
+                inline_event_mark: capture.event_mark.inline_event_mark().snapshot(),
+                math_event_mark: capture
+                    .event_mark
+                    .math_event_mark()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
                 transaction_mark: capture.transaction_mark.try_into().unwrap_or(u64::MAX),
             })
             .collect::<Vec<_>>();
@@ -127,12 +128,18 @@ impl Vm<'_> {
                 ActiveFootnoteCapture {
                     marker_id: capture.marker_id,
                     begin_event: capture.begin_event.clone(),
-                    text_flow_mark: ExecutedTextFlowMark::restore(&capture.text_flow_mark),
-                    inline_event_mark: ExecutedInlineEventMark::restore(&capture.inline_event_mark),
-                    math_event_mark: capture
-                        .math_event_mark
-                        .try_into()
-                        .expect("validated footnote math event mark"),
+                    event_mark: ExecutedSemanticFlowMark::from_parts(
+                        crate::semantic_text::ExecutedTextFlowMark::restore(
+                            &capture.text_flow_mark,
+                        ),
+                        crate::semantic_inline::ExecutedInlineEventMark::restore(
+                            &capture.inline_event_mark,
+                        ),
+                        capture
+                            .math_event_mark
+                            .try_into()
+                            .expect("validated footnote math event mark"),
+                    ),
                     transaction_mark: capture
                         .transaction_mark
                         .try_into()
@@ -305,18 +312,14 @@ impl Vm<'_> {
         let marker_name = self
             .interner
             .intern(&format!("latexd@semantic@footnote@end@{marker_id}"));
-        let text_flow_mark = self.executed_text_flow_mark();
-        let inline_event_mark = self.executed_inline_event_mark();
-        let math_event_mark = self.executed_math_event_mark();
+        let event_mark = self.mark_executed_semantic_flow();
         let transaction_mark = self.semantic_footnote.completed_transactions.len();
         self.semantic_footnote.marker_actions.insert(
             marker_name,
             ActiveFootnoteCapture {
                 marker_id,
                 begin_event,
-                text_flow_mark,
-                inline_event_mark,
-                math_event_mark,
+                event_mark,
                 transaction_mark,
             },
         );
@@ -341,9 +344,7 @@ impl Vm<'_> {
             return false;
         };
 
-        let mut body_events = self.take_executed_text_events_since(capture.text_flow_mark);
-        body_events.extend(self.take_executed_inline_events_since(capture.inline_event_mark));
-        body_events.extend(self.take_executed_math_events_since(capture.math_event_mark));
+        let mut body_events = self.take_executed_semantic_events_since(capture.event_mark);
         for transaction in self
             .semantic_footnote
             .completed_transactions
