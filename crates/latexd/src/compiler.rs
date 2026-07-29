@@ -5652,6 +5652,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn internal_compiler_rebuilds_late_independent_bibliography_changes() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let filler = "independent bibliography replay filler ".repeat(220);
+        fs::write(
+            root.join("main.tex"),
+            format!(
+                r"\begin{{document}}Cite \cite{{beta}}.{filler}\bibliography{{refs-a,refs-b}}\end{{document}}"
+            ),
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("refs-a.bbl"),
+            r"\begin{thebibliography}{1}\bibitem{alpha}Alpha entry.\end{thebibliography}",
+        )
+        .expect("first bbl");
+        fs::write(
+            root.join("refs-b.bbl"),
+            r"\begin{thebibliography}{1}\bibitem{beta}Beta entry.\end{thebibliography}",
+        )
+        .expect("second bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        let first = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![
+                    Utf8PathBuf::from("main.tex"),
+                    Utf8PathBuf::from("refs-a.bbl"),
+                    Utf8PathBuf::from("refs-b.bbl"),
+                ],
+            })
+            .await
+            .expect("first internal compile");
+        assert!(
+            first.page_metadata.len() >= 2,
+            "fixture should place the bibliographies after a page boundary"
+        );
+
+        let document = serde_json::from_slice::<DocumentIr>(
+            &fs::read(build_root.join("rev-1/render-ir/document-ir.json"))
+                .expect("read document IR"),
+        )
+        .expect("parse document IR");
+        let bibliography_blocks = document
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                IrBlock::Bibliography(bibliography) => Some(bibliography),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bibliography_blocks.len(), 2);
+        assert_eq!(
+            bibliography_blocks
+                .iter()
+                .flat_map(|bibliography| &bibliography.items)
+                .map(|item| (item.label.as_deref(), item.content.as_str()))
+                .collect::<Vec<_>>(),
+            [(Some("1"), "Alpha entry."), (Some("2"), "Beta entry.")]
+        );
+        let first_output =
+            fs::read_to_string(build_root.join("rev-1/output.txt")).expect("first output");
+        assert!(first_output.contains("[2]"), "{first_output}");
+
+        fs::write(
+            root.join("refs-b.bbl"),
+            r"\begin{thebibliography}{1}\bibitem{beta}Beta revised entry.\end{thebibliography}",
+        )
+        .expect("revise second bbl");
+        let second = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("refs-b.bbl")],
+            })
+            .await
+            .expect("second internal compile");
+
+        assert_eq!(second.reused_checkpoint_id, None);
+        let build_meta = serde_json::from_slice::<BuildMeta>(
+            &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+        )
+        .expect("parse build meta");
+        assert_eq!(build_meta.start_checkpoint_id, None);
+        assert_eq!(build_meta.start_page_index, 0);
+        assert!(build_meta.semantic_fixpoint_reached);
+        assert!(!build_meta.semantic_aux_backdated);
+
+        let events = serde_json::from_slice::<RenderEventStream>(
+            &fs::read(build_root.join("rev-2/render-ir/events.json")).expect("read render events"),
+        )
+        .expect("parse render events");
+        assert_eq!(
+            events
+                .events
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::BibliographyItem(item) => {
+                        Some((item.key.as_str(), item.text.as_str()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            [("alpha", "Alpha entry."), ("beta", "Beta revised entry.")]
+        );
+    }
+
+    #[tokio::test]
     async fn internal_compiler_replays_semantically_equal_jobname_bibliography_edit() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
