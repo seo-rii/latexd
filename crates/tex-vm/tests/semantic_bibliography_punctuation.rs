@@ -10,6 +10,13 @@ fn capture(source: &str) -> VmOutcome {
     vm.run_plain(source)
 }
 
+fn run_without_event_capture(source: &str) -> VmOutcome {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.run_plain(source)
+}
+
 fn bibliography_items(outcome: &VmOutcome) -> Vec<&str> {
     outcome
         .render_events
@@ -51,6 +58,36 @@ fn macro_alias_and_false_conditional_use_executed_punctuation_only() {
 
     assert!(outcome.output.contains(expected), "{}", outcome.output);
     assert_eq!(bibliography_items(&outcome), vec![expected]);
+}
+
+#[test]
+fn source_spaces_follow_punctuation_attachment_policy() {
+    let outcome = capture(
+        r"\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}Pages 10\bibrangedash 20\addcomma\addspace Vol\adddot 2\addslash Issue\textemdash appendix
+\end{thebibliography}
+\end{document}",
+    );
+    let expected = "Pages 10-20, Vol. 2/Issue--- appendix";
+
+    assert!(outcome.output.contains(expected), "{}", outcome.output);
+    assert_eq!(bibliography_items(&outcome), vec![expected]);
+}
+
+#[test]
+fn source_space_policy_does_not_depend_on_event_capture() {
+    let outcome = run_without_event_capture(
+        r"\begin{document}
+Alpha\adddot Beta\addslash Gamma\textemdash Delta.
+\end{document}",
+    );
+
+    assert!(
+        outcome.output.contains("Alpha. Beta/Gamma--- Delta."),
+        "{}",
+        outcome.output
+    );
 }
 
 #[test]

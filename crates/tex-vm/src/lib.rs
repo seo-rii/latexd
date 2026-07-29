@@ -46,7 +46,7 @@ mod semantic_transaction;
 mod snapshot;
 
 use command::{
-    BibliographyMetadataCommand, BibliographyPunctuationCommand, CaptionCommand, EpsfDimension,
+    BibliographyMetadataCommand, BibliographyTextCommand, CaptionCommand, EpsfDimension,
     GraphicCommand, HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand,
     MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
 };
@@ -1407,12 +1407,16 @@ impl<'i> Vm<'i> {
         include_depth: usize,
         return_to_parent: Option<VmReplayFrame>,
     ) {
+        if !self.render_event_capture {
+            self.render_event_sources
+                .insert(path.clone(), source.to_string());
+            return;
+        }
         let previous_recovery_source = self.render_event_sources.get(path).cloned();
         let deferred_refresh = self.deferred_semantic_recovery_paths.contains(path);
-        if !self.render_event_capture
-            || previous_recovery_source
-                .as_ref()
-                .is_none_or(|previous| previous == source && !deferred_refresh)
+        if previous_recovery_source
+            .as_ref()
+            .is_none_or(|previous| previous == source && !deferred_refresh)
         {
             return;
         }
@@ -1776,13 +1780,13 @@ impl<'i> Vm<'i> {
     }
 
     pub fn run_plain_fragment(&mut self, source: &str, source_continues: bool) -> VmOutcome {
+        let source_path = self
+            .entry_source_path
+            .clone()
+            .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
         if self.render_event_capture {
             self.prepare_semantic_graphic_capture();
             self.prepare_semantic_table_capture();
-            let source_path = self
-                .entry_source_path
-                .clone()
-                .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
             let mut scan_state = RenderEventScanState::new(
                 source_continues,
                 self.execution_hidden_environments.clone(),
@@ -1796,6 +1800,9 @@ impl<'i> Vm<'i> {
                 &mut scan_state,
                 None,
             );
+        } else {
+            self.render_event_sources
+                .insert(source_path, source.to_string());
         }
         let queue = VecDeque::from([QueueItem::CharacterSource(Mouth::new(source))]);
         self.run_queue(queue, source.len(), false)
@@ -15960,8 +15967,8 @@ impl<'i> Vm<'i> {
             self.semantic_recovery_dirty_paths.clear();
             self.deferred_semantic_recovery_paths.clear();
             self.scanner_event_anchors.clear();
-            self.render_event_sources.clear();
         }
+        self.render_event_sources.clear();
         self.execution_occurrences.clear();
 
         VmOutcome {
@@ -18561,7 +18568,7 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
-            Primitive::BibliographyPunctuation(command) => {
+            Primitive::BibliographyText(command) => {
                 for ch in command.visible_text.chars() {
                     if ch.is_whitespace() {
                         self.capture_executed_space(source_offset_utf8, source_end_utf8);
@@ -18573,6 +18580,27 @@ impl<'i> Vm<'i> {
                         );
                     }
                     self.push_legacy_output_char(ch);
+                }
+                if !command.attach_next && !command.visible_text.ends_with(char::is_whitespace) {
+                    let next_source_start_utf8 =
+                        self.peek_next_token(queue).map(|token| token.span.start);
+                    let source_path = self.current_execution_source_path();
+                    let source_gap_end_utf8 = next_source_start_utf8.filter(|next_start_utf8| {
+                        *next_start_utf8 > source_end_utf8
+                            && self
+                                .render_event_sources
+                                .get(&source_path)
+                                .and_then(|source| {
+                                    source.get(source_end_utf8 as usize..*next_start_utf8 as usize)
+                                })
+                                .is_some_and(|gap| {
+                                    !gap.is_empty() && gap.chars().all(char::is_whitespace)
+                                })
+                    });
+                    if let Some(source_gap_end_utf8) = source_gap_end_utf8 {
+                        self.capture_executed_space(source_end_utf8, source_gap_end_utf8);
+                        self.push_legacy_output_char(' ');
+                    }
                 }
             }
             Primitive::Bibliography | Primitive::PrintBibliography => {
@@ -25246,14 +25274,14 @@ fn strip_macro_argument_outer_group(mut tokens: Vec<Token>) -> Vec<Token> {
 }
 
 fn builtin_primitive(name: &str) -> Option<Primitive> {
-    let bibliography_punctuation = |canonical_name: &'static str, visible_text: &'static str| {
-        Some(Primitive::BibliographyPunctuation(
-            BibliographyPunctuationCommand {
+    let bibliography_text =
+        |canonical_name: &'static str, visible_text: &'static str, attach_next: bool| {
+            Some(Primitive::BibliographyText(BibliographyTextCommand {
                 canonical_name,
                 visible_text,
-            },
-        ))
-    };
+                attach_next,
+            }))
+        };
     match name {
         "relax" | "newblock" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
@@ -25358,24 +25386,30 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "defcitealias" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::DefineAlias,
         )),
-        "addcomma" => bibliography_punctuation("addcomma", ","),
-        "addcolon" => bibliography_punctuation("addcolon", ":"),
-        "addsemicolon" => bibliography_punctuation("addsemicolon", ";"),
-        "adddot" => bibliography_punctuation("adddot", "."),
-        "adddotspace" => bibliography_punctuation("adddotspace", ". "),
-        "isdot" => bibliography_punctuation("isdot", "."),
-        "bibrangedash" => bibliography_punctuation("bibrangedash", "-"),
-        "addhyphen" => bibliography_punctuation("addhyphen", "-"),
-        "textendash" => bibliography_punctuation("textendash", "-"),
-        "textemdash" => bibliography_punctuation("textemdash", "---"),
-        "addslash" => bibliography_punctuation("addslash", "/"),
-        "bibnamedash" => bibliography_punctuation("bibnamedash", "---"),
-        "bibopenparen" => bibliography_punctuation("bibopenparen", "("),
-        "bibopenbracket" => bibliography_punctuation("bibopenbracket", "["),
-        "bibopenbrace" => bibliography_punctuation("bibopenbrace", "{"),
-        "bibcloseparen" => bibliography_punctuation("bibcloseparen", ")"),
-        "bibclosebracket" => bibliography_punctuation("bibclosebracket", "]"),
-        "bibclosebrace" => bibliography_punctuation("bibclosebrace", "}"),
+        "addcomma" => bibliography_text("addcomma", ",", false),
+        "addcolon" => bibliography_text("addcolon", ":", false),
+        "addsemicolon" => bibliography_text("addsemicolon", ";", false),
+        "adddot" => bibliography_text("adddot", ".", false),
+        "adddotspace" => bibliography_text("adddotspace", ". ", false),
+        "isdot" => bibliography_text("isdot", ".", false),
+        "bibrangedash" => bibliography_text("bibrangedash", "-", true),
+        "addhyphen" => bibliography_text("addhyphen", "-", true),
+        "textendash" => bibliography_text("textendash", "-", true),
+        "textemdash" => bibliography_text("textemdash", "---", false),
+        "addslash" => bibliography_text("addslash", "/", true),
+        "bibnamedash" => bibliography_text("bibnamedash", "---", false),
+        "bibopenparen" => bibliography_text("bibopenparen", "(", true),
+        "bibopenbracket" => bibliography_text("bibopenbracket", "[", true),
+        "bibopenbrace" => bibliography_text("bibopenbrace", "{", true),
+        "bibcloseparen" => bibliography_text("bibcloseparen", ")", false),
+        "bibclosebracket" => bibliography_text("bibclosebracket", "]", false),
+        "bibclosebrace" => bibliography_text("bibclosebrace", "}", false),
+        "addspace" => bibliography_text("addspace", " ", false),
+        "addabbrvspace" => bibliography_text("addabbrvspace", " ", false),
+        "addnbspace" => bibliography_text("addnbspace", " ", false),
+        "addthinspace" => bibliography_text("addthinspace", " ", false),
+        "addlowpenspace" => bibliography_text("addlowpenspace", " ", false),
+        "addhighpenspace" => bibliography_text("addhighpenspace", " ", false),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -25889,7 +25923,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
-        Primitive::BibliographyPunctuation(command) => command.canonical_name,
+        Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

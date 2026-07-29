@@ -90,9 +90,10 @@ pub(crate) enum BibliographyMetadataCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BibliographyPunctuationCommand {
+pub(crate) struct BibliographyTextCommand {
     pub(crate) canonical_name: &'static str,
     pub(crate) visible_text: &'static str,
+    pub(crate) attach_next: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,7 +159,7 @@ pub(crate) enum Primitive {
     Bibliography,
     PrintBibliography,
     BibliographyMetadata(BibliographyMetadataCommand),
-    BibliographyPunctuation(BibliographyPunctuationCommand),
+    BibliographyText(BibliographyTextCommand),
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,
