@@ -8,6 +8,7 @@ use tex_render_model::{
     BeginBlockEvent, BlockKind, EndBlockEvent, EventProducer, EventSequence, ProvenanceSpan,
     RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
 };
+use tex_tokens::TokenKind;
 
 use crate::{
     Vm, input::QueueItem, semantic_list::list_kind_for_environment,
@@ -58,6 +59,44 @@ impl Vm<'_> {
             self.tokens_to_text(tokens).trim().to_string(),
             invocation_end_utf8,
         ))
+    }
+
+    pub(super) fn execution_environment_is_hidden(&self, environment: &str) -> bool {
+        environment == "comment"
+    }
+
+    pub(super) fn skip_hidden_environment_body(
+        &mut self,
+        environment: &str,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        let mut skipped_start_utf8 = None;
+        while let Some(token) = self.pop_next_token(queue) {
+            let is_end = match &token.kind {
+                TokenKind::ControlSequence { name } => {
+                    if self.execute_semantic_expansion_marker(*name) {
+                        continue;
+                    }
+                    self.interner
+                        .resolve(*name)
+                        .is_some_and(|name| name == "end")
+                }
+                TokenKind::Character { .. } => false,
+            };
+            skipped_start_utf8.get_or_insert(token.span.start);
+            if !is_end {
+                continue;
+            }
+            let Some((candidate, _)) = self.read_executed_environment_name(queue) else {
+                continue;
+            };
+            if candidate == environment {
+                if let Some(start_utf8) = skipped_start_utf8 {
+                    self.record_suppressed_source_range(start_utf8, self.last_token_end_utf8);
+                }
+                break;
+            }
+        }
     }
 
     pub(super) fn emit_executed_environment_boundary(

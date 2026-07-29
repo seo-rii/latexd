@@ -18029,6 +18029,10 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let environment = environment.trim();
+                if self.execution_environment_is_hidden(environment) {
+                    self.skip_hidden_environment_body(environment, queue);
+                    return;
+                }
                 if environment == "document" {
                     self.execution_in_document = true;
                 }
