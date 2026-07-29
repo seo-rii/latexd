@@ -770,6 +770,38 @@ x^2
 }
 
 #[test]
+fn input_exit_snapshot_replays_icml_profile_metadata() {
+    let source = r"\usepackage{icml2020}
+\begin{document}
+\input{barrier}
+\icmltitle{Replay Paper}
+\icmlauthor{Ada Lovelace\thanks{Equal contribution}}{engine}
+\icmlaffiliation{engine}{Analytical Engine Institute}
+\icmlcorrespondingauthor{Ada Lovelace}{ada@example.test}
+\icmlkeywords{incremental preview}
+\printAffiliationsAndNotice{}
+\end{document}";
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let metadata = expected
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::SetDocumentMetadata(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(metadata.len(), 6, "{expected:#?}");
+    assert!(metadata.iter().all(|event| {
+        event.meta.producer == EventProducer::Primitive
+            && event.meta.confidence == SemanticConfidence::High
+    }));
+    let flush = expected
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_)))
+        .expect("ICML title-block flush");
+    assert_eq!(flush.meta.producer, EventProducer::Primitive);
+    assert_eq!(flush.meta.confidence, SemanticConfidence::High);
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),

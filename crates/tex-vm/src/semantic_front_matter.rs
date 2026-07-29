@@ -66,6 +66,12 @@ impl Vm<'_> {
                 | "keywords"
                 | "pacs"
                 | "maketitle"
+                | "icmltitle"
+                | "icmlauthor"
+                | "icmlaffiliation"
+                | "icmlcorrespondingauthor"
+                | "icmlkeywords"
+                | "printAffiliationsAndNotice"
         ) {
             self.record_suppressed_source_range(start_utf8, end_utf8);
         }

@@ -267,6 +267,209 @@ fn macro_generated_profile_metadata_tracks_expansion_provenance() {
 }
 
 #[test]
+fn icml_profile_metadata_is_emitted_only_when_executed() {
+    let source = r"\iffalse
+\icmltitle{Hidden Paper}
+\icmlauthor{Hidden Author}{hidden}
+\icmlaffiliation{hidden}{Hidden Institute}
+\icmlcorrespondingauthor{Hidden Author}{hidden@example.test}
+\icmlkeywords{hidden}
+\printAffiliationsAndNotice{}
+\fi
+\begin{document}
+\icmltitle{A Paper}
+\icmlauthor{Ada Lovelace\thanks{Equal contribution}}{equal,engine}
+\icmlaffiliation{engine}{Analytical Engine Institute}
+\icmlcorrespondingauthor{Ada Lovelace}{ada@example.test}
+\icmlkeywords{preview, rendering}
+\printAffiliationsAndNotice{}
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let metadata = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::SetDocumentMetadata(metadata) => Some((
+                metadata.field,
+                metadata.value.as_str(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let flushes = outcome
+        .render_events
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_)))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        metadata,
+        vec![
+            (
+                MetadataField::Title,
+                "A Paper",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Author,
+                "Ada Lovelace",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::AuthorNote,
+                "Equal contribution",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Affiliation,
+                "Analytical Engine Institute",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Correspondence,
+                "Ada Lovelace <ada@example.test>",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                MetadataField::Keywords,
+                "preview, rendering",
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+        ],
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(flushes.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(flushes[0].meta.producer, EventProducer::Primitive);
+    assert_eq!(flushes[0].meta.confidence, SemanticConfidence::High);
+}
+
+#[test]
+fn macro_generated_icml_metadata_tracks_expansion_provenance() {
+    let source = r"\def\emitprofile#1#2#3#4{%
+\icmltitle{#1}%
+\icmlauthor{#2}{engine}%
+\icmlaffiliation{engine}{#3}%
+\icmlcorrespondingauthor{#2}{#4}%
+\icmlkeywords{preview}%
+\printAffiliationsAndNotice{}}
+\begin{document}
+\emitprofile{A Paper}{Ada Lovelace}{Analytical Engine Institute}{ada@example.test}
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let events = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.event,
+                RenderEvent::SetDocumentMetadata(_) | RenderEvent::FlushTitleBlock(_)
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(events.len(), 6, "{:#?}", outcome.render_events);
+    for event in events {
+        assert_eq!(event.meta.producer, EventProducer::Macro);
+        assert_eq!(event.meta.confidence, SemanticConfidence::High);
+        assert!(!event.meta.source.expansion_stack.is_empty());
+    }
+}
+
+#[test]
+fn redefined_icml_commands_suppress_scanner_recovery() {
+    let source = r"\def\icmltitle#1{}
+\def\icmlauthor#1#2{}
+\def\icmlaffiliation#1#2{}
+\def\icmlcorrespondingauthor#1#2{}
+\def\icmlkeywords#1{}
+\def\printAffiliationsAndNotice#1{}
+\begin{document}
+\icmltitle{Hidden Paper}
+\icmlauthor{Hidden Author}{hidden}
+\icmlaffiliation{hidden}{Hidden Institute}
+\icmlcorrespondingauthor{Hidden Author}{hidden@example.test}
+\icmlkeywords{hidden}
+\printAffiliationsAndNotice{}
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+
+    assert!(
+        !outcome.render_events.iter().any(|event| matches!(
+            event.event,
+            RenderEvent::SetDocumentMetadata(_) | RenderEvent::FlushTitleBlock(_)
+        )),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn icml_profile_prefers_preview_semantics_over_mounted_style() {
+    let source = r"\usepackage{icml2020}
+\begin{document}
+\icmltitle{A Paper}
+\icmlauthor{Ada Lovelace}{engine}
+\icmlaffiliation{engine}{Analytical Engine Institute}
+\icmlcorrespondingauthor{Ada Lovelace}{ada@example.test}
+\icmlkeywords{preview}
+\printAffiliationsAndNotice{}
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file(
+        "icml2020.sty",
+        r"\def\icmltitle#1{}
+\def\icmlauthor#1#2{}
+\def\icmlaffiliation#1#2{}
+\def\icmlcorrespondingauthor#1#2{}
+\def\icmlkeywords#1{}
+\def\printAffiliationsAndNotice#1{}",
+    );
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let metadata = outcome
+        .render_events
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::SetDocumentMetadata(_)))
+        .collect::<Vec<_>>();
+    let flush = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_)))
+        .expect("title-block flush");
+
+    assert_eq!(metadata.len(), 5, "{:#?}", outcome.render_events);
+    assert!(metadata.iter().all(|event| {
+        event.meta.producer != EventProducer::ScannerRecovery
+            && event.meta.confidence == SemanticConfidence::High
+    }));
+    assert_ne!(flush.meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(flush.meta.confidence, SemanticConfidence::High);
+}
+
+#[test]
 fn author_metadata_expands_user_macros_without_losing_separators() {
     let source = r"\def\firstauthor{Ada Lovelace}
 \def\secondauthor{Grace Hopper}

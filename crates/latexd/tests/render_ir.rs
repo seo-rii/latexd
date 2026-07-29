@@ -2792,6 +2792,66 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
 }
 
 #[test]
+fn icml_frontmatter_survives_ir_and_display_list() {
+    let source = r"\usepackage{icml2020}
+\begin{document}
+\icmltitle{A Paper}
+\icmlauthor{Ada Lovelace\thanks{Equal contribution}}{engine}
+\icmlaffiliation{engine}{Analytical Engine Institute}
+\icmlcorrespondingauthor{Ada Lovelace}{ada@example.test}
+\icmlkeywords{preview, rendering}
+\printAffiliationsAndNotice{}
+\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("ICML title block");
+
+    assert_eq!(title.title.as_deref(), Some("A Paper"));
+    assert_eq!(title.authors, vec!["Ada Lovelace"]);
+    assert_eq!(title.author_notes, vec!["Equal contribution"]);
+    assert_eq!(title.affiliations, vec!["Analytical Engine Institute"]);
+    assert_eq!(
+        title.correspondence,
+        vec!["Ada Lovelace <ada@example.test>"]
+    );
+    assert_eq!(title.keywords, vec!["preview, rendering"]);
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    for visible in [
+        "A Paper",
+        "Ada Lovelace",
+        "Equal contribution",
+        "Analytical Engine Institute",
+        "ada@example.test",
+        "preview, rendering",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text}");
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in ["engine", "icmlauthor", "printAffiliationsAndNotice"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tex_accent_frontmatter_survives_ir_and_display_list() {
     let source = r#"\title{Accent Paper}\author{F. A. C\'ardenas-L\'opez}\affiliation{Forschungszentrum J\"ulich GmbH, Peter Gr\"unberg Institute}\begin{document}\maketitle\end{document}"#;
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

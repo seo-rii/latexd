@@ -102,6 +102,17 @@ const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
 const MAX_GROUP_DEPTH: usize = 1_000;
 
+fn is_icml_package_name(file_name: &str) -> bool {
+    let normalized = file_name.to_ascii_lowercase();
+    let Some(year) = normalized
+        .strip_suffix(".sty")
+        .and_then(|stem| stem.strip_prefix("icml"))
+    else {
+        return false;
+    };
+    year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static str> {
     let file_name = path.file_name().unwrap_or(path.as_str());
     match (label, file_name) {
@@ -130,6 +141,7 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("package", package) if package.eq_ignore_ascii_case("braket.sty") => {
             Some(BRAKET_PACKAGE_SHIM)
         }
+        ("package", package) if is_icml_package_name(package) => Some(ICML_PACKAGE_SHIM),
         ("package", package) if package.eq_ignore_ascii_case("wacv.sty") => Some(WACV_PACKAGE_SHIM),
         ("input", input)
             if ["epsf.tex", "epsf.def", "psfig.sty"]
@@ -378,6 +390,15 @@ const WACV_PACKAGE_SHIM: &str = r"
 \newcommand{\confName}{WACV}
 \newcommand{\confYear}{}
 \newcommand{\affiliation}[1]{\latexdsetaffiliation{#1}}
+";
+
+const ICML_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{icml}[2026/01/01 latexd ICML shim]
+\providecommand{\icmltitlerunning}[1]{}
+\providecommand{\icmlsetsymbol}[2]{}
+\providecommand{\icmlEqualContribution}{}
+\providecommand{\icmlauthorlist}{}
+\providecommand{\endicmlauthorlist}{}
 ";
 
 const BRAKET_PACKAGE_SHIM: &str = r"
@@ -3260,21 +3281,25 @@ impl<'i> Vm<'i> {
                     {
                         let value = normalize_latex_text_with_inline_placeholders(value);
                         if !value.is_empty() {
-                            self.emit_render_event(
-                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                    field: if command == "icmltitle" {
-                                        MetadataField::Title
-                                    } else {
-                                        MetadataField::Keywords
-                                    },
-                                    value,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                ),
-                            );
+                            let event_sequence = self
+                                .emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field: if command == "icmltitle" {
+                                            MetadataField::Title
+                                        } else {
+                                            MetadataField::Keywords
+                                        },
+                                        value,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.mark_scanner_front_matter_event(event_sequence);
                         }
                         index = after;
                     }
@@ -3290,30 +3315,38 @@ impl<'i> Vm<'i> {
                             .unwrap_or(after_name);
                         let (name, author_notes) = normalize_author_metadata(name);
                         if !name.is_empty() {
-                            self.emit_render_event(
-                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                    field: MetadataField::Author,
-                                    value: name,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                ),
-                            );
+                            let event_sequence = self
+                                .emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field: MetadataField::Author,
+                                        value: name,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.mark_scanner_front_matter_event(event_sequence);
                         }
                         for (note, note_start, note_end) in author_notes {
-                            self.emit_render_event(
-                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                    field: MetadataField::AuthorNote,
-                                    value: note,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    (content_start + note_start) as u32,
-                                    (content_start + note_end) as u32,
-                                ),
-                            );
+                            let event_sequence = self
+                                .emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field: MetadataField::AuthorNote,
+                                        value: note,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        (content_start + note_start) as u32,
+                                        (content_start + note_end) as u32,
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.mark_scanner_front_matter_event(event_sequence);
                         }
                         index = after;
                     }
@@ -3329,17 +3362,23 @@ impl<'i> Vm<'i> {
                         {
                             let value = normalize_latex_text_with_inline_placeholders(value);
                             if !value.is_empty() {
-                                self.emit_render_event(
-                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                        field: MetadataField::Affiliation,
-                                        value,
-                                    }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        content_start as u32,
-                                        content_end as u32,
-                                    ),
-                                );
+                                let event_sequence = self
+                                    .emit_render_event(
+                                        RenderEvent::SetDocumentMetadata(
+                                            SetDocumentMetadataEvent {
+                                                field: MetadataField::Affiliation,
+                                                value,
+                                            },
+                                        ),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            content_start as u32,
+                                            content_end as u32,
+                                        ),
+                                    )
+                                    .meta
+                                    .sequence;
+                                self.mark_scanner_front_matter_event(event_sequence);
                             }
                             index = after;
                         } else {
@@ -3371,17 +3410,23 @@ impl<'i> Vm<'i> {
                                 } else {
                                     (name_start, name_end)
                                 };
-                                self.emit_render_event(
-                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                        field: MetadataField::Correspondence,
-                                        value,
-                                    }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        content_start as u32,
-                                        content_end as u32,
-                                    ),
-                                );
+                                let event_sequence = self
+                                    .emit_render_event(
+                                        RenderEvent::SetDocumentMetadata(
+                                            SetDocumentMetadataEvent {
+                                                field: MetadataField::Correspondence,
+                                                value,
+                                            },
+                                        ),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            content_start as u32,
+                                            content_end as u32,
+                                        ),
+                                    )
+                                    .meta
+                                    .sequence;
+                                self.mark_scanner_front_matter_event(event_sequence);
                             }
                             index = after;
                         } else {
@@ -3396,14 +3441,18 @@ impl<'i> Vm<'i> {
                     {
                         index = after;
                     }
-                    self.emit_render_event(
-                        RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
-                    );
+                    let event_sequence = self
+                        .emit_render_event(
+                            RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .sequence;
+                    self.mark_scanner_front_matter_event(event_sequence);
                 }
                 "title" | "author" | "date" | "affil" | "affiliation" | "institute" | "email"
                 | "keywords" | "pacs" => {
@@ -16912,6 +16961,21 @@ impl<'i> Vm<'i> {
                                 )
                                 | ("pacs", Primitive::DocumentMetadata(MetadataField::Pacs))
                                 | ("maketitle", Primitive::FlushTitleBlock)
+                                | (
+                                    "icmltitle",
+                                    Primitive::DocumentMetadata(MetadataField::Title)
+                                )
+                                | ("icmlauthor", Primitive::IcmlAuthor)
+                                | ("icmlaffiliation", Primitive::IcmlAffiliation)
+                                | (
+                                    "icmlcorrespondingauthor",
+                                    Primitive::IcmlCorrespondingAuthor
+                                )
+                                | (
+                                    "icmlkeywords",
+                                    Primitive::DocumentMetadata(MetadataField::Keywords)
+                                )
+                                | ("printAffiliationsAndNotice", Primitive::IcmlFlushTitleBlock)
                         );
                         if !preserves_front_matter_semantics {
                             self.record_overridden_front_matter_invocation(
@@ -17061,6 +17125,117 @@ impl<'i> Vm<'i> {
             }
             Primitive::FlushTitleBlock => {
                 self.emit_executed_flush_title_block(source_offset_utf8, source_end_utf8);
+            }
+            Primitive::IcmlAuthor | Primitive::IcmlAffiliation => {
+                self.skip_optional_spaces(queue);
+                let Some(first_argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(second_argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let (field, value_tokens) = if primitive == Primitive::IcmlAuthor {
+                    (MetadataField::Author, first_argument)
+                } else {
+                    (MetadataField::Affiliation, second_argument)
+                };
+                let visible_values = self.emit_executed_document_metadata(
+                    field,
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                    value_tokens,
+                );
+                for value in visible_values {
+                    if self
+                        .last_legacy_output_char()
+                        .is_some_and(|last| !last.is_whitespace())
+                    {
+                        self.push_legacy_output_char(' ');
+                    }
+                    for ch in value.chars() {
+                        self.push_legacy_output_char(ch);
+                    }
+                }
+            }
+            Primitive::IcmlCorrespondingAuthor => {
+                self.skip_optional_spaces(queue);
+                let Some(name_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(email_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+                let mut name_tokens = self.fully_expand_tokens(name_tokens);
+                let mut email_tokens = self.fully_expand_tokens(email_tokens);
+                let token_is_visible = |token: &Token| {
+                    !matches!(
+                        token.kind,
+                        TokenKind::Character { ch, .. } if ch.is_whitespace()
+                    )
+                };
+                if !name_tokens.iter().any(token_is_visible) {
+                    name_tokens.clear();
+                }
+                if !email_tokens.iter().any(token_is_visible) {
+                    email_tokens.clear();
+                }
+                let mut value_tokens = name_tokens;
+                if !value_tokens.is_empty() && !email_tokens.is_empty() {
+                    let punctuation_span = email_tokens
+                        .first()
+                        .map_or(invocation_end_utf8, |token| token.span.start);
+                    value_tokens.extend([
+                        Token::character(
+                            ' ',
+                            CatCode::Space,
+                            punctuation_span as usize,
+                            punctuation_span as usize,
+                        ),
+                        Token::character(
+                            '<',
+                            CatCode::Other,
+                            punctuation_span as usize,
+                            punctuation_span as usize,
+                        ),
+                    ]);
+                    value_tokens.extend(email_tokens);
+                    value_tokens.push(Token::character(
+                        '>',
+                        CatCode::Other,
+                        invocation_end_utf8 as usize,
+                        invocation_end_utf8 as usize,
+                    ));
+                } else {
+                    value_tokens.extend(email_tokens);
+                }
+                let visible_values = self.emit_executed_document_metadata(
+                    MetadataField::Correspondence,
+                    source_offset_utf8,
+                    invocation_end_utf8,
+                    value_tokens,
+                );
+                for value in visible_values {
+                    if self
+                        .last_legacy_output_char()
+                        .is_some_and(|last| !last.is_whitespace())
+                    {
+                        self.push_legacy_output_char(' ');
+                    }
+                    for ch in value.chars() {
+                        self.push_legacy_output_char(ch);
+                    }
+                }
+            }
+            Primitive::IcmlFlushTitleBlock => {
+                self.skip_optional_spaces(queue);
+                let _ = self.read_macro_argument(queue);
+                self.emit_executed_flush_title_block(
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                );
             }
             Primitive::MathDelimiter(delimiter) => {
                 self.execute_command_math_delimiter(delimiter, source_offset_utf8, source_end_utf8);
@@ -24582,25 +24757,26 @@ impl<'i> Vm<'i> {
                     .any(|known| file_name.eq_ignore_ascii_case(known)))))
             && builtin_source.is_some())
             || (label == "package"
-                && [
-                    "algorithm.sty",
-                    "atlasphysics.sty",
-                    "cvpr.sty",
-                    "eso-pic.sty",
-                    "fancyhdr.sty",
-                    "multirow.sty",
-                    "natbib.sty",
-                    "neurips.sty",
-                    "neurips_2019.sty",
-                    "neurips_2020.sty",
-                    "neurips_2021.sty",
-                    "relsize.sty",
-                    "scicite.sty",
-                    "wacv.sty",
-                    "wrapfig.sty",
-                ]
-                .iter()
-                .any(|known| file_name.eq_ignore_ascii_case(known)));
+                && (is_icml_package_name(file_name)
+                    || [
+                        "algorithm.sty",
+                        "atlasphysics.sty",
+                        "cvpr.sty",
+                        "eso-pic.sty",
+                        "fancyhdr.sty",
+                        "multirow.sty",
+                        "natbib.sty",
+                        "neurips.sty",
+                        "neurips_2019.sty",
+                        "neurips_2020.sty",
+                        "neurips_2021.sty",
+                        "relsize.sty",
+                        "scicite.sty",
+                        "wacv.sty",
+                        "wrapfig.sty",
+                    ]
+                    .iter()
+                    .any(|known| file_name.eq_ignore_ascii_case(known))));
         let source = prefer_builtin_module
             .then(|| builtin_source.map(ToOwned::to_owned))
             .flatten()
@@ -25057,6 +25233,12 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         }
         "pacs" | "latexdsetpacs" => Some(Primitive::DocumentMetadata(MetadataField::Pacs)),
         "maketitle" | "latexdflushtitle" => Some(Primitive::FlushTitleBlock),
+        "icmltitle" => Some(Primitive::DocumentMetadata(MetadataField::Title)),
+        "icmlauthor" => Some(Primitive::IcmlAuthor),
+        "icmlaffiliation" => Some(Primitive::IcmlAffiliation),
+        "icmlcorrespondingauthor" => Some(Primitive::IcmlCorrespondingAuthor),
+        "icmlkeywords" => Some(Primitive::DocumentMetadata(MetadataField::Keywords)),
+        "printAffiliationsAndNotice" => Some(Primitive::IcmlFlushTitleBlock),
         "(" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen)),
         ")" => Some(Primitive::MathDelimiter(MathDelimiterCommand::InlineClose)),
         "[" => Some(Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen)),
@@ -25565,6 +25747,10 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::DocumentMetadata(MetadataField::Keywords) => "latexdsetkeywords",
         Primitive::DocumentMetadata(MetadataField::Pacs) => "latexdsetpacs",
         Primitive::FlushTitleBlock => "latexdflushtitle",
+        Primitive::IcmlAuthor => "icmlauthor",
+        Primitive::IcmlAffiliation => "icmlaffiliation",
+        Primitive::IcmlCorrespondingAuthor => "icmlcorrespondingauthor",
+        Primitive::IcmlFlushTitleBlock => "printAffiliationsAndNotice",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineOpen) => "(",
         Primitive::MathDelimiter(MathDelimiterCommand::InlineClose) => ")",
         Primitive::MathDelimiter(MathDelimiterCommand::DisplayOpen) => "[",
@@ -50600,7 +50786,7 @@ Fallback text.
     }
 
     #[test]
-    fn render_event_capture_recovers_icml_front_matter() {
+    fn render_event_capture_executes_icml_front_matter() {
         let source = r"\documentclass{article}
 \usepackage[accepted]{icml2020}
 \icmltitlerunning{Short title}
@@ -50651,14 +50837,21 @@ Fallback text.
                 (MetadataField::Keywords, "preview, rendering"),
             ]
         );
-        assert_eq!(
-            outcome
-                .render_events
-                .iter()
-                .filter(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_)))
-                .count(),
-            1
-        );
+        let front_matter_events = outcome
+            .render_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.event,
+                    RenderEvent::SetDocumentMetadata(_) | RenderEvent::FlushTitleBlock(_)
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(front_matter_events.len(), metadata.len() + 1);
+        assert!(front_matter_events.iter().all(|event| {
+            event.meta.producer != EventProducer::ScannerRecovery
+                && event.meta.confidence == SemanticConfidence::High
+        }));
         assert!(!outcome.render_events.iter().any(|event| {
             matches!(
                 &event.event,
