@@ -80,16 +80,17 @@ pub use snapshot::{
     VmEventExecutionAnchorSnapshot, VmExecutedInlineEventMarkSnapshot,
     VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
     VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExecutionAnchor,
-    VmExecutionAuthorityRangeSnapshot, VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot,
-    VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot,
-    VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
-    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticBibliographySnapshot,
-    VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
-    VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot, VmSemanticGraphicSnapshot,
-    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
-    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
-    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSuppressedSourceRangeSnapshot,
+    VmExecutionAuthorityRangeSnapshot, VmExecutionOccurrenceSnapshot, VmExpansionContextSnapshot,
+    VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
+    VmInputContinuationSnapshot, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
+    VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
+    VmSemanticBibliographySnapshot, VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot,
+    VmSemanticEnvironmentSnapshot, VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
+    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
+    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
+    VmSuppressedSourceRangeSnapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -1066,6 +1067,7 @@ pub struct Vm<'i> {
     read_stream_eof: BTreeMap<u32, bool>,
     entry_source_path: Option<Utf8PathBuf>,
     scanner_execution_anchors: Vec<VmExecutionAnchor>,
+    execution_occurrences: HashMap<VmExecutionAnchor, u64>,
     source_stack: Vec<ActiveSourceFrame>,
     restored_input_continuation: Option<RestoredInputContinuation>,
     last_token_end_utf8: u32,
@@ -1146,6 +1148,7 @@ impl<'i> Vm<'i> {
             read_stream_eof: BTreeMap::new(),
             entry_source_path: None,
             scanner_execution_anchors: Vec::new(),
+            execution_occurrences: HashMap::new(),
             source_stack: Vec::new(),
             restored_input_continuation: None,
             last_token_end_utf8: 0,
@@ -1733,6 +1736,7 @@ impl<'i> Vm<'i> {
         VmExecutionAnchor {
             path: source_path.to_owned(),
             continuation_stack,
+            occurrence: 0,
         }
     }
 
@@ -2307,6 +2311,51 @@ impl<'i> Vm<'i> {
                         argument_index = skip_ascii_whitespace(source, after_argument);
                         index = after_argument;
                     }
+                }
+                "count" if in_document => {
+                    let mut assignment_index = skip_ascii_whitespace(source, index);
+                    while assignment_index < bytes.len() && bytes[assignment_index].is_ascii_digit()
+                    {
+                        assignment_index += 1;
+                    }
+                    assignment_index = skip_ascii_whitespace(source, assignment_index);
+                    if bytes.get(assignment_index).copied() == Some(b'=') {
+                        assignment_index += 1;
+                    }
+                    assignment_index = skip_ascii_whitespace(source, assignment_index);
+                    while matches!(bytes.get(assignment_index).copied(), Some(b'+' | b'-')) {
+                        assignment_index += 1;
+                        assignment_index = skip_ascii_whitespace(source, assignment_index);
+                    }
+                    if bytes.get(assignment_index).copied() == Some(b'`') {
+                        assignment_index += 1;
+                        if bytes.get(assignment_index).copied() == Some(b'\\') {
+                            assignment_index += 1;
+                        }
+                        if let Some(ch) = source[assignment_index..].chars().next() {
+                            assignment_index += ch.len_utf8();
+                        }
+                    } else if bytes.get(assignment_index).copied() == Some(b'\\') {
+                        assignment_index += 1;
+                        while assignment_index < bytes.len()
+                            && (bytes[assignment_index].is_ascii_alphabetic()
+                                || bytes[assignment_index] == b'@')
+                        {
+                            assignment_index += 1;
+                        }
+                        while assignment_index < bytes.len()
+                            && bytes[assignment_index].is_ascii_digit()
+                        {
+                            assignment_index += 1;
+                        }
+                    } else {
+                        while assignment_index < bytes.len()
+                            && bytes[assignment_index].is_ascii_digit()
+                        {
+                            assignment_index += 1;
+                        }
+                    }
+                    index = assignment_index;
                 }
                 "toks" if in_document => {
                     let mut assignment_index = skip_ascii_whitespace(source, index);
@@ -3361,7 +3410,7 @@ impl<'i> Vm<'i> {
                                 let end_marker = format!("\\end{{{other}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
                                     index += relative_end + end_marker.len();
-                                    self.record_suppressed_source_range_for_path(
+                                    self.record_scanner_suppressed_source_range_for_path(
                                         source_path.to_owned(),
                                         command_start as u32,
                                         index as u32,
@@ -15672,21 +15721,26 @@ impl<'i> Vm<'i> {
     ) -> VmOutcome {
         let pending_queue_limit = initial_queue_weight.saturating_add(MAX_PENDING_QUEUE_ITEMS);
         let mut executed_tokens = 0usize;
-        let pushed_root_source = !restored_source_stack
-            && self.entry_source_path.clone().is_some_and(|path| {
-                self.source_stack.push(ActiveSourceFrame {
-                    path,
-                    output_start_utf8: 0,
-                    return_to_parent: None,
-                    global_definition_base_scope: None,
-                    module_kind: None,
-                    catcode_overrides: BTreeMap::new(),
-                    suppressed_catcode_overrides: BTreeMap::new(),
-                    end_hooks: Vec::new(),
-                    module_options: None,
-                });
-                true
+        let pushed_root_source = if restored_source_stack {
+            false
+        } else if let Some(path) = self.entry_source_path.clone() {
+            let execution_anchor = self.allocate_execution_anchor(path.clone(), Vec::new());
+            self.source_stack.push(ActiveSourceFrame {
+                path,
+                output_start_utf8: 0,
+                execution_anchor,
+                return_to_parent: None,
+                global_definition_base_scope: None,
+                module_kind: None,
+                catcode_overrides: BTreeMap::new(),
+                suppressed_catcode_overrides: BTreeMap::new(),
+                end_hooks: Vec::new(),
+                module_options: None,
             });
+            true
+        } else {
+            false
+        };
         'execution: loop {
             while let Some(token) = self.pop_next_token(&mut queue) {
                 executed_tokens = executed_tokens.saturating_add(1);
@@ -15746,6 +15800,7 @@ impl<'i> Vm<'i> {
             self.scanner_event_anchors.clear();
             self.render_event_sources.clear();
         }
+        self.execution_occurrences.clear();
 
         VmOutcome {
             output: mem::take(&mut self.output),
@@ -15805,6 +15860,7 @@ impl<'i> Vm<'i> {
                 .map(|frame| VmActiveSourceFrameSnapshot {
                     path: frame.path.clone(),
                     output_start_utf8: frame.output_start_utf8,
+                    execution_anchor: Some(frame.execution_anchor.clone()),
                     return_to_parent: frame.return_to_parent.clone(),
                     global_definition_base_scope: frame.global_definition_base_scope,
                     module_kind: frame.module_kind.map(|kind| match kind {
@@ -15885,6 +15941,18 @@ impl<'i> Vm<'i> {
                     )
                     .collect::<Vec<_>>();
                 scanner_event_anchors.sort_by_key(|anchor| anchor.event_id);
+                let mut execution_occurrences = self
+                    .execution_occurrences
+                    .iter()
+                    .map(
+                        |(base_anchor, next_occurrence)| VmExecutionOccurrenceSnapshot {
+                            base_anchor: base_anchor.clone(),
+                            next_occurrence: *next_occurrence,
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                execution_occurrences
+                    .sort_by(|left, right| left.base_anchor.cmp(&right.base_anchor));
                 let mut source_buffers = self
                     .render_event_sources
                     .iter()
@@ -15917,6 +15985,7 @@ impl<'i> Vm<'i> {
                     schema_version: VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
                     source_buffers,
                     scanner_event_anchors,
+                    execution_occurrences,
                     execution_in_document: self.execution_in_document,
                     execution_no_hyper_depth: self
                         .execution_no_hyper_depth
@@ -16177,6 +16246,11 @@ impl<'i> Vm<'i> {
                 .iter()
                 .map(|anchor| (anchor.event_id, anchor.execution_anchor.clone()))
                 .collect();
+            vm.execution_occurrences = semantic_capture
+                .execution_occurrences
+                .iter()
+                .map(|occurrence| (occurrence.base_anchor.clone(), occurrence.next_occurrence))
+                .collect();
             vm.execution_in_document = semantic_capture.execution_in_document;
             vm.execution_no_hyper_depth = semantic_capture.execution_no_hyper_depth as usize;
             vm.restore_semantic_math_snapshot(&semantic_capture.math);
@@ -16243,6 +16317,13 @@ impl<'i> Vm<'i> {
                         .map(|frame| ActiveSourceFrame {
                             path: frame.path.clone(),
                             output_start_utf8: frame.output_start_utf8,
+                            execution_anchor: frame.execution_anchor.clone().unwrap_or_else(|| {
+                                VmExecutionAnchor {
+                                    path: frame.path.clone(),
+                                    continuation_stack: Vec::new(),
+                                    occurrence: 0,
+                                }
+                            }),
                             return_to_parent: frame.return_to_parent.clone(),
                             global_definition_base_scope: frame.global_definition_base_scope,
                             module_kind: frame.module_kind.map(|kind| match kind {
@@ -22009,11 +22090,37 @@ impl<'i> Vm<'i> {
         continuation_stack
     }
 
+    fn allocate_execution_anchor(
+        &mut self,
+        path: Utf8PathBuf,
+        continuation_stack: Vec<VmReplayFrame>,
+    ) -> VmExecutionAnchor {
+        let base_anchor = VmExecutionAnchor {
+            path,
+            continuation_stack,
+            occurrence: 0,
+        };
+        let occurrence = self
+            .execution_occurrences
+            .entry(base_anchor.clone())
+            .or_default();
+        let execution_anchor = VmExecutionAnchor {
+            occurrence: *occurrence,
+            ..base_anchor
+        };
+        *occurrence = occurrence.saturating_add(1);
+        execution_anchor
+    }
+
     pub(crate) fn current_execution_anchor(&self) -> VmExecutionAnchor {
-        VmExecutionAnchor {
-            path: self.current_execution_source_path(),
-            continuation_stack: self.current_continuation_stack(),
-        }
+        self.source_stack
+            .last()
+            .map(|frame| frame.execution_anchor.clone())
+            .unwrap_or_else(|| VmExecutionAnchor {
+                path: self.current_execution_source_path(),
+                continuation_stack: self.current_continuation_stack(),
+                occurrence: 0,
+            })
     }
 
     pub(crate) fn current_scanner_execution_anchor(&self) -> VmExecutionAnchor {
@@ -22026,6 +22133,7 @@ impl<'i> Vm<'i> {
                     .clone()
                     .unwrap_or_else(|| Utf8PathBuf::from("texput.tex")),
                 continuation_stack: Vec::new(),
+                occurrence: 0,
             })
     }
 
@@ -24249,15 +24357,22 @@ impl<'i> Vm<'i> {
             });
             return;
         };
+        let return_to_parent = resume_path.as_ref().map(|path| VmReplayFrame {
+            path: path.clone(),
+            source_offset_utf8: resume_source_offset_utf8,
+        });
+        let mut execution_continuation_stack = continuation_stack.clone();
+        if let Some(return_to_parent) = &return_to_parent {
+            execution_continuation_stack.insert(0, return_to_parent.clone());
+        }
+        let execution_anchor =
+            self.allocate_execution_anchor(path.clone(), execution_continuation_stack);
         self.refresh_render_recovery_source(
             &path,
             &source,
             label == "input" && self.execution_in_document,
             1,
-            resume_path.as_ref().map(|path| VmReplayFrame {
-                path: path.clone(),
-                source_offset_utf8: resume_source_offset_utf8,
-            }),
+            return_to_parent.clone(),
         );
 
         self.record_graphic_module_options(label, &path, &module_options);
@@ -24302,10 +24417,8 @@ impl<'i> Vm<'i> {
         self.source_stack.push(ActiveSourceFrame {
             path: path.clone(),
             output_start_utf8,
-            return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
-                path: path.clone(),
-                source_offset_utf8: resume_source_offset_utf8,
-            }),
+            execution_anchor,
+            return_to_parent,
             global_definition_base_scope: if label == "input" {
                 self.source_stack
                     .last()

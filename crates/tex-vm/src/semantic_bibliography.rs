@@ -371,15 +371,20 @@ impl Vm<'_> {
             }) {
                 let removed = executed.remove(index);
                 executed_event_anchors.remove(&removed.meta.event_id);
-                if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
+                if !self.semantic_source_is_suppressed_in_execution(
+                    &scanner_event.meta.source,
+                    scanner_execution_anchor,
+                ) {
                     reconciled.push(scanner_event);
                 }
-            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
+            } else if !self.semantic_source_is_suppressed_in_execution(
+                &scanner_event.meta.source,
+                scanner_execution_anchor,
+            ) {
                 reconciled.push(scanner_event);
             }
         }
 
-        executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
         insert_unmatched_bibliography_events(
             &mut reconciled,
             executed,

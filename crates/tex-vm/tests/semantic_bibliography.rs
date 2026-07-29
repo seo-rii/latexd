@@ -334,6 +334,53 @@ fn repeated_input_bibliography_items_keep_execution_order() {
 }
 
 #[test]
+fn repeated_dynamic_input_bibliography_items_keep_occurrence_authority() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "child.tex",
+        r"\ifnum\count0>0\begin{thebibliography}{1}\fi
+\bibitem{shared}
+\ifnum\count0>0 Second item.\else First body.\fi
+\ifnum\count0>0\end{thebibliography}\fi",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\toks0={\input{child}}
+\count0=0 Before first. \the\toks0 After first.
+\count0=1 Before second. \the\toks0 After second.
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "shared");
+    assert_eq!(items[0].0.text, "Second item.");
+    let trace = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.clone()),
+            RenderEvent::Space(_) => Some(" ".to_string()),
+            RenderEvent::BibliographyItem(item) => {
+                Some(format!("<bib:{}:{}>", item.key, item.text))
+            }
+            _ => None,
+        })
+        .collect::<String>();
+    let before_second = trace.find("Before second").expect("second input prefix");
+    let bibliography_item = trace.find("<bib:shared:").expect("executed item");
+    assert!(bibliography_item > before_second, "{trace:?}");
+    assert_eq!(trace.matches("First body.").count(), 1, "{trace:?}");
+    assert!(
+        !trace.contains("0=0") && !trace.contains("0=1"),
+        "{trace:?}"
+    );
+}
+
+#[test]
 fn unexecuted_bibliography_begin_does_not_make_scanner_items_authoritative() {
     let outcome = capture(
         r"\count0=0

@@ -3,7 +3,10 @@ use tex_render_model::{
     EventProducer, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
 };
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmSnapshot};
+use tex_vm::{
+    Vm, VmContinuationBlocker, VmExecutionAnchor, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmSnapshot,
+};
 
 #[test]
 fn input_exit_snapshot_resumes_pending_tokens_and_source_catcodes() {
@@ -162,6 +165,123 @@ fn input_enter_snapshot_replaces_each_changed_child_occurrence() {
         "{replayed:#?}"
     );
     assert_eq!(replayed, expected);
+}
+
+#[test]
+fn repeated_dynamic_input_checkpoints_distinguish_execution_occurrences() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\toks0={\input{child}}
+\the\toks0\the\toks0
+\end{document}",
+    );
+    let checkpoint = outcome
+        .module_checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .next_back()
+        .expect("second child exit checkpoint");
+    let (completed_anchors, active_anchor) = child_text_execution_anchors(checkpoint);
+
+    assert_eq!(completed_anchors.len(), 1, "{completed_anchors:#?}");
+    assert_eq!(completed_anchors[0].occurrence, 0);
+    assert_eq!(active_anchor.occurrence, 1);
+    assert_ne!(completed_anchors[0], active_anchor);
+}
+
+#[test]
+fn restored_dynamic_input_continuation_preserves_next_execution_occurrence() {
+    let source = r"\begin{document}
+\toks0={\input{child}}
+\the\toks0\the\toks0
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    let full = vm.run_plain(source);
+    let first_exit = full
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .expect("first child exit checkpoint")
+        .snapshot
+        .clone();
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &first_exit);
+    restored.mount_file("child.tex", "Child.");
+    let resumed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+    let second_exit = resumed
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .expect("replayed second child exit checkpoint");
+    let (completed_anchors, active_anchor) = child_text_execution_anchors(second_exit);
+
+    assert_eq!(completed_anchors.len(), 1, "{completed_anchors:#?}");
+    assert_eq!(completed_anchors[0].occurrence, 0);
+    assert_eq!(active_anchor.occurrence, 1);
+    assert_ne!(completed_anchors[0], active_anchor);
+}
+
+#[test]
+fn semantic_snapshot_rejects_invalid_execution_occurrence_allocator() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\toks0={\input{child}}
+\the\toks0\the\toks0
+\end{document}",
+    );
+    let semantic = outcome
+        .module_checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .next_back()
+        .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
+        .expect("second child semantic checkpoint");
+
+    assert!(semantic.is_restorable());
+    let mut stale = semantic.clone();
+    stale
+        .execution_occurrences
+        .iter_mut()
+        .find(|occurrence| occurrence.base_anchor.path.as_str() == "child.tex")
+        .expect("child occurrence allocator")
+        .next_occurrence = 1;
+    assert!(!stale.is_restorable());
+
+    let mut duplicate = semantic;
+    duplicate
+        .execution_occurrences
+        .push(duplicate.execution_occurrences[0].clone());
+    assert!(!duplicate.is_restorable());
 }
 
 #[test]
@@ -1059,6 +1179,40 @@ fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     replay_render_events_at_input_boundary(source, VmModuleCheckpointKind::Exit)
+}
+
+fn child_text_execution_anchors(
+    checkpoint: &VmModuleCheckpoint,
+) -> (Vec<VmExecutionAnchor>, VmExecutionAnchor) {
+    let semantic = checkpoint
+        .snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture");
+    let child_event_ids = semantic
+        .text
+        .executed_events
+        .iter()
+        .filter_map(|event| {
+            matches!(&event.event, RenderEvent::Text(text) if text.text == "Child.")
+                .then_some(event.meta.event_id)
+        })
+        .collect::<Vec<_>>();
+    let completed = semantic
+        .text
+        .executed_event_anchors
+        .iter()
+        .filter(|anchor| child_event_ids.contains(&anchor.event_id))
+        .map(|anchor| anchor.execution_anchor.clone())
+        .collect();
+    let active = semantic
+        .text
+        .active_capture
+        .as_ref()
+        .expect("active child text capture")
+        .execution_anchor
+        .clone();
+    (completed, active)
 }
 
 fn replay_render_events_at_input_boundary(

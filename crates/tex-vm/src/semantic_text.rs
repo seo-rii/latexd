@@ -53,6 +53,7 @@ struct SuppressedSourceRange {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +160,7 @@ impl Vm<'_> {
                     path: range.path.clone(),
                     start_utf8: range.start_utf8,
                     end_utf8: range.end_utf8,
+                    execution_anchor: range.execution_anchor.clone(),
                 })
                 .collect(),
             forced_execution_ranges: self
@@ -234,6 +236,7 @@ impl Vm<'_> {
                 path: range.path.clone(),
                 start_utf8: range.start_utf8,
                 end_utf8: range.end_utf8,
+                execution_anchor: range.execution_anchor.clone(),
             })
             .collect();
         self.semantic_text.forced_execution_ranges = snapshot
@@ -364,12 +367,34 @@ impl Vm<'_> {
         if !self.render_event_capture || end_utf8 <= start_utf8 {
             return;
         }
+        let execution_anchor = self.current_execution_anchor();
         self.semantic_text
             .suppressed_ranges
             .push(SuppressedSourceRange {
                 path,
                 start_utf8,
                 end_utf8,
+                execution_anchor,
+            });
+    }
+
+    pub(super) fn record_scanner_suppressed_source_range_for_path(
+        &mut self,
+        path: Utf8PathBuf,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !self.render_event_capture || end_utf8 <= start_utf8 {
+            return;
+        }
+        let execution_anchor = self.current_scanner_execution_anchor();
+        self.semantic_text
+            .suppressed_ranges
+            .push(SuppressedSourceRange {
+                path,
+                start_utf8,
+                end_utf8,
+                execution_anchor,
             });
     }
 
@@ -772,9 +797,18 @@ impl Vm<'_> {
     }
 
     pub(super) fn semantic_source_is_suppressed(&self, source: &SourceProvenance) -> bool {
+        self.semantic_source_is_suppressed_in_execution(source, None)
+    }
+
+    pub(super) fn semantic_source_is_suppressed_in_execution(
+        &self,
+        source: &SourceProvenance,
+        execution_anchor: Option<&VmExecutionAnchor>,
+    ) -> bool {
         provenance_spans(source).any(|span| {
             self.semantic_text.suppressed_ranges.iter().any(|range| {
-                span.path == range.path
+                execution_anchor.is_none_or(|anchor| anchor == &range.execution_anchor)
+                    && span.path == range.path
                     && span.start_utf8 < range.end_utf8
                     && range.start_utf8 < span.end_utf8
             })
@@ -1161,7 +1195,10 @@ fn attach_trailing_scanner_spaces_to_eof_slots(
 }
 
 fn slot_overlaps_suppressed_range(slot: &ScannerTextSlot, range: &SuppressedSourceRange) -> bool {
-    slot.path == range.path && slot.start_utf8 < range.end_utf8 && range.start_utf8 < slot.end_utf8
+    slot.execution_anchor == range.execution_anchor
+        && slot.path == range.path
+        && slot.start_utf8 < range.end_utf8
+        && range.start_utf8 < slot.end_utf8
 }
 
 fn event_payloads_match(
@@ -1308,6 +1345,7 @@ mod tests {
             execution_anchor: VmExecutionAnchor {
                 path: path.clone(),
                 continuation_stack: Vec::new(),
+                occurrence: 0,
             },
             preserve_leading_space: false,
         }];

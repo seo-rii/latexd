@@ -13,18 +13,20 @@ use tex_tokens::CatCode;
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 18;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 19;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {
     pub path: Utf8PathBuf,
     pub source_offset_utf8: u32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmExecutionAnchor {
     pub path: Utf8PathBuf,
     pub continuation_stack: Vec<VmReplayFrame>,
+    #[serde(default)]
+    pub occurrence: u64,
 }
 
 impl VmExecutionAnchor {
@@ -34,6 +36,20 @@ impl VmExecutionAnchor {
                 .continuation_stack
                 .iter()
                 .all(|frame| !frame.path.as_str().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmExecutionOccurrenceSnapshot {
+    pub base_anchor: VmExecutionAnchor,
+    pub next_occurrence: u64,
+}
+
+impl VmExecutionOccurrenceSnapshot {
+    fn is_restorable(&self) -> bool {
+        self.base_anchor.occurrence == 0
+            && self.base_anchor.is_restorable()
+            && self.next_occurrence >= 1
     }
 }
 
@@ -152,6 +168,8 @@ pub struct VmSemanticCaptureSnapshot {
     #[serde(default)]
     pub scanner_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
     #[serde(default)]
+    pub execution_occurrences: Vec<VmExecutionOccurrenceSnapshot>,
+    #[serde(default)]
     pub execution_in_document: bool,
     #[serde(default)]
     pub execution_no_hyper_depth: u32,
@@ -205,8 +223,40 @@ impl VmSemanticCaptureSnapshot {
             let end_utf8 = capture.end_utf8 as usize;
             end_utf8 <= source.len() && source.is_char_boundary(end_utf8)
         });
+        let runtime_execution_anchors = self
+            .text
+            .executed_event_anchors
+            .iter()
+            .map(|anchor| &anchor.execution_anchor)
+            .chain(
+                self.text
+                    .forced_execution_ranges
+                    .iter()
+                    .map(|range| &range.execution_anchor),
+            )
+            .chain(
+                self.text
+                    .active_capture
+                    .iter()
+                    .map(|capture| &capture.execution_anchor),
+            )
+            .chain(
+                self.bibliography
+                    .executed_event_anchors
+                    .iter()
+                    .map(|anchor| &anchor.execution_anchor),
+            )
+            .chain(
+                self.bibliography
+                    .active_item
+                    .iter()
+                    .map(|capture| &capture.execution_anchor),
+            )
+            .collect::<Vec<_>>();
         self.schema_version == VM_SEMANTIC_CAPTURE_SCHEMA_VERSION
             && event_execution_anchors_are_valid(&self.scanner_event_anchors)
+            && execution_occurrences_are_valid(&self.execution_occurrences)
+            && execution_occurrences_cover(&self.execution_occurrences, &runtime_execution_anchors)
             && self.math.is_restorable()
             && self.text.is_restorable()
             && self.graphic.is_restorable()
@@ -241,6 +291,31 @@ impl VmSemanticCaptureSnapshot {
             && active_math_source_is_valid
             && active_text_source_is_valid
     }
+}
+
+fn execution_occurrences_are_valid(occurrences: &[VmExecutionOccurrenceSnapshot]) -> bool {
+    occurrences
+        .iter()
+        .all(VmExecutionOccurrenceSnapshot::is_restorable)
+        && values_are_unique(
+            &occurrences
+                .iter()
+                .map(|occurrence| occurrence.base_anchor.clone())
+                .collect::<Vec<_>>(),
+        )
+}
+
+fn execution_occurrences_cover(
+    occurrences: &[VmExecutionOccurrenceSnapshot],
+    anchors: &[&VmExecutionAnchor],
+) -> bool {
+    anchors.iter().all(|anchor| {
+        let mut base_anchor = (*anchor).clone();
+        base_anchor.occurrence = 0;
+        occurrences.iter().any(|occurrence| {
+            occurrence.base_anchor == base_anchor && occurrence.next_occurrence > anchor.occurrence
+        })
+    })
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1032,11 +1107,15 @@ pub struct VmSuppressedSourceRangeSnapshot {
     pub path: Utf8PathBuf,
     pub start_utf8: u32,
     pub end_utf8: u32,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
 }
 
 impl VmSuppressedSourceRangeSnapshot {
     fn is_restorable(&self) -> bool {
         self.start_utf8 <= self.end_utf8
+            && self.path == self.execution_anchor.path
+            && self.execution_anchor.is_restorable()
     }
 }
 
@@ -1421,6 +1500,8 @@ pub struct VmActiveSourceFrameSnapshot {
     pub path: Utf8PathBuf,
     #[serde(default)]
     pub output_start_utf8: u32,
+    #[serde(default)]
+    pub execution_anchor: Option<VmExecutionAnchor>,
     pub return_to_parent: Option<VmReplayFrame>,
     pub global_definition_base_scope: Option<usize>,
     pub module_kind: Option<VmActiveModuleKindSnapshot>,

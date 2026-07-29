@@ -15,8 +15,8 @@ use crate::{
     Vm, citation_style_hint_for_command,
     input::QueueItem,
     snapshot::{
-        VmActiveLinkCaptureSnapshot, VmExecutedInlineEventMarkSnapshot, VmSemanticInlineSnapshot,
-        VmSuppressedSourceRangeSnapshot,
+        VmActiveLinkCaptureSnapshot, VmExecutedInlineEventMarkSnapshot, VmExecutionAnchor,
+        VmSemanticInlineSnapshot, VmSuppressedSourceRangeSnapshot,
     },
 };
 
@@ -41,6 +41,7 @@ struct LabelInvocationRange {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
 }
 
 #[derive(Debug)]
@@ -167,6 +168,7 @@ impl Vm<'_> {
                     path: invocation.path.clone(),
                     start_utf8: invocation.start_utf8,
                     end_utf8: invocation.end_utf8,
+                    execution_anchor: invocation.execution_anchor.clone(),
                 })
                 .collect(),
             caption_placeholders: self.semantic_inline.caption_placeholders.clone(),
@@ -201,6 +203,7 @@ impl Vm<'_> {
                 path: invocation.path.clone(),
                 start_utf8: invocation.start_utf8,
                 end_utf8: invocation.end_utf8,
+                execution_anchor: invocation.execution_anchor.clone(),
             })
             .collect();
         self.semantic_inline.caption_placeholders = snapshot.caption_placeholders.clone();
@@ -278,12 +281,15 @@ impl Vm<'_> {
         {
             return;
         }
+        let path = self.current_execution_source_path();
+        let execution_anchor = self.current_execution_anchor();
         self.semantic_inline
             .overridden_label_invocations
             .push(LabelInvocationRange {
-                path: self.current_execution_source_path(),
+                path,
                 start_utf8,
                 end_utf8,
+                execution_anchor,
             });
     }
 
