@@ -285,7 +285,7 @@ fn semantic_snapshot_rejects_invalid_execution_occurrence_allocator() {
 }
 
 #[test]
-fn restored_continuation_refreshes_changed_scanner_only_bbl() {
+fn restored_continuation_executes_changed_bbl_from_the_input_checkpoint() {
     let source = r"\begin{document}Before \input{barrier} \bibliography{refs}\end{document}";
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
@@ -313,7 +313,7 @@ fn restored_continuation_refreshes_changed_scanner_only_bbl() {
     restored.mount_file("barrier.tex", "Barrier.");
     restored.mount_file(
         "main.bbl",
-        r"\begin{thebibliography}{1}\bibitem{k} New entry.\end{thebibliography}",
+        r"\begin{thebibliography}{2}\bibitem{k} New entry.\bibitem{second} Second entry.\end{thebibliography}",
     );
     let replayed = restored
         .resume_continuation()
@@ -326,11 +326,124 @@ fn restored_continuation_refreshes_changed_scanner_only_bbl() {
     clean.mount_file("barrier.tex", "Barrier.");
     clean.mount_file(
         "main.bbl",
-        r"\begin{thebibliography}{1}\bibitem{k} New entry.\end{thebibliography}",
+        r"\begin{thebibliography}{2}\bibitem{k} New entry.\bibitem{second} Second entry.\end{thebibliography}",
     );
     let expected = clean.run_plain(source);
 
     assert_eq!(replayed.render_events, expected.render_events);
+    for kind in [VmModuleCheckpointKind::Enter, VmModuleCheckpointKind::Exit] {
+        assert!(replayed.module_checkpoints.iter().any(|checkpoint| {
+            checkpoint.kind == kind && checkpoint.module_path.as_str() == "main.bbl"
+        }));
+    }
+}
+
+#[test]
+fn bibliography_input_boundaries_restore_equivalent_events_and_dependencies() {
+    let source = r"\begin{document}Before \bibliography{refs} After.\end{document}";
+    let bbl = r"\begin{thebibliography}{1}\bibitem{k} Author. Title.\end{thebibliography}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("main.bbl", bbl);
+    let expected = vm.run_plain(source);
+
+    for checkpoint_kind in [VmModuleCheckpointKind::Enter, VmModuleCheckpointKind::Exit] {
+        let checkpoint = expected
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == checkpoint_kind && checkpoint.module_path.as_str() == "main.bbl"
+            })
+            .expect("bibliography input checkpoint");
+        assert!(checkpoint.snapshot.continuation_safety.is_safe());
+        let snapshot_json = serde_json::to_vec(&checkpoint.snapshot).expect("serialize snapshot");
+        let snapshot =
+            serde_json::from_slice::<VmSnapshot>(&snapshot_json).expect("deserialize snapshot");
+        let output_prefix = expected.output[..checkpoint.output_start_utf8 as usize].to_string();
+        let restored_module_trace_count = snapshot.module_traces.len();
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+        restored.mount_file("main.bbl", bbl);
+        let actual = restored
+            .resume_continuation()
+            .expect("restored bibliography continuation");
+        let mut actual_module_traces = actual.module_traces.clone();
+        let output_prefix_len = output_prefix.len() as u32;
+        for trace in actual_module_traces
+            .iter_mut()
+            .skip(restored_module_trace_count)
+        {
+            trace.output_start_utf8 += output_prefix_len;
+            trace.output_end_utf8 += output_prefix_len;
+        }
+
+        assert_eq!(
+            format!("{output_prefix}{}", actual.output),
+            expected.output,
+            "{checkpoint_kind:?}"
+        );
+        assert_eq!(
+            actual.render_events, expected.render_events,
+            "{checkpoint_kind:?}"
+        );
+        assert_eq!(
+            actual.loaded_modules, expected.loaded_modules,
+            "{checkpoint_kind:?}"
+        );
+        assert_eq!(
+            actual_module_traces, expected.module_traces,
+            "{checkpoint_kind:?}"
+        );
+        assert_eq!(
+            actual.diagnostics, expected.diagnostics,
+            "{checkpoint_kind:?}"
+        );
+    }
+}
+
+#[test]
+fn legacy_bibliography_input_checkpoint_infers_jobname_from_the_root_source() {
+    let source = r"\begin{document}\bibliography{refs}\end{document}";
+    let bbl = r"\begin{thebibliography}{1}\bibitem{k} Entry.\end{thebibliography}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("main.bbl", bbl);
+    let expected = vm.run_plain(source);
+    let checkpoint = expected
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "main.bbl"
+        })
+        .expect("bibliography enter checkpoint");
+    let mut snapshot_value =
+        serde_json::to_value(&checkpoint.snapshot).expect("serialize snapshot");
+    snapshot_value
+        .as_object_mut()
+        .expect("snapshot object")
+        .remove("jobname_source_path");
+    let snapshot = serde_json::from_value::<VmSnapshot>(snapshot_value).expect("legacy snapshot");
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+    restored.mount_file("main.bbl", bbl);
+    let actual = restored
+        .resume_continuation()
+        .expect("legacy bibliography continuation");
+
+    assert_eq!(actual.render_events, expected.render_events);
+    assert!(
+        actual
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
 }
 
 #[test]

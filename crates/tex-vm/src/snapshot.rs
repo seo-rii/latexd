@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
     CaptionInlinePlaceholderEvent, CaptionKind, EventProducer, EventSequence, FootnoteId, ListKind,
-    RenderEvent, RenderEventEnvelope, SourceProvenance, TableCellEvent, TableColumnSpec,
-    TableRowEvent,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpanRole,
+    TableCellEvent, TableColumnSpec, TableRowEvent,
 };
 use tex_tokens::CatCode;
 
 use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
-pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 21;
+pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {
@@ -833,11 +833,15 @@ pub struct VmSemanticBibliographySnapshot {
     #[serde(default)]
     pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
+    pub scanner_input_event_ids: Vec<EventSequence>,
+    #[serde(default)]
     pub scanner_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
     #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub executed_event_anchors: Vec<VmEventExecutionAnchorSnapshot>,
+    #[serde(default)]
+    pub executed_invocations: Vec<VmSuppressedSourceRangeSnapshot>,
     #[serde(default)]
     pub environment_depth: u64,
     #[serde(default)]
@@ -864,6 +868,7 @@ impl VmSemanticBibliographySnapshot {
             .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&self.scanner_input_event_ids)
             && event_execution_anchors_are_restorable(
                 &self.scanner_event_anchors,
                 &self.scanner_event_ids,
@@ -876,6 +881,10 @@ impl VmSemanticBibliographySnapshot {
             && executed_event_ids
                 .iter()
                 .all(|event_id| !scanner_event_ids.contains(event_id))
+            && self
+                .executed_invocations
+                .iter()
+                .all(VmSuppressedSourceRangeSnapshot::is_restorable)
             && usize::try_from(self.environment_depth).is_ok()
             && self.active_item.as_ref().is_none_or(|capture| {
                 self.environment_depth > 0
@@ -1163,12 +1172,30 @@ pub struct VmExecutedTextCaptureSnapshot {
 
 impl VmExecutedTextCaptureSnapshot {
     fn is_restorable(&self) -> bool {
+        let literal_span = self.literal_path.as_ref().and_then(|literal_path| {
+            std::iter::once((None, &self.source.primary))
+                .chain(
+                    self.source
+                        .related
+                        .iter()
+                        .map(|related| (Some(related.role), &related.span)),
+                )
+                .find_map(|(role, span)| match span {
+                    ProvenanceSpan::File(span)
+                        if &span.path == literal_path
+                            && role.is_none_or(|role| role == SourceSpanRole::EmitSite) =>
+                    {
+                        Some(span)
+                    }
+                    ProvenanceSpan::File(_) | ProvenanceSpan::Generated(_) => None,
+                })
+        });
         self.execution_anchor.is_restorable()
-            && (self.literal_path.is_none()
-                || matches!(&self.source.primary, tex_render_model::ProvenanceSpan::File(span)
-                    if Some(&span.path) == self.literal_path.as_ref()
-                        && span.start_utf8 <= span.end_utf8
-                        && span.end_utf8 == self.end_utf8))
+            && self.literal_path.as_ref().is_none_or(|_| {
+                literal_span.is_some_and(|span| {
+                    span.start_utf8 <= span.end_utf8 && span.end_utf8 == self.end_utf8
+                })
+            })
     }
 }
 
@@ -1326,6 +1353,8 @@ pub struct VmSnapshot {
     pub continuation_safety: VmContinuationSafety,
     #[serde(default)]
     pub input_continuation: Option<VmInputContinuationSnapshot>,
+    #[serde(default)]
+    pub jobname_source_path: Option<Utf8PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_sink: Option<VmSemanticSinkSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

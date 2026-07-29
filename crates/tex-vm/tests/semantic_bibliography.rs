@@ -13,6 +13,18 @@ fn capture(source: &str) -> VmOutcome {
     vm.run_plain(source)
 }
 
+fn capture_with_bbl(source: &str) -> VmOutcome {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{alpha}Author. Title.\end{thebibliography}",
+    );
+    vm.enable_render_event_capture();
+    vm.run_plain(source)
+}
+
 fn bibliography_items(
     outcome: &VmOutcome,
 ) -> Vec<(&BibliographyItemEvent, EventProducer, SemanticConfidence)> {
@@ -35,6 +47,25 @@ fn top_level_text(outcome: &VmOutcome) -> String {
         .filter_map(|event| match &event.event {
             RenderEvent::Text(text) => Some(text.text.as_str()),
             RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect()
+}
+
+fn semantic_trace(outcome: &VmOutcome) -> String {
+    outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.clone()),
+            RenderEvent::Space(_) => Some(" ".to_string()),
+            RenderEvent::BeginBlock(begin) if begin.block == BlockKind::Bibliography => {
+                Some("<bibliography>".to_string())
+            }
+            RenderEvent::BibliographyItem(item) => Some(format!("<item:{}>", item.key)),
+            RenderEvent::EndBlock(end) if end.block == BlockKind::Bibliography => {
+                Some("</bibliography>".to_string())
+            }
             _ => None,
         })
         .collect()
@@ -69,6 +100,502 @@ fn direct_bibliography_items_are_vm_authoritative() {
             .related
             .iter()
             .any(|span| span.role == SourceSpanRole::CitationKey)
+    );
+}
+
+#[test]
+fn bibliography_command_executes_jobname_bbl_as_an_input_dependency() {
+    let outcome = capture_with_bbl(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "alpha");
+    assert_eq!(items[0].0.text, "Author. Title.");
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert_eq!(items[0].2, SemanticConfidence::High);
+    assert!(
+        outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
+    for kind in [VmModuleCheckpointKind::Enter, VmModuleCheckpointKind::Exit] {
+        assert!(outcome.module_checkpoints.iter().any(|checkpoint| {
+            checkpoint.kind == kind && checkpoint.module_path.as_str() == "main.bbl"
+        }));
+    }
+}
+
+#[test]
+fn bibliography_input_events_keep_the_command_call_site_order() {
+    let outcome = capture_with_bbl(
+        r"\begin{document}
+Before. \bibliography{references} After.
+\end{document}",
+    );
+    let trace = semantic_trace(&outcome);
+
+    let before = trace.find("Before.").expect("before text");
+    let begin = trace.find("<bibliography>").expect("bibliography begin");
+    let item = trace.find("<item:alpha>").expect("bibliography item");
+    let end = trace.find("</bibliography>").expect("bibliography end");
+    let after = trace.find("After.").expect("after text");
+    assert!(
+        before < begin && begin < item && item < end && end < after,
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn bibliography_input_executes_surrounding_bbl_semantics() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "main.bbl",
+        r"\section{External heading}
+\begin{thebibliography}{1}
+\bibitem{alpha}Author. Title.
+\end{thebibliography}
+\cite{external-citation}",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "External heading"
+        )
+    }));
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == ["external-citation"]
+        )
+    }));
+}
+
+#[test]
+fn bibliography_input_does_not_retain_recovery_events_from_skipped_bbl_branches() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "main.bbl",
+        r"\iffalse\section{Wrong heading}\fi
+\section{Visible heading}
+\begin{thebibliography}{1}
+\bibitem{alpha}Author. Title.
+\end{thebibliography}",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    assert_eq!(bibliography_items(&outcome).len(), 1);
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "Visible heading"
+        )
+    }));
+    assert!(!outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "Wrong heading"
+        )
+    }));
+}
+
+#[test]
+fn bibliography_input_keeps_recovery_events_from_nested_inputs() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "main.bbl",
+        r"\input{nested-bibliography}
+\begin{thebibliography}{1}
+\bibitem{alpha}Author. Title.
+\end{thebibliography}",
+    );
+    vm.mount_file(
+        "nested-bibliography.tex",
+        r"\begin{unsupportedbibliographycontent}
+Nested recovery text.
+\end{unsupportedbibliographycontent}",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    assert_eq!(bibliography_items(&outcome).len(), 1);
+    let fallback = outcome
+        .render_events
+        .iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref()
+                        == Some("unsupportedbibliographycontent")
+            )
+        })
+        .expect("nested bibliography fallback");
+    assert!(matches!(
+        &fallback.meta.source.primary,
+        ProvenanceSpan::File(span) if span.path.as_str() == "nested-bibliography.tex"
+    ));
+}
+
+#[test]
+fn macro_generated_bibliography_keeps_the_macro_call_site_order() {
+    let outcome = capture_with_bbl(
+        r"\def\emitbibliography{\bibliography{references}}
+\begin{document}
+Before. \emitbibliography After.
+\end{document}",
+    );
+    let trace = semantic_trace(&outcome);
+
+    let before = trace.find("Before.").expect("before text");
+    let begin = trace.find("<bibliography>").expect("bibliography begin");
+    let item = trace.find("<item:alpha>").expect("bibliography item");
+    let end = trace.find("</bibliography>").expect("bibliography end");
+    let after = trace.find("After.").expect("after text");
+    assert!(
+        before < begin && begin < item && item < end && end < after,
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn printbibliography_executes_jobname_bbl_after_consuming_options() {
+    let outcome = capture_with_bbl(
+        r"\begin{document}
+\printbibliography[heading=none][resetnumbers=true]
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "alpha");
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    assert!(
+        outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
+    assert!(!top_level_text(&outcome).contains("heading"));
+    assert!(!top_level_text(&outcome).contains("resetnumbers"));
+}
+
+#[test]
+fn replay_source_path_does_not_change_the_bibliography_jobname() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{main-key}Main bibliography.\end{thebibliography}",
+    );
+    vm.mount_file(
+        "chapter.bbl",
+        r"\begin{thebibliography}{1}\bibitem{chapter-key}Chapter bibliography.\end{thebibliography}",
+    );
+    vm.set_execution_source_path("chapter.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "main-key");
+    assert!(
+        outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
+    assert!(
+        !outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "chapter.bbl")
+    );
+}
+
+#[test]
+fn snapshot_restore_preserves_the_bibliography_jobname() {
+    let snapshot = {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.snapshot()
+    };
+
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::restore(&mut interner, &snapshot);
+    vm.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{main-key}Main bibliography.\end{thebibliography}",
+    );
+    vm.mount_file(
+        "chapter.bbl",
+        r"\begin{thebibliography}{1}\bibitem{chapter-key}Chapter bibliography.\end{thebibliography}",
+    );
+    vm.set_execution_source_path("chapter.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\bibliography{references}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "main-key");
+}
+
+#[test]
+fn skipped_bibliography_command_does_not_read_jobname_bbl() {
+    let outcome = capture_with_bbl(
+        r"\begin{document}
+\iffalse\bibliography{references}\fi
+Visible body.
+\end{document}",
+    );
+
+    assert!(bibliography_items(&outcome).is_empty());
+    assert!(
+        !outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
+    assert!(top_level_text(&outcome).contains("Visible body."));
+}
+
+#[test]
+fn runtime_skipped_bibliography_command_discards_external_recovery_events() {
+    let outcome = capture_with_bbl(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\bibliography{references}\fi
+Visible body.
+\end{document}",
+    );
+
+    assert!(bibliography_items(&outcome).is_empty());
+    assert!(
+        !outcome
+            .loaded_modules
+            .iter()
+            .any(|path| path.as_str() == "main.bbl")
+    );
+    assert!(top_level_text(&outcome).contains("Visible body."));
+}
+
+#[test]
+fn repeated_input_suppresses_only_the_skipped_bibliography_occurrence() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "child.tex",
+        r"Before child.
+\ifnum\count0>0\bibliography{references}\fi
+After child.",
+    );
+    vm.mount_file(
+        "main.bbl",
+        r"\begin{thebibliography}{1}\bibitem{alpha}Author. Title.\end{thebibliography}",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\input{child}
+\count0=1
+\input{child}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "alpha");
+    assert_eq!(items[0].1, EventProducer::Primitive);
+    let trace = semantic_trace(&outcome);
+    let second_before = trace.rfind("Before child.").expect("second child text");
+    let item = trace.find("<item:alpha>").expect("bibliography item");
+    let second_after = trace.rfind("After child.").expect("second child tail");
+    assert!(second_before < item && item < second_after, "{trace:?}");
+}
+
+#[test]
+fn repeated_dynamic_input_call_site_keeps_only_executed_bibliography_occurrences() {
+    for child in [
+        r"\advance\count0 by 1
+\ifnum\count0>1\bibliography{references}\fi",
+        r"\advance\count0 by 1
+\ifnum\count0<2\bibliography{references}\fi",
+    ] {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("child.tex", child);
+        vm.mount_file(
+            "main.bbl",
+            r"\begin{thebibliography}{1}\bibitem{alpha}Author. Title.\end{thebibliography}",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(
+            r"\count0=0
+\begin{document}
+\toks0={\input{child}}
+\the\toks0\the\toks0
+\end{document}",
+        );
+
+        let items = bibliography_items(&outcome);
+        assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+        assert_ne!(items[0].1, EventProducer::ScannerRecovery);
+    }
+}
+
+#[test]
+fn repeated_dynamic_bibliography_keeps_other_external_semantics_per_execution() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file(
+        "child.tex",
+        r"\advance\count0 by 1
+\ifnum\count0>1\bibliography{references}\fi",
+    );
+    vm.mount_file(
+        "main.bbl",
+        r"\section{External heading}
+\begin{thebibliography}{1}
+\bibitem{alpha}Author. Title.
+\end{thebibliography}
+\cite{external-citation}",
+    );
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\toks0={\input{child}}
+\the\toks0\the\toks0
+\end{document}",
+    );
+
+    assert_eq!(bibliography_items(&outcome).len(), 1);
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(begin) if begin.block == BlockKind::Bibliography
+                )
+            })
+            .count(),
+        1,
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::EndBlock(end) if end.block == BlockKind::Bibliography
+                )
+            })
+            .count(),
+        1,
+        "{:#?}",
+        outcome.render_events
+    );
+    let heading = outcome
+        .render_events
+        .iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Heading(heading) if heading.text == "External heading"
+            )
+        })
+        .expect("external heading");
+    assert!(heading.meta.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::EmitSite
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span) if span.path.as_str() == "main.bbl"
+            )
+    }));
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::InlineCitation(citation)
+                        if citation.keys == ["external-citation"]
+                )
+            })
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn macro_generated_bibliography_command_preserves_call_provenance() {
+    let outcome = capture_with_bbl(
+        r"\def\emitbibliography{\bibliography{references}}
+\begin{document}
+\emitbibliography
+\end{document}",
+    );
+
+    let event = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::BibliographyItem(_)))
+        .expect("bibliography item event");
+    assert_eq!(event.meta.producer, EventProducer::Macro);
+    assert!(
+        event
+            .meta
+            .source
+            .expansion_stack
+            .iter()
+            .any(|frame| frame.command_name.as_deref() == Some("emitbibliography"))
     );
 }
 
@@ -148,6 +675,35 @@ fn user_overrides_do_not_retain_scanner_bibliography_items() {
     );
 
     assert!(bibliography_items(&outcome).is_empty());
+}
+
+#[test]
+fn overridden_bibliography_commands_do_not_execute_or_retain_jobname_bbl() {
+    for source in [
+        r"\def\bibliography#1{Overridden bibliography.}
+\begin{document}
+\bibliography{references}
+\end{document}",
+        r"\def\printbibliography{Overridden bibliography.}
+\begin{document}
+\printbibliography
+\end{document}",
+    ] {
+        let outcome = capture_with_bbl(source);
+
+        assert!(
+            bibliography_items(&outcome).is_empty(),
+            "{:#?}",
+            outcome.render_events
+        );
+        assert!(
+            !outcome
+                .loaded_modules
+                .iter()
+                .any(|path| path.as_str() == "main.bbl")
+        );
+        assert!(top_level_text(&outcome).contains("Overridden bibliography."));
+    }
 }
 
 #[test]

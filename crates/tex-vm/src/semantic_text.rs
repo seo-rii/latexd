@@ -7,8 +7,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
     EventProducer, EventSequence, ExpansionFrame, LineBreakEvent, LineBreakReason, PageBreakEvent,
     PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind,
-    TextEvent,
+    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
+    SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -339,21 +339,18 @@ impl Vm<'_> {
         if !self.render_event_capture || end_utf8 <= start_utf8 {
             return;
         }
+        let current_path = self.current_execution_source_path();
         let expansion_call_range =
             self.semantic_text
                 .expansion_stack
                 .last()
                 .and_then(|expansion| match &expansion.source.primary {
-                    ProvenanceSpan::File(span) => {
+                    ProvenanceSpan::File(span) if span.path == current_path => {
                         Some((span.path.clone(), span.start_utf8, span.end_utf8))
                     }
-                    ProvenanceSpan::Generated(_) => None,
+                    ProvenanceSpan::File(_) | ProvenanceSpan::Generated(_) => None,
                 });
-        self.record_suppressed_source_range_for_path(
-            self.current_execution_source_path(),
-            start_utf8,
-            end_utf8,
-        );
+        self.record_suppressed_source_range_for_path(current_path, start_utf8, end_utf8);
         if let Some((path, start_utf8, end_utf8)) = expansion_call_range {
             self.record_suppressed_source_range_for_path(path, start_utf8, end_utf8);
         }
@@ -584,10 +581,22 @@ impl Vm<'_> {
             .expect("text capture was initialized");
         capture.text.push(ch);
         capture.end_utf8 = end_utf8;
-        if capture.literal_path.is_some()
-            && let ProvenanceSpan::File(span) = &mut capture.source.primary
-        {
-            span.end_utf8 = end_utf8;
+        if let Some(literal_path) = &capture.literal_path {
+            if let ProvenanceSpan::File(span) = &mut capture.source.primary
+                && &span.path == literal_path
+            {
+                span.end_utf8 = end_utf8;
+            } else if let Some(span) = capture.source.related.iter_mut().find_map(|related| {
+                if related.role != SourceSpanRole::EmitSite {
+                    return None;
+                }
+                match &mut related.span {
+                    ProvenanceSpan::File(span) if &span.path == literal_path => Some(span),
+                    ProvenanceSpan::File(_) | ProvenanceSpan::Generated(_) => None,
+                }
+            }) {
+                span.end_utf8 = end_utf8;
+            }
         }
         self.semantic_text.paragraph_has_content = true;
         self.semantic_text.space_run_active = false;
@@ -809,6 +818,12 @@ impl Vm<'_> {
         provenance_spans(source).any(|span| {
             self.semantic_text.suppressed_ranges.iter().any(|range| {
                 execution_anchor.is_none_or(|anchor| anchor == &range.execution_anchor)
+                    && !self.bibliography_suppression_range_is_executed(
+                        source,
+                        &range.path,
+                        range.start_utf8,
+                        range.end_utf8,
+                    )
                     && span.path == range.path
                     && span.start_utf8 < range.end_utf8
                     && range.start_utf8 < span.end_utf8
@@ -1092,7 +1107,25 @@ impl Vm<'_> {
         end_utf8: u32,
     ) -> (SourceProvenance, EventProducer, Option<Utf8PathBuf>) {
         if let Some(expansion) = self.semantic_text.expansion_stack.last() {
-            return (expansion.source.clone(), EventProducer::Macro, None);
+            let mut source = expansion.source.clone();
+            let path = self.current_execution_source_path();
+            let expansion_path = match &source.primary {
+                ProvenanceSpan::File(span) => Some(&span.path),
+                ProvenanceSpan::Generated(_) => None,
+            };
+            let mut literal_path = None;
+            if expansion_path != Some(&path) {
+                source = source.with_related(
+                    SourceSpanRole::EmitSite,
+                    ProvenanceSpan::File(SourceSpan {
+                        path: path.clone(),
+                        start_utf8,
+                        end_utf8,
+                    }),
+                );
+                literal_path = Some(path);
+            }
+            return (source, EventProducer::Macro, literal_path);
         }
         let path = self.current_execution_source_path();
         (

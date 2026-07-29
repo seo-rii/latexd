@@ -1067,6 +1067,7 @@ pub struct Vm<'i> {
     read_stream_lines: BTreeMap<u32, Vec<String>>,
     read_stream_eof: BTreeMap<u32, bool>,
     entry_source_path: Option<Utf8PathBuf>,
+    jobname_source_path: Option<Utf8PathBuf>,
     scanner_execution_anchors: Vec<VmExecutionAnchor>,
     execution_occurrences: HashMap<VmExecutionAnchor, u64>,
     source_stack: Vec<ActiveSourceFrame>,
@@ -1148,6 +1149,7 @@ impl<'i> Vm<'i> {
             read_stream_lines: BTreeMap::new(),
             read_stream_eof: BTreeMap::new(),
             entry_source_path: None,
+            jobname_source_path: None,
             scanner_execution_anchors: Vec::new(),
             execution_occurrences: HashMap::new(),
             source_stack: Vec::new(),
@@ -1338,6 +1340,12 @@ impl<'i> Vm<'i> {
     }
 
     pub fn set_entry_source_path(&mut self, path: impl Into<Utf8PathBuf>) {
+        let path = path.into();
+        self.jobname_source_path = Some(path.clone());
+        self.entry_source_path = Some(path);
+    }
+
+    pub fn set_execution_source_path(&mut self, path: impl Into<Utf8PathBuf>) {
         self.entry_source_path = Some(path.into());
     }
 
@@ -1414,6 +1422,26 @@ impl<'i> Vm<'i> {
                 Some((event.meta.sequence, note_id))
             })
             .collect::<BTreeMap<_, _>>();
+        let previous_parent_invocation_spans = self
+            .render_events
+            .iter()
+            .filter(|event| removed_event_ids.contains(&event.meta.sequence))
+            .flat_map(|event| {
+                event.meta.source.related.iter().filter(|related| {
+                    related.role == SourceSpanRole::Invocation
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span) if &span.path != path
+                        )
+                })
+            })
+            .cloned()
+            .fold(Vec::new(), |mut spans, span| {
+                if !spans.contains(&span) {
+                    spans.push(span);
+                }
+                spans
+            });
 
         let original_scanner_event_anchors = self.scanner_event_anchors.clone();
         let original_math = self.semantic_math_snapshot();
@@ -1428,6 +1456,10 @@ impl<'i> Vm<'i> {
         let original_heading = self.semantic_heading_snapshot();
         let original_caption = self.semantic_caption_snapshot();
         let original_bibliography = self.semantic_bibliography_snapshot();
+        let refreshing_bibliography_input = original_bibliography
+            .scanner_input_event_ids
+            .iter()
+            .any(|event_id| removed_event_ids.contains(event_id));
 
         let mut math = original_math.clone();
         math.scanner_dollar_event_ids
@@ -1502,12 +1534,16 @@ impl<'i> Vm<'i> {
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
         bibliography
+            .scanner_input_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
+        bibliography
             .scanner_event_anchors
             .retain(|anchor| !removed_event_ids.contains(&anchor.event_sequence));
         self.restore_semantic_bibliography_snapshot(&bibliography);
 
         self.render_event_sources.remove(path);
         let mark = self.render_events.mark();
+        let first_refreshed_event_sequence = self.render_events.next_event_sequence();
         let mut scan_state = RenderEventScanState::new(false);
         self.capture_render_events_from_source(
             path,
@@ -1517,6 +1553,28 @@ impl<'i> Vm<'i> {
             &mut scan_state,
             return_to_parent,
         );
+        if refreshing_bibliography_input {
+            let refreshed_event_ids = self
+                .render_events
+                .iter()
+                .filter(|event| event.meta.sequence >= first_refreshed_event_sequence)
+                .map(|event| event.meta.sequence)
+                .collect::<Vec<_>>();
+            for event_id in refreshed_event_ids {
+                self.mark_scanner_bibliography_input_event(event_id);
+            }
+        }
+        for event in self
+            .render_events
+            .iter_mut()
+            .filter(|event| event.meta.sequence >= first_refreshed_event_sequence)
+        {
+            for related in &previous_parent_invocation_spans {
+                if !event.meta.source.related.contains(related) {
+                    event.meta.source.related.push(related.clone());
+                }
+            }
+        }
         let emitted_footnote_ids = self
             .render_events
             .iter()
@@ -1626,6 +1684,7 @@ impl<'i> Vm<'i> {
 
             let mut bibliography = self.semantic_bibliography_snapshot();
             remap_event_ids(&mut bibliography.scanner_event_ids);
+            remap_event_ids(&mut bibliography.scanner_input_event_ids);
             for anchor in &mut bibliography.scanner_event_anchors {
                 if let Some(committed_event_id) = event_id_remap.get(&anchor.event_sequence) {
                     anchor.event_sequence = *committed_event_id;
@@ -1705,20 +1764,20 @@ impl<'i> Vm<'i> {
     fn capture_jobname_bbl_render_events(
         &mut self,
         source_path: &Utf8Path,
+        invocation_start_utf8: u32,
+        invocation_end_utf8: u32,
         include_depth: usize,
         scan_state: &mut RenderEventScanState,
-    ) -> bool {
+    ) {
         let bbl_candidate = self
-            .entry_source_path
-            .as_ref()
-            .map(|path| path.as_path())
+            .logical_job_source_path()
             .unwrap_or(source_path)
             .with_extension("bbl");
         let Some(path) = self.resolve_existing_project_path(&bbl_candidate) else {
-            return false;
+            return;
         };
         if scan_state.active_input_paths.contains(&path) || include_depth >= 16 {
-            return false;
+            return;
         }
         let bbl_source = self.mounted_files.get(&path).cloned().or_else(|| {
             self.file_root
@@ -1726,17 +1785,45 @@ impl<'i> Vm<'i> {
                 .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok())
         });
         let Some(bbl_source) = bbl_source else {
-            return false;
+            return;
         };
+        let first_event_sequence = self.render_events.next_event_sequence();
         self.capture_render_events_from_source(
             &path,
             &bbl_source,
             true,
             include_depth + 1,
             scan_state,
-            None,
+            Some(VmReplayFrame {
+                path: source_path.to_owned(),
+                source_offset_utf8: invocation_end_utf8,
+            }),
         );
-        true
+        let invocation_span = ProvenanceSpan::File(SourceSpan {
+            path: source_path.to_owned(),
+            start_utf8: invocation_start_utf8,
+            end_utf8: invocation_end_utf8,
+        });
+        for event in self
+            .render_events
+            .iter_mut()
+            .filter(|event| event.meta.sequence >= first_event_sequence)
+        {
+            event.meta.source = event
+                .meta
+                .source
+                .clone()
+                .with_related(SourceSpanRole::Invocation, invocation_span.clone());
+        }
+        let input_event_ids = self
+            .render_events
+            .iter()
+            .filter(|event| event.meta.sequence >= first_event_sequence)
+            .map(|event| event.meta.sequence)
+            .collect::<Vec<_>>();
+        for event_id in input_event_ids {
+            self.mark_scanner_bibliography_input_event(event_id);
+        }
     }
 
     fn capture_render_events_from_source(
@@ -6317,33 +6404,13 @@ impl<'i> Vm<'i> {
                         };
                         after_options = after_option;
                     }
-                    let scanned_bbl = self.capture_jobname_bbl_render_events(
+                    self.capture_jobname_bbl_render_events(
                         source_path,
+                        command_start as u32,
+                        after_options as u32,
                         include_depth,
                         scan_state,
                     );
-                    if !scanned_bbl {
-                        self.emit_render_event(
-                            RenderEvent::BeginBlock(BeginBlockEvent {
-                                block: BlockKind::Bibliography,
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                command_start as u32,
-                                after_options as u32,
-                            ),
-                        );
-                        self.emit_render_event(
-                            RenderEvent::EndBlock(EndBlockEvent {
-                                block: BlockKind::Bibliography,
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                command_start as u32,
-                                after_options as u32,
-                            ),
-                        );
-                    }
                     index = after_options;
                 }
                 "bibliographystyle" if in_document => {
@@ -6359,33 +6426,13 @@ impl<'i> Vm<'i> {
                     if let Some((_, _, _, after_database)) =
                         read_braced_source_argument(source, database_index)
                     {
-                        let scanned_bbl = self.capture_jobname_bbl_render_events(
+                        self.capture_jobname_bbl_render_events(
                             source_path,
+                            command_start as u32,
+                            after_database as u32,
                             include_depth,
                             scan_state,
                         );
-                        if !scanned_bbl {
-                            self.emit_render_event(
-                                RenderEvent::BeginBlock(BeginBlockEvent {
-                                    block: BlockKind::Bibliography,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    command_start as u32,
-                                    after_database as u32,
-                                ),
-                            );
-                            self.emit_render_event(
-                                RenderEvent::EndBlock(EndBlockEvent {
-                                    block: BlockKind::Bibliography,
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    command_start as u32,
-                                    after_database as u32,
-                                ),
-                            );
-                        }
                         index = after_database;
                     }
                 }
@@ -15828,6 +15875,7 @@ impl<'i> Vm<'i> {
             .or(self.legacy_output_last_char);
         if self.render_event_capture {
             self.finish_executed_bibliography_item();
+            self.discard_unexecuted_bibliography_recovery_events();
             self.reconcile_executed_bibliography_events();
             self.reconcile_executed_math_events();
             self.reconcile_executed_heading_events();
@@ -15840,6 +15888,7 @@ impl<'i> Vm<'i> {
             self.reconcile_executed_table_events();
             self.reconcile_executed_footnote_events();
             self.reconcile_executed_front_matter_events();
+            self.clear_executed_bibliography_invocations();
             self.clear_semantic_suppression_ranges();
             self.reconcile_embedded_executed_inline_events();
             self.semantic_recovery_dirty_paths.clear();
@@ -15961,6 +16010,7 @@ impl<'i> Vm<'i> {
         VmSnapshot {
             continuation_safety: self.continuation_safety(input_continuation.is_some()),
             input_continuation,
+            jobname_source_path: self.jobname_source_path.clone(),
             semantic_sink: self
                 .render_event_capture
                 .then(|| self.render_events.snapshot()),
@@ -16176,6 +16226,7 @@ impl<'i> Vm<'i> {
 
     pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
         let mut vm = Self::new(interner);
+        vm.jobname_source_path = snapshot.jobname_source_path.clone();
         vm.scopes = snapshot
             .scopes
             .iter()
@@ -16881,6 +16932,8 @@ impl<'i> Vm<'i> {
                 | Primitive::Include
                 | Primitive::AtInput
                 | Primitive::InputIfFileExists
+                | Primitive::Bibliography
+                | Primitive::PrintBibliography
         )
         .then(|| {
             let mut continuation_queue = queue.clone();
@@ -18211,6 +18264,67 @@ impl<'i> Vm<'i> {
                     key_start_utf8,
                     key_end_utf8,
                     lossy_label,
+                );
+            }
+            Primitive::Bibliography | Primitive::PrintBibliography => {
+                self.skip_optional_spaces(queue);
+                if primitive == Primitive::Bibliography {
+                    if self.read_macro_argument(queue).is_none() {
+                        return;
+                    }
+                } else {
+                    while self.read_optional_bracket_tokens(queue).is_some() {
+                        self.skip_optional_spaces(queue);
+                    }
+                }
+                let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+                self.record_executed_bibliography_invocation(
+                    source_offset_utf8,
+                    invocation_end_utf8,
+                );
+                let source_path = self
+                    .logical_job_source_path()
+                    .map(Utf8Path::to_owned)
+                    .unwrap_or_else(|| self.current_execution_source_path());
+                let bbl_candidate = source_path.with_extension("bbl");
+                let Some(path) = self.resolve_existing_project_path(&bbl_candidate) else {
+                    self.emit_executed_environment_boundary(
+                        "thebibliography",
+                        true,
+                        source_offset_utf8,
+                        invocation_end_utf8,
+                    );
+                    self.emit_executed_environment_boundary(
+                        "thebibliography",
+                        false,
+                        source_offset_utf8,
+                        invocation_end_utf8,
+                    );
+                    return;
+                };
+                let checkpoint_snapshot =
+                    input_enter_snapshot.expect("bibliography input primitive snapshot");
+                let output_start_utf8 = self.output.len() as u32;
+                let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
+                let continuation_stack = self.current_continuation_stack();
+                self.record_module_checkpoint(VmModuleCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: path.clone(),
+                    resume_path: resume_path.clone(),
+                    source_offset_utf8,
+                    continuation_stack: continuation_stack.clone(),
+                    output_start_utf8,
+                    snapshot: checkpoint_snapshot,
+                });
+                self.load_module(
+                    &path,
+                    "input",
+                    true,
+                    resume_path,
+                    invocation_end_utf8,
+                    continuation_stack,
+                    Vec::new(),
+                    queue,
                 );
             }
             Primitive::MakeAtLetter | Primitive::MakeAtOther => {
@@ -22417,10 +22531,15 @@ impl<'i> Vm<'i> {
             .unwrap_or_default()
     }
 
+    fn logical_job_source_path(&self) -> Option<&Utf8Path> {
+        self.jobname_source_path
+            .as_deref()
+            .or_else(|| self.source_stack.first().map(|frame| frame.path.as_path()))
+            .or(self.entry_source_path.as_deref())
+    }
+
     fn render_jobname_tokens(&self) -> Vec<Token> {
-        self.entry_source_path
-            .as_ref()
-            .or_else(|| self.source_stack.first().map(|frame| &frame.path))
+        self.logical_job_source_path()
             .and_then(|path| path.file_stem())
             .filter(|stem| !stem.is_empty())
             .unwrap_or("texput")
@@ -24818,7 +24937,7 @@ fn strip_macro_argument_outer_group(mut tokens: Vec<Token>) -> Vec<Token> {
 
 fn builtin_primitive(name: &str) -> Option<Primitive> {
     match name {
-        "relax" => Some(Primitive::Relax),
+        "relax" | "newblock" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
         "\\" | "newline" | "linebreak" => Some(Primitive::LineBreak),
         "newpage" => Some(Primitive::PageBreak(PageBreakKind::NewPage)),
@@ -24895,6 +25014,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "end" => Some(Primitive::EndEnvironment),
         "item" => Some(Primitive::Item),
         "bibitem" | "latexdbibitem" => Some(Primitive::BibliographyItem),
+        "bibliography" | "latexdbibliography" => Some(Primitive::Bibliography),
+        "printbibliography" | "latexdprintbibliography" => Some(Primitive::PrintBibliography),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -25394,6 +25515,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::EndEnvironment => "end",
         Primitive::Item => "item",
         Primitive::BibliographyItem => "bibitem",
+        Primitive::Bibliography => "bibliography",
+        Primitive::PrintBibliography => "printbibliography",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

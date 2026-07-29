@@ -349,7 +349,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\item{}
 \let\bibitem\latexdbibitem
 \def\bibliographystyle#1{}
-\def\bibliography#1{}
+\let\bibliography\latexdbibliography
+\let\printbibliography\latexdprintbibliography
 \def\DeclareMathOperator#1#2{\def#1{#2}}
 \def\DeclareMathAlphabet#1#2#3#4#5{}
 \def\mathrm#1{#1}
@@ -748,7 +749,15 @@ pub fn capture_page_checkpoints(
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::restore(&mut interner, &checkpoint.snapshot);
     vm.set_file_root(world.root.clone());
-    vm.set_entry_source_path(checkpoint.resume_path.clone());
+    vm.set_entry_source_path(
+        world
+            .manifest
+            .toplevels
+            .first()
+            .cloned()
+            .unwrap_or_else(|| checkpoint.resume_path.clone()),
+    );
+    vm.set_execution_source_path(checkpoint.resume_path.clone());
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let mut render_event_prefix = checkpoint.render_event_prefix.clone();
@@ -779,7 +788,7 @@ pub fn capture_page_checkpoints(
                 .max()
                 .map(|target| align_replay_fragment_boundary(source, target as usize));
             if let Some(target_offset) = page_target.filter(|target| *target > *current_offset) {
-                vm.set_entry_source_path(path.clone());
+                vm.set_execution_source_path(path.clone());
                 let source_offset_utf8 = *current_offset as u32;
                 let module_trace_prefix_len = module_traces.len();
                 let outcome = vm.run_plain_fragment(
@@ -832,7 +841,7 @@ pub fn capture_page_checkpoints(
                 break;
             }
             if *current_offset < source.len() {
-                vm.set_entry_source_path(path.clone());
+                vm.set_execution_source_path(path.clone());
                 let source_offset_utf8 = *current_offset as u32;
                 let module_trace_prefix_len = module_traces.len();
                 let outcome = vm.run_plain(&source[*current_offset..]);
@@ -1204,7 +1213,7 @@ pub fn run_project_from_checkpoint_with_mounts(
                     .with_context(|| format!("failed to read replay source {source_path}"))?
             };
             let start_offset = align_char_boundary(&source, frame.source_offset_utf8 as usize);
-            vm.set_entry_source_path(frame.path.clone());
+            vm.set_execution_source_path(frame.path.clone());
             let output_prefix_len = output.len() as u32;
             let outcome = vm.run_plain(&source[start_offset..]);
             output.push_str(&outcome.output);

@@ -135,6 +135,8 @@ pub(crate) enum Primitive {
     EndEnvironment,
     Item,
     BibliographyItem,
+    Bibliography,
+    PrintBibliography,
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,

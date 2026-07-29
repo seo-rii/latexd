@@ -15,16 +15,27 @@ use crate::{
     snapshot::{
         VmActiveBibliographyCaptureSnapshot, VmBibliographyNestedSemanticSnapshot,
         VmEventExecutionAnchorSnapshot, VmExecutionAnchor, VmSemanticBibliographySnapshot,
+        VmSuppressedSourceRangeSnapshot,
     },
 };
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticBibliographyState {
     scanner_event_ids: HashSet<EventSequence>,
+    scanner_input_event_ids: HashSet<EventSequence>,
     scanner_event_anchors: HashMap<EventSequence, VmExecutionAnchor>,
     executed_events: Vec<RenderEventEnvelope>,
     executed_event_anchors: HashMap<EventSequence, VmExecutionAnchor>,
+    executed_invocations: Vec<BibliographyInvocationRange>,
     environment: BibliographyEnvironmentFrame,
+}
+
+#[derive(Debug, Clone)]
+struct BibliographyInvocationRange {
+    path: Utf8PathBuf,
+    start_utf8: u32,
+    end_utf8: u32,
+    execution_anchor: VmExecutionAnchor,
 }
 
 #[derive(Debug, Default)]
@@ -57,6 +68,13 @@ impl Vm<'_> {
             .copied()
             .collect::<Vec<_>>();
         scanner_event_ids.sort_unstable();
+        let mut scanner_input_event_ids = self
+            .semantic_bibliography
+            .scanner_input_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_input_event_ids.sort_unstable();
         let mut scanner_event_anchors = self
             .semantic_bibliography
             .scanner_event_anchors
@@ -118,9 +136,21 @@ impl Vm<'_> {
             });
         VmSemanticBibliographySnapshot {
             scanner_event_ids,
+            scanner_input_event_ids,
             scanner_event_anchors,
             executed_events: self.semantic_bibliography.executed_events.clone(),
             executed_event_anchors,
+            executed_invocations: self
+                .semantic_bibliography
+                .executed_invocations
+                .iter()
+                .map(|invocation| VmSuppressedSourceRangeSnapshot {
+                    path: invocation.path.clone(),
+                    start_utf8: invocation.start_utf8,
+                    end_utf8: invocation.end_utf8,
+                    execution_anchor: invocation.execution_anchor.clone(),
+                })
+                .collect(),
             environment_depth: self
                 .semantic_bibliography
                 .environment
@@ -137,6 +167,8 @@ impl Vm<'_> {
     ) {
         self.semantic_bibliography.scanner_event_ids =
             snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_bibliography.scanner_input_event_ids =
+            snapshot.scanner_input_event_ids.iter().copied().collect();
         self.semantic_bibliography.scanner_event_anchors = snapshot
             .scanner_event_anchors
             .iter()
@@ -147,6 +179,16 @@ impl Vm<'_> {
             .executed_event_anchors
             .iter()
             .map(|anchor| (anchor.event_sequence, anchor.execution_anchor.clone()))
+            .collect();
+        self.semantic_bibliography.executed_invocations = snapshot
+            .executed_invocations
+            .iter()
+            .map(|invocation| BibliographyInvocationRange {
+                path: invocation.path.clone(),
+                start_utf8: invocation.start_utf8,
+                end_utf8: invocation.end_utf8,
+                execution_anchor: invocation.execution_anchor.clone(),
+            })
             .collect();
         self.semantic_bibliography.environment.depth = snapshot
             .environment_depth
@@ -215,6 +257,12 @@ impl Vm<'_> {
             .insert(event_id, execution_anchor);
     }
 
+    pub(super) fn mark_scanner_bibliography_input_event(&mut self, event_id: EventSequence) {
+        self.semantic_bibliography
+            .scanner_input_event_ids
+            .insert(event_id);
+    }
+
     pub(super) fn record_overridden_bibliography_invocation(
         &mut self,
         command_name: &str,
@@ -224,6 +272,69 @@ impl Vm<'_> {
         if command_name == "bibitem" {
             self.record_suppressed_source_range(start_utf8, end_utf8);
         }
+    }
+
+    pub(super) fn record_executed_bibliography_invocation(
+        &mut self,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) {
+        if !self.render_event_capture || !self.execution_in_document || end_utf8 <= start_utf8 {
+            return;
+        }
+        self.semantic_bibliography
+            .executed_invocations
+            .push(BibliographyInvocationRange {
+                path: self.current_execution_source_path(),
+                start_utf8,
+                end_utf8,
+                execution_anchor: self.current_execution_anchor(),
+            });
+    }
+
+    pub(super) fn discard_unexecuted_bibliography_recovery_events(&mut self) {
+        let scanner_input_event_ids =
+            mem::take(&mut self.semantic_bibliography.scanner_input_event_ids);
+        let mut events = self.render_events.take_events();
+        events.retain(|event| {
+            event.meta.producer != EventProducer::ScannerRecovery
+                || !scanner_input_event_ids.contains(&event.meta.sequence)
+                || provenance_overlaps_bibliography_invocation(
+                    &event.meta.source,
+                    self.scanner_event_anchors.get(&event.meta.sequence),
+                    &self.semantic_bibliography.executed_invocations,
+                )
+        });
+        self.render_events.replace_events(events);
+    }
+
+    pub(super) fn clear_executed_bibliography_invocations(&mut self) {
+        self.semantic_bibliography.executed_invocations.clear();
+    }
+
+    pub(super) fn bibliography_suppression_range_is_executed(
+        &self,
+        source: &SourceProvenance,
+        path: &Utf8PathBuf,
+        start_utf8: u32,
+        end_utf8: u32,
+    ) -> bool {
+        source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && provenance_span_overlaps_range(&related.span, path, start_utf8, end_utf8)
+                && self
+                    .semantic_bibliography
+                    .executed_invocations
+                    .iter()
+                    .any(|invocation| {
+                        provenance_span_overlaps_range(
+                            &related.span,
+                            &invocation.path,
+                            invocation.start_utf8,
+                            invocation.end_utf8,
+                        )
+                    })
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -394,13 +505,13 @@ impl Vm<'_> {
             }) {
                 let removed = executed.remove(index);
                 executed_event_anchors.remove(&removed.meta.sequence);
-                if !self.semantic_source_is_suppressed_in_execution(
+                if !self.scanner_bibliography_event_is_suppressed(
                     &scanner_event.meta.source,
                     scanner_execution_anchor,
                 ) {
                     reconciled.push(scanner_event);
                 }
-            } else if !self.semantic_source_is_suppressed_in_execution(
+            } else if !self.scanner_bibliography_event_is_suppressed(
                 &scanner_event.meta.source,
                 scanner_execution_anchor,
             ) {
@@ -415,6 +526,21 @@ impl Vm<'_> {
             &executed_event_anchors,
         );
         self.render_events.replace_events(reconciled);
+    }
+
+    fn scanner_bibliography_event_is_suppressed(
+        &self,
+        source: &SourceProvenance,
+        execution_anchor: Option<&VmExecutionAnchor>,
+    ) -> bool {
+        if self.semantic_source_is_suppressed_in_execution(source, execution_anchor) {
+            return true;
+        }
+        let has_invocation_span = source
+            .related
+            .iter()
+            .any(|related| related.role == SourceSpanRole::Invocation);
+        has_invocation_span && self.semantic_source_is_suppressed(source)
     }
 
     fn capture_bibliography_nested_semantics(&self) -> VmBibliographyNestedSemanticSnapshot {
@@ -469,6 +595,63 @@ fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> boo
                 && right_span.start_utf8 < left_span.end_utf8
         })
     })
+}
+
+fn provenance_overlaps_bibliography_invocation(
+    source: &SourceProvenance,
+    scanner_anchor: Option<&VmExecutionAnchor>,
+    invocations: &[BibliographyInvocationRange],
+) -> bool {
+    let Some(scanner_anchor) = scanner_anchor else {
+        return false;
+    };
+    source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Invocation
+            && invocations.iter().any(|invocation| {
+                provenance_span_overlaps_range(
+                    &related.span,
+                    &invocation.path,
+                    invocation.start_utf8,
+                    invocation.end_utf8,
+                ) && scanner_anchor_descends_from_invocation(scanner_anchor, invocation)
+            })
+    })
+}
+
+fn scanner_anchor_descends_from_invocation(
+    scanner_anchor: &VmExecutionAnchor,
+    invocation: &BibliographyInvocationRange,
+) -> bool {
+    if scanner_anchor.path == invocation.path
+        && scanner_anchor.continuation_stack == invocation.execution_anchor.continuation_stack
+    {
+        return true;
+    }
+    scanner_anchor
+        .continuation_stack
+        .iter()
+        .enumerate()
+        .any(|(index, parent)| {
+            parent.path == invocation.path
+                && parent.source_offset_utf8 == invocation.end_utf8
+                && scanner_anchor.continuation_stack[index + 1..]
+                    == invocation.execution_anchor.continuation_stack
+        })
+}
+
+fn provenance_span_overlaps_range(
+    span: &ProvenanceSpan,
+    path: &Utf8PathBuf,
+    start_utf8: u32,
+    end_utf8: u32,
+) -> bool {
+    matches!(
+        span,
+        ProvenanceSpan::File(span)
+            if &span.path == path
+                && span.start_utf8 < end_utf8
+                && start_utf8 < span.end_utf8
+    )
 }
 
 fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
@@ -528,6 +711,55 @@ fn insert_unmatched_bibliography_events(
             })
             .unwrap_or(events.len());
         events.insert(insertion, event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use camino::Utf8PathBuf;
+
+    use crate::snapshot::{VmExecutionAnchor, VmReplayFrame};
+
+    use super::{BibliographyInvocationRange, scanner_anchor_descends_from_invocation};
+
+    #[test]
+    fn nested_input_anchor_descends_from_the_bibliography_invocation() {
+        let invocation = BibliographyInvocationRange {
+            path: Utf8PathBuf::from("chapter.tex"),
+            start_utf8: 29,
+            end_utf8: 54,
+            execution_anchor: VmExecutionAnchor {
+                path: Utf8PathBuf::from("chapter.tex"),
+                continuation_stack: vec![VmReplayFrame {
+                    path: Utf8PathBuf::from("main.tex"),
+                    source_offset_utf8: 80,
+                }],
+                occurrence: 1,
+            },
+        };
+        let nested_anchor = VmExecutionAnchor {
+            path: Utf8PathBuf::from("nested-bibliography.tex"),
+            continuation_stack: vec![
+                VmReplayFrame {
+                    path: Utf8PathBuf::from("main.bbl"),
+                    source_offset_utf8: 32,
+                },
+                VmReplayFrame {
+                    path: Utf8PathBuf::from("chapter.tex"),
+                    source_offset_utf8: 54,
+                },
+                VmReplayFrame {
+                    path: Utf8PathBuf::from("main.tex"),
+                    source_offset_utf8: 80,
+                },
+            ],
+            occurrence: 0,
+        };
+
+        assert!(scanner_anchor_descends_from_invocation(
+            &nested_anchor,
+            &invocation
+        ));
     }
 }
 
