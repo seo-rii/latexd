@@ -732,8 +732,8 @@ Final V6 exit criteria:
 
 ### Current V6 Implementation Status
 
-As of 2026-07-28, the footnote and standard front-matter vertical slices are
-complete.
+As of 2026-07-29, the footnote, standard front-matter, and direct bibliography
+item vertical slices are complete.
 
 Footnotes:
 
@@ -768,16 +768,37 @@ Standard front matter:
 - snapshot schema 16 preserves selected scanner IDs and pending executed
   front-matter events across continuation replay.
 
+Direct bibliography items:
+
+- `thebibliography` execution owns bibliography depth, and `\bibitem` emits a
+  structural item only when execution reaches it inside that environment;
+- the mini-kernel delegates `\bibitem` to the internal `\latexdbibitem`
+  primitive instead of defining a blank compatibility macro;
+- item capture retains executed visible text while rolling back nested
+  footnote, graphic, heading, list, table, and caption events so they do not
+  leak into the surrounding event stream;
+- false conditionals emit nothing, aliases preserve primitive meaning, user
+  redefinitions suppress matching scanner recovery, and misplaced items leave
+  following body text visible;
+- primitive events preserve exact invocation and citation-key spans, while
+  macro-produced items carry their actual expansion frames;
+- reconciliation retains compatible scanner event IDs but promotes only
+  actually executed items to high-confidence primitive or macro events;
+- snapshot schema 17 preserves bibliography depth, active item captures,
+  nested semantic baselines, and the scoped forced-text recovery range across
+  input continuation replay.
+
 Affiliation, correspondence, keywords, PACS, and profile-specific metadata are
 not part of this slice and remain explicit scanner recovery.
 
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and bibliography plus parts of math,
-table, wrapper, and profile-metadata recovery remain scanner-only. The next
-vertical slice should migrate bibliography semantics, then continue the
-remaining families and narrow the scanner entry point to source regions that
-execution explicitly delegates for recovery.
+from stable cross-revision identity, and legacy `\bibliography`,
+`\printbibliography`, `.bbl` parser paths, package-specific bibliography
+helpers, plus parts of math, table, wrapper, and profile-metadata recovery
+remain scanner-only. Subsequent slices must migrate those remaining families
+and narrow the scanner entry point to source regions that execution explicitly
+delegates for recovery.
 
 ## Shared Diagnostic Contract
 

@@ -297,9 +297,15 @@ arithmetic는 같은 scope resolver를 사용한다.
   conditional, alias, override, macro-expanded author separator/note,
   provenance, snapshot schema 16, compact IR/display-list golden을 함께
   검증한다.
+- direct bibliography slice는 실행된 `thebibliography` 안의 `\bibitem`과
+  mini-kernel `\latexdbibitem` bridge까지 완료됐다. conditional, macro,
+  alias, override, environment depth, nested semantic capture, invocation/key
+  provenance, snapshot schema 17, compact IR/display-list golden을 함께
+  검증한다.
 - affiliation/correspondence/keywords/PACS 같은 profile metadata,
-  bibliography, 일부 math/table/wrapper text는 아직 scanner recovery이며
-  family별 이전을 계속한다.
+  legacy `\bibliography`/`\printbibliography`, `.bbl` parser와 package-specific
+  bibliography helper, 일부 math/table/wrapper text는 아직 scanner
+  recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -311,7 +317,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 2. inline/display math boundary
 3. heading/title
 4. citation/reference/label/link
-5. environment/list/footnote
+5. environment/list/footnote/direct bibliography
 6. float/caption/graphic
 7. table/alignment
 
