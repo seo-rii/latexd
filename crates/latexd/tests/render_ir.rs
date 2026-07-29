@@ -14886,6 +14886,47 @@ fn addbibresource_definition_does_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn macro_generated_bibliography_metadata_stays_non_visible_in_ir_and_display_list() {
+    let source = r"\def\configurebibliography#1{%
+\addbibresource[location=local]{#1}%
+\bibliographystyle{plain}%
+\defcitealias{paper}{Paper I}%
+\nocite{hidden,*}}
+\begin{document}
+\configurebibliography{refs.bib}
+Visible \cite{visible}.
+\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    for text in [&extracted_text, &display_list_text] {
+        assert!(text.contains("Visible [?]."), "{text}");
+        for hidden in [
+            "refs.bib",
+            "location",
+            "plain",
+            "paper",
+            "Paper I",
+            "hidden",
+            "visible",
+            "configurebibliography",
+        ] {
+            assert!(!text.contains(hidden), "{hidden}: {text}");
+        }
+    }
+}
+
+#[test]
 fn lineno_commands_do_not_leak_into_ir_or_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", LINENO_COMMAND_SOURCE, &SemanticAux::default());

@@ -46,9 +46,9 @@ mod semantic_transaction;
 mod snapshot;
 
 use command::{
-    CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
-    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning,
-    Primitive, ReferenceCommand,
+    BibliographyMetadataCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
+    LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
+    MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18536,6 +18536,31 @@ impl<'i> Vm<'i> {
                     lossy_label,
                 );
             }
+            Primitive::BibliographyMetadata(command) => {
+                self.skip_optional_spaces(queue);
+                match command {
+                    BibliographyMetadataCommand::AddResource => {
+                        while self.read_optional_bracket_tokens(queue).is_some() {
+                            self.skip_optional_spaces(queue);
+                        }
+                        let _ = self.read_macro_argument(queue);
+                    }
+                    BibliographyMetadataCommand::Style | BibliographyMetadataCommand::NoCite => {
+                        let _ = self.read_macro_argument(queue);
+                    }
+                    BibliographyMetadataCommand::DefineAlias => {
+                        if self.read_macro_argument(queue).is_none() {
+                            return;
+                        }
+                        self.skip_optional_spaces(queue);
+                        let _ = self.read_macro_argument(queue);
+                    }
+                }
+                self.record_suppressed_source_range(
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                );
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25299,6 +25324,18 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "bibitem" | "latexdbibitem" => Some(Primitive::BibliographyItem),
         "bibliography" | "latexdbibliography" => Some(Primitive::Bibliography),
         "printbibliography" | "latexdprintbibliography" => Some(Primitive::PrintBibliography),
+        "addbibresource" => Some(Primitive::BibliographyMetadata(
+            BibliographyMetadataCommand::AddResource,
+        )),
+        "bibliographystyle" => Some(Primitive::BibliographyMetadata(
+            BibliographyMetadataCommand::Style,
+        )),
+        "nocite" => Some(Primitive::BibliographyMetadata(
+            BibliographyMetadataCommand::NoCite,
+        )),
+        "defcitealias" => Some(Primitive::BibliographyMetadata(
+            BibliographyMetadataCommand::DefineAlias,
+        )),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -25806,6 +25843,12 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyItem => "bibitem",
         Primitive::Bibliography => "bibliography",
         Primitive::PrintBibliography => "printbibliography",
+        Primitive::BibliographyMetadata(BibliographyMetadataCommand::AddResource) => {
+            "addbibresource"
+        }
+        Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
+        Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
+        Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

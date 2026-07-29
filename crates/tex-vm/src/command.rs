@@ -82,6 +82,14 @@ pub(crate) enum EpsfDimension {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BibliographyMetadataCommand {
+    AddResource,
+    Style,
+    NoCite,
+    DefineAlias,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -143,6 +151,7 @@ pub(crate) enum Primitive {
     BibliographyItem,
     Bibliography,
     PrintBibliography,
+    BibliographyMetadata(BibliographyMetadataCommand),
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,

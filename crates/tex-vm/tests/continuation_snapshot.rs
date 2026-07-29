@@ -802,6 +802,39 @@ fn input_exit_snapshot_replays_icml_profile_metadata() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_non_visible_bibliography_metadata() {
+    let source = r"\let\resource\addbibresource
+\def\configurebibliography{%
+\bibliographystyle{plain}%
+\defcitealias{paper}{Paper I}%
+\nocite{hidden,*}}
+\begin{document}
+\input{barrier}
+\resource[location=local]{refs.bib}
+\configurebibliography
+Visible.
+\end{document}";
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let visible_text = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(visible_text.contains("Visible."), "{visible_text}");
+    for hidden in [
+        "refs.bib", "location", "plain", "paper", "Paper I", "hidden", "*",
+    ] {
+        assert!(!visible_text.contains(hidden), "{hidden}: {visible_text}");
+    }
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),
