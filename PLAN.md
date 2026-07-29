@@ -333,9 +333,16 @@ arithmetic는 같은 scope resolver를 사용한다.
   `\unspace`, `\nopunct`, `\urlprefix`의 space/no-output behavior를 VM
   실행으로 이전했다. 이 단계는 raw command 비누출만 보장하며 biblatex
   punctuation tracker와 conditional punctuation fidelity는 아직 남아 있다.
-- package-specific bibliography wrapper helper와 아직 bridge되지 않은
-  profile command, 일부 math/table/wrapper text는 scanner recovery이며
-  family별 이전을 계속한다.
+- common one-argument bibliography wrapper slice는 `\mkbibquote`,
+  `\mkbibparens`, `\mkbibbrackets`, `\mkbibbraces`, common style/name
+  wrapper, `\mkbibsuperscript`/`\mkbibsubscript`, `\enquote`, `\parentext`를
+  VM 실행으로 이전했다. optional star, nesting, macro/`\let`, conditional,
+  override, continuation replay, IR/display-list를 검증한다. style과
+  super/subscript는 현재 visible text 및 attachment만 보존하며 구조화된
+  typography/layout 의미는 아직 만들지 않는다.
+- `\bibstring` semantic lookup, package-specific multi-argument/style
+  bibliography wrapper와 아직 bridge되지 않은 profile command, 일부
+  math/table/wrapper text는 scanner recovery이며 family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -356,6 +363,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 11. bibliography punctuation/delimiter execution
 12. explicit bibliography spacing execution
 13. bibliography state-helper visibility execution
+14. common one-argument bibliography wrapper execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

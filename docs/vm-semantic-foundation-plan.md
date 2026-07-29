@@ -874,13 +874,33 @@ Bibliography state-helper visibility:
   implementation. Pending punctuation, look-ahead suppression, `\unspace`
   rollback, and package-defined tracker interactions remain future work.
 
+Bibliography one-argument wrappers:
+
+- `\mkbibquote`, `\mkbibparens`, `\mkbibbrackets`, `\mkbibbraces`,
+  common style/name wrappers, `\mkbibsuperscript`, `\mkbibsubscript`,
+  `\enquote`, and `\parentext` are typed VM compatibility primitives;
+- execution consumes an optional star and replays the visible argument through
+  the normal token queue, so nested wrappers and macro-generated content retain
+  execution order rather than being flattened by source recovery;
+- transparent wrappers preserve readable text, quote/delimiter wrappers add
+  their visible decoration, and super/subscript wrappers attach to the
+  preceding text. Opening decoration suppresses an artificial separator before
+  a nested wrapper;
+- direct calls, macro expansion, `\let` aliases, false conditionals, user
+  overrides, continuation replay, SemanticDocumentIr, and PageDisplayList are
+  covered;
+- this slice owns visible execution only. Font style, name-part semantics, and
+  superscript/subscript layout are not yet represented as structured IR or
+  layout nodes.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and package-specific bibliography
-wrappers, full punctuation-state fidelity, unbridged profile commands, plus
-parts of math, table, and wrapper recovery remain. Subsequent slices must
-migrate those remaining families and narrow the scanner entry point to source
-regions that execution explicitly delegates for recovery.
+from stable cross-revision identity, and bibliography string lookup,
+package-specific multi-argument/style wrappers, full punctuation-state
+fidelity, unbridged profile commands, plus parts of math, table, and wrapper
+recovery remain. Subsequent slices must migrate those remaining families and
+narrow the scanner entry point to source regions that execution explicitly
+delegates for recovery.
 
 ## Shared Diagnostic Contract
 

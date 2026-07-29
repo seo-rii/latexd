@@ -313,9 +313,11 @@ The next implementation step has started with a narrow display-list spike:
   replay, and IR/display-list visibility coverage. Their resource, style,
   inclusion, and alias values are not yet modeled as first-class semantic aux
   records;
-- bibliography item text now preserves visible punctuation from common biblatex
-  formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
-  and `mkbibbraces`;
+- VM execution now owns common one-argument bibliography wrappers:
+  `mkbibquote`, `mkbibparens`, `mkbibbrackets`, `mkbibbraces`, common
+  style/name wrappers, `mkbibsuperscript`, `mkbibsubscript`, `enquote`, and
+  `parentext`. Optional stars are consumed, nested wrappers execute through the
+  token queue, and visible punctuation/arguments reach bibliography IR;
 - `bibinfo{field}{value}` and `bibfield{field}{value}` now render the visible
   value while hiding bibliography field names;
 - `captionof{type}[short]{long}` and `captionof*{type}{long}` now emit the
@@ -338,8 +340,8 @@ The next implementation step has started with a narrow display-list spike:
 - VM execution now renders common bibliography punctuation helpers
   `\addcomma`, `\addcolon`, `\addsemicolon`, and `\adddot` without leaking
   helper command names;
-- `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` now attach their visible
-  text to the preceding run instead of inserting artificial interword spaces;
+- `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` attach their visible text
+  to the preceding run instead of inserting artificial interword spaces;
 - VM execution handles low-level bibliography helpers such as `\adddotspace`,
   `\isdot`, `\bibopenparen`/`\bibcloseparen`,
   `\bibopenbracket`/`\bibclosebracket`, and
@@ -350,12 +352,14 @@ The next implementation step has started with a narrow display-list spike:
   and `\bibnamedash` with the expected attachment spacing;
 - VM execution emits separators for `\addspace`, `\addabbrvspace`,
   `\addnbspace`, `\addthinspace`, `\addlowpenspace`, and
-  `\addhighpenspace`; `\parentext{...}` remains a compatibility wrapper that
-  renders parenthesized visible text;
+  `\addhighpenspace`;
 - VM execution handles the visible compatibility behavior of `\newunit`,
   `\finentry`, `\unspace`, `\nopunct`, and `\urlprefix`, preventing helper
   names from leaking before bibliography or URL text. This does not yet model
   the complete biblatex punctuation tracker;
+- bibliography style/name wrappers and super/subscript wrappers currently
+  preserve visible text and attachment only. Structured font style, name-part
+  semantics, and script layout remain future IR/layout work;
 - `\bibnamedash` now renders as `---`;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
