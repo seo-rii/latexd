@@ -861,13 +861,26 @@ Explicit bibliography spacing:
 - macro-generated spacing reaches SemanticDocumentIr and PageDisplayList
   without relying on whole-source scanner expansion.
 
+Bibliography state-helper visibility:
+
+- `\newunit` emits the compatibility separator, while `\finentry`, `\unspace`,
+  and `\urlprefix` execute without visible text;
+- `\nopunct` emits no command text but preserves a following whitespace-only
+  source gap, matching the current compatibility projection;
+- direct calls, macro expansion, `\let` aliases, false conditionals, user
+  overrides, continuation replay, SemanticDocumentIr, and PageDisplayList are
+  covered;
+- this is a visibility migration, not a complete biblatex punctuation-state
+  implementation. Pending punctuation, look-ahead suppression, `\unspace`
+  rollback, and package-defined tracker interactions remain future work.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and package-specific bibliography
-punctuation-state/wrappers, unbridged profile commands, plus parts of math,
-table, and wrapper recovery remain scanner-only. Subsequent slices must migrate
-those remaining families and narrow the scanner entry point to source regions
-that execution explicitly delegates for recovery.
+wrappers, full punctuation-state fidelity, unbridged profile commands, plus
+parts of math, table, and wrapper recovery remain. Subsequent slices must
+migrate those remaining families and narrow the scanner entry point to source
+regions that execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 

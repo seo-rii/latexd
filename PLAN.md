@@ -329,9 +329,13 @@ arithmetic는 같은 scope resolver를 사용한다.
   `\addnbspace`, `\addthinspace`, `\addlowpenspace`, `\addhighpenspace`를
   VM 실행 space로 이전했다. punctuation의 `attach_next` 정책과 raw-source
   whitespace gap, capture on/off legacy output 일치도 함께 검증한다.
-- package-specific bibliography punctuation-state/wrapper helper와 아직
-  bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
-  recovery이며 family별 이전을 계속한다.
+- bibliography state-helper visibility slice는 `\newunit`, `\finentry`,
+  `\unspace`, `\nopunct`, `\urlprefix`의 space/no-output behavior를 VM
+  실행으로 이전했다. 이 단계는 raw command 비누출만 보장하며 biblatex
+  punctuation tracker와 conditional punctuation fidelity는 아직 남아 있다.
+- package-specific bibliography wrapper helper와 아직 bridge되지 않은
+  profile command, 일부 math/table/wrapper text는 scanner recovery이며
+  family별 이전을 계속한다.
 
 M13.4의 file-aware token origin과 expansion record로 `StableEventId`를 먼저
 도입하고 sequence와 분리한다. stable anchor는 file/token fingerprint,
@@ -351,6 +355,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 10. non-visible bibliography metadata execution
 11. bibliography punctuation/delimiter execution
 12. explicit bibliography spacing execution
+13. bibliography state-helper visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

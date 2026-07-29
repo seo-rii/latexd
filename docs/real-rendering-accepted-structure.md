@@ -337,8 +337,7 @@ The next implementation step has started with a narrow display-list spike:
   to visible `et al` text instead of leaking the raw bibstring key;
 - VM execution now renders common bibliography punctuation helpers
   `\addcomma`, `\addcolon`, `\addsemicolon`, and `\adddot` without leaking
-  helper command names. Stateful helpers such as `\newunit` and `\finentry`
-  remain on the compatibility-recovery path;
+  helper command names;
 - `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` now attach their visible
   text to the preceding run instead of inserting artificial interword spaces;
 - VM execution handles low-level bibliography helpers such as `\adddotspace`,
@@ -353,8 +352,11 @@ The next implementation step has started with a narrow display-list spike:
   `\addnbspace`, `\addthinspace`, `\addlowpenspace`, and
   `\addhighpenspace`; `\parentext{...}` remains a compatibility wrapper that
   renders parenthesized visible text;
-- `\bibnamedash` now renders as `---`, and `\urlprefix` is consumed without
-  leaking before visible `\url{...}` text;
+- VM execution handles the visible compatibility behavior of `\newunit`,
+  `\finentry`, `\unspace`, `\nopunct`, and `\urlprefix`, preventing helper
+  names from leaking before bibliography or URL text. This does not yet model
+  the complete biblatex punctuation tracker;
+- `\bibnamedash` now renders as `---`;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
