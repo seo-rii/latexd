@@ -2308,6 +2308,67 @@ impl<'i> Vm<'i> {
                         index = after_argument;
                     }
                 }
+                "toks" if in_document => {
+                    let mut assignment_index = skip_ascii_whitespace(source, index);
+                    while assignment_index < bytes.len() && bytes[assignment_index].is_ascii_digit()
+                    {
+                        assignment_index += 1;
+                    }
+                    assignment_index = skip_ascii_whitespace(source, assignment_index);
+                    if bytes.get(assignment_index).copied() == Some(b'=') {
+                        assignment_index += 1;
+                    }
+                    assignment_index = skip_ascii_whitespace(source, assignment_index);
+                    if let Some((_, _, _, after_value)) =
+                        read_braced_source_argument(source, assignment_index)
+                    {
+                        index = after_value;
+                    } else if assignment_index < bytes.len() {
+                        if bytes[assignment_index] == b'\\' {
+                            assignment_index += 1;
+                            if assignment_index < bytes.len()
+                                && (bytes[assignment_index].is_ascii_alphabetic()
+                                    || bytes[assignment_index] == b'@')
+                            {
+                                while assignment_index < bytes.len()
+                                    && (bytes[assignment_index].is_ascii_alphabetic()
+                                        || bytes[assignment_index] == b'@')
+                                {
+                                    assignment_index += 1;
+                                }
+                            } else {
+                                assignment_index += usize::from(assignment_index < bytes.len());
+                            }
+                        } else if let Some(ch) = source[assignment_index..].chars().next() {
+                            assignment_index += ch.len_utf8();
+                        }
+                        index = assignment_index;
+                    }
+                }
+                "the" if in_document => {
+                    let mut value_index = skip_ascii_whitespace(source, index);
+                    if bytes.get(value_index).copied() == Some(b'\\') {
+                        value_index += 1;
+                        if value_index < bytes.len()
+                            && (bytes[value_index].is_ascii_alphabetic()
+                                || bytes[value_index] == b'@')
+                        {
+                            while value_index < bytes.len()
+                                && (bytes[value_index].is_ascii_alphabetic()
+                                    || bytes[value_index] == b'@')
+                            {
+                                value_index += 1;
+                            }
+                        } else {
+                            value_index += usize::from(value_index < bytes.len());
+                        }
+                    }
+                    value_index = skip_ascii_whitespace(source, value_index);
+                    while value_index < bytes.len() && bytes[value_index].is_ascii_digit() {
+                        value_index += 1;
+                    }
+                    index = value_index;
+                }
                 "def" | "gdef" | "edef" | "xdef" | "protected@edef" | "protected@xdef" => {
                     let target_start = skip_ascii_whitespace(source, index);
                     if target_start < bytes.len() && bytes[target_start] == b'\\' {
@@ -21554,34 +21615,58 @@ impl<'i> Vm<'i> {
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_toks_register_index(&mut local_queue) {
                     *queue = local_queue;
-                    if let Some(tokens) = self.eqtb.tokens(index) {
-                        for token in tokens.iter().cloned().rev() {
-                            self.push_token_front(queue, token);
-                        }
-                    }
+                    let expanded = self
+                        .eqtb
+                        .tokens(index)
+                        .map(|tokens| tokens.to_vec())
+                        .unwrap_or_default();
+                    self.queue_macro_expansion(
+                        "the",
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        expanded,
+                        queue,
+                    );
                     return;
                 }
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_skip_register_index(&mut local_queue) {
                     *queue = local_queue;
                     let value = self.eqtb.skip(index).unwrap_or(0);
-                    for token in render_dimension_tokens(value).into_iter().rev() {
-                        self.push_token_front(queue, token);
-                    }
+                    self.queue_macro_expansion(
+                        "the",
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        render_dimension_tokens(value),
+                        queue,
+                    );
                     return;
                 }
                 let mut local_queue = queue.clone();
                 if let Some(value) = self.read_dimension_expression(&mut local_queue) {
                     *queue = local_queue;
-                    for token in render_dimension_tokens(value).into_iter().rev() {
-                        self.push_token_front(queue, token);
-                    }
+                    self.queue_macro_expansion(
+                        "the",
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        render_dimension_tokens(value),
+                        queue,
+                    );
                     return;
                 }
                 if let Some(value) = self.read_number_expression(queue) {
-                    for ch in value.to_string().chars().rev() {
-                        self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
-                    }
+                    let expanded = value
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                        .collect();
+                    self.queue_macro_expansion(
+                        "the",
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        expanded,
+                        queue,
+                    );
                 }
             }
             Primitive::Number => {

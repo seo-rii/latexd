@@ -917,6 +917,53 @@ fn input_if_file_exists_text_uses_the_executed_input_anchor() {
 }
 
 #[test]
+fn repeated_dynamic_input_occurrences_preserve_text_and_execution_order() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\toks0={\input{child}}
+Before. \the\toks0 Middle. \the\toks0 After.
+\end{document}",
+    );
+    let trace = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect::<String>();
+
+    assert_eq!(
+        trace.matches("Child.").count(),
+        2,
+        "{trace:?}\nlegacy output: {:?}\nevents: {:#?}",
+        outcome.output,
+        outcome.render_events
+    );
+    let before = trace.find("Before.").expect("text before first input");
+    let first_child = trace.find("Child.").expect("first child occurrence");
+    let middle = trace
+        .find("Middle.")
+        .expect("text between input occurrences");
+    let second_child = trace.rfind("Child.").expect("second child occurrence");
+    let after = trace.find("After.").expect("text after second input");
+    assert!(
+        before < first_child
+            && first_child < middle
+            && middle < second_child
+            && second_child < after,
+        "{trace:?}"
+    );
+}
+
+#[test]
 fn runtime_catcode_change_affects_unread_characters() {
     let outcome = run(r"\catcode`\@=11
 \def\foo@bar{ok}
