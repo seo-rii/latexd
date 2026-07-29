@@ -1513,6 +1513,10 @@ pub fn materialize_project(
 ) -> Result<MaterializedProject> {
     let scan = scan_project(root, toplevel)?;
     let bibliography_text_by_file = bibliography_text_by_file(&scan);
+    let jobname_bibliography = toplevel.with_extension("bbl");
+    let preserve_jobname_bibliography = scan.bibliography_files.len() == 1
+        && scan.bibliography_files.first() == Some(&jobname_bibliography)
+        && scan.files.contains_key(&jobname_bibliography);
     let mut block_numbers = BTreeMap::<usize, String>::new();
     let mut block_counters = BTreeMap::<(String, Option<String>), u32>::new();
     for block in scan.blocks.iter().filter(|block| block.numbered) {
@@ -1542,13 +1546,24 @@ pub fn materialize_project(
     let mut files = BTreeMap::new();
     let mut rewrite_spans = BTreeMap::new();
     for (path, source) in &scan.files {
+        if preserve_jobname_bibliography && path == &jobname_bibliography {
+            files.insert(path.clone(), source.clone());
+            rewrite_spans.insert(path.clone(), Vec::new());
+            continue;
+        }
         if let Some(bibliography_text) = bibliography_text_by_file.get(path) {
             files.insert(path.clone(), bibliography_text.clone());
             rewrite_spans.insert(path.clone(), Vec::new());
             continue;
         }
-        let (rewritten, file_rewrite_spans) =
-            rewrite_source(path, source, aux, &scan, &block_numbers);
+        let (rewritten, file_rewrite_spans) = rewrite_source(
+            path,
+            source,
+            aux,
+            &scan,
+            &block_numbers,
+            preserve_jobname_bibliography,
+        );
         files.insert(path.clone(), rewritten);
         rewrite_spans.insert(path.clone(), file_rewrite_spans);
     }
@@ -2614,6 +2629,7 @@ fn rewrite_source(
     aux: &SemanticAux,
     scan: &ProjectScan,
     block_numbers: &BTreeMap<usize, String>,
+    preserve_jobname_bibliography: bool,
 ) -> (String, Vec<MaterializedRewriteSpan>) {
     let mut output = String::with_capacity(source.len());
     let mut rewrite_spans = Vec::new();
@@ -5388,7 +5404,14 @@ fn rewrite_source(
             }
             "citetext" => {
                 if let Some((argument_end, text)) = read_braced_argument(source, command_end) {
-                    let (nested, _) = rewrite_source(path, &text, aux, scan, block_numbers);
+                    let (nested, _) = rewrite_source(
+                        path,
+                        &text,
+                        aux,
+                        scan,
+                        block_numbers,
+                        preserve_jobname_bibliography,
+                    );
                     let rendered = format!("({})", nested.trim());
                     let output_start_utf8 = output.len() as u32;
                     output.push_str(&rendered);
@@ -6084,6 +6107,11 @@ fn rewrite_source(
             }
             "bibliography" => {
                 if let Some((argument_end, stems)) = read_braced_argument(source, command_end) {
+                    if preserve_jobname_bibliography {
+                        output.push_str(&source[command_start..argument_end]);
+                        index = argument_end;
+                        continue;
+                    }
                     let inputs = stems
                         .split(',')
                         .map(|stem| stem.trim())
@@ -6140,6 +6168,16 @@ fn rewrite_source(
                 } else {
                     (command_end, None)
                 };
+                let preserves_existing_heading_projection =
+                    options.as_deref().is_none_or(|options| {
+                        printbibliography_heading(options).is_none()
+                            && printbibliography_title(options).is_none()
+                    });
+                if preserve_jobname_bibliography && preserves_existing_heading_projection {
+                    output.push_str(&source[command_start..cursor]);
+                    index = cursor;
+                    continue;
+                }
                 let rendered = scan
                     .bibliography_files
                     .iter()
@@ -9097,6 +9135,93 @@ mod tests {
         assert!(!main.contains("\\nocite"));
         assert!(main.contains("cite [1]."));
         assert!(main.contains("\\input{refs.bbl}"));
+    }
+
+    #[test]
+    fn materialize_project_preserves_jobname_bibliography_for_vm_execution() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let bibliography_source =
+            r"\begin{thebibliography}{1}\bibitem{alpha} Alpha entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Body \cite{alpha}.\bibliography{refs}\end{document}",
+        )
+        .expect("write main");
+        fs::write(root.join("main.bbl"), bibliography_source).expect("write jobname bbl");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+
+        assert_eq!(
+            materialized.files[&Utf8PathBuf::from("main.bbl")],
+            bibliography_source
+        );
+        assert!(materialized.files[&Utf8PathBuf::from("main.tex")].contains("Body [1]."));
+        assert!(!materialized.files[&Utf8PathBuf::from("main.tex")].contains(r"\cite"));
+        assert!(
+            materialized.files[&Utf8PathBuf::from("main.tex")].contains(r"\bibliography{refs}")
+        );
+    }
+
+    #[test]
+    fn materialize_project_preserves_jobname_printbibliography_for_vm_execution() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let bibliography_source =
+            r"\begin{thebibliography}{1}\bibitem{alpha} Alpha entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\addbibresource{refs.bib}\printbibliography[heading=none]\end{document}",
+        )
+        .expect("write main");
+        fs::write(root.join("main.bbl"), bibliography_source).expect("write jobname bbl");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+
+        assert_eq!(
+            materialized.files[&Utf8PathBuf::from("main.bbl")],
+            bibliography_source
+        );
+        assert!(
+            materialized.files[&Utf8PathBuf::from("main.tex")]
+                .contains(r"\printbibliography[heading=none]")
+        );
+    }
+
+    #[test]
+    fn materialize_project_keeps_jobname_printbibliography_heading_projection() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let bibliography_source =
+            r"\begin{thebibliography}{1}\bibitem{alpha} Alpha entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\section{Intro}\addbibresource{refs.bib}\printbibliography[heading=bibnumbered,title={References}]",
+        )
+        .expect("write main");
+        fs::write(root.join("main.bbl"), bibliography_source).expect("write jobname bbl");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+
+        assert_eq!(
+            materialized.files[&Utf8PathBuf::from("main.bbl")],
+            bibliography_source
+        );
+        assert!(
+            materialized.files[&Utf8PathBuf::from("main.tex")]
+                .contains("2 References\n\\input{main.bbl}")
+        );
     }
 
     #[test]
