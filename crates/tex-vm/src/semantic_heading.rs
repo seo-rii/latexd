@@ -13,7 +13,7 @@ use tex_tokens::{ControlSequenceId, Token};
 use crate::{
     Vm,
     input::QueueItem,
-    semantic_inline::ExecutedInlineEventMark,
+    semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{VmActiveHeadingCaptureSnapshot, VmSemanticHeadingSnapshot},
 };
 
@@ -36,9 +36,7 @@ struct ExecutedHeadingCapture {
     output_start: usize,
     lossy_prefix: bool,
     diagnostic_mark: usize,
-    text_event_mark: usize,
-    inline_event_mark: ExecutedInlineEventMark,
-    math_event_mark: usize,
+    event_mark: ExecutedSemanticEventMark,
     heading_event_mark: usize,
 }
 
@@ -72,9 +70,17 @@ impl Vm<'_> {
                     visible_output_prefix,
                     lossy_before_restore: capture.lossy_prefix
                         || self.diagnostics.len() > capture.diagnostic_mark,
-                    text_event_mark: capture.text_event_mark.try_into().unwrap_or(u64::MAX),
-                    inline_event_mark: capture.inline_event_mark.snapshot(),
-                    math_event_mark: capture.math_event_mark.try_into().unwrap_or(u64::MAX),
+                    text_event_mark: capture
+                        .event_mark
+                        .text_event_mark()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    inline_event_mark: capture.event_mark.inline_event_mark().snapshot(),
+                    math_event_mark: capture
+                        .event_mark
+                        .math_event_mark()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
                     heading_event_mark: capture.heading_event_mark.try_into().unwrap_or(u64::MAX),
                 }
             })
@@ -111,15 +117,19 @@ impl Vm<'_> {
                     output_start: self.output.len(),
                     lossy_prefix: capture.lossy_before_restore,
                     diagnostic_mark: self.diagnostics.len(),
-                    text_event_mark: capture
-                        .text_event_mark
-                        .try_into()
-                        .expect("validated text event mark"),
-                    inline_event_mark: ExecutedInlineEventMark::restore(&capture.inline_event_mark),
-                    math_event_mark: capture
-                        .math_event_mark
-                        .try_into()
-                        .expect("validated math event mark"),
+                    event_mark: ExecutedSemanticEventMark::from_parts(
+                        capture
+                            .text_event_mark
+                            .try_into()
+                            .expect("validated text event mark"),
+                        crate::semantic_inline::ExecutedInlineEventMark::restore(
+                            &capture.inline_event_mark,
+                        ),
+                        capture
+                            .math_event_mark
+                            .try_into()
+                            .expect("validated math event mark"),
+                    ),
                     heading_event_mark: capture
                         .heading_event_mark
                         .try_into()
@@ -192,9 +202,7 @@ impl Vm<'_> {
             output_start: self.output.len(),
             lossy_prefix: false,
             diagnostic_mark: self.diagnostics.len(),
-            text_event_mark: self.executed_text_event_mark(),
-            inline_event_mark: self.executed_inline_event_mark(),
-            math_event_mark: self.executed_math_event_mark(),
+            event_mark: self.mark_executed_semantic_events(),
             heading_event_mark: self.semantic_heading.executed_events.len(),
         };
         self.semantic_heading
@@ -224,9 +232,7 @@ impl Vm<'_> {
         let raw_text = raw_text.replace("[?]", "\u{e000}");
         let text = crate::normalize_latex_text_with_inline_placeholders(&raw_text)
             .replace('\u{e000}', "[?]");
-        self.rollback_executed_text_events(capture.text_event_mark);
-        self.rollback_executed_inline_events(capture.inline_event_mark);
-        self.rollback_executed_math_events(capture.math_event_mark);
+        self.rollback_executed_semantic_events(capture.event_mark);
         self.semantic_heading
             .executed_events
             .truncate(capture.heading_event_mark);

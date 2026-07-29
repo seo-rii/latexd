@@ -42,6 +42,7 @@ mod semantic_math;
 mod semantic_sink;
 mod semantic_table;
 mod semantic_text;
+mod semantic_transaction;
 mod snapshot;
 
 use command::{
