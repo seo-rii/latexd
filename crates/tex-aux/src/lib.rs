@@ -1526,7 +1526,7 @@ fn materialize_project_with_bibliography_policy(
     root: &Utf8Path,
     toplevel: &Utf8Path,
     aux: &SemanticAux,
-    preserve_single_bibliography_source: bool,
+    preserve_bibliography_sources: bool,
 ) -> Result<MaterializedProject> {
     let scan = scan_project(root, toplevel)?;
     let bibliography_text_by_file = bibliography_text_by_file(&scan);
@@ -1576,9 +1576,7 @@ fn materialize_project_with_bibliography_policy(
     for (path, source) in &scan.files {
         if (preserve_jobname_bibliography && path == &jobname_bibliography)
             || explicit_bibliography_inputs.contains(path)
-            || (preserve_single_bibliography_source
-                && scan.bibliography_files.len() == 1
-                && scan.bibliography_files.first() == Some(path))
+            || (preserve_bibliography_sources && scan.bibliography_files.contains(path))
         {
             files.insert(path.clone(), source.clone());
             rewrite_spans.insert(path.clone(), Vec::new());
@@ -9205,6 +9203,49 @@ mod tests {
             bibliography_source
         );
         assert!(vm.files[&Utf8PathBuf::from("main.tex")].contains(r"\input{refs.bbl}"));
+    }
+
+    #[test]
+    fn materialize_project_for_vm_preserves_split_bibliography_sources() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let first_source = r"\begin{thebibliography}{2}\bibitem{alpha} Alpha entry.";
+        let second_source = r"\bibitem{beta} Beta entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\bibliography{refs-a,refs-b}\end{document}",
+        )
+        .expect("write main");
+        fs::write(root.join("refs-a.bbl"), first_source).expect("write first bibliography");
+        fs::write(root.join("refs-b.bbl"), second_source).expect("write second bibliography");
+
+        let compatibility = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("compatibility materialization");
+        let vm = materialize_project_for_vm(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("VM materialization");
+
+        assert_eq!(
+            compatibility.files[&Utf8PathBuf::from("refs-a.bbl")],
+            "[1] Alpha entry."
+        );
+        assert_eq!(
+            compatibility.files[&Utf8PathBuf::from("refs-b.bbl")],
+            "[2] Beta entry."
+        );
+        assert_eq!(vm.files[&Utf8PathBuf::from("refs-a.bbl")], first_source);
+        assert_eq!(vm.files[&Utf8PathBuf::from("refs-b.bbl")], second_source);
+        let main = &vm.files[&Utf8PathBuf::from("main.tex")];
+        let first_input = main.find(r"\input{refs-a.bbl}").expect("first input");
+        let second_input = main.find(r"\input{refs-b.bbl}").expect("second input");
+        assert!(first_input < second_input);
     }
 
     #[test]

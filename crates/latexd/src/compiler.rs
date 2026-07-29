@@ -4435,8 +4435,8 @@ mod tests {
     };
     use tex_layout::TextSpan;
     use tex_render_model::{
-        DrawOp, EventProducer, GraphicAssetFormat, GraphicAssetRequest, IrBlock, PageDisplayList,
-        PositionedImage, ProvenanceSpan, Rect, RenderDiagnosticEvent, RenderEvent,
+        DocumentIr, DrawOp, EventProducer, GraphicAssetFormat, GraphicAssetRequest, IrBlock,
+        PageDisplayList, PositionedImage, ProvenanceSpan, Rect, RenderDiagnosticEvent, RenderEvent,
         RenderEventEnvelope, RenderEventStream, SemanticConfidence, SourceProvenance, TextEvent,
     };
     use tex_tokens::ControlSequenceInterner;
@@ -5539,6 +5539,115 @@ mod tests {
         );
         assert!(
             sources.executed_files[&Utf8PathBuf::from("main.tex")].contains(r"\input{refs.bbl}")
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_executes_split_bibliography_sources_in_vm() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let first_source = concat!(
+            r"\begin{thebibliography}{2}",
+            r"\iffalse Hidden prelude.\fi",
+            r"\bibitem{alpha}Alpha entry.",
+        );
+        let second_source = r"\bibitem{beta}Beta entry.\end{thebibliography}";
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\bibliography{refs-a,refs-b}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(root.join("refs-a.bbl"), first_source).expect("first bbl");
+        fs::write(root.join("refs-b.bbl"), second_source).expect("second bbl");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![
+                    Utf8PathBuf::from("main.tex"),
+                    Utf8PathBuf::from("refs-a.bbl"),
+                    Utf8PathBuf::from("refs-b.bbl"),
+                ],
+            })
+            .await
+            .expect("internal compile");
+
+        let events = serde_json::from_slice::<RenderEventStream>(
+            &fs::read(build_root.join("rev-1/render-ir/events.json")).expect("read render events"),
+        )
+        .expect("parse render events");
+        let bibliography_items = events
+            .events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some((item, &event.meta)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bibliography_items.len(), 2, "{:#?}", events.events);
+        assert_eq!(
+            bibliography_items
+                .iter()
+                .map(|(item, _)| item.key.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(
+            bibliography_items
+                .iter()
+                .map(|(item, _)| item.text.as_str())
+                .collect::<Vec<_>>(),
+            ["Alpha entry.", "Beta entry."]
+        );
+        for ((_, meta), path) in bibliography_items.iter().zip(["refs-a.bbl", "refs-b.bbl"]) {
+            assert_eq!(meta.producer, EventProducer::Primitive);
+            assert_eq!(meta.confidence, SemanticConfidence::High);
+            assert!(matches!(
+                &meta.source.primary,
+                ProvenanceSpan::File(span) if span.path == Utf8PathBuf::from(path)
+            ));
+        }
+
+        let document = serde_json::from_slice::<DocumentIr>(
+            &fs::read(build_root.join("rev-1/render-ir/document-ir.json"))
+                .expect("read document IR"),
+        )
+        .expect("parse document IR");
+        let bibliography = document
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Bibliography(bibliography) => Some(bibliography),
+                _ => None,
+            })
+            .expect("bibliography block");
+        assert_eq!(
+            bibliography
+                .items
+                .iter()
+                .map(|item| item.label.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("1"), Some("2")]
+        );
+        assert!(!document.extracted_text().contains("Hidden prelude."));
+
+        let sources = serde_json::from_slice::<StoredSourceTexts>(
+            &fs::read(build_root.join("rev-1/sources.json")).expect("read source snapshots"),
+        )
+        .expect("parse source snapshots");
+        assert_eq!(
+            sources.executed_files[&Utf8PathBuf::from("refs-a.bbl")],
+            first_source
+        );
+        assert_eq!(
+            sources.executed_files[&Utf8PathBuf::from("refs-b.bbl")],
+            second_source
         );
     }
 
