@@ -105,6 +105,11 @@ pub(crate) struct BibliographyWrapperCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BibliographyFieldCommand {
+    pub(crate) canonical_name: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -167,6 +172,7 @@ pub(crate) enum Primitive {
     Bibliography,
     PrintBibliography,
     BibliographyMetadata(BibliographyMetadataCommand),
+    BibliographyField(BibliographyFieldCommand),
     BibliographyString,
     BibliographyText(BibliographyTextCommand),
     BibliographyWrapper(BibliographyWrapperCommand),

@@ -950,6 +950,29 @@ fn input_exit_snapshot_replays_bibliography_string_lookup() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_bibliography_field_wrappers() {
+    let source = r#"\def\titlefield#1{\bibinfo{title}{#1}}
+\let\storedfield\bibfield
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}\titlefield{Alpha} \storedfield{year}{2024}
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Alpha 2024");
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),

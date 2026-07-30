@@ -46,10 +46,10 @@ mod semantic_transaction;
 mod snapshot;
 
 use command::{
-    BibliographyMetadataCommand, BibliographyTextCommand, BibliographyWrapperCommand,
-    CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand, LegacyGraphicCommand,
-    LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning,
-    Primitive, ReferenceCommand,
+    BibliographyFieldCommand, BibliographyMetadataCommand, BibliographyTextCommand,
+    BibliographyWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
+    LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
+    MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18569,6 +18569,35 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
+            Primitive::BibliographyField(_) => {
+                self.skip_optional_spaces(queue);
+                if self.read_macro_argument(queue).is_none() {
+                    return;
+                }
+                self.skip_optional_spaces(queue);
+                let Some(value) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let has_value = !value.is_empty();
+                for token in value.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+                if has_value
+                    && self.last_legacy_output_char().is_some_and(|ch| {
+                        !ch.is_whitespace() && !matches!(ch, '"' | '(' | '[' | '{')
+                    })
+                {
+                    self.push_token_front(
+                        queue,
+                        Token::character(
+                            ' ',
+                            CatCode::Space,
+                            source_offset_utf8 as usize,
+                            source_end_utf8 as usize,
+                        ),
+                    );
+                }
+            }
             Primitive::BibliographyString => {
                 self.skip_optional_spaces(queue);
                 if matches!(
@@ -25516,6 +25545,12 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "defcitealias" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::DefineAlias,
         )),
+        "bibinfo" => Some(Primitive::BibliographyField(BibliographyFieldCommand {
+            canonical_name: "bibinfo",
+        })),
+        "bibfield" => Some(Primitive::BibliographyField(BibliographyFieldCommand {
+            canonical_name: "bibfield",
+        })),
         "bibstring" => Some(Primitive::BibliographyString),
         "addcomma" => bibliography_text("addcomma", ",", false),
         "addcolon" => bibliography_text("addcolon", ":", false),
@@ -26073,6 +26108,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
+        Primitive::BibliographyField(command) => command.canonical_name,
         Primitive::BibliographyString => "bibstring",
         Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::BibliographyWrapper(command) => command.canonical_name,
