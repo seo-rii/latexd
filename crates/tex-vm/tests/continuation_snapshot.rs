@@ -1021,6 +1021,29 @@ fn input_exit_snapshot_replays_natexlab_suffixes() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_phantom_wrapper_aliases() {
+    let source = r#"\def\hide#1{\phantom{#1}}
+\let\widehide\hphantom
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}Visible \hide{Ghost}\widehide{Wide}\vphantom{Tall}Text.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Visible Text.");
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),

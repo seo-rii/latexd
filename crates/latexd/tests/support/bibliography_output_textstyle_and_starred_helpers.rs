@@ -62,6 +62,7 @@ toplevel:
 
 enum BibliographyOutputTextstyleAndStarredCase {
     CaseTextstyleAndTextsuper,
+    PhantomWrappers,
     Urlstyle,
     NameAffix,
     StarredCaseWrappers,
@@ -121,6 +122,19 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\textsubscript",
                 ],
                 "[1] NASA. alpha title. beta title. Emph. Trimmed. Visible. TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap. Quote's. Double\"q. Angles<x>. Pipe|join. Path/name. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.",
+            ),
+            BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",
+                "Visible Text.",
+                vec![
+                    "\\phantom",
+                    "\\hphantom",
+                    "\\vphantom",
+                    "Ghost",
+                    "Wide",
+                    "Tall",
+                ],
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::Urlstyle => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\urlstyle{same}\\url{https://example.test/paper}.\\end{thebibliography}",

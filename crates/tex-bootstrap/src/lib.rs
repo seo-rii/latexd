@@ -1869,7 +1869,7 @@ fn align_replay_fragment_boundary(source: &str, requested_offset: usize) -> usiz
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{collections::BTreeMap, fs};
 
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
@@ -1881,8 +1881,8 @@ mod tests {
         LayoutOptions, ProjectLayoutProfile, align_replay_fragment_boundary, build_project_pdf,
         capture_page_checkpoints, compile_mini_kernel_snapshot, layout_options_for_profile,
         layout_profile_from_source, render_event_prefix_for_snapshot, run_project,
-        run_project_from_base_snapshot, run_project_from_checkpoint,
-        run_project_pdf_from_base_snapshot, run_project_with_snapshot,
+        run_project_from_base_snapshot, run_project_from_base_snapshot_with_mounts,
+        run_project_from_checkpoint, run_project_pdf_from_base_snapshot, run_project_with_snapshot,
     };
 
     #[test]
@@ -1930,6 +1930,64 @@ mod tests {
                 .source_lengths
                 .contains_key(&Utf8PathBuf::from("main.tex"))
         );
+    }
+
+    #[test]
+    fn mini_kernel_snapshot_executes_phantom_wrappers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\begin{document}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let build = run_project_with_snapshot(&world, &snapshot).expect("build");
+
+        assert_eq!(build.output, "Visible Text.");
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
+    fn mini_kernel_snapshot_executes_mounted_bibliography_phantoms() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(root.join("main.tex"), "placeholder").expect("main");
+        fs::write(root.join("refs.bbl"), "placeholder").expect("bibliography");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let mounted = BTreeMap::from([
+            (
+                Utf8PathBuf::from("main.tex"),
+                r"\documentclass{article}\begin{document}\input{refs.bbl}\end{document}"
+                    .to_string(),
+            ),
+            (
+                Utf8PathBuf::from("refs.bbl"),
+                r"\begin{thebibliography}{1}\bibitem{key}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{thebibliography}"
+                    .to_string(),
+            ),
+        ]);
+        let (build, _) =
+            run_project_from_base_snapshot_with_mounts(&world, &snapshot, &mounted).expect("build");
+
+        assert_eq!(build.output, "Visible Text.");
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
     }
 
     #[test]

@@ -49,7 +49,8 @@ use command::{
     BibliographyFieldCommand, BibliographyMetadataCommand, BibliographyTextCommand,
     BibliographyWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
     LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
-    MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, Primitive, ReferenceCommand,
+    MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand, Primitive,
+    ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18792,6 +18793,15 @@ impl<'i> Vm<'i> {
                     self.push_token_front(queue, token);
                 }
             }
+            Primitive::PhantomWrapper(_) => {
+                if self.read_macro_argument(queue).is_none() {
+                    return;
+                }
+                self.record_suppressed_source_range(
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                );
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25645,6 +25655,16 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             canonical_name: "NAT",
             source_suffix: "@exlab",
         })),
+        "phantom" | "hphantom" | "vphantom" => {
+            Some(Primitive::PhantomWrapper(PhantomWrapperCommand {
+                canonical_name: match name {
+                    "phantom" => "phantom",
+                    "hphantom" => "hphantom",
+                    "vphantom" => "vphantom",
+                    _ => unreachable!("matched phantom wrapper name"),
+                },
+            }))
+        }
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -26163,6 +26183,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::NatbibSplitSuffix(command) => command.canonical_name,
+        Primitive::PhantomWrapper(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

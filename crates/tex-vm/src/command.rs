@@ -116,6 +116,11 @@ pub(crate) struct NatbibSplitSuffixCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PhantomWrapperCommand {
+    pub(crate) canonical_name: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -183,6 +188,7 @@ pub(crate) enum Primitive {
     BibliographyText(BibliographyTextCommand),
     BibliographyWrapper(BibliographyWrapperCommand),
     NatbibSplitSuffix(NatbibSplitSuffixCommand),
+    PhantomWrapper(PhantomWrapperCommand),
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,

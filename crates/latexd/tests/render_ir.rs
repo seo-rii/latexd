@@ -4287,6 +4287,47 @@ fn bibliography_item_phantom_wrappers_hide_invisible_text() {
 }
 
 #[test]
+fn macro_generated_phantom_wrappers_hide_ir_and_display_list_text() {
+    let source = r#"\def\hide#1{\phantom{#1}}
+\let\widehide\hphantom
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{alpha}Visible \hide{Ghost}\widehide{Wide}\vphantom{Tall}Text.
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "Visible Text.";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in ["Ghost", "Wide", "Tall", "phantom", "hphantom", "vphantom"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn bibliography_item_tex_spacing_commands_do_not_render_as_punctuation() {
     let capture = capture_internal_render_ir(
         "main.tex",
