@@ -988,6 +988,25 @@ Bibliography case-wrapper visibility:
   sentence-case or title-case transformation, locale rules, protected
   capitalization regions, or biblatex's complete case-conversion semantics.
 
+No-output state-helper execution:
+
+- `\leavevmode` and `\unskip` are typed VM primitives, so direct calls, macro
+  expansion, `\let` aliases, false conditionals, user overrides, and
+  input-boundary continuation replay follow execution rather than scanner
+  normalization;
+- `\leavevmode` currently produces no visible output. It does not yet create or
+  transition a TeX horizontal-mode nest;
+- `\unskip` removes trailing whitespace from the current legacy linear output,
+  removes the immediately preceding executed `Space` event, and trims the
+  current structured-table cell before following punctuation is captured;
+- capture-disabled output, mounted raw `.bbl` input, SemanticDocumentIr,
+  PageDisplayList, structured-table cells, and focused compiler smoke are
+  covered. Stored `.bbl` sources remain unchanged;
+- this is a compatibility execution slice, not hlist glue semantics. It cannot
+  remove glue from an output prefix already externalized before a continuation
+  checkpoint. True mode transitions, list-tail inspection, and cross-boundary
+  glue mutation belong to the future nest and LayoutIr implementation.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,

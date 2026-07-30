@@ -466,6 +466,12 @@ The next implementation step has started with a narrow display-list spike:
   macros, aliases, conditionals, checkpoint replay, and raw `.bbl` preservation
   are covered; capitalization transformation remains a later compatibility
   layer;
+- executed bibliography bodies now handle `\leavevmode` without visible
+  leakage and apply `\unskip` to the current linear output, executed-space
+  event, and structured-table cell. Macro aliases, conditionals, overrides,
+  checkpoint replay, raw `.bbl` preservation, Document IR, and display-list
+  projection are covered. Actual horizontal-mode transitions and hlist glue
+  removal remain LayoutIr work;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;

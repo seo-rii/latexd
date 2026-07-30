@@ -380,6 +380,14 @@ arithmetic는 같은 scope resolver를 사용한다.
   임의로 띄우지 않는다. 이 단계는 wrapper 실행과 visibility만 소유하며
   실제 sentence/title case 변환과 locale-aware capitalization은 아직
   구현하지 않는다. 저장된 `.bbl`은 원문 그대로 유지한다.
+- no-output state-helper slice는 `\leavevmode`와 `\unskip`을 typed VM
+  primitive로 이전했다. `\leavevmode`는 command leakage 없이 실행되고,
+  `\unskip`은 현재 legacy linear output, 직전 executed `Space` event,
+  구조화된 table cell의 trailing whitespace를 제거한다. capture on/off,
+  raw `.bbl`, macro/`\let`, conditional, override, input-boundary replay,
+  IR/display-list, focused production smoke를 검증한다. 이는 아직 실제
+  horizontal-mode 진입이나 hlist glue 제거가 아니며, checkpoint 전에 이미
+  외부화된 output prefix를 다시 수정하지 않는다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -411,6 +419,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 18. natbib year-suffix visibility execution
 19. phantom wrapper visibility execution
 20. bibliography case-wrapper visibility execution
+21. no-output state-helper execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,
