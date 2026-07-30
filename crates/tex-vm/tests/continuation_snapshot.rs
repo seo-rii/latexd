@@ -973,6 +973,29 @@ fn input_exit_snapshot_replays_bibliography_field_wrappers() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_bibliography_identifier_wrappers() {
+    let source = r#"\def\paperdoi#1{\doi{#1}}
+\let\archiveid\eprint
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}\paperdoi{10.1000/example} \archiveid{arXiv:2401.00001}
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "10.1000/example arXiv:2401.00001");
+}
+
+#[test]
 fn input_exit_snapshot_resumes_active_math_capture() {
     for (source, display) in [
         (r"\begin{document}$a\input{barrier}b$\end{document}", false),

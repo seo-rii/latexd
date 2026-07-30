@@ -3944,6 +3944,46 @@ fn macro_generated_bibliography_fields_reach_ir_and_display_list() {
 }
 
 #[test]
+fn macro_generated_bibliography_identifiers_reach_ir_and_display_list() {
+    let source = r#"\def\paperdoi#1{\doi{#1}}
+\let\archiveid\eprint
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}\paperdoi{10.1000/example} \archiveid{arXiv:2401.00001}
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "10.1000/example arXiv:2401.00001";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    assert!(
+        capture.document_ir.extracted_text().contains(expected),
+        "{}",
+        capture.document_ir.extracted_text()
+    );
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_namedash_and_urlprefix_render_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

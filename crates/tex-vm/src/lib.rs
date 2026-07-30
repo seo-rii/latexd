@@ -25595,6 +25595,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "mkbibsubscript" => bibliography_wrapper("mkbibsubscript", "", "", false),
         "enquote" => bibliography_wrapper("enquote", "\"", "\"", true),
         "parentext" => bibliography_wrapper("parentext", "(", ")", true),
+        "doi" => bibliography_wrapper("doi", "", "", true),
+        "eprint" => bibliography_wrapper("eprint", "", "", true),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
