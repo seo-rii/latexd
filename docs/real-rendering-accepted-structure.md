@@ -450,6 +450,12 @@ The next implementation step has started with a narrow display-list spike:
   recovery markup;
 - stored `.bbl` source artifacts remain raw for deterministic replay and
   debugging, while executed output and semantic aux projections are normalized;
+- `\phantom`, `\hphantom`, and `\vphantom` now own visibility in VM execution:
+  hidden text and nested recovery events do not reach Document IR or the
+  display list, while macro aliases and checkpoint replay retain that behavior;
+- phantom dimensions are not yet represented. Preserving invisible box
+  width/height/depth is deferred to the hlist/vlist Layout IR rather than being
+  approximated as visible text or renderer-specific spacing;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;

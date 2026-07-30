@@ -951,6 +951,23 @@ Natbib year-suffix visibility:
   debugging. Only executed output and semantic aux projections are normalized,
   so source preservation is not confused with rendered-text fidelity.
 
+Phantom wrapper visibility:
+
+- `\phantom{...}`, `\hphantom{...}`, and `\vphantom{...}` are typed VM
+  primitives that consume one hidden argument without leaking the command or
+  its text into legacy output;
+- the executed invocation records a suppression range, including the macro
+  call range when expanded, so scanner-recovery citations, references, links,
+  labels, and math nested inside hidden content cannot survive reconciliation;
+- canonical primitive names preserve `\let` aliases across continuation
+  snapshots. Capture on/off, false conditionals, user overrides, input-boundary
+  replay, mini-kernel base snapshots, mounted `.bbl` input,
+  SemanticDocumentIr, PageDisplayList, and focused compiler smoke are covered;
+- this is a compatibility visibility slice, not TeX box semantics. The VM does
+  not yet construct invisible boxes with retained width, height, or depth, and
+  it does not execute hidden-argument side effects. Those behaviors require the
+  hlist/vlist Layout IR and a scoped hidden-box execution model.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
