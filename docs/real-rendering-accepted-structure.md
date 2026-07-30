@@ -323,6 +323,9 @@ The next implementation step has started with a narrow display-list spike:
   expansion and value tokens execute normally, including through macros,
   aliases, and nested wrappers. The separate semantic aux scanner still owns
   citation-field metadata extraction;
+- VM execution now owns the visible values of `doi{...}` and `eprint{...}` via
+  transparent bibliography wrappers. Identifier semantic nodes, generated
+  DOI/arXiv targets, and link annotations remain future work;
 - `captionof{type}[short]{long}` and `captionof*{type}{long}` now emit the
   long visible caption without leaking float type, short-title, or following
   label keys into body text;

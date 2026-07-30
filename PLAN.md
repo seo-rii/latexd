@@ -350,6 +350,11 @@ arithmetic는 같은 scope resolver를 사용한다.
   nested wrapper, macro/`\let`, conditional, override, continuation replay,
   IR/display-list와 기존 aux citation-field regression을 검증한다. field
   metadata를 VM semantic event로 만드는 작업은 아직 남아 있다.
+- bibliography identifier visibility slice는 `\doi{value}`와
+  `\eprint{value}`를 transparent one-argument VM wrapper로 이전했다.
+  capture off, nested wrapper, macro/`\let`, conditional, override,
+  continuation replay, IR/display-list와 DOI/eprint aux citation regression을
+  검증한다. hyperlink annotation과 identifier semantic node는 아직 없다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -377,6 +382,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 14. common one-argument bibliography wrapper execution
 15. bibliography string lookup execution
 16. bibliography field-wrapper visibility execution
+17. bibliography DOI/eprint visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

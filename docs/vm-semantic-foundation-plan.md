@@ -922,6 +922,18 @@ Bibliography field-wrapper visibility:
   the independent aux field scan with VM-produced semantic metadata records is
   still future work.
 
+Bibliography identifier visibility:
+
+- `\doi{value}` and `\eprint{value}` use the typed transparent bibliography
+  wrapper primitive, so their value token lists execute without leaking raw
+  command names;
+- capture-disabled output, nested wrappers, macro expansion, `\let` aliases,
+  false conditionals, user overrides, continuation replay,
+  SemanticDocumentIr, and PageDisplayList are covered;
+- existing DOI/eprint citation-field aux regression remains green;
+- this slice preserves visible values only. It does not yet emit identifier
+  semantic nodes, construct DOI/arXiv targets, or create link annotations.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
