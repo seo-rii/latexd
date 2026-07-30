@@ -472,6 +472,12 @@ The next implementation step has started with a narrow display-list spike:
   checkpoint replay, raw `.bbl` preservation, Document IR, and display-list
   projection are covered. Actual horizontal-mode transitions and hlist glue
   removal remain LayoutIr work;
+- executed bibliography bodies now consume the real visibility signatures of
+  `\framebox`, `\makebox`, `\raisebox`, and `\parbox`, including bracket
+  options and picture-mode `framebox/makebox` geometry, while sending only the
+  body through VM execution. The mini-kernel delegates these commands to typed
+  primitives; box dimensions, alignment, frames, and raising remain future
+  LayoutIr semantics;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;

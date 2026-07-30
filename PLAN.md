@@ -388,6 +388,15 @@ arithmetic는 같은 scope resolver를 사용한다.
   IR/display-list, focused production smoke를 검증한다. 이는 아직 실제
   horizontal-mode 진입이나 hlist glue 제거가 아니며, checkpoint 전에 이미
   외부화된 output prefix를 다시 수정하지 않는다.
+- bibliography box-wrapper slice는 `\framebox`, `\makebox`, `\raisebox`,
+  `\parbox`를 서명별 typed VM primitive로 이전했다. bracket형 옵션과
+  치수 인자를 비가시 metadata로 소비하고 body만 정상 token queue에서
+  실행하며, `framebox/makebox`의 picture-mode `(width,height)[position]`
+  형식도 처리한다. mini-kernel의 부정확한 wrapper macro는 제거했다.
+  capture on/off, raw `.bbl`, macro/`\let`, conditional, override,
+  input-boundary replay, IR/display-list, focused production smoke를 검증한다.
+  실제 box geometry, alignment, raise, dimension evaluation은 아직 LayoutIr
+  의미가 아니다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -420,6 +429,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 19. phantom wrapper visibility execution
 20. bibliography case-wrapper visibility execution
 21. no-output state-helper execution
+22. bibliography box-wrapper visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

@@ -1007,6 +1007,26 @@ No-output state-helper execution:
   checkpoint. True mode transitions, list-tail inspection, and cross-boundary
   glue mutation belong to the future nest and LayoutIr implementation.
 
+Bibliography box-wrapper execution:
+
+- `\framebox`, `\makebox`, `\raisebox`, and `\parbox` use a typed command enum
+  rather than one generic wrapper signature;
+- `framebox/makebox` consume up to two bracket options or picture-mode
+  `(width,height)[position]`, `raisebox` consumes lift plus optional height and
+  depth, and `parbox` consumes up to three positioning/height options plus
+  width. Only the visible body returns to the normal execution queue;
+- the mini-kernel no longer defines lossy `makebox`, `raisebox`, or `parbox`
+  macros that shadow these primitives. Document and package definitions still
+  override builtins through the normal Eqtb path;
+- capture-disabled output, mounted raw `.bbl` input, macro expansion, `\let`
+  aliases, false conditionals, user overrides, input-boundary continuation
+  replay, SemanticDocumentIr, PageDisplayList, and focused compiler smoke are
+  covered;
+- this slice preserves visibility and signatures only. It does not evaluate
+  dimensions or create positioned, framed, raised, paragraph, or picture
+  boxes. Those geometry and alignment semantics require typed dimensions and
+  hlist/vlist LayoutIr nodes.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
