@@ -318,8 +318,11 @@ The next implementation step has started with a narrow display-list spike:
   style/name wrappers, `mkbibsuperscript`, `mkbibsubscript`, `enquote`, and
   `parentext`. Optional stars are consumed, nested wrappers execute through the
   token queue, and visible punctuation/arguments reach bibliography IR;
-- `bibinfo{field}{value}` and `bibfield{field}{value}` now render the visible
-  value while hiding bibliography field names;
+- VM execution now owns `bibinfo{field}{value}` and
+  `bibfield{field}{value}` visibility: field selectors are consumed without
+  expansion and value tokens execute normally, including through macros,
+  aliases, and nested wrappers. The separate semantic aux scanner still owns
+  citation-field metadata extraction;
 - `captionof{type}[short]{long}` and `captionof*{type}{long}` now emit the
   long visible caption without leaking float type, short-title, or following
   label keys into body text;

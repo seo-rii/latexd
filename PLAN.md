@@ -344,6 +344,12 @@ arithmetic는 같은 scope resolver를 사용한다.
   완전 확장된 key를 소비하고 `andothers`를 `et al`로 lookup하도록
   이전했다. unknown key의 readable fallback, capture on/off, macro/`\let`,
   conditional, override, continuation replay, IR/display-list를 검증한다.
+- bibliography field-wrapper visibility slice는 `\bibinfo{field}{value}`와
+  `\bibfield{field}{value}`의 실제 실행이 field selector를 확장 없이
+  소비하고 value token list만 재실행하도록 이전했다. capture off,
+  nested wrapper, macro/`\let`, conditional, override, continuation replay,
+  IR/display-list와 기존 aux citation-field regression을 검증한다. field
+  metadata를 VM semantic event로 만드는 작업은 아직 남아 있다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -370,6 +376,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 13. bibliography state-helper visibility execution
 14. common one-argument bibliography wrapper execution
 15. bibliography string lookup execution
+16. bibliography field-wrapper visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

@@ -907,6 +907,21 @@ Bibliography string lookup:
   plural forms, capitalization variants, and the full string table remain
   future work.
 
+Bibliography field-wrapper visibility:
+
+- `\bibinfo{field}{value}` and `\bibfield{field}{value}` are typed VM
+  compatibility primitives. Execution consumes the field selector without
+  expanding it and replays only the value token list through the normal queue;
+- capture-disabled output, nested wrappers, macro expansion, `\let` aliases,
+  false conditionals, user overrides, continuation replay,
+  SemanticDocumentIr, and PageDisplayList are covered;
+- the existing semantic aux scanner continues to extract author, title, year,
+  identifier, and URL metadata for citation commands, and its regression tests
+  remain green;
+- this slice owns visible execution and selector suppression only. Replacing
+  the independent aux field scan with VM-produced semantic metadata records is
+  still future work.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
