@@ -968,6 +968,26 @@ Phantom wrapper visibility:
   it does not execute hidden-argument side effects. Those behaviors require the
   hlist/vlist Layout IR and a scoped hidden-box execution model.
 
+Bibliography case-wrapper visibility:
+
+- `\NoCaseChange{...}`, `\MakeSentenceCase{...}`, and
+  `\MakeTitleCase{...}` use the transparent VM bibliography-wrapper primitive,
+  and the latter two accept their optional starred spelling without leaking
+  command markup;
+- visible argument tokens return to the normal execution queue. Macro
+  expansion, `\let` aliases, false conditionals, user overrides, and
+  input-boundary continuation replay therefore follow VM execution rather than
+  whole-source scanner guesses;
+- the wrapper adds no synthetic separator, so adjacent forms such as
+  `Mc\NoCaseChange{Donald}` remain `McDonald`. Source whitespace remains the
+  only interword separator;
+- capture-disabled output, mounted raw `.bbl` input, SemanticDocumentIr,
+  PageDisplayList, and focused compiler smoke are covered. Stored `.bbl`
+  sources remain byte-for-byte input artifacts;
+- this slice preserves the visible argument unchanged. It does not implement
+  sentence-case or title-case transformation, locale rules, protected
+  capitalization regions, or biblatex's complete case-conversion semantics.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,

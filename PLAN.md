@@ -372,6 +372,14 @@ arithmetic는 같은 scope resolver를 사용한다.
   smoke를 검증한다. 현재 단계는 visibility만 소유하며 phantom box의
   width/height/depth와 인자 내부 TeX side effect는 아직 Layout IR로
   모델링하지 않는다.
+- bibliography case-wrapper visibility slice는 `\NoCaseChange{...}`,
+  `\MakeSentenceCase{...}`, `\MakeTitleCase{...}`와 optional star를
+  transparent VM wrapper 실행으로 이전했다. capture on/off, raw `.bbl`,
+  macro/`\let`, conditional, override, input-boundary replay,
+  IR/display-list, focused production smoke를 검증하고 인접한 source text를
+  임의로 띄우지 않는다. 이 단계는 wrapper 실행과 visibility만 소유하며
+  실제 sentence/title case 변환과 locale-aware capitalization은 아직
+  구현하지 않는다. 저장된 `.bbl`은 원문 그대로 유지한다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -402,6 +410,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 17. bibliography DOI/eprint visibility execution
 18. natbib year-suffix visibility execution
 19. phantom wrapper visibility execution
+20. bibliography case-wrapper visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

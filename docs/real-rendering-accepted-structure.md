@@ -331,14 +331,18 @@ The next implementation step has started with a narrow display-list spike:
   label keys into body text;
 - `phantom`, `hphantom`, and `vphantom` now consume their invisible box text
   without leaking that content into bibliography/body extraction;
+- VM execution now owns `NoCaseChange`, `MakeSentenceCase`, and
+  `MakeTitleCase` wrapper visibility, including optional stars. Their arguments
+  remain unchanged and retain adjacent text boundaries; locale-aware
+  capitalization is not yet implemented;
 - TeX spacing control symbols such as `\!`, `\,`, `\;`, `\:`, `\space`,
   and control-space now normalize to invisible or space text instead of
   literal punctuation;
 - common no-argument text symbol commands such as `\textquotesingle`,
   `\textquotedbl`, `\textless`, `\textgreater`, `\textbar`, and `\slash` now
   render as their visible symbols;
-- bibliography text extraction now passes through common case, text-style, and
-  box wrappers while dropping non-visible wrapper options and control commands;
+- bibliography text extraction still passes through common text-style and box
+  wrappers while dropping non-visible wrapper options and control commands;
 - `\urlstyle{...}` is treated as a non-visible URL style declaration while
   preserving the visible URL from `\url{...}`;
 - VM execution now owns `\bibstring`: it fully expands the key and maps
@@ -456,6 +460,12 @@ The next implementation step has started with a narrow display-list spike:
 - phantom dimensions are not yet represented. Preserving invisible box
   width/height/depth is deferred to the hlist/vlist Layout IR rather than being
   approximated as visible text or renderer-specific spacing;
+- executed bibliography bodies now pass `\NoCaseChange`,
+  `\MakeSentenceCase`, and `\MakeTitleCase` arguments through VM execution into
+  Document IR and the display list without command leakage. Optional stars,
+  macros, aliases, conditionals, checkpoint replay, and raw `.bbl` preservation
+  are covered; capitalization transformation remains a later compatibility
+  layer;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;
