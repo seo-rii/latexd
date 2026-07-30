@@ -478,6 +478,11 @@ The next implementation step has started with a narrow display-list spike:
   body through VM execution. The mini-kernel delegates these commands to typed
   primitives; box dimensions, alignment, frames, and raising remain future
   LayoutIr semantics;
+- executed bibliography bodies now emit apostrophe, quote, angle, bar, and
+  slash text-symbol commands from typed VM primitives. Macro aliases,
+  conditionals, overrides, checkpoint replay, raw `.bbl` preservation,
+  Document IR, and display-list projection are covered without restoring
+  control-word source whitespace;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;

@@ -397,6 +397,13 @@ arithmetic는 같은 scope resolver를 사용한다.
   input-boundary replay, IR/display-list, focused production smoke를 검증한다.
   실제 box geometry, alignment, raise, dimension evaluation은 아직 LayoutIr
   의미가 아니다.
+- visible text-symbol slice는 `\textquotesingle`, `\textquotedbl`,
+  `\textless`, `\textgreater`, `\textbar`, `\slash`를 canonical name과
+  visible character를 가진 typed VM primitive로 이전했다. control-word
+  뒤 source whitespace를 임의로 복원하지 않아 다음 문자에 올바르게
+  붙인다. capture on/off, raw `.bbl`, macro/`\let`, conditional, override,
+  input-boundary replay, IR/display-list, focused production smoke를 검증한다.
+  이는 font encoding이나 glyph-level symbol layout을 모델링하지 않는다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -430,6 +437,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 20. bibliography case-wrapper visibility execution
 21. no-output state-helper execution
 22. bibliography box-wrapper visibility execution
+23. visible text-symbol execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

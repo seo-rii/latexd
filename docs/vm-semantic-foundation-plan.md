@@ -1027,6 +1027,22 @@ Bibliography box-wrapper execution:
   boxes. Those geometry and alignment semantics require typed dimensions and
   hlist/vlist LayoutIr nodes.
 
+Visible text-symbol execution:
+
+- `\textquotesingle`, `\textquotedbl`, `\textless`, `\textgreater`,
+  `\textbar`, and `\slash` use a typed command carrying the canonical snapshot
+  name and visible character;
+- direct execution writes the character through the normal executed-text and
+  legacy-output paths. It does not restore the source whitespace consumed after
+  a control word, so `Quote\textquotesingle s` remains `Quote's`;
+- capture-disabled output, mounted raw `.bbl` input, macro expansion, `\let`
+  aliases, false conditionals, user overrides, input-boundary continuation
+  replay, SemanticDocumentIr, PageDisplayList, and focused compiler smoke are
+  covered;
+- this slice defines visible character semantics only. Font encoding, glyph
+  selection, typography, and renderer-neutral symbol runs remain font/LayoutIr
+  work.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
