@@ -927,6 +927,29 @@ fn input_exit_snapshot_replays_bibliography_wrappers() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_bibliography_case_wrappers() {
+    let source = r#"\def\sentence#1{\MakeSentenceCase*{#1}}
+\let\titlecase\MakeTitleCase
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}\NoCaseChange{NASA}. \sentence{alpha title}. \titlecase{beta title}.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "NASA. alpha title. beta title.");
+}
+
+#[test]
 fn input_exit_snapshot_replays_bibliography_string_lookup() {
     let source = r#"\def\term{andothers}
 \let\localized\bibstring

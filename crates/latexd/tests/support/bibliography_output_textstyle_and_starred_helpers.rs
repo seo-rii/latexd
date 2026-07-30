@@ -152,7 +152,7 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\MakeSentenceCase*{alpha title}. \\MakeTitleCase*{beta title}.\\end{thebibliography}",
                 "alpha title. beta title.",
                 vec!["\\MakeSentenceCase*", "\\MakeTitleCase*"],
-                "[1] alpha title. beta title.",
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\MakeSentenceCase*{alpha title}. \\MakeTitleCase*{beta title}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::StarredFormattingWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\mkbibquote*{Alpha Title}. \\mkbibparens*{2024}. \\mkbibbrackets*{note}. \\mkbibbraces*{Supplement}. \\mkbibemph*{Emph}. \\mkbibbold*{Bold}. \\mkbibitalic*{Italic}.\\end{thebibliography}",
