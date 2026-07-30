@@ -732,7 +732,7 @@ Final V6 exit criteria:
 
 ### Current V6 Implementation Status
 
-As of 2026-07-29, the footnote, standard/common-profile front-matter, direct
+As of 2026-07-30, the footnote, standard/common-profile front-matter, direct
 bibliography item, and bibliography materialization vertical slices are
 complete.
 
@@ -933,6 +933,23 @@ Bibliography identifier visibility:
 - existing DOI/eprint citation-field aux regression remains green;
 - this slice preserves visible values only. It does not yet emit identifier
   semantic nodes, construct DOI/arXiv targets, or create link annotations.
+
+Natbib year-suffix visibility:
+
+- `\natexlab{value}` and `\NAT@exlab{value}` use an attached transparent VM
+  wrapper, preserving the suffix value without leaking command markup;
+- when `@` has its normal non-letter catcode, raw `.bbl` input tokenizes the
+  latter spelling as `\NAT` followed by `@exlab`. A bounded compatibility
+  primitive recognizes exactly that suffix, restores all probed tokens on a
+  mismatch, and otherwise replays the visible argument through the normal
+  token queue;
+- capture-disabled output, macro expansion, `\let` aliases tokenized under
+  `\makeatletter`, false conditionals, user overrides, continuation replay,
+  SemanticDocumentIr, PageDisplayList, and the internal compiler path are
+  covered;
+- stored `.bbl` sources remain byte-for-byte input artifacts for replay and
+  debugging. Only executed output and semantic aux projections are normalized,
+  so source preservation is not confused with rendered-text fidelity.
 
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated

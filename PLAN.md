@@ -355,6 +355,14 @@ arithmetic는 같은 scope resolver를 사용한다.
   capture off, nested wrapper, macro/`\let`, conditional, override,
   continuation replay, IR/display-list와 DOI/eprint aux citation regression을
   검증한다. hyperlink annotation과 identifier semantic node는 아직 없다.
+- natbib year-suffix visibility slice는 `\natexlab{value}`와
+  `\NAT@exlab{value}`를 attached transparent VM wrapper로 이전했다.
+  `@`가 letter인 정상 tokenization과 raw `.bbl`에서 `\NAT` + `@exlab`로
+  분리되는 기본 catcode 경로를 모두 실행하며, `\newblock`과 함께 raw
+  markup이 출력에 남지 않게 한다. capture off, macro/`\let`, conditional,
+  override, continuation replay, IR/display-list, internal compiler smoke를
+  검증한다. 저장된 `.bbl` source는 replay/debugging을 위해 원문 그대로
+  유지하고 실행 output과 semantic aux projection만 정규화한다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -383,6 +391,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 15. bibliography string lookup execution
 16. bibliography field-wrapper visibility execution
 17. bibliography DOI/eprint visibility execution
+18. natbib year-suffix visibility execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

@@ -444,6 +444,12 @@ The next implementation step has started with a narrow display-list spike:
 - `SemanticAux` citation labels now normalize natbib year-suffix markup such as
   `\natexlab{a}` and `\NAT@exlab{b}` before IR/display-list citation text is
   built, preventing raw bibliography label macros from leaking into output;
+- executed bibliography bodies now handle both `\natexlab{a}` and the full or
+  default-catcode split forms of `\NAT@exlab{b}` in the VM, so bibliography
+  item IR/display-list text receives the visible suffix rather than scanner
+  recovery markup;
+- stored `.bbl` source artifacts remain raw for deterministic replay and
+  debugging, while executed output and semantic aux projections are normalized;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;
