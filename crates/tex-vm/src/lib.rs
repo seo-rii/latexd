@@ -16622,6 +16622,26 @@ impl<'i> Vm<'i> {
         self.legacy_output_last_char = Some(ch);
     }
 
+    fn remove_last_legacy_output_space(&mut self) {
+        if !self
+            .output
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
+        {
+            return;
+        }
+        while self
+            .output
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
+        {
+            self.output.pop();
+        }
+        self.legacy_output_last_char = self.output.chars().next_back();
+    }
+
     fn push_legacy_math_shift(&mut self, ch: char) {
         self.legacy_math_pending_word_boundary = false;
         let adjacent_math_shift = self.last_legacy_output_char() == Some(ch);
@@ -17076,7 +17096,8 @@ impl<'i> Vm<'i> {
             self.snapshot_with_input_queue(Some(&continuation_queue))
         });
         match primitive {
-            Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
+            Primitive::Relax | Primitive::Immediate | Primitive::Protect | Primitive::LeaveMode => {
+            }
             Primitive::Par => {
                 self.capture_executed_paragraph_break(source_offset_utf8, source_end_utf8);
             }
@@ -18080,6 +18101,10 @@ impl<'i> Vm<'i> {
             }
             Primitive::IgnoreSpaces => {
                 self.skip_optional_spaces(queue);
+            }
+            Primitive::Unskip => {
+                self.remove_last_executed_space();
+                self.remove_last_legacy_output_space();
             }
             Primitive::JobName => {
                 for token in self.render_jobname_tokens().into_iter().rev() {
@@ -25555,6 +25580,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "@typeset@protect" => Some(Primitive::Protect),
         "@unexpandable@protect" => Some(Primitive::Protect),
         "ignorespaces" => Some(Primitive::IgnoreSpaces),
+        "leavevmode" => Some(Primitive::LeaveMode),
+        "unskip" => Some(Primitive::Unskip),
         "jobname" => Some(Primitive::JobName),
         "@currname" => Some(Primitive::CurrentModuleName),
         "@currext" => Some(Primitive::CurrentModuleExt),
@@ -26147,6 +26174,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Write => "write",
         Primitive::ProtectedWrite => "protected@write",
         Primitive::IgnoreSpaces => "ignorespaces",
+        Primitive::LeaveMode => "leavevmode",
+        Primitive::Unskip => "unskip",
         Primitive::JobName => "jobname",
         Primitive::CurrentModuleName => "@currname",
         Primitive::CurrentModuleExt => "@currext",

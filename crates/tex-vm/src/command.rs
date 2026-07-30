@@ -158,6 +158,8 @@ pub(crate) enum Primitive {
     Write,
     ProtectedWrite,
     IgnoreSpaces,
+    LeaveMode,
+    Unskip,
     JobName,
     CurrentModuleName,
     CurrentModuleExt,

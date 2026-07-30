@@ -62,6 +62,7 @@ toplevel:
 
 enum BibliographyOutputTextstyleAndStarredCase {
     CaseTextstyleAndTextsuper,
+    StateHelpers,
     PhantomWrappers,
     Urlstyle,
     NameAffix,
@@ -122,6 +123,18 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\textsubscript",
                 ],
                 "[1] NASA. alpha title. beta title. Emph. Trimmed. Visible. TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap. Quote's. Double\"q. Angles<x>. Pipe|join. Path/name. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.",
+            ),
+            BibliographyOutputTextstyleAndStarredCase::StateHelpers => (
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
+                "Visible. Trimmed. Solid.",
+                vec![
+                    "\\protect",
+                    "\\relax",
+                    "\\leavevmode",
+                    "\\ignorespaces",
+                    "\\unskip",
+                ],
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",

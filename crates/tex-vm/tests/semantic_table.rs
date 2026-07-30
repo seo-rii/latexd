@@ -61,6 +61,29 @@ Beta & 2
 }
 
 #[test]
+fn unskip_removes_trailing_space_inside_structured_table_cells() {
+    let outcome = capture(
+        r"\begin{document}
+\begin{tabular}{ll}
+Alpha \unskip. & Solid\unskip.
+\end{tabular}
+\end{document}",
+    );
+    let table = outcome
+        .render_events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("structured table");
+
+    assert_eq!(table.rows.len(), 1);
+    assert_eq!(table.rows[0].cells[0].text, "Alpha.");
+    assert_eq!(table.rows[0].cells[1].text, "Solid.");
+}
+
+#[test]
 fn false_conditional_table_recovery_is_discarded() {
     let outcome = capture(
         r"\begin{document}

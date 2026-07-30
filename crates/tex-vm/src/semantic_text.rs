@@ -671,6 +671,22 @@ impl Vm<'_> {
         self.semantic_text.space_run_active = true;
     }
 
+    pub(super) fn remove_last_executed_space(&mut self) {
+        if self.remove_last_executed_table_space() {
+            return;
+        }
+        self.flush_executed_text_capture();
+        if self
+            .semantic_text
+            .executed_events
+            .last()
+            .is_some_and(|event| matches!(event.event, RenderEvent::Space(_)))
+        {
+            self.pop_executed_text_event();
+        }
+        self.semantic_text.space_run_active = false;
+    }
+
     pub(super) fn capture_executed_paragraph_break(&mut self, start_utf8: u32, end_utf8: u32) {
         self.flush_executed_text_capture();
         if !self.can_capture_executed_text() || !self.semantic_text.paragraph_has_content {

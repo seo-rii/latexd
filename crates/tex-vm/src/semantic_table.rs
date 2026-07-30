@@ -241,6 +241,19 @@ impl Vm<'_> {
         true
     }
 
+    pub(super) fn remove_last_executed_table_space(&mut self) -> bool {
+        if !self.semantic_table.structured_events {
+            return false;
+        }
+        let Some(table) = self.semantic_table.open_tables.last_mut() else {
+            return false;
+        };
+        while table.current_text.ends_with(char::is_whitespace) {
+            table.current_text.pop();
+        }
+        true
+    }
+
     pub(super) fn capture_executed_table_alignment_tab(
         &mut self,
         start_utf8: u32,

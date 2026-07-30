@@ -950,6 +950,29 @@ fn input_exit_snapshot_replays_bibliography_case_wrappers() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_no_output_state_helper_aliases() {
+    let source = r#"\def\trim{\unskip}
+\let\enterhmode\leavevmode
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}\enterhmode Visible. Trimmed \trim.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Visible. Trimmed.");
+}
+
+#[test]
 fn input_exit_snapshot_replays_bibliography_string_lookup() {
     let source = r#"\def\term{andothers}
 \let\localized\bibstring
