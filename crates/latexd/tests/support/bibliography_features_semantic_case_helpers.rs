@@ -150,9 +150,10 @@ async fn run_bibliography_features_semantic_case(case: BibliographyFeaturesSeman
             assert_eq!(stored_sources.executed_files[&refs_bbl], "[1] Alpha entry.");
         }
         BibliographyFeaturesSemanticCase::NatexlabOutput => {
+            let bibliography_source = r"\begin{thebibliography}{1}\bibitem[Alpha 2024\natexlab{a}]{alpha} Alpha \newblock 2024\NAT@exlab{a}.\end{thebibliography}";
             let fixture = prepare_bibliography_features_semantic_case_fixture(
                 "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
-                r"\begin{thebibliography}{1}\bibitem[Alpha 2024\natexlab{a}]{alpha} Alpha \newblock 2024\NAT@exlab{a}.\end{thebibliography}",
+                bibliography_source,
             );
             compile_bibliography_features_semantic_case_fixture(&fixture)
                 .await
@@ -163,15 +164,15 @@ async fn run_bibliography_features_semantic_case(case: BibliographyFeaturesSeman
                 fs::read_to_string(build_root.join("rev-1/output.txt")).expect("read output");
             assert!(output.contains("Alpha 2024a."));
             assert!(!output.contains("\\natexlab"));
-            assert!(!output.contains("\\NAT@exlab"));
+            assert!(!output.contains("\\NAT@exlab"), "{output}");
 
             let stored_sources = serde_json::from_slice::<StoredSources>(
                 &fs::read(build_root.join("rev-1/sources.json")).expect("read sources"),
             )
             .expect("parse sources");
-            assert!(
-                stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")]
-                    .contains("Alpha 2024a.")
+            assert_eq!(
+                stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
+                bibliography_source,
             );
         }
     }

@@ -49,7 +49,7 @@ use command::{
     BibliographyFieldCommand, BibliographyMetadataCommand, BibliographyTextCommand,
     BibliographyWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
     LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
-    MathDelimiterCommand, Meaning, Primitive, ReferenceCommand,
+    MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18751,6 +18751,47 @@ impl<'i> Vm<'i> {
                     );
                 }
             }
+            Primitive::NatbibSplitSuffix(command) => {
+                let previous_last_token_end_utf8 = self.last_token_end_utf8;
+                let mut consumed = Vec::new();
+                let mut matched = true;
+                for expected in command.source_suffix.chars() {
+                    let Some(token) = self.peek_next_token(queue) else {
+                        matched = false;
+                        break;
+                    };
+                    if !matches!(token.kind, TokenKind::Character { ch, .. } if ch == expected) {
+                        matched = false;
+                        break;
+                    }
+                    consumed.push(
+                        self.pop_next_token(queue)
+                            .expect("peeked natbib suffix token must remain available"),
+                    );
+                }
+                if !matched {
+                    for token in consumed.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                    self.last_token_end_utf8 = previous_last_token_end_utf8;
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::UndefinedControlSequence,
+                        detail: primitive_command_name.clone(),
+                    });
+                    self.output.push('\\');
+                    self.output.push_str(&primitive_command_name);
+                    self.legacy_output_last_char =
+                        primitive_command_name.chars().next_back().or(Some('\\'));
+                    return;
+                }
+                self.skip_optional_spaces(queue);
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for token in argument.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25597,6 +25638,13 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "parentext" => bibliography_wrapper("parentext", "(", ")", true),
         "doi" => bibliography_wrapper("doi", "", "", true),
         "eprint" => bibliography_wrapper("eprint", "", "", true),
+        "natexlab" => bibliography_wrapper("natexlab", "", "", false),
+        "NAT@exlab" => bibliography_wrapper("NAT@exlab", "", "", false),
+        // With `@` at its normal catcode, raw .bbl input tokenizes this as `\NAT` + `@exlab`.
+        "NAT" => Some(Primitive::NatbibSplitSuffix(NatbibSplitSuffixCommand {
+            canonical_name: "NAT",
+            source_suffix: "@exlab",
+        })),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -26114,6 +26162,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyString => "bibstring",
         Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::BibliographyWrapper(command) => command.canonical_name,
+        Primitive::NatbibSplitSuffix(command) => command.canonical_name,
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",

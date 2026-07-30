@@ -3984,6 +3984,48 @@ fn macro_generated_bibliography_identifiers_reach_ir_and_display_list() {
 }
 
 #[test]
+fn macro_generated_natexlab_suffixes_reach_ir_and_display_list() {
+    let source = r#"\def\suffix#1{\natexlab{#1}}
+\makeatletter
+\let\natsuffix\NAT@exlab
+\makeatother
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}2024\suffix{a}, 2025\natsuffix{b}
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "2024a, 2025b";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    assert!(
+        capture.document_ir.extracted_text().contains(expected),
+        "{}",
+        capture.document_ir.extracted_text()
+    );
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_namedash_and_urlprefix_render_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
