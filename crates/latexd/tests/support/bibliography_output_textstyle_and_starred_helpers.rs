@@ -63,6 +63,7 @@ toplevel:
 enum BibliographyOutputTextstyleAndStarredCase {
     CaseTextstyleAndTextsuper,
     StateHelpers,
+    BoxWrappers,
     PhantomWrappers,
     Urlstyle,
     NameAffix,
@@ -135,6 +136,24 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\unskip",
                 ],
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
+            ),
+            BibliographyOutputTextstyleAndStarredCase::BoxWrappers => (
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t][5em][b]{4em}{Paragraph}. \\makebox[3em][l]{Inline}.\\end{thebibliography}",
+                "Wide. Raised. Paragraph. Inline.",
+                vec![
+                    "\\framebox",
+                    "\\raisebox",
+                    "\\parbox",
+                    "\\makebox",
+                    "2em",
+                    "0.5ex",
+                    "1ex",
+                    "0ex",
+                    "5em",
+                    "4em",
+                    "3em",
+                ],
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t][5em][b]{4em}{Paragraph}. \\makebox[3em][l]{Inline}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",

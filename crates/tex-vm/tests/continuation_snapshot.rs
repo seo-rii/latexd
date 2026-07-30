@@ -973,6 +973,31 @@ fn input_exit_snapshot_replays_no_output_state_helper_aliases() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_box_wrapper_aliases() {
+    let source = r#"\def\wide#1{\framebox[2em][c]{#1}}
+\let\lift\raisebox
+\def\paragraph#1{\parbox[t]{4em}{#1}}
+\let\inline\makebox
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}\wide{Wide}. \lift{0.5ex}[1ex][0ex]{Raised}. \paragraph{Paragraph}. \inline[3em][l]{Inline}.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Wide. Raised. Paragraph. Inline.");
+}
+
+#[test]
 fn input_exit_snapshot_replays_bibliography_string_lookup() {
     let source = r#"\def\term{andothers}
 \let\localized\bibstring

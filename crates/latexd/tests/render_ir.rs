@@ -4392,6 +4392,42 @@ fn macro_generated_no_output_state_helpers_reach_ir_and_display_list() {
 }
 
 #[test]
+fn macro_generated_box_wrapper_bodies_reach_ir_and_display_list() {
+    let source = r#"\def\wide#1{\framebox[2em][c]{#1}}
+\let\lift\raisebox
+\def\paragraph#1{\parbox[t]{4em}{#1}}
+\let\inline\makebox
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{alpha}\wide{Wide}. \lift{0.5ex}[1ex][0ex]{Raised}. \paragraph{Paragraph}. \inline[3em][l]{Inline}.
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "Wide. Raised. Paragraph. Inline.";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    let display_list_text = all_display_list_text(&capture);
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        "framebox", "raisebox", "parbox", "makebox", "2em", "0.5ex", "1ex", "0ex", "4em", "3em",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn bibliography_item_tex_spacing_commands_do_not_render_as_punctuation() {
     let capture = capture_internal_render_ir(
         "main.tex",

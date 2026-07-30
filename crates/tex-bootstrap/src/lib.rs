@@ -58,8 +58,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\color#1{}
 \def\mbox#1{#1}
 \def\fbox#1{#1}
-\newcommand{\makebox}[2][]{#2}
-\newcommand{\raisebox}[3][]{#3}
 \def\normalfont{}
 \def\encodingdefault{OT1}
 \def\familydefault{cmr}
@@ -368,7 +366,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\multirow#1#2#3{#3}
 \def\multicolumn#1#2#3{#3}
 \def\shortstack#1{#1}
-\def\parbox#1#2{#2}
 \def\scalebox#1#2{#2}
 \def\State{}
 \def\Comment#1{ #1 }

@@ -121,6 +121,14 @@ pub(crate) struct PhantomWrapperCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoxWrapperCommand {
+    FrameBox,
+    MakeBox,
+    RaiseBox,
+    ParBox,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Primitive {
     Relax,
     Par,
@@ -191,6 +199,7 @@ pub(crate) enum Primitive {
     BibliographyWrapper(BibliographyWrapperCommand),
     NatbibSplitSuffix(NatbibSplitSuffixCommand),
     PhantomWrapper(PhantomWrapperCommand),
+    BoxWrapper(BoxWrapperCommand),
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,

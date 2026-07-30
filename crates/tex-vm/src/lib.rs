@@ -47,10 +47,10 @@ mod snapshot;
 
 use command::{
     BibliographyFieldCommand, BibliographyMetadataCommand, BibliographyTextCommand,
-    BibliographyWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand, HeadingCommand,
-    LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition, MacroFlags,
-    MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand, Primitive,
-    ReferenceCommand,
+    BibliographyWrapperCommand, BoxWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand,
+    HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition,
+    MacroFlags, MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand,
+    Primitive, ReferenceCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18827,6 +18827,65 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
+            Primitive::BoxWrapper(command) => {
+                match command {
+                    BoxWrapperCommand::FrameBox | BoxWrapperCommand::MakeBox => {
+                        self.skip_optional_spaces(queue);
+                        if matches!(
+                            self.peek_next_token(queue).map(|token| token.kind),
+                            Some(TokenKind::Character { ch: '(', .. })
+                        ) {
+                            let _ = self.pop_next_token(queue);
+                            let mut depth = 1usize;
+                            while let Some(token) = self.pop_next_token(queue) {
+                                match token.kind {
+                                    TokenKind::Character { ch: '(', .. } => depth += 1,
+                                    TokenKind::Character { ch: ')', .. } => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            let _ = self.read_optional_bracket_tokens(queue);
+                        } else {
+                            for _ in 0..2 {
+                                if self.read_optional_bracket_tokens(queue).is_none() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    BoxWrapperCommand::RaiseBox => {
+                        if self.read_macro_argument(queue).is_none() {
+                            return;
+                        }
+                        for _ in 0..2 {
+                            if self.read_optional_bracket_tokens(queue).is_none() {
+                                break;
+                            }
+                        }
+                    }
+                    BoxWrapperCommand::ParBox => {
+                        for _ in 0..3 {
+                            if self.read_optional_bracket_tokens(queue).is_none() {
+                                break;
+                            }
+                        }
+                        if self.read_macro_argument(queue).is_none() {
+                            return;
+                        }
+                    }
+                }
+                let Some(body) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for token in body.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::Bibliography | Primitive::PrintBibliography => {
                 self.skip_optional_spaces(queue);
                 if primitive == Primitive::Bibliography {
@@ -25695,6 +25754,10 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
                 },
             }))
         }
+        "framebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::FrameBox)),
+        "makebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::MakeBox)),
+        "raisebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::RaiseBox)),
+        "parbox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::ParBox)),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -26216,6 +26279,10 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::NatbibSplitSuffix(command) => command.canonical_name,
         Primitive::PhantomWrapper(command) => command.canonical_name,
+        Primitive::BoxWrapper(BoxWrapperCommand::FrameBox) => "framebox",
+        Primitive::BoxWrapper(BoxWrapperCommand::MakeBox) => "makebox",
+        Primitive::BoxWrapper(BoxWrapperCommand::RaiseBox) => "raisebox",
+        Primitive::BoxWrapper(BoxWrapperCommand::ParBox) => "parbox",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",
