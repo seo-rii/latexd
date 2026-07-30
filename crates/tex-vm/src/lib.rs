@@ -50,7 +50,7 @@ use command::{
     BibliographyWrapperCommand, BoxWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand,
     HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition,
     MacroFlags, MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand,
-    Primitive, ReferenceCommand,
+    Primitive, ReferenceCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -18721,6 +18721,12 @@ impl<'i> Vm<'i> {
                     }
                 }
             }
+            Primitive::TextSymbol(command) => {
+                for ch in command.visible_text.chars() {
+                    self.capture_executed_text_character(ch, source_offset_utf8, source_end_utf8);
+                    self.push_legacy_output_char(ch);
+                }
+            }
             Primitive::BibliographyWrapper(command) => {
                 self.skip_optional_spaces(queue);
                 if matches!(
@@ -25576,6 +25582,12 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             separate_before,
         }))
     };
+    let text_symbol = |canonical_name: &'static str, visible_text: &'static str| {
+        Some(Primitive::TextSymbol(TextSymbolCommand {
+            canonical_name,
+            visible_text,
+        }))
+    };
     match name {
         "relax" | "newblock" => Some(Primitive::Relax),
         "par" => Some(Primitive::Par),
@@ -25651,6 +25663,12 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "strip@prefix" => Some(Primitive::StripPrefix),
         "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf" | "textup"
         | "textmd" | "textnormal" | "underline" | "mbox" | "hbox" => Some(Primitive::TextWrapper),
+        "textquotesingle" => text_symbol("textquotesingle", "'"),
+        "textquotedbl" => text_symbol("textquotedbl", "\""),
+        "textless" => text_symbol("textless", "<"),
+        "textgreater" => text_symbol("textgreater", ">"),
+        "textbar" => text_symbol("textbar", "|"),
+        "slash" => text_symbol("slash", "/"),
         "uppercase" => Some(Primitive::Uppercase),
         "lowercase" => Some(Primitive::Lowercase),
         "long" => Some(Primitive::Long),
@@ -26276,6 +26294,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyField(command) => command.canonical_name,
         Primitive::BibliographyString => "bibstring",
         Primitive::BibliographyText(command) => command.canonical_name,
+        Primitive::TextSymbol(command) => command.canonical_name,
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::NatbibSplitSuffix(command) => command.canonical_name,
         Primitive::PhantomWrapper(command) => command.canonical_name,

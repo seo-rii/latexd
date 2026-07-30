@@ -1,5 +1,6 @@
 include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_case.rs");
 include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_box.rs");
 include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_state.rs");
+include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_symbol.rs");
 include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_phantom.rs");
 include!("bibliography_output_textstyle_and_starred_case_and_urlstyle_urlstyle.rs");

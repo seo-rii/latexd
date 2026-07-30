@@ -64,6 +64,7 @@ enum BibliographyOutputTextstyleAndStarredCase {
     CaseTextstyleAndTextsuper,
     StateHelpers,
     BoxWrappers,
+    TextSymbols,
     PhantomWrappers,
     Urlstyle,
     NameAffix,
@@ -154,6 +155,19 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "3em",
                 ],
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t][5em][b]{4em}{Paragraph}. \\makebox[3em][l]{Inline}.\\end{thebibliography}",
+            ),
+            BibliographyOutputTextstyleAndStarredCase::TextSymbols => (
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name.\\end{thebibliography}",
+                "Quote's. Double\"q. Angles<x>. Pipe|join. Path/name.",
+                vec![
+                    "\\textquotesingle",
+                    "\\textquotedbl",
+                    "\\textless",
+                    "\\textgreater",
+                    "\\textbar",
+                    "\\slash",
+                ],
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",

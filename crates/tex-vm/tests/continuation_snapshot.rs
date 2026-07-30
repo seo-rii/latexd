@@ -998,6 +998,32 @@ fn input_exit_snapshot_replays_box_wrapper_aliases() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_visible_text_symbol_aliases() {
+    let source = r#"\let\apostrophe\textquotesingle
+\def\quoted#1{\textquotedbl #1\textquotedbl}
+\def\angles#1{\textless #1\textgreater}
+\let\pipe\textbar
+\def\path#1{Path\slash #1}
+\begin{document}
+\input{barrier}
+\begin{thebibliography}{1}
+\bibitem{key}Quote\apostrophe s. \quoted{double}. \angles{x}. A\pipe B. \path{name}.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Quote's. \"double\". <x>. A|B. Path/name.");
+}
+
+#[test]
 fn input_exit_snapshot_replays_bibliography_string_lookup() {
     let source = r#"\def\term{andothers}
 \let\localized\bibstring

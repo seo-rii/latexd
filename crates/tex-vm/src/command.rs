@@ -97,6 +97,12 @@ pub(crate) struct BibliographyTextCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TextSymbolCommand {
+    pub(crate) canonical_name: &'static str,
+    pub(crate) visible_text: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BibliographyWrapperCommand {
     pub(crate) canonical_name: &'static str,
     pub(crate) prefix: &'static str,
@@ -196,6 +202,7 @@ pub(crate) enum Primitive {
     BibliographyField(BibliographyFieldCommand),
     BibliographyString,
     BibliographyText(BibliographyTextCommand),
+    TextSymbol(TextSymbolCommand),
     BibliographyWrapper(BibliographyWrapperCommand),
     NatbibSplitSuffix(NatbibSplitSuffixCommand),
     PhantomWrapper(PhantomWrapperCommand),

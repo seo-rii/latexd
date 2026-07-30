@@ -4428,6 +4428,48 @@ fn macro_generated_box_wrapper_bodies_reach_ir_and_display_list() {
 }
 
 #[test]
+fn macro_generated_visible_text_symbols_reach_ir_and_display_list() {
+    let source = r#"\let\apostrophe\textquotesingle
+\def\quoted#1{\textquotedbl #1\textquotedbl}
+\def\angles#1{\textless #1\textgreater}
+\let\pipe\textbar
+\def\path#1{Path\slash #1}
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{alpha}Quote\apostrophe s. \quoted{double}. \angles{x}. A\pipe B. \path{name}.
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "Quote's. \"double\". <x>. A|B. Path/name.";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    let display_list_text = all_display_list_text(&capture);
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        "textquotesingle",
+        "textquotedbl",
+        "textless",
+        "textgreater",
+        "textbar",
+        "slash",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn bibliography_item_tex_spacing_commands_do_not_render_as_punctuation() {
     let capture = capture_internal_render_ir(
         "main.tex",
