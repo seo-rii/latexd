@@ -483,6 +483,14 @@ The next implementation step has started with a narrow display-list spike:
   conditionals, overrides, checkpoint replay, raw `.bbl` preservation,
   Document IR, and display-list projection are covered without restoring
   control-word source whitespace;
+- executed bibliography bodies now run `\textsuperscript` and
+  `\textsubscript` through typed VM wrappers. Consecutive and nested scripts
+  remain attached, a following word receives the same boundary in legacy and
+  event text, and active wrapper depth survives continuation replay. The
+  mini-kernel no longer shadows the builtins, while user definitions still
+  take precedence. This is visible-text compatibility only; baseline shifts,
+  script font sizing, glyph shaping, and structured script nodes remain
+  Math/LayoutIr work;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;

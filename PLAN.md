@@ -404,6 +404,16 @@ arithmetic는 같은 scope resolver를 사용한다.
   붙인다. capture on/off, raw `.bbl`, macro/`\let`, conditional, override,
   input-boundary replay, IR/display-list, focused production smoke를 검증한다.
   이는 font encoding이나 glyph-level symbol layout을 모델링하지 않는다.
+- text-script wrapper slice는 `\textsuperscript{...}`와
+  `\textsubscript{...}`를 typed VM primitive로 이전했다. visible body는
+  정상 token queue에서 실행하고 outermost wrapper depth와 pending
+  word-boundary state를 snapshot에 보존해 연속 script는 붙이고 뒤의
+  단어만 분리한다. mini-kernel의 compatibility macro는 제거했으며 사용자
+  정의는 계속 builtin보다 우선한다. capture on/off, raw `.bbl`,
+  macro/`\let`, conditional, override, active-wrapper input-boundary replay,
+  IR/display-list, focused production smoke와 exact-output composite smoke를
+  검증한다. 이는 visible text attachment만 소유하며 실제 script
+  typography와 baseline shift는 Math/LayoutIr 작업이다.
 - full biblatex localization table과 capitalization/plural variant,
   package-specific multi-argument/style bibliography wrapper, 아직
   bridge되지 않은 profile command, 일부 math/table/wrapper text는 scanner
@@ -438,6 +448,7 @@ expansion chain, semantic role, local ordinal을 사용하며 byte offset
 21. no-output state-helper execution
 22. bibliography box-wrapper visibility execution
 23. visible text-symbol execution
+24. text-script wrapper attachment execution
 
 각 slice는 conditional/macro-generated divergence test, actual execution emit,
 실제 expansion provenance, legacy scanner differential, production switch,

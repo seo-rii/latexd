@@ -1043,6 +1043,34 @@ Visible text-symbol execution:
   selection, typography, and renderer-neutral symbol runs remain font/LayoutIr
   work.
 
+Text-script wrapper execution:
+
+- `\textsuperscript{...}` and `\textsubscript{...}` use a typed VM command
+  instead of mini-kernel macros. The visible argument returns to the normal
+  token queue, so macro expansion, `\let` aliases, false conditionals, and user
+  overrides follow execution semantics;
+- wrapper depth is explicit continuation state. Only the outermost closing
+  boundary arms the compatibility word separator, entering an adjacent script
+  clears that pending separator, and punctuation consumes it without adding a
+  gap. This preserves `Edition2a.` and `Nestedabc.` while separating
+  `Marker1 Word`;
+- the pending separator is emitted through both legacy output and executed
+  `Space` capture, keeping SemanticDocumentIr and PageDisplayList text
+  consistent. The wrapper depth and pending state survive a checkpoint taken
+  inside a nested script body;
+- the mini-kernel no longer shadows either command. Document, class, and
+  package definitions still override the builtins through the normal Eqtb
+  path;
+- capture-disabled output, mounted raw `.bbl` input, macro expansion, aliases,
+  conditionals, overrides, active-wrapper input-boundary replay,
+  SemanticDocumentIr, PageDisplayList, focused compiler smoke, and the
+  exact-output composite wrapper smoke are covered;
+- this slice owns linear visible-text attachment only. It does not create
+  superscript/subscript semantic nodes, change font size, shift baselines, or
+  shape glyphs. The compatibility boundary currently recognizes ASCII
+  alphanumeric word starts; structured script typography and broader text
+  segmentation belong to Math/LayoutIr.
+
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
 the whole-source scanner before execution, event sequence is not yet separated
 from stable cross-revision identity, and full bibliography localization,
