@@ -4,6 +4,7 @@ async fn assert_bibliography_output_textstyle_and_starred_case(
     forbidden_output_fragments: &[&str],
     expected_executed_refs: &str,
     include_fullcite: bool,
+    expected_exact_output: Option<&str>,
 ) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -53,6 +54,9 @@ toplevel:
             !output.contains(forbidden),
             "output should not contain forbidden fragment: {forbidden}\nactual: {output}"
         );
+    }
+    if let Some(expected_exact_output) = expected_exact_output {
+        assert_eq!(output, expected_exact_output);
     }
 
     let stored_sources = serde_json::from_slice::<StoredSources>(
@@ -239,6 +243,15 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                 "[1] \"Alpha Title\". (2024). [note]. {Supplement}. Emph. Bold. Italic.",
             ),
         };
+    let expected_exact_output = match case {
+        BibliographyOutputTextstyleAndStarredCase::CaseTextstyleAndTextsuper => Some(format!(
+            "{expected_output_fragment}.{expected_output_fragment}"
+        )),
+        BibliographyOutputTextstyleAndStarredCase::TextScripts => {
+            Some(expected_output_fragment.to_string())
+        }
+        _ => None,
+    };
 
     assert_bibliography_output_textstyle_and_starred_case(
         refs,
@@ -246,6 +259,7 @@ async fn run_bibliography_output_textstyle_and_starred_case(
         &forbidden_output_fragments,
         expected_executed_refs,
         include_fullcite,
+        expected_exact_output.as_deref(),
     )
     .await;
 }
