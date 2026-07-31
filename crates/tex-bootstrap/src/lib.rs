@@ -52,8 +52,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\phantomsection{}
 \def\addcontentsline#1#2#3{}
 \def\addtocontents#1#2{}
-\def\textsuperscript#1{#1\latexdtextscriptboundary}
-\def\textsubscript#1{#1\latexdtextscriptboundary}
 \newcommand{\textcolor}[3][]{#3}
 \def\color#1{}
 \def\mbox#1{#1}

@@ -1024,6 +1024,28 @@ fn input_exit_snapshot_replays_visible_text_symbol_aliases() {
 }
 
 #[test]
+fn input_exit_snapshot_replays_text_script_aliases_and_nested_state() {
+    let source = r#"\let\super\textsuperscript
+\def\pair#1#2{\textsuperscript{#1}\textsubscript{#2}}
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}Edition\pair{2}{a}. Marker\super{1}Word. Nested\textsuperscript{a\input{barrier}\textsubscript{b}d}.
+\end{thebibliography}
+\end{document}"#;
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let item = expected
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::BibliographyItem(item) => Some(item),
+            _ => None,
+        })
+        .expect("bibliography item");
+    assert_eq!(item.text, "Edition2a. Marker1 Word. Nestedacbd.");
+}
+
+#[test]
 fn input_exit_snapshot_replays_bibliography_string_lookup() {
     let source = r#"\def\term{andothers}
 \let\localized\bibstring

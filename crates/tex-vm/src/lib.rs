@@ -50,7 +50,7 @@ use command::{
     BibliographyWrapperCommand, BoxWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand,
     HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition,
     MacroFlags, MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand,
-    Primitive, ReferenceCommand, TextSymbolCommand,
+    Primitive, ReferenceCommand, TextScriptCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
@@ -1119,6 +1119,7 @@ pub struct Vm<'i> {
     legacy_math_script_boundary_scope_depths: Vec<usize>,
     legacy_output_last_char: Option<char>,
     legacy_text_script_boundary_pending: bool,
+    text_script_wrapper_depth: usize,
 }
 
 impl<'i> Vm<'i> {
@@ -1203,6 +1204,7 @@ impl<'i> Vm<'i> {
             legacy_math_script_boundary_scope_depths: Vec::new(),
             legacy_output_last_char: None,
             legacy_text_script_boundary_pending: false,
+            text_script_wrapper_depth: 0,
         };
         vm.define(
             "@empty".to_string(),
@@ -16294,6 +16296,7 @@ impl<'i> Vm<'i> {
                 .next_back()
                 .or(self.legacy_output_last_char),
             legacy_text_script_boundary_pending: self.legacy_text_script_boundary_pending,
+            text_script_wrapper_depth: self.text_script_wrapper_depth,
         }
     }
 
@@ -16423,6 +16426,7 @@ impl<'i> Vm<'i> {
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
+        vm.text_script_wrapper_depth = snapshot.text_script_wrapper_depth;
         vm.diagnostics = snapshot.diagnostics.clone();
         vm.transcript = snapshot.transcript.clone();
         vm.module_traces = snapshot.module_traces.clone();
@@ -16760,6 +16764,14 @@ impl<'i> Vm<'i> {
                         self.push_legacy_output_char(ch);
                     }
                     CatCode::Letter | CatCode::Other => {
+                        if self.legacy_text_script_boundary_pending
+                            && ch.is_ascii_alphanumeric()
+                            && self
+                                .last_legacy_output_char()
+                                .is_some_and(|last| !last.is_whitespace() && last != '$')
+                        {
+                            self.capture_executed_space(token_span.start, token_span.end);
+                        }
                         self.capture_executed_text_character(ch, token_span.start, token_span.end);
                         self.push_legacy_output_char(ch);
                     }
@@ -17277,7 +17289,12 @@ impl<'i> Vm<'i> {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
             }
             Primitive::LegacyTextScriptBoundary => {
-                self.legacy_text_script_boundary_pending = true;
+                if self.text_script_wrapper_depth > 0 {
+                    self.text_script_wrapper_depth -= 1;
+                    self.legacy_text_script_boundary_pending = self.text_script_wrapper_depth == 0;
+                } else {
+                    self.legacy_text_script_boundary_pending = true;
+                }
             }
             Primitive::Label => {
                 if let Some(key_tokens) = self.read_macro_argument(queue) {
@@ -18725,6 +18742,34 @@ impl<'i> Vm<'i> {
                 for ch in command.visible_text.chars() {
                     self.capture_executed_text_character(ch, source_offset_utf8, source_end_utf8);
                     self.push_legacy_output_char(ch);
+                }
+            }
+            Primitive::TextScript(_) => {
+                let Some(body) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                if self.text_script_wrapper_depth >= MAX_GROUP_DEPTH {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!(
+                            "text-script nesting resource limit exceeded at {MAX_GROUP_DEPTH}"
+                        ),
+                    });
+                    return;
+                }
+                self.legacy_text_script_boundary_pending = false;
+                self.text_script_wrapper_depth += 1;
+                let boundary = self.interner.intern("latexdtextscriptboundary");
+                self.push_token_front(
+                    queue,
+                    Token::control_sequence(
+                        boundary,
+                        source_offset_utf8 as usize,
+                        source_end_utf8 as usize,
+                    ),
+                );
+                for token in body.into_iter().rev() {
+                    self.push_token_front(queue, token);
                 }
             }
             Primitive::BibliographyWrapper(command) => {
@@ -25669,6 +25714,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "textgreater" => text_symbol("textgreater", ">"),
         "textbar" => text_symbol("textbar", "|"),
         "slash" => text_symbol("slash", "/"),
+        "textsuperscript" => Some(Primitive::TextScript(TextScriptCommand::Superscript)),
+        "textsubscript" => Some(Primitive::TextScript(TextScriptCommand::Subscript)),
         "uppercase" => Some(Primitive::Uppercase),
         "lowercase" => Some(Primitive::Lowercase),
         "long" => Some(Primitive::Long),
@@ -26295,6 +26342,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyString => "bibstring",
         Primitive::BibliographyText(command) => command.canonical_name,
         Primitive::TextSymbol(command) => command.canonical_name,
+        Primitive::TextScript(TextScriptCommand::Superscript) => "textsuperscript",
+        Primitive::TextScript(TextScriptCommand::Subscript) => "textsubscript",
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::NatbibSplitSuffix(command) => command.canonical_name,
         Primitive::PhantomWrapper(command) => command.canonical_name,

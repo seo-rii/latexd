@@ -4470,6 +4470,45 @@ fn macro_generated_visible_text_symbols_reach_ir_and_display_list() {
 }
 
 #[test]
+fn macro_generated_text_scripts_preserve_ir_and_display_list_attachment() {
+    let source = r#"\let\super\textsuperscript
+\def\pair#1#2{\textsuperscript{#1}\textsubscript{#2}}
+\def\nested#1{\textsuperscript{a\textsubscript{#1}c}}
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{alpha}Edition\pair{2}{a}. Marker\super{1}Word. Nested\nested{b}.
+\end{thebibliography}
+\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "Edition2a. Marker1 Word. Nestedabc.";
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    let display_list_text = all_display_list_text(&capture);
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        "textsuperscript",
+        "textsubscript",
+        "Edition2 a",
+        "Marker1Word",
+        "Nestedab c",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn bibliography_item_tex_spacing_commands_do_not_render_as_punctuation() {
     let capture = capture_internal_render_ir(
         "main.tex",

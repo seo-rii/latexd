@@ -1472,6 +1472,8 @@ pub struct VmSnapshot {
     pub legacy_output_last_char: Option<char>,
     #[serde(default)]
     pub legacy_text_script_boundary_pending: bool,
+    #[serde(default)]
+    pub text_script_wrapper_depth: usize,
 }
 
 fn default_hidden_environments() -> Vec<String> {

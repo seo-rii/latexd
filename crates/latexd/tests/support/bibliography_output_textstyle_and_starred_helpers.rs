@@ -3,6 +3,7 @@ async fn assert_bibliography_output_textstyle_and_starred_case(
     expected_output_fragment: &str,
     forbidden_output_fragments: &[&str],
     expected_executed_refs: &str,
+    include_fullcite: bool,
 ) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -18,7 +19,11 @@ toplevel:
     fs::write(root.join("article.cls"), "").expect("write class");
     fs::write(
         root.join("main.tex"),
-        "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
+        if include_fullcite {
+            "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}"
+        } else {
+            "\\documentclass{article}\\begin{document}\\bibliography{refs}\\end{document}"
+        },
     )
     .expect("write main");
     fs::write(root.join("refs.bbl"), refs).expect("write bbl");
@@ -60,11 +65,13 @@ toplevel:
     );
 }
 
+#[derive(Clone, Copy)]
 enum BibliographyOutputTextstyleAndStarredCase {
     CaseTextstyleAndTextsuper,
     StateHelpers,
     BoxWrappers,
     TextSymbols,
+    TextScripts,
     PhantomWrappers,
     Urlstyle,
     NameAffix,
@@ -75,6 +82,10 @@ enum BibliographyOutputTextstyleAndStarredCase {
 async fn run_bibliography_output_textstyle_and_starred_case(
     case: BibliographyOutputTextstyleAndStarredCase,
 ) {
+    let include_fullcite = !matches!(
+        case,
+        BibliographyOutputTextstyleAndStarredCase::TextScripts
+    );
     let (refs, expected_output_fragment, forbidden_output_fragments, expected_executed_refs) =
         match case {
             BibliographyOutputTextstyleAndStarredCase::CaseTextstyleAndTextsuper => (
@@ -123,8 +134,9 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\textnormal",
                     "\\textsuperscript",
                     "\\textsubscript",
+                    "Edition2 a.",
                 ],
-                "[1] NASA. alpha title. beta title. Emph. Trimmed. Visible. TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap. Quote's. Double\"q. Angles<x>. Pipe|join. Path/name. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.",
+                "\\begin{thebibliography}{1}\\bibitem{alpha}\\NoCaseChange{NASA}. \\MakeSentenceCase{alpha title}. \\MakeTitleCase{beta title}. \\protect\\relax\\leavevmode\\ignorespaces   \\emph{Emph}. Trimmed \\unskip. \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Visible. Tight\\!Join. Soft\\,Gap. Wide\\;Gap. Colon\\:Gap. Named\\space Gap. Backslash\\ Gap. Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name. \\mbox{Stable}. \\hbox{Fixed}. \\fbox{Framed}. \\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t]{4em}{Paragraph}. \\makebox[3em][l]{Inline}. \\texttt{Code}. \\textsf{Sans}. \\textsc{Caps}. \\textbf{Bold}. \\textit{Italic}. \\textrm{Roman}. \\textup{Upright}. \\textmd{Medium}. \\textnormal{Normal}. Edition\\textsuperscript{2}\\textsubscript{a}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::StateHelpers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
@@ -168,6 +180,18 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\slash",
                 ],
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name.\\end{thebibliography}",
+            ),
+            BibliographyOutputTextstyleAndStarredCase::TextScripts => (
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Edition\\textsuperscript{2}\\textsubscript{a}. Marker\\textsuperscript{1}Word. Nested\\textsuperscript{a\\textsubscript{b}c}.\\end{thebibliography}",
+                "Edition2a. Marker1 Word. Nestedabc.",
+                vec![
+                    "\\textsuperscript",
+                    "\\textsubscript",
+                    "Edition2 a.",
+                    "Marker1Word",
+                    "Nestedab c",
+                ],
+                "\\begin{thebibliography}{1}\\bibitem{alpha}Edition\\textsuperscript{2}\\textsubscript{a}. Marker\\textsuperscript{1}Word. Nested\\textsuperscript{a\\textsubscript{b}c}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",
@@ -221,6 +245,7 @@ async fn run_bibliography_output_textstyle_and_starred_case(
         expected_output_fragment,
         &forbidden_output_fragments,
         expected_executed_refs,
+        include_fullcite,
     )
     .await;
 }
