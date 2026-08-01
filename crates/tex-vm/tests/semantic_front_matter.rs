@@ -754,6 +754,53 @@ Analytical Engine Institute}
 }
 
 #[test]
+fn article_title_and_date_accept_paragraphs() {
+    let source = r"\documentclass{article}
+\begin{document}
+\title{Machine Learning Methods
+
+Economists Should Know About}
+\date{First draft
+
+August 2026}
+\maketitle
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+
+    for command in ["title", "date"] {
+        assert!(
+            outcome.diagnostics.iter().all(|diagnostic| !diagnostic
+                .detail
+                .contains(&format!("paragraph ended before \\{command}"))),
+            "{:#?}",
+            outcome.diagnostics
+        );
+    }
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Title
+                    && metadata.value.contains("Machine Learning Methods")
+                    && metadata.value.contains("Economists Should Know About")
+        )
+    }));
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Date
+                    && metadata.value.contains("First draft")
+                    && metadata.value.contains("August 2026")
+        )
+    }));
+}
+
+#[test]
 fn ieee_author_accepts_paragraphs_between_authors_and_notes() {
     let source = r"\documentclass{IEEEtran}
 \begin{document}
