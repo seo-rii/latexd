@@ -3069,9 +3069,6 @@ fn build_symbol_to_unicode_cmap(object_id: usize) -> Vec<u8> {
 }
 
 fn tex_font_text_operator(face: TexFontFace, text: &str) -> String {
-    if text.chars().all(char::is_whitespace) {
-        return "() Tj".to_string();
-    }
     let visible_text = pdf_visible_text(text);
     let Some(bytes) = encode_text(face, &visible_text) else {
         return "(?) Tj".to_string();
@@ -3082,6 +3079,9 @@ fn tex_font_text_operator(face: TexFontFace, text: &str) -> String {
     let mut chunks = Vec::new();
     let mut start = 0usize;
     for index in 0..bytes.len().saturating_sub(1) {
+        if bytes[index] == b' ' || bytes[index + 1] == b' ' {
+            continue;
+        }
         let Some(kern) = font.metrics.kern_em(bytes[index], bytes[index + 1]) else {
             continue;
         };
@@ -3370,6 +3370,22 @@ mod tests {
             asset_hash: None,
         };
         prepare_pdf_form(&request, &pdf).expect("embedded-font PDF remains parseable");
+    }
+
+    #[test]
+    fn preferred_tex_fonts_preserve_whitespace_only_text_runs() {
+        assert_eq!(
+            super::tex_font_text_operator(TexFontFace::Roman10, " \n"),
+            "(  ) Tj"
+        );
+    }
+
+    #[test]
+    fn preferred_tex_fonts_do_not_kern_across_interword_spaces() {
+        assert_eq!(
+            super::tex_font_text_operator(TexFontFace::Roman10, "of learning"),
+            "(of learning) Tj"
+        );
     }
 
     #[test]
