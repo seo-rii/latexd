@@ -40,6 +40,26 @@ test("static viewer renders display-list pages and retains PDF comparison output
   })).toBe("Try it");
   await expect(displayPage.locator("svg")).toContainText("x^2");
   await expect(displayPage.locator('[data-text-rendering="css-fallback"]').first()).toBeVisible();
+  const initialPageWidth = (await displayPage.boundingBox())?.width ?? 0;
+  const zoomIn = page.getByRole("button", { name: "Zoom in" });
+  await zoomIn.click();
+  await expect(browserPreview).toHaveAttribute("data-zoom-percent", "110");
+  await expect.poll(async () => (await displayPage.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(initialPageWidth * 1.05);
+  for (let step = 0; step < 9; step += 1) {
+    await zoomIn.click();
+  }
+  await expect(browserPreview).toHaveAttribute("data-zoom-percent", "200");
+  const zoomedPageBox = await displayPage.boundingBox();
+  const previewBox = await browserPreview.boundingBox();
+  expect(zoomedPageBox).not.toBeNull();
+  expect(previewBox).not.toBeNull();
+  expect(zoomedPageBox!.x).toBeGreaterThanOrEqual(previewBox!.x - 1);
+  await expect.poll(() => browserPreview.evaluate((container) => (
+    container.scrollWidth > container.clientWidth
+  ))).toBe(true);
+  await page.getByRole("button", { name: "Reset zoom" }).click();
+  await expect(browserPreview).toHaveAttribute("data-zoom-percent", "100");
   await expect(pdfPreview).toHaveCount(0);
   await expect(page.locator(".browser-page")).toHaveCount(0);
   const pdfLink = page.getByRole("link", { name: "Download PDF" });
@@ -84,6 +104,68 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(browserPreview).toHaveAttribute("data-page-ids", updatedPageIds!);
   await expect(pdfPreview).toHaveAttribute("src", updatedPdfUrl!);
   await expect(pdfLink).toHaveAttribute("href", updatedPdfUrl!);
+  expect(pageErrors).toEqual([]);
+});
+
+test("unchanged display-list pages retain DOM identity and scroll position", async ({ context, page }) => {
+  await context.addCookies([{
+    name: "dev_bypass_waf",
+    value: "seorii_bypass_token_is_this",
+    url: "http://127.0.0.1:4390"
+  }]);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto("./", { waitUntil: "domcontentloaded" });
+  const browserPreview = page.locator('[aria-label="WebAssembly document preview"]');
+  await expect(browserPreview).toHaveAttribute("data-build-revision", "1", { timeout: 15_000 });
+  const editor = page.getByPlaceholder("Type LaTeX here…");
+  const source = String.raw`\documentclass{article}
+\begin{document}
+Page one stable.
+\newpage
+Page two before.
+\newpage
+Page three stable.
+\end{document}`;
+  await editor.fill(source);
+  await expect(page.locator(".editor-status p")).toContainText("Compiled locally", {
+    timeout: 15_000
+  });
+
+  const pages = page.locator(".display-list-page");
+  await expect(pages).toHaveCount(3);
+  const originalIds = await pages.evaluateAll((nodes) => nodes.map((node, index) => {
+    (node as HTMLElement).dataset.domInstance = `original-${index}`;
+    return (node as HTMLElement).dataset.pageId ?? "";
+  }));
+  const originalAnchorOffset = await browserPreview.evaluate((container) => {
+    const pages = container.querySelectorAll<HTMLElement>(".display-list-page");
+    const anchor = pages[2];
+    container.scrollTop = Math.max(0, anchor.offsetTop - 48);
+    return anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+  });
+  await expect.poll(() => browserPreview.evaluate((container) => container.scrollTop))
+    .toBeGreaterThan(0);
+
+  await editor.fill(source.replace("Page two before.", "Page two edited."));
+  await expect(page.locator(".editor-status p")).toContainText("Compiled locally", {
+    timeout: 15_000
+  });
+  await expect(pages).toHaveCount(3);
+  const updatedIds = await pages.evaluateAll((nodes) => nodes.map((node) => (
+    (node as HTMLElement).dataset.pageId ?? ""
+  )));
+  expect(updatedIds[0]).toBe(originalIds[0]);
+  expect(updatedIds[1]).not.toBe(originalIds[1]);
+  expect(updatedIds[2]).toBe(originalIds[2]);
+  await expect(pages.nth(0)).toHaveAttribute("data-dom-instance", "original-0");
+  await expect(pages.nth(2)).toHaveAttribute("data-dom-instance", "original-2");
+  const updatedAnchorOffset = await browserPreview.evaluate((container) => {
+    const anchor = container.querySelectorAll<HTMLElement>(".display-list-page")[2];
+    return anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+  });
+  expect(Math.abs(updatedAnchorOffset - originalAnchorOffset)).toBeLessThan(2);
   expect(pageErrors).toEqual([]);
 });
 

@@ -381,10 +381,14 @@ The first renderer slice landed on 2026-08-01:
 - compiler UTF-8 byte spans are converted only at valid code-point boundaries to
   JavaScript UTF-16 indices, and selection resolves against the last successful
   build's source snapshot so a failed edit cannot silently retarget old pages.
+- Fast Preview exposes 50–200% zoom in 10% steps without changing display-list
+  coordinates or PDF output;
+- the keyed `page_id` loop preserves unchanged page DOM nodes, and the
+  multi-page E2E gate verifies that replacing a middle page retains the visible
+  tail page's scroll offset.
 
 Remaining P0.3 work:
 
-- add zoom and unchanged-page DOM/scroll preservation tests;
 - consume positioned glyphs and bundled outlines instead of CSS shaping;
 - add formula, table, image, link, and multi-page visual regression fixtures.
 

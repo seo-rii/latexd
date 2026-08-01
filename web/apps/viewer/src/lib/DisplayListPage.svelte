@@ -15,6 +15,7 @@
     page,
     pageNumber,
     assetUrls = {},
+    zoom = 1,
     activeSourceKey = null,
     onSourceHover,
     onSourceSelect
@@ -22,6 +23,7 @@
     page: BrowserPageDisplayList;
     pageNumber: number;
     assetUrls?: Record<string, string>;
+    zoom?: number;
     activeSourceKey?: string | null;
     onSourceHover?: (source: BrowserSourceProvenance | null) => void;
     onSourceSelect?: (source: BrowserSourceProvenance) => void;
@@ -81,7 +83,7 @@
   aria-label={`Rendered page ${pageNumber}`}
   data-page-id={page.page_id}
   data-content-hash={page.content_hash}
-  style={`aspect-ratio: ${page.width_pt} / ${page.height_pt}`}
+  style={`aspect-ratio: ${page.width_pt} / ${page.height_pt}; width: min(${zoom * 100}%, ${page.width_pt * 4 / 3 * zoom}px)`}
 >
   <svg
     role="img"
@@ -260,8 +262,7 @@
   .display-list-page {
     position: relative;
     box-sizing: border-box;
-    width: min(100%, 52rem);
-    margin: 0;
+    margin: 0 auto;
     overflow: hidden;
     color: #17130f;
     background:

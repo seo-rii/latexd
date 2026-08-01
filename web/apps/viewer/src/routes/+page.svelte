@@ -61,6 +61,7 @@
   let browserPages = $state.raw<BrowserPageDisplayList[]>([]);
   let browserBuildMetadata = $state.raw<BrowserBuildMetadata | null>(null);
   let browserPreviewMode = $state<"display_list" | "pdf">("display_list");
+  let browserZoomPercent = $state(100);
   let browserDiagnostics = $state<string[]>([]);
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -275,6 +276,10 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       browserCompileTimer = null;
       void compileBrowserSource(editorText);
     }, 250);
+  }
+
+  function setBrowserZoom(percent: number) {
+    browserZoomPercent = Math.max(50, Math.min(200, Math.round(percent / 10) * 10));
   }
 
   function handleBrowserSourceHover(source: BrowserSourceProvenance | null) {
@@ -886,6 +891,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
           data-page-ids={browserPages.map((page) => page.page_id).join(",")}
           data-page-hashes={browserPages.map((page) => page.content_hash).join(",")}
           data-page-sizes={browserPages.map((page) => `${page.width_pt}x${page.height_pt}`).join(",")}
+          data-zoom-percent={browserZoomPercent}
         >
           <div class="browser-preview__meta">
             <span>{browserPages.length} page(s)</span>
@@ -901,17 +907,40 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
               <a href={browserPdfUrl} download="latexd-output.pdf">Download PDF</a>
             {/if}
           </div>
-          <div class="browser-preview__modes" role="group" aria-label="Preview mode">
-            <button
-              type="button"
-              aria-pressed={browserPreviewMode === "display_list"}
-              onclick={() => browserPreviewMode = "display_list"}
-            >Fast preview</button>
-            <button
-              type="button"
-              aria-pressed={browserPreviewMode === "pdf"}
-              onclick={() => browserPreviewMode = "pdf"}
-            >PDF output</button>
+          <div class="browser-preview__controls">
+            <div class="browser-preview__modes" role="group" aria-label="Preview mode">
+              <button
+                type="button"
+                aria-pressed={browserPreviewMode === "display_list"}
+                onclick={() => browserPreviewMode = "display_list"}
+              >Fast preview</button>
+              <button
+                type="button"
+                aria-pressed={browserPreviewMode === "pdf"}
+                onclick={() => browserPreviewMode = "pdf"}
+              >PDF output</button>
+            </div>
+            {#if browserPreviewMode === "display_list"}
+              <div class="browser-preview__zoom" role="group" aria-label="Preview zoom">
+                <button
+                  type="button"
+                  aria-label="Zoom out"
+                  disabled={browserZoomPercent <= 50}
+                  onclick={() => setBrowserZoom(browserZoomPercent - 10)}
+                >−</button>
+                <button
+                  type="button"
+                  aria-label="Reset zoom"
+                  onclick={() => setBrowserZoom(100)}
+                >{browserZoomPercent}%</button>
+                <button
+                  type="button"
+                  aria-label="Zoom in"
+                  disabled={browserZoomPercent >= 200}
+                  onclick={() => setBrowserZoom(browserZoomPercent + 10)}
+                >+</button>
+              </div>
+            {/if}
           </div>
           {#if browserPreviewMode === "display_list"}
             <div class="browser-display-document" aria-label="Compiler display-list pages">
@@ -920,6 +949,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
                   page={page}
                   pageNumber={index + 1}
                   assetUrls={browserAssetUrls}
+                  zoom={browserZoomPercent / 100}
                   activeSourceKey={browserActiveSourceKey}
                   onSourceHover={handleBrowserSourceHover}
                   onSourceSelect={(source) => void handleBrowserSourceSelect(source)}
@@ -1307,6 +1337,13 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     box-shadow: 0 8px 24px rgba(20, 16, 12, 0.12);
   }
 
+  .browser-preview__controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.65rem;
+  }
+
   .browser-preview__modes button {
     border: 0;
     border-radius: 999px;
@@ -1322,9 +1359,40 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     background: #7b3f1f;
   }
 
+  .browser-preview__zoom {
+    display: inline-grid;
+    grid-template-columns: 2rem 3.7rem 2rem;
+    gap: 0.2rem;
+    padding: 0.25rem;
+    border: 1px solid rgba(44, 34, 24, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 254, 249, 0.88);
+    box-shadow: 0 8px 24px rgba(20, 16, 12, 0.12);
+  }
+
+  .browser-preview__zoom button {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.45rem 0.3rem;
+    color: #554536;
+    background: transparent;
+    font: 700 0.78rem/1 "Source Sans 3", sans-serif;
+    cursor: pointer;
+  }
+
+  .browser-preview__zoom button:nth-child(2) {
+    color: #fffaf0;
+    background: #7b3f1f;
+  }
+
+  .browser-preview__zoom button:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+
   .browser-display-document {
     display: grid;
-    justify-items: center;
+    justify-items: stretch;
     width: 100%;
     gap: 1.5rem;
     padding-bottom: 1rem;
