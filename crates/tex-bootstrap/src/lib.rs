@@ -54,7 +54,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\addtocontents#1#2{}
 \newcommand{\textcolor}[3][]{#3}
 \def\color#1{}
-\def\mbox#1{#1}
+\long\def\mbox#1{#1}
 \def\fbox#1{#1}
 \def\normalfont{}
 \def\encodingdefault{OT1}
@@ -1893,6 +1893,33 @@ mod tests {
             align_replay_fragment_boundary(source, "alpha ".len()),
             "alpha ".len()
         );
+    }
+
+    #[test]
+    fn mini_kernel_mbox_accepts_paragraph_tokens() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\mbox{alpha\par beta}\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output, "alpha beta");
+        assert!(!result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic
+                    .detail
+                    .contains("paragraph ended before \\mbox was complete")
+        }));
     }
 
     #[test]
