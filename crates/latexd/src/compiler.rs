@@ -1283,6 +1283,18 @@ struct BuildMeta {
     semantic_aux_backdated: bool,
 }
 
+const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
+
+fn should_capture_shipout_checkpoints(event_count: usize, page_count: usize) -> bool {
+    // Every shipout snapshot currently owns its cumulative event prefix. Bound that
+    // quadratic duplication until checkpoint event segments are stored separately.
+    event_count
+        .checked_mul(page_count)
+        .is_some_and(|event_refs| event_refs <= MAX_SHIPOUT_CHECKPOINT_EVENT_REFS)
+        || event_count == 0
+        || page_count == 0
+}
+
 impl DepTrace {
     pub fn from_inputs(inputs: impl IntoIterator<Item = Utf8PathBuf>) -> Self {
         Self {
@@ -2085,7 +2097,12 @@ impl CompilerDriver {
                     &renderer_state.pages,
                 )
             });
-            let shipout_checkpoints = if let Some(plan) = replay_plan.as_ref() {
+            let shipout_checkpoints = if !should_capture_shipout_checkpoints(
+                build.run.render_events.len(),
+                build.page_metadata.len(),
+            ) {
+                Vec::new()
+            } else if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
                     diagnostics: vec![Diagnostic {
                         level: DiagnosticLevel::Error,
@@ -4463,7 +4480,16 @@ mod tests {
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_source_texts, select_shipout_replay_plan,
         select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
+        should_capture_shipout_checkpoints,
     };
+
+    #[test]
+    fn shipout_checkpoint_capture_respects_event_clone_budget() {
+        assert!(should_capture_shipout_checkpoints(2_000, 24));
+        assert!(!should_capture_shipout_checkpoints(31_185, 48));
+        assert!(should_capture_shipout_checkpoints(0, 1_000));
+        assert!(should_capture_shipout_checkpoints(10_000, 0));
+    }
 
     #[test]
     fn external_warning_detection_ignores_incidental_prose() {
