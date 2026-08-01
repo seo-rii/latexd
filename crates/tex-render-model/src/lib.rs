@@ -1,4 +1,5 @@
 pub mod aux_view;
+pub mod browser;
 pub mod display_list;
 pub mod events;
 pub mod golden;
@@ -11,6 +12,10 @@ pub mod vector;
 pub use aux_view::{
     AuxView, BibliographyRecordView, CitationLabel, CitationLabelForm, CitationStyleHint,
     FloatCaptionView, LabelTargetView,
+};
+pub use browser::{
+    BROWSER_BUILD_METADATA_SCHEMA_VERSION, BROWSER_PAGES_SCHEMA_VERSION, BrowserAssetManifestEntry,
+    BrowserBuildMetadata, BrowserCompileMode, BrowserPageStats, BrowserPagesArtifact,
 };
 pub use display_list::{
     Destination, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
