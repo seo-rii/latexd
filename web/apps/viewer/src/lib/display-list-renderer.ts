@@ -17,6 +17,22 @@ export type PreparedDisplayList = {
   diagnostics: string[];
 };
 
+export function browserDestinationId(name: string) {
+  const encoded = encodeURIComponent(name).replaceAll("%", "_");
+  return `destination-${encoded || "unnamed"}`;
+}
+
+export function browserLinkHref(target: string): string | null {
+  const value = target.trim();
+  if (!value || /^(?:javascript|data|vbscript):/i.test(value)) {
+    return null;
+  }
+  if (/^(?:https?|mailto|tel):/i.test(value) || /^(?:\/|\.\/|\.\.\/)/.test(value)) {
+    return value;
+  }
+  return `#${browserDestinationId(value.startsWith("#") ? value.slice(1) : value)}`;
+}
+
 function intersectRects(left: BrowserRect, right: BrowserRect): BrowserRect {
   const x = Math.max(left.x, right.x);
   const y = Math.max(left.y, right.y);

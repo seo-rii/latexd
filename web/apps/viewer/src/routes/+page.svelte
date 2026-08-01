@@ -13,6 +13,7 @@
     type BrowserBuildMetadata,
     type BrowserPageDisplayList
   } from "$lib/browser-compiler";
+  import DisplayListPage from "$lib/DisplayListPage.svelte";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
   type EditorFocus = {
@@ -50,6 +51,7 @@
   let browserMode = $state(browserOnly);
   let browserPages = $state.raw<BrowserPageDisplayList[]>([]);
   let browserBuildMetadata = $state.raw<BrowserBuildMetadata | null>(null);
+  let browserPreviewMode = $state<"display_list" | "pdf">("display_list");
   let browserDiagnostics = $state<string[]>([]);
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -57,6 +59,12 @@
   let browserFiles = $state<Record<string, Uint8Array>>({});
   let browserTextFiles = $state<Record<string, string>>({});
   let browserPdfUrl = $state("");
+  const browserTextFallbackCount = $derived(
+    browserPages.reduce(
+      (count, page) => count + page.ops.filter((op) => op.kind === "text_run").length,
+      0
+    )
+  );
 
   const browserStarterSource = `\\documentclass{article}
 \\title{latexd in WebAssembly}
@@ -778,11 +786,30 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
             <span>{browserPages.length} page(s)</span>
             <span>{browserEventCount} events</span>
             <span>{browserDiagnostics.length} diagnostics</span>
+            <span>{browserTextFallbackCount} CSS text fallback(s)</span>
             {#if browserPdfUrl}
               <a href={browserPdfUrl} download="latexd-output.pdf">Download PDF</a>
             {/if}
           </div>
-          {#if browserPdfUrl}
+          <div class="browser-preview__modes" role="group" aria-label="Preview mode">
+            <button
+              type="button"
+              aria-pressed={browserPreviewMode === "display_list"}
+              onclick={() => browserPreviewMode = "display_list"}
+            >Fast preview</button>
+            <button
+              type="button"
+              aria-pressed={browserPreviewMode === "pdf"}
+              onclick={() => browserPreviewMode = "pdf"}
+            >PDF output</button>
+          </div>
+          {#if browserPreviewMode === "display_list"}
+            <div class="browser-display-document" aria-label="Compiler display-list pages">
+              {#each browserPages as page, index (page.page_id)}
+                <DisplayListPage page={page} pageNumber={index + 1} />
+              {/each}
+            </div>
+          {:else if browserPdfUrl}
             <iframe
               class="browser-pdf-preview"
               title="Compiled PDF preview"
@@ -1151,6 +1178,39 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
 
   .browser-preview__meta a {
     color: #f7c873;
+  }
+
+  .browser-preview__modes {
+    display: inline-flex;
+    gap: 0.2rem;
+    padding: 0.25rem;
+    border: 1px solid rgba(44, 34, 24, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 254, 249, 0.88);
+    box-shadow: 0 8px 24px rgba(20, 16, 12, 0.12);
+  }
+
+  .browser-preview__modes button {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    color: #554536;
+    background: transparent;
+    font: 700 0.78rem/1 "Source Sans 3", sans-serif;
+    cursor: pointer;
+  }
+
+  .browser-preview__modes button[aria-pressed="true"] {
+    color: #fffaf0;
+    background: #7b3f1f;
+  }
+
+  .browser-display-document {
+    display: grid;
+    justify-items: center;
+    width: 100%;
+    gap: 1.5rem;
+    padding-bottom: 1rem;
   }
 
   .browser-pdf-preview {

@@ -6,7 +6,11 @@ import {
   type BrowserPagesArtifact,
   validateBrowserArtifacts
 } from "../src/lib/browser-artifacts.ts";
-import { prepareDisplayListOps } from "../src/lib/display-list-renderer.ts";
+import {
+  browserDestinationId,
+  browserLinkHref,
+  prepareDisplayListOps
+} from "../src/lib/display-list-renderer.ts";
 
 function pagesArtifact(): BrowserPagesArtifact {
   return {
@@ -104,4 +108,14 @@ test("display-list preparation diagnoses unbalanced graphics state locally", () 
     "display list restored an empty graphics-state stack",
     "display list ended with 1 saved graphics state(s)"
   ]);
+});
+
+test("browser display-list links distinguish safe URLs and named destinations", () => {
+  assert.equal(browserLinkHref("https://example.com/paper"), "https://example.com/paper");
+  assert.equal(browserLinkHref("mailto:author@example.com"), "mailto:author@example.com");
+  assert.equal(browserLinkHref("fig:inside"), "#destination-fig_3Ainside");
+  assert.equal(browserLinkHref("#fig:inside"), "#destination-fig_3Ainside");
+  assert.equal(browserDestinationId("fig:inside"), "destination-fig_3Ainside");
+  assert.equal(browserLinkHref("javascript:alert(1)"), null);
+  assert.equal(browserLinkHref("data:text/html,unsafe"), null);
 });

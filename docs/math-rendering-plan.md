@@ -351,7 +351,7 @@ explicit deduplicated manifest. The current paths resolve against the project
 memfs; P0.3 must consume this manifest rather than perform native filesystem
 discovery.
 
-### P0.3 Display-List Browser Renderer
+### P0.3 Display-List Browser Renderer (In Progress)
 
 After the PDF bootstrap is stable, render `PageDisplayList` pages directly to
 Canvas or SVG. Replace only changed page nodes, preserve scroll/zoom/source
@@ -361,6 +361,26 @@ The browser renderer consumes positioned glyph IDs and the same bundled outline
 fonts used by PDF output. CSS text is allowed only as a diagnosed fallback;
 otherwise browser shaping and font substitution would invalidate native/WASI
 geometry parity.
+
+The first renderer slice landed on 2026-08-01:
+
+- each compiler page is an SVG view box keyed by its stable `page_id`;
+- `Save`, `Restore`, and `ClipRect` are lowered to per-operation clip state;
+- text runs, rules, image boxes, link annotations, and named destinations have
+  direct SVG representations;
+- unsupported image payloads and unbalanced graphics state remain visible as
+  local fallbacks or diagnostics instead of deleting the page;
+- Fast preview and PDF output are explicit modes backed by the same build;
+- every CSS-shaped text run is counted and marked as a fallback.
+
+Remaining P0.3 work:
+
+- resolve manifest assets from browser memfs into image URLs with lifecycle-safe
+  revocation and explicit PDF/EPS fallback;
+- connect per-operation provenance to source hover and click selection;
+- add zoom and unchanged-page DOM/scroll preservation tests;
+- consume positioned glyphs and bundled outlines instead of CSS shaping;
+- add formula, table, image, link, and multi-page visual regression fixtures.
 
 ## P1: Font And Metric Substrate
 
