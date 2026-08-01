@@ -418,9 +418,6 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
         currentFocus = nextFocus;
         await tick();
         await focusEditorLine(nextFocus.line, nextFocus.column);
-      } else {
-        await tick();
-        queuePreviewSyncFromEditor();
       }
     } catch (error) {
       if (requestId !== loadSerial) {
