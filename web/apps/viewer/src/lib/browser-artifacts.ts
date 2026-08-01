@@ -111,17 +111,19 @@ export type BrowserPageDisplayList = {
   content_hash: string;
 };
 
+export type BrowserAssetManifestEntry = {
+  asset_ref: string;
+  format?: string;
+  content_hash?: string;
+};
+
 export type BrowserPagesArtifact = {
   schema_version: number;
   revision: number;
   pages: BrowserPageDisplayList[];
   changed_page_ids: string[];
   removed_page_ids: string[];
-  assets: Array<{
-    asset_ref: string;
-    format?: string;
-    content_hash?: string;
-  }>;
+  assets: BrowserAssetManifestEntry[];
 };
 
 export type BrowserBuildMetadata = {
@@ -188,5 +190,33 @@ export function validateBrowserArtifacts(
     || pageArtifact.removed_page_ids.some((pageId) => pageIds.has(pageId))
   ) {
     throw new Error("WASI compiler returned an invalid browser page manifest");
+  }
+
+  const assets: unknown = pageArtifact.assets;
+  if (!Array.isArray(assets)) {
+    throw new Error("WASI compiler returned an invalid browser asset manifest");
+  }
+  const assetRefs = new Set<string>();
+  for (const asset of assets) {
+    if (!asset || typeof asset !== "object") {
+      throw new Error("WASI compiler returned an invalid browser asset manifest");
+    }
+    const entry = asset as Record<string, unknown>;
+    if (
+      typeof entry.asset_ref !== "string"
+      || entry.asset_ref.length === 0
+      || (entry.format !== undefined && (
+        typeof entry.format !== "string"
+        || entry.format.length === 0
+      ))
+      || (entry.content_hash !== undefined && (
+        typeof entry.content_hash !== "string"
+        || entry.content_hash.length === 0
+      ))
+      || assetRefs.has(entry.asset_ref)
+    ) {
+      throw new Error("WASI compiler returned an invalid browser asset manifest");
+    }
+    assetRefs.add(entry.asset_ref);
   }
 }

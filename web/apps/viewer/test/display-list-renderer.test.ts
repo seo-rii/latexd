@@ -75,6 +75,43 @@ test("browser artifact validation rejects stale revisions", () => {
   );
 });
 
+test("browser artifact validation rejects malformed or duplicate asset entries", () => {
+  const malformed = pagesArtifact();
+  malformed.assets = [{ asset_ref: "", format: "svg" }];
+  assert.throws(
+    () => validateBrowserArtifacts(
+      malformed,
+      buildMetadata(),
+      {
+        revision: 4,
+        page_count: 1,
+        event_count: 12,
+        diagnostic_count: 1
+      }
+    ),
+    /invalid browser asset manifest/
+  );
+
+  const duplicate = pagesArtifact();
+  duplicate.assets = [
+    { asset_ref: "figure.svg", format: "svg", content_hash: "first" },
+    { asset_ref: "figure.svg", format: "svg", content_hash: "second" }
+  ];
+  assert.throws(
+    () => validateBrowserArtifacts(
+      duplicate,
+      buildMetadata(),
+      {
+        revision: 4,
+        page_count: 1,
+        event_count: 12,
+        diagnostic_count: 1
+      }
+    ),
+    /invalid browser asset manifest/
+  );
+});
+
 test("display-list preparation applies nested clips until restore", () => {
   const prepared = prepareDisplayListOps([
     { kind: "save" },

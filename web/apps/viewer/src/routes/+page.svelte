@@ -13,6 +13,10 @@
     type BrowserBuildMetadata,
     type BrowserPageDisplayList
   } from "$lib/browser-compiler";
+  import {
+    materializeBrowserAssets,
+    revokeBrowserAssetUrls
+  } from "$lib/browser-assets";
   import DisplayListPage from "$lib/DisplayListPage.svelte";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -59,6 +63,7 @@
   let browserFiles = $state<Record<string, Uint8Array>>({});
   let browserTextFiles = $state<Record<string, string>>({});
   let browserPdfUrl = $state("");
+  let browserAssetUrls = $state.raw<Record<string, string>>({});
   const browserTextFallbackCount = $derived(
     browserPages.reduce(
       (count, page) => count + page.ops.filter((op) => op.kind === "text_run").length,
@@ -92,6 +97,19 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     if (browserOnly) {
       void activateBrowserMode();
     }
+    return () => {
+      browserCompileSerial += 1;
+      if (browserCompileTimer) {
+        clearTimeout(browserCompileTimer);
+        browserCompileTimer = null;
+      }
+      if (browserPdfUrl) {
+        URL.revokeObjectURL(browserPdfUrl);
+        browserPdfUrl = "";
+      }
+      revokeBrowserAssetUrls(browserAssetUrls, URL.revokeObjectURL);
+      browserAssetUrls = {};
+    };
   });
 
   function focusKeyForPosition(file: string, line: number, column: number) {
@@ -144,10 +162,6 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
         clearTimeout(browserCompileTimer);
         browserCompileTimer = null;
       }
-      if (browserPdfUrl) {
-        URL.revokeObjectURL(browserPdfUrl);
-        browserPdfUrl = "";
-      }
       unsubscribeSocketMessages();
       unsubscribeSocketStatus();
       viewerController?.destroy();
@@ -191,18 +205,30 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       if (requestId !== browserCompileSerial) {
         return;
       }
+      const nextPdfUrl = URL.createObjectURL(new Blob([result.pdf as BlobPart], {
+        type: "application/pdf"
+      }));
+      const nextAssets = materializeBrowserAssets(
+        result.page_artifact.assets,
+        projectFiles,
+        (bytes, mimeType) => URL.createObjectURL(new Blob([bytes as BlobPart], {
+          type: mimeType
+        }))
+      );
+      const previousPdfUrl = browserPdfUrl;
+      const previousAssetUrls = browserAssetUrls;
       browserPages = result.page_artifact.pages;
       browserBuildMetadata = result.build_metadata;
-      browserDiagnostics = result.diagnostics;
+      browserDiagnostics = [...result.diagnostics, ...nextAssets.diagnostics];
       browserEventCount = result.event_count;
       browserFiles = projectFiles;
       browserTextFiles = { ...browserTextFiles, [activeFile]: source };
-      if (browserPdfUrl) {
-        URL.revokeObjectURL(browserPdfUrl);
+      browserPdfUrl = nextPdfUrl;
+      browserAssetUrls = nextAssets.urls;
+      if (previousPdfUrl) {
+        URL.revokeObjectURL(previousPdfUrl);
       }
-      browserPdfUrl = URL.createObjectURL(new Blob([result.pdf as BlobPart], {
-        type: "application/pdf"
-      }));
+      revokeBrowserAssetUrls(previousAssetUrls, URL.revokeObjectURL);
       previewState.currentRev += 1;
       previewState.lastAppliedRev = previewState.currentRev;
       previewState.lastBuildSucceeded = true;
@@ -806,7 +832,11 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
           {#if browserPreviewMode === "display_list"}
             <div class="browser-display-document" aria-label="Compiler display-list pages">
               {#each browserPages as page, index (page.page_id)}
-                <DisplayListPage page={page} pageNumber={index + 1} />
+                <DisplayListPage
+                  page={page}
+                  pageNumber={index + 1}
+                  assetUrls={browserAssetUrls}
+                />
               {/each}
             </div>
           {:else if browserPdfUrl}

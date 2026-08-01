@@ -372,11 +372,12 @@ The first renderer slice landed on 2026-08-01:
   local fallbacks or diagnostics instead of deleting the page;
 - Fast preview and PDF output are explicit modes backed by the same build;
 - every CSS-shaped text run is counted and marked as a fallback.
+- PNG, JPEG, and SVG manifest entries resolve from browser memfs to
+  lifecycle-safe Blob URLs; missing, unsafe, PDF, EPS, and unknown assets remain
+  explicit diagnostics or page-local fallbacks.
 
 Remaining P0.3 work:
 
-- resolve manifest assets from browser memfs into image URLs with lifecycle-safe
-  revocation and explicit PDF/EPS fallback;
 - connect per-operation provenance to source hover and click selection;
 - add zoom and unchanged-page DOM/scroll preservation tests;
 - consume positioned glyphs and bundled outlines instead of CSS shaping;

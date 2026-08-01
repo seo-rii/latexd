@@ -1,4 +1,9 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { expect, test } from "@playwright/test";
+
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 test("static viewer renders display-list pages and retains PDF comparison output", async ({ context, page }) => {
   await context.addCookies([{
@@ -70,5 +75,67 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(browserPreview).toHaveAttribute("data-page-ids", updatedPageIds!);
   await expect(pdfPreview).toHaveAttribute("src", updatedPdfUrl!);
   await expect(pdfLink).toHaveAttribute("href", updatedPdfUrl!);
+  expect(pageErrors).toEqual([]);
+});
+
+test("browser project images survive failed builds and release replaced URLs", async ({ context, page }) => {
+  await context.addCookies([{
+    name: "dev_bypass_waf",
+    value: "seorii_bypass_token_is_this",
+    url: "http://127.0.0.1:4390"
+  }]);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto("./", { waitUntil: "domcontentloaded" });
+  const browserPreview = page.locator('[aria-label="WebAssembly document preview"]');
+  await expect(browserPreview).toHaveAttribute("data-build-revision", "1", { timeout: 15_000 });
+
+  await page.locator('input[type="file"][webkitdirectory]').setInputFiles(
+    path.join(testDirectory, "fixtures/browser-image-project")
+  );
+
+  await expect(page.locator(".editor-status p")).toContainText("Compiled locally", {
+    timeout: 15_000
+  });
+  const image = page.locator(".display-list-page image");
+  await expect(image).toHaveCount(1);
+  const imageUrl = await image.getAttribute("href");
+  expect(imageUrl).toMatch(/^blob:/);
+  await expect.poll(() => page.evaluate(async (url) => {
+    try {
+      return (await fetch(url)).ok;
+    } catch {
+      return false;
+    }
+  }, imageUrl!)).toBe(true);
+
+  const editor = page.getByPlaceholder("Type LaTeX here…");
+  await editor.fill("\\errmessage{expected asset build failure}");
+  await expect(page.locator(".editor-status__badge")).toHaveText("error", { timeout: 15_000 });
+  await expect(image).toHaveAttribute("href", imageUrl!);
+  await expect.poll(() => page.evaluate(async (url) => {
+    try {
+      return (await fetch(url)).ok;
+    } catch {
+      return false;
+    }
+  }, imageUrl!)).toBe(true);
+
+  await editor.fill(String.raw`\documentclass{article}
+\begin{document}
+Image removed.
+\end{document}`);
+  await expect(page.locator(".editor-status p")).toContainText("Compiled locally", {
+    timeout: 15_000
+  });
+  await expect(image).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async (url) => {
+    try {
+      return (await fetch(url)).ok;
+    } catch {
+      return false;
+    }
+  }, imageUrl!)).toBe(false);
   expect(pageErrors).toEqual([]);
 });
