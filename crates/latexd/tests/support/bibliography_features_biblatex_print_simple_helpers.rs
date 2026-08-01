@@ -3,6 +3,7 @@ struct BiblatexPrintSimpleRun {
     build_root: Utf8PathBuf,
     output: String,
     executed_main: String,
+    display_list_text_runs: Vec<String>,
 }
 
 enum BiblatexPrintSimpleCase {
@@ -70,12 +71,14 @@ toplevel:
     )
     .expect("parse sources");
     let executed_main = stored_sources.executed_files[&Utf8PathBuf::from("main.tex")].clone();
+    let display_list_text_runs = load_page_display_list_text_runs(&build_root, 1);
 
     BiblatexPrintSimpleRun {
         _tempdir: tempdir,
         build_root,
         output,
         executed_main,
+        display_list_text_runs,
     }
 }
 
@@ -116,7 +119,7 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
         refs_bbl,
         rendered_text,
         removed_commands,
-        extra_output_texts,
+        display_list_texts,
         expects_bbl_input,
         aux_assertion,
     ) = match case {
@@ -132,7 +135,12 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
                 "\\printbibliography",
                 "\\addbibresource",
             ],
-            vec!["[1] Alpha entry.", "[2] Beta entry."],
+            vec![
+                "[Alpha 2024]",
+                "Alpha entry.",
+                "[Beta et al.(2023)Beta and Gamma]",
+                "Beta entry.",
+            ],
             true,
             BiblatexPrintSimpleAuxAssertion::None,
         ),
@@ -185,7 +193,7 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
             Some("\\begin{thebibliography}{1}\\bibitem{alpha} Alpha entry.\\end{thebibliography}"),
             "References",
             vec!["\\printbibliography", "\\addbibresource"],
-            vec!["[1] Alpha entry.", "Contents"],
+            vec!["[1]", "Alpha entry.", "Contents"],
             true,
             BiblatexPrintSimpleAuxAssertion::TocTitle("References"),
         ),
@@ -194,7 +202,7 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
             Some("\\begin{thebibliography}{1}\\bibitem{alpha} Alpha entry.\\end{thebibliography}"),
             "2 References",
             vec!["\\printbibliography"],
-            vec!["[1] Alpha entry."],
+            vec!["[1]", "Alpha entry."],
             true,
             BiblatexPrintSimpleAuxAssertion::TocNumberAndTitle {
                 number: "2",
@@ -217,8 +225,14 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
 
     let run = compile_biblatex_print_simple_fixture(main_source, refs_bbl).await;
     assert_biblatex_print_simple_render(&run, rendered_text, &removed_commands);
-    for extra_output_text in extra_output_texts {
-        assert!(run.output.contains(extra_output_text));
+    for display_list_text in display_list_texts {
+        assert!(
+            run.display_list_text_runs
+                .iter()
+                .any(|text| text.contains(display_list_text)),
+            "page display list should contain {display_list_text:?}: {:?}",
+            run.display_list_text_runs
+        );
     }
     if expects_bbl_input {
         assert!(run.executed_main.contains("\\input{refs.bbl}"));

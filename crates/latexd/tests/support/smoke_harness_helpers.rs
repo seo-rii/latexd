@@ -22,6 +22,27 @@ struct StoredSources {
     rewrite_spans: BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
 }
 
+fn load_page_display_list_text_runs(build_root: &Utf8Path, rev: u64) -> Vec<String> {
+    let display_lists = serde_json::from_slice::<Vec<tex_render_model::PageDisplayList>>(
+        &fs::read(
+            build_root
+                .join(format!("rev-{rev}"))
+                .join("render-ir/page-display-list.json"),
+        )
+        .expect("read page display list"),
+    )
+    .expect("parse page display list");
+
+    display_lists
+        .into_iter()
+        .flat_map(|page| page.ops)
+        .filter_map(|op| match op {
+            tex_render_model::DrawOp::TextRun(run) => Some(run.text),
+            _ => None,
+        })
+        .collect()
+}
+
 macro_rules! smoke_case_test {
     ($name:ident, $future:expr) => {
         #[tokio::test]

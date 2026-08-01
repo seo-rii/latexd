@@ -1,6 +1,7 @@
 struct SemanticallyEqualMultiBibliographyShipoutReplayRun {
     third_output: String,
     fourth_output: String,
+    third_display_list_text_runs: Vec<String>,
 }
 
 enum SemanticallyEqualMultiBibliographyShipoutReplayCase {
@@ -24,6 +25,7 @@ async fn run_semantically_equal_multi_bibliography_shipout_replay()
         fs::read_to_string(run.build_root.join("rev-3/output.txt")).expect("read third output");
     let fourth_output =
         fs::read_to_string(run.build_root.join("rev-4/output.txt")).expect("read fourth output");
+    let third_display_list_text_runs = load_page_display_list_text_runs(&run.build_root, 3);
     let third_build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(run.build_root.join("rev-3/build-meta.json")).expect("read third build meta"),
     )
@@ -96,6 +98,7 @@ async fn run_semantically_equal_multi_bibliography_shipout_replay()
     SemanticallyEqualMultiBibliographyShipoutReplayRun {
         third_output,
         fourth_output,
+        third_display_list_text_runs,
     }
 }
 
@@ -108,8 +111,19 @@ async fn run_semantically_equal_multi_bibliography_shipout_replay_case(
         SemanticallyEqualMultiBibliographyShipoutReplayCase::Output
     ) {
         assert!(run.third_output.contains("Order check. [2] and [1]"));
-        assert!(run.third_output.contains("[1] Beta entry."));
-        assert!(run.third_output.contains("[2] Alpha entry."));
+        let third_beta = run
+            .third_output
+            .find("Beta entry.")
+            .expect("third output should contain the first bibliography item");
+        let third_alpha = run
+            .third_output
+            .find("Alpha entry.")
+            .expect("third output should contain the second bibliography item");
+        assert!(
+            third_beta < third_alpha,
+            "third output: {}",
+            run.third_output
+        );
         assert_eq!(
             run.fourth_output
                 .matches("wrapperarticletwocolumnunicode")
@@ -119,8 +133,26 @@ async fn run_semantically_equal_multi_bibliography_shipout_replay_case(
         assert!(!run.fourth_output.contains("column,unicode]wrapper"));
         assert!(!run.fourth_output.contains("icleOrder check"));
         assert!(run.fourth_output.contains("Order check. [2] and [1]"));
-        assert!(run.fourth_output.contains("[1] Beta entry."));
-        assert!(run.fourth_output.contains("[2] Alpha entry."));
+        assert_eq!(run.fourth_output, run.third_output);
+
+        let rendered_position = |expected: &str| {
+            run.third_display_list_text_runs
+                .iter()
+                .position(|text| text.contains(expected))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "third page display list should contain {expected:?}: {:?}",
+                        run.third_display_list_text_runs
+                    )
+                })
+        };
+        let rendered_beta = rendered_position("[B 2025] Beta entry.");
+        let rendered_alpha = rendered_position("[A 2024] Alpha entry.");
+        assert!(
+            rendered_beta < rendered_alpha,
+            "third page display-list order: {:?}",
+            run.third_display_list_text_runs
+        );
     }
 }
 
