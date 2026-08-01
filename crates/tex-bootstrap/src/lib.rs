@@ -361,7 +361,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\text#1{#1}
 \def\frac#1#2{#1/#2}
 \newcommand{\sqrt}[2][]{\latexdmathwordboundary#2\latexdmathwordboundary}
-\def\multirow#1#2#3{#3}
+\long\def\multirow#1#2#3{#3}
 \def\multicolumn#1#2#3{#3}
 \def\shortstack#1{#1}
 \def\scalebox#1#2{#2}
@@ -1925,6 +1925,33 @@ mod tests {
                 .source_lengths
                 .contains_key(&Utf8PathBuf::from("main.tex"))
         );
+    }
+
+    #[test]
+    fn mini_kernel_multirow_accepts_paragraph_content() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(
+            root.join("main.tex"),
+            "\\documentclass{article}\\begin{document}\\multirow{2}{5cm}{First\n\nSecond}\\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let build = run_project_with_snapshot(&world, &snapshot).expect("build");
+
+        assert_eq!(
+            build.output.split_whitespace().collect::<Vec<_>>(),
+            vec!["First", "Second"]
+        );
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
     }
 
     #[test]
