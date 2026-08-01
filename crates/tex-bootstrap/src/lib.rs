@@ -1928,6 +1928,52 @@ mod tests {
     }
 
     #[test]
+    fn segmented_preamble_with_nested_eof_package_preserves_body_events() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(
+            root.join("inner.sty"),
+            r"\ProvidesPackage{inner}[2024/01/01]\def\innerflag{ready}\endinput",
+        )
+        .expect("inner package");
+        fs::write(
+            root.join("shim.sty"),
+            r"\ProvidesPackage{shim}[2024/01/01]\RequirePackage{inner}\newif\ifstylefinal\stylefinaltrue\ifstylefinal\def\styleflag{ready}\else\AtBeginDocument{\@ifpackageloaded{inner}{\def\beginflag{ready}}{}}\fi\endinput",
+        )
+        .expect("shim package");
+        fs::write(
+            root.join("after.sty"),
+            r"\ProvidesPackage{after}[2024/01/01]\def\afterflag{ready}\endinput",
+        )
+        .expect("after package");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\usepackage{shim}\usepackage{after}\begin{document}Visible parent body.\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let (build, _) = run_project_from_base_snapshot(&world, &snapshot).expect("build");
+
+        assert!(
+            build.output.contains("Visible parent body."),
+            "{:?}",
+            build.output
+        );
+        assert!(build.render_events.iter().any(|event| {
+            matches!(&event.event, RenderEvent::Text(text) if text.text == "Visible")
+        }));
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
     fn mini_kernel_multirow_accepts_paragraph_content() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

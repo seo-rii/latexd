@@ -20916,7 +20916,7 @@ impl<'i> Vm<'i> {
                     match token.kind {
                         TokenKind::ControlSequence { name } => {
                             let name = self.interner.resolve(name).unwrap_or("");
-                            if self.is_conditional_name(name) {
+                            if self.is_fi_delimited_conditional_name(name) {
                                 depth += 1;
                                 condition_tokens.push(token);
                             } else if name == "fi" {
@@ -21281,7 +21281,7 @@ impl<'i> Vm<'i> {
                         TokenKind::Character { .. } => None,
                     };
                     match control_name.as_deref() {
-                        Some(name) if self.is_conditional_name(name) => {
+                        Some(name) if self.is_fi_delimited_conditional_name(name) => {
                             depth += 1;
                             current.push(token);
                         }
@@ -25364,23 +25364,14 @@ impl<'i> Vm<'i> {
         self.record_suppressed_source_range(source_start_utf8, self.last_token_end_utf8);
     }
 
-    fn is_conditional_name(&self, name: &str) -> bool {
+    fn is_fi_delimited_conditional_name(&self, name: &str) -> bool {
         matches!(
             self.lookup_meaning(name)
                 .or_else(|| builtin_primitive(name).map(Meaning::Primitive)),
             Some(Meaning::Primitive(
                 Primitive::IfTrue
                     | Primitive::IfFalse
-                    | Primitive::IfPackageLoadedTF
-                    | Primitive::IfClassLoadedTF
-                    | Primitive::IfPackageAtLeastTF
-                    | Primitive::IfClassAtLeastTF
-                    | Primitive::IfPackageLater
-                    | Primitive::IfClassLater
-                    | Primitive::IfPackageWith
-                    | Primitive::IfClassWith
                     | Primitive::IfEof
-                    | Primitive::IfFileExists
                     | Primitive::IfInAt
                     | Primitive::IfTempSwa
                     | Primitive::IfFilesw
@@ -25390,14 +25381,6 @@ impl<'i> Vm<'i> {
                     | Primitive::IfCat
                     | Primitive::IfCase
                     | Primitive::IfDefined
-                    | Primitive::IfUndefined
-                    | Primitive::IfDefinable
-                    | Primitive::IfNextChar
-                    | Primitive::IfStar
-                    | Primitive::IfEmpty
-                    | Primitive::IfNotEmpty
-                    | Primitive::IfMtArg
-                    | Primitive::IfNotMtArg
                     | Primitive::IfX
                     | Primitive::IfNum
                     | Primitive::IfDim
@@ -25416,7 +25399,7 @@ impl<'i> Vm<'i> {
                 continue;
             };
             match self.interner.resolve(name).unwrap_or("") {
-                name if self.is_conditional_name(name) => depth += 1,
+                name if self.is_fi_delimited_conditional_name(name) => depth += 1,
                 "fi" if depth == 0 => return false,
                 "fi" => depth -= 1,
                 "else" if depth == 0 => return true,
@@ -25438,7 +25421,7 @@ impl<'i> Vm<'i> {
                 continue;
             };
             match self.interner.resolve(name).unwrap_or("") {
-                name if self.is_conditional_name(name) => depth += 1,
+                name if self.is_fi_delimited_conditional_name(name) => depth += 1,
                 "fi" if depth == 0 => break,
                 "fi" => depth -= 1,
                 _ => {}
@@ -35555,6 +35538,18 @@ mod tests {
         );
 
         assert_eq!(outcome.output, "D");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn skipped_branch_argument_predicates_do_not_consume_parent_input() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newif\iffoo\footrue\iffoo T\else\@ifpackageloaded{amsmath}{A}{B}\fi Z\makeatother",
+        );
+
+        assert_eq!(outcome.output, "TZ");
         assert!(outcome.diagnostics.is_empty());
     }
 
