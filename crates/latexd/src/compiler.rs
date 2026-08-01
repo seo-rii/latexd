@@ -6144,8 +6144,11 @@ mod tests {
                 .exists()
         );
 
-        let checkpoints = fs::read_to_string(build_root.join("rev-2/checkpoints.json"))
-            .expect("read second checkpoints");
+        let checkpoints = serde_json::to_string(
+            &load_checkpoint_bundle(&build_root.join("rev-2/checkpoints.json"))
+                .expect("load second checkpoints"),
+        )
+        .expect("serialize second checkpoints");
         assert!(!checkpoints.contains("PersistentVector"));
         assert!(!checkpoints.contains("materialized_assets"));
         assert!(!checkpoints.contains("prepared_asset_cache"));

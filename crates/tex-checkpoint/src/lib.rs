@@ -1,14 +1,126 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, Read, Write};
 
 use anyhow::{Context, Result, anyhow};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::read::DecoderReader;
+use base64::write::EncoderWriter;
 use camino::{Utf8Path, Utf8PathBuf};
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
 use tex_vm::{
     VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpointKind, VmReplayFrame, VmSnapshot,
 };
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
+
+const CHECKPOINT_DISK_SCHEMA_VERSION: u32 = 2;
+const CHECKPOINT_DISK_ENCODING: &str = "gzip+base64";
+const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const CHECKPOINT_ENVELOPE_PREFIX: &[u8] =
+    b"{\"schema_version\":2,\"encoding\":\"gzip+base64\",\"payload\":\"";
+
+#[derive(Debug, Deserialize)]
+struct CheckpointBundleEnvelope<'a> {
+    schema_version: u32,
+    encoding: &'a str,
+    #[serde(borrow)]
+    payload: &'a str,
+    uncompressed_len: u64,
+    uncompressed_blake3: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct CheckpointBundleProbe {
+    #[serde(default)]
+    schema_version: Option<u32>,
+}
+
+struct IntegrityWriter<W> {
+    inner: W,
+    hasher: blake3::Hasher,
+    bytes_written: u64,
+}
+
+impl<W> IntegrityWriter<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            hasher: blake3::Hasher::new(),
+            bytes_written: 0,
+        }
+    }
+
+    fn into_parts(self) -> (W, u64, blake3::Hash) {
+        (self.inner, self.bytes_written, self.hasher.finalize())
+    }
+}
+
+impl<W: Write> Write for IntegrityWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        self.hasher.update(&buffer[..written]);
+        self.bytes_written = self.bytes_written.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+struct IntegrityReader<R> {
+    inner: R,
+    hasher: blake3::Hasher,
+    bytes_read: u64,
+    expected_len: u64,
+}
+
+impl<R> IntegrityReader<R> {
+    fn new(inner: R, expected_len: u64) -> Self {
+        Self {
+            inner,
+            hasher: blake3::Hasher::new(),
+            bytes_read: 0,
+            expected_len,
+        }
+    }
+
+    fn finish(mut self) -> io::Result<(u64, blake3::Hash)>
+    where
+        R: Read,
+    {
+        let mut buffer = [0; 8 * 1024];
+        while self.read(&mut buffer)? != 0 {}
+        Ok((self.bytes_read, self.hasher.finalize()))
+    }
+}
+
+impl<R: Read> Read for IntegrityReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.bytes_read == self.expected_len {
+            let mut extra = [0];
+            return match self.inner.read(&mut extra)? {
+                0 => Ok(0),
+                _ => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "checkpoint payload exceeds declared uncompressed length",
+                )),
+            };
+        }
+        let remaining = self.expected_len.saturating_sub(self.bytes_read);
+        let limit = remaining.min(buffer.len() as u64) as usize;
+        let read = self.inner.read(&mut buffer[..limit])?;
+        self.hasher.update(&buffer[..read]);
+        self.bytes_read = self.bytes_read.saturating_add(read as u64);
+        Ok(read)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -310,16 +422,35 @@ pub fn build_checkpoint_bundle_with_shipouts(
 }
 
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {
-    let contents =
-        serde_json::to_vec_pretty(bundle).context("failed to serialize checkpoint bundle")?;
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .with_context(|| format!("failed to create temporary checkpoint bundle beside {path}"))?;
     temporary
-        .write_all(&contents)
-        .with_context(|| format!("failed to write temporary checkpoint bundle for {path}"))?;
+        .write_all(CHECKPOINT_ENVELOPE_PREFIX)
+        .with_context(|| format!("failed to write checkpoint envelope header for {path}"))?;
+    let (uncompressed_len, uncompressed_hash) = {
+        let encoded = EncoderWriter::new(temporary.as_file_mut(), &BASE64_STANDARD);
+        let compressed = GzEncoder::new(encoded, Compression::fast());
+        let mut integrity = IntegrityWriter::new(compressed);
+        serde_json::to_writer(&mut integrity, bundle)
+            .context("failed to serialize checkpoint bundle")?;
+        let (compressed, uncompressed_len, uncompressed_hash) = integrity.into_parts();
+        let mut encoded = compressed
+            .finish()
+            .context("failed to finish checkpoint compression")?;
+        encoded
+            .finish()
+            .context("failed to finish checkpoint base64 encoding")?;
+        (uncompressed_len, uncompressed_hash)
+    };
+    writeln!(
+        temporary,
+        "\",\"uncompressed_len\":{uncompressed_len},\"uncompressed_blake3\":\"{}\"}}",
+        uncompressed_hash.to_hex()
+    )
+    .with_context(|| format!("failed to write checkpoint envelope footer for {path}"))?;
     temporary
         .as_file()
         .sync_all()
@@ -334,8 +465,77 @@ pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Res
 pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
     let contents =
         fs::read(path).with_context(|| format!("failed to read checkpoint bundle {path}"))?;
-    serde_json::from_slice(&contents)
-        .with_context(|| format!("failed to parse checkpoint bundle {path}"))
+    let without_bom = contents
+        .strip_prefix(&[0xef, 0xbb, 0xbf])
+        .unwrap_or(&contents);
+    let first_content = without_bom
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(without_bom.len());
+    let trimmed = &without_bom[first_content..];
+    let first_key = trimmed.strip_prefix(b"{").map(|object| {
+        let first_key_start = object
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())
+            .unwrap_or(object.len());
+        &object[first_key_start..]
+    });
+    let is_standard_legacy = first_key.is_some_and(|key| key.starts_with(b"\"checkpoints\""));
+    let is_envelope = !is_standard_legacy
+        && serde_json::from_slice::<CheckpointBundleProbe>(trimmed)
+            .is_ok_and(|probe| probe.schema_version.is_some());
+    if !is_envelope {
+        return serde_json::from_slice(&contents)
+            .with_context(|| format!("failed to parse legacy checkpoint bundle {path}"));
+    }
+
+    let envelope = serde_json::from_slice::<CheckpointBundleEnvelope<'_>>(trimmed)
+        .with_context(|| format!("failed to parse checkpoint envelope {path}"))?;
+    if envelope.schema_version != CHECKPOINT_DISK_SCHEMA_VERSION {
+        anyhow::bail!(
+            "unsupported checkpoint envelope schema version {} in {path}",
+            envelope.schema_version
+        );
+    }
+    if envelope.encoding != CHECKPOINT_DISK_ENCODING {
+        anyhow::bail!(
+            "unsupported checkpoint envelope encoding {:?} in {path}",
+            envelope.encoding
+        );
+    }
+    if envelope.uncompressed_len > MAX_CHECKPOINT_UNCOMPRESSED_BYTES {
+        anyhow::bail!(
+            "checkpoint payload declares {} uncompressed bytes, exceeding the {} byte limit in {path}",
+            envelope.uncompressed_len,
+            MAX_CHECKPOINT_UNCOMPRESSED_BYTES
+        );
+    }
+
+    let decoded = DecoderReader::new(envelope.payload.as_bytes(), &BASE64_STANDARD);
+    let decompressed = GzDecoder::new(decoded);
+    let mut integrity = IntegrityReader::new(decompressed, envelope.uncompressed_len);
+    let bundle = {
+        let mut deserializer = serde_json::Deserializer::from_reader(&mut integrity);
+        let bundle = CheckpointBundle::deserialize(&mut deserializer)
+            .with_context(|| format!("failed to decode checkpoint bundle {path}"))?;
+        deserializer
+            .end()
+            .with_context(|| format!("checkpoint bundle has trailing JSON data in {path}"))?;
+        bundle
+    };
+    let (uncompressed_len, uncompressed_hash) = integrity
+        .finish()
+        .with_context(|| format!("failed to verify checkpoint payload {path}"))?;
+    if uncompressed_len != envelope.uncompressed_len {
+        anyhow::bail!(
+            "checkpoint payload length mismatch in {path}: expected {}, read {uncompressed_len}",
+            envelope.uncompressed_len
+        );
+    }
+    if uncompressed_hash.to_hex().as_str() != envelope.uncompressed_blake3 {
+        anyhow::bail!("checkpoint integrity hash mismatch in {path}");
+    }
+    Ok(bundle)
 }
 
 pub fn can_reuse_preamble(changed_files: &[Utf8PathBuf]) -> bool {
@@ -574,6 +774,117 @@ mod tests {
         let loaded = load_checkpoint_bundle(&path).expect("load");
 
         assert_eq!(loaded, bundle);
+    }
+
+    #[test]
+    fn saves_checkpoint_bundle_in_compact_versioned_envelope() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(
+            &mut interner,
+            r"\def\foo{a deliberately repeated checkpoint payload}",
+        );
+        let mut bundle = build_checkpoint_bundle(
+            1,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("checkpoint bundle");
+        let prototype = bundle.checkpoints[0].clone();
+        for index in 1..=8 {
+            let mut checkpoint = prototype.clone();
+            checkpoint.meta.checkpoint_id = format!("repeated-{index}");
+            bundle.checkpoints.push(checkpoint);
+        }
+        let uncompressed = serde_json::to_vec_pretty(&bundle).expect("serialize raw bundle");
+        let tempdir = tempdir().expect("tempdir");
+        let path =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json")).expect("utf8");
+
+        save_checkpoint_bundle(&path, &bundle).expect("save");
+
+        let persisted = fs::read(&path).expect("read envelope");
+        let envelope =
+            serde_json::from_slice::<serde_json::Value>(&persisted).expect("parse envelope");
+        assert_eq!(envelope["schema_version"], 2);
+        assert_eq!(envelope["encoding"], "gzip+base64");
+        assert!(
+            envelope["payload"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        );
+        assert!(
+            envelope["uncompressed_len"]
+                .as_u64()
+                .is_some_and(|value| value > 0)
+        );
+        assert!(
+            envelope["uncompressed_blake3"]
+                .as_str()
+                .is_some_and(|value| value.len() == 64)
+        );
+        assert!(persisted.len() * 2 < uncompressed.len());
+        assert_eq!(load_checkpoint_bundle(&path).expect("load"), bundle);
+    }
+
+    #[test]
+    fn rejects_checkpoint_envelope_with_wrong_integrity_hash() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            1,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("checkpoint bundle");
+        let tempdir = tempdir().expect("tempdir");
+        let path =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json")).expect("utf8");
+        save_checkpoint_bundle(&path, &bundle).expect("save");
+        let mut envelope =
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&path).expect("read envelope"))
+                .expect("parse envelope");
+        envelope["uncompressed_blake3"] = serde_json::Value::String("0".repeat(64));
+        fs::write(
+            &path,
+            serde_json::to_vec(&envelope).expect("serialize corrupt envelope"),
+        )
+        .expect("write corrupt envelope");
+
+        let error = load_checkpoint_bundle(&path).expect_err("integrity mismatch");
+
+        assert!(error.to_string().contains("integrity hash mismatch"));
+    }
+
+    #[test]
+    fn rejects_checkpoint_envelope_over_uncompressed_size_limit() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            1,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("checkpoint bundle");
+        let tempdir = tempdir().expect("tempdir");
+        let path =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json")).expect("utf8");
+        save_checkpoint_bundle(&path, &bundle).expect("save");
+        let mut envelope =
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&path).expect("read envelope"))
+                .expect("parse envelope");
+        envelope["uncompressed_len"] = serde_json::Value::from(u64::MAX);
+        fs::write(
+            &path,
+            serde_json::to_vec(&envelope).expect("serialize oversized envelope"),
+        )
+        .expect("write oversized envelope");
+
+        let error = load_checkpoint_bundle(&path).expect_err("oversized payload");
+
+        assert!(error.to_string().contains("exceeding"));
     }
 
     #[test]

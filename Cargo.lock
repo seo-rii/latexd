@@ -1583,8 +1583,10 @@ name = "tex-checkpoint"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "blake3",
  "camino",
+ "flate2",
  "serde",
  "serde_json",
  "tempfile",
