@@ -664,6 +664,24 @@ fn bibliography_item_aliases_keep_primitive_semantics() {
 }
 
 #[test]
+fn lossy_executed_bibliography_item_keeps_scanner_fallback() {
+    let outcome = capture(
+        r"\def\footnote#1{#1}
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{kept} Visible \footnote{note} \missingcommand tail.
+\end{thebibliography}
+\end{document}",
+    );
+
+    let items = bibliography_items(&outcome);
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "kept");
+    assert!(items[0].0.text.contains("Visible"));
+    assert_eq!(items[0].1, EventProducer::ScannerRecovery);
+}
+
+#[test]
 fn user_overrides_do_not_retain_scanner_bibliography_items() {
     let outcome = capture(
         r"\def\bibitem#1{Overridden #1.}

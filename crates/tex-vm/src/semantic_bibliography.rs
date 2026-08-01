@@ -511,12 +511,10 @@ impl Vm<'_> {
             }) {
                 let removed = executed.remove(index);
                 executed_event_anchors.remove(&removed.meta.sequence);
-                if !self.scanner_bibliography_event_is_suppressed(
-                    &scanner_event.meta.source,
-                    scanner_execution_anchor,
-                ) {
-                    reconciled.push(scanner_event);
-                }
+                // A fallback candidate is created only after the bibliography
+                // primitive executes. Nested compatibility suppression may make
+                // its string projection lossy, but must not erase the whole item.
+                reconciled.push(scanner_event);
             } else if !self.scanner_bibliography_event_is_suppressed(
                 &scanner_event.meta.source,
                 scanner_execution_anchor,
