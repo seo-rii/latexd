@@ -396,6 +396,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\fnum@figure{Figure}
 \def\fnum@table{Table}
 \def\@setsize#1#2#3#4{}
+\def\@setfontsize#1#2#3{}
 \def\@startsection#1#2#3#4#5#6#7{#7}
 \def\@dottedtocline#1#2#3#4#5{#4 #5}
 \makeatother
@@ -2153,6 +2154,34 @@ mod tests {
 
         assert_eq!(result.output.trim(), "Visible");
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn mini_kernel_setfontsize_consumes_the_recursive_command_argument() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(
+            root.join("main.tex"),
+            r"\makeatletter\renewcommand{\normalsize}{\@setfontsize\normalsize{10}{11}}\makeatother\begin{document}\normalsize Visible\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let build = run_project_with_snapshot(&world, &snapshot).expect("build");
+
+        assert!(
+            build.output.contains("Visible"),
+            "visible body missing from {} output bytes",
+            build.output.len()
+        );
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
     }
 
     #[test]
