@@ -1,22 +1,30 @@
 <script lang="ts">
   import type {
     BrowserFontFamily,
-    BrowserPageDisplayList
+    BrowserPageDisplayList,
+    BrowserSourceProvenance
   } from "./browser-artifacts";
   import {
     browserDestinationId,
     browserLinkHref,
     prepareDisplayListOps
   } from "./display-list-renderer";
+  import { browserSourceKey } from "./display-list-source";
 
   let {
     page,
     pageNumber,
-    assetUrls = {}
+    assetUrls = {},
+    activeSourceKey = null,
+    onSourceHover,
+    onSourceSelect
   } = $props<{
     page: BrowserPageDisplayList;
     pageNumber: number;
     assetUrls?: Record<string, string>;
+    activeSourceKey?: string | null;
+    onSourceHover?: (source: BrowserSourceProvenance | null) => void;
+    onSourceSelect?: (source: BrowserSourceProvenance) => void;
   }>();
 
   const prepared = $derived(prepareDisplayListOps(page.ops));
@@ -54,6 +62,18 @@
     const centerY = rect.y + rect.height / 2;
     return `rotate(${rotation.angle_degrees} ${centerX} ${centerY})`;
   }
+
+  function selectSource(
+    event: MouseEvent,
+    source: BrowserSourceProvenance,
+    sourceKey: string | null
+  ) {
+    if (!sourceKey) {
+      return;
+    }
+    event.preventDefault();
+    onSourceSelect?.(source);
+  }
 </script>
 
 <article
@@ -88,18 +108,30 @@
       {@const op = entry.op}
       {@const clipPath = entry.clip_rect ? `url(#${clipId(index)})` : undefined}
       {#if op.kind === "text_run"}
-        <text
-          x={op.origin.x}
-          y={op.origin.y}
-          font-family={fontFamily(op.font.family)}
-          font-size={op.size_pt}
-          font-weight={op.font.series === "bold" ? 700 : 400}
-          font-style={op.font.shape === "italic" ? "italic" : "normal"}
-          clip-path={clipPath}
-          data-text-rendering="css-fallback"
-          data-source-kind={op.source.primary.kind}
-          xml:space="preserve"
-        >{op.text}</text>
+        {@const sourceKey = browserSourceKey(op.source)}
+        <a
+          href={sourceKey ? `#source-${encodeURIComponent(sourceKey)}` : undefined}
+          aria-label={sourceKey ? `Select source for ${op.text}` : undefined}
+          onpointerenter={() => onSourceHover?.(op.source)}
+          onpointerleave={() => onSourceHover?.(null)}
+          onclick={(event) => selectSource(event, op.source, sourceKey)}
+        >
+          <text
+            x={op.origin.x}
+            y={op.origin.y}
+            font-family={fontFamily(op.font.family)}
+            font-size={op.size_pt}
+            font-weight={op.font.series === "bold" ? 700 : 400}
+            font-style={op.font.shape === "italic" ? "italic" : "normal"}
+            clip-path={clipPath}
+            data-text-rendering="css-fallback"
+            data-source-kind={op.source?.primary?.kind ?? "unknown"}
+            data-source-key={sourceKey}
+            class:display-list-source-linked={sourceKey !== null}
+            class:display-list-source-active={sourceKey === activeSourceKey}
+            xml:space="preserve"
+          >{op.text}</text>
+        </a>
       {:else if op.kind === "rule"}
         <rect
           x={op.x}
@@ -112,40 +144,67 @@
       {:else if op.kind === "image"}
         {@const assetUrl = assetUrls[op.asset_ref]}
         {@const transform = imageTransform(op.rect, op.rotation)}
-        {#if assetUrl}
-          <image
-            href={assetUrl}
-            x={op.rect.x}
-            y={op.rect.y}
-            width={op.rect.width}
-            height={op.rect.height}
-            preserveAspectRatio="none"
-            transform={transform}
-            clip-path={clipPath}
-          />
-        {:else}
-          <g class="display-list-image-fallback" clip-path={clipPath} transform={transform}>
-            <rect
+        {@const sourceKey = browserSourceKey(op.source)}
+        <a
+          href={sourceKey ? `#source-${encodeURIComponent(sourceKey)}` : undefined}
+          aria-label={sourceKey ? `Select source for image ${op.asset_ref}` : undefined}
+          onpointerenter={() => onSourceHover?.(op.source)}
+          onpointerleave={() => onSourceHover?.(null)}
+          onclick={(event) => selectSource(event, op.source, sourceKey)}
+        >
+          {#if assetUrl}
+            <image
+              href={assetUrl}
               x={op.rect.x}
               y={op.rect.y}
               width={op.rect.width}
               height={op.rect.height}
-              fill="#f5f0e7"
-              stroke="#9b6f3f"
-              stroke-dasharray="4 3"
+              preserveAspectRatio="none"
+              transform={transform}
+              clip-path={clipPath}
+              data-source-key={sourceKey}
+              class:display-list-source-linked={sourceKey !== null}
+              class:display-list-source-active={sourceKey === activeSourceKey}
             />
-            <text
-              x={op.rect.x + 6}
-              y={op.rect.y + 16}
-              font-size="9"
-              fill="#704928"
-            >{op.diagnostic ?? `[image: ${op.asset_ref}]`}</text>
-          </g>
-        {/if}
+          {:else}
+            <g
+              class="display-list-image-fallback"
+              class:display-list-source-linked={sourceKey !== null}
+              class:display-list-source-active={sourceKey === activeSourceKey}
+              clip-path={clipPath}
+              transform={transform}
+              data-source-key={sourceKey}
+            >
+              <rect
+                x={op.rect.x}
+                y={op.rect.y}
+                width={op.rect.width}
+                height={op.rect.height}
+                fill="#f5f0e7"
+                stroke="#9b6f3f"
+                stroke-dasharray="4 3"
+              />
+              <text
+                x={op.rect.x + 6}
+                y={op.rect.y + 16}
+                font-size="9"
+                fill="#704928"
+              >{op.diagnostic ?? `[image: ${op.asset_ref}]`}</text>
+            </g>
+          {/if}
+        </a>
       {:else if op.kind === "link_annotation"}
         {@const linkHref = browserLinkHref(op.target)}
+        {@const sourceKey = browserSourceKey(op.source)}
         {#if linkHref}
-          <a href={linkHref} aria-label={`Open ${op.target}`}>
+          <a
+            href={linkHref}
+            aria-label={`Open ${op.target}`}
+            data-source-key={sourceKey}
+            class:display-list-source-active={sourceKey === activeSourceKey}
+            onpointerenter={() => onSourceHover?.(op.source)}
+            onpointerleave={() => onSourceHover?.(null)}
+          >
             <rect
               x={op.rect.x}
               y={op.rect.y}
@@ -157,16 +216,27 @@
             />
           </a>
         {:else}
-          <rect
-            class="display-list-link-blocked"
-            x={op.rect.x}
-            y={op.rect.y}
-            width={op.rect.width}
-            height={op.rect.height}
-            clip-path={clipPath}
-            fill="transparent"
-            data-blocked-target={op.target}
-          />
+          <a
+            href={sourceKey ? `#source-${encodeURIComponent(sourceKey)}` : undefined}
+            aria-label={sourceKey ? `Select source for blocked link ${op.target}` : undefined}
+            onpointerenter={() => onSourceHover?.(op.source)}
+            onpointerleave={() => onSourceHover?.(null)}
+            onclick={(event) => selectSource(event, op.source, sourceKey)}
+          >
+            <rect
+              class="display-list-link-blocked"
+              class:display-list-source-linked={sourceKey !== null}
+              class:display-list-source-active={sourceKey === activeSourceKey}
+              x={op.rect.x}
+              y={op.rect.y}
+              width={op.rect.width}
+              height={op.rect.height}
+              clip-path={clipPath}
+              fill="transparent"
+              data-source-key={sourceKey}
+              data-blocked-target={op.target}
+            />
+          </a>
         {/if}
       {:else if op.kind === "named_destination"}
         <g id={browserDestinationId(op.name)}>
@@ -206,8 +276,21 @@
     height: 100%;
   }
 
-  text[data-source-kind="file"] {
+  text[data-source-kind="file"]:not(.display-list-source-linked) {
     cursor: text;
+  }
+
+  .display-list-source-linked {
+    cursor: pointer;
+    transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  .display-list-source-linked:hover,
+  a:focus-visible > .display-list-source-linked,
+  .display-list-source-active {
+    filter: drop-shadow(0 0 1.5px rgba(198, 84, 32, 0.85));
+    opacity: 0.82;
+    outline: none;
   }
 
   .display-list-page__number {

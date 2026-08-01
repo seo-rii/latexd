@@ -375,10 +375,15 @@ The first renderer slice landed on 2026-08-01:
 - PNG, JPEG, and SVG manifest entries resolve from browser memfs to
   lifecycle-safe Blob URLs; missing, unsafe, PDF, EPS, and unknown assets remain
   explicit diagnostics or page-local fallbacks.
+- file-backed text, image, and blocked-link operations expose keyboard-accessible
+  source targets; hover reports the compiler path/line/column and activation
+  selects the exact textarea range;
+- compiler UTF-8 byte spans are converted only at valid code-point boundaries to
+  JavaScript UTF-16 indices, and selection resolves against the last successful
+  build's source snapshot so a failed edit cannot silently retarget old pages.
 
 Remaining P0.3 work:
 
-- connect per-operation provenance to source hover and click selection;
 - add zoom and unchanged-page DOM/scroll preservation tests;
 - consume positioned glyphs and bundled outlines instead of CSS shaping;
 - add formula, table, image, link, and multi-page visual regression fixtures.

@@ -17,6 +17,11 @@
     materializeBrowserAssets,
     revokeBrowserAssetUrls
   } from "$lib/browser-assets";
+  import type { BrowserSourceProvenance } from "$lib/browser-artifacts";
+  import {
+    resolveBrowserSourceSelection,
+    type BrowserSourceSelection
+  } from "$lib/display-list-source";
   import DisplayListPage from "$lib/DisplayListPage.svelte";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -62,8 +67,14 @@
   let browserCompileSerial = 0;
   let browserFiles = $state<Record<string, Uint8Array>>({});
   let browserTextFiles = $state<Record<string, string>>({});
+  let browserRenderedTextFiles = $state<Record<string, string>>({});
   let browserPdfUrl = $state("");
   let browserAssetUrls = $state.raw<Record<string, string>>({});
+  let browserHoveredSource = $state.raw<BrowserSourceSelection | null>(null);
+  let browserSelectedSourceKey = $state<string | null>(null);
+  const browserActiveSourceKey = $derived(
+    browserHoveredSource?.key ?? browserSelectedSourceKey
+  );
   const browserTextFallbackCount = $derived(
     browserPages.reduce(
       (count, page) => count + page.ops.filter((op) => op.kind === "text_run").length,
@@ -217,12 +228,19 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       );
       const previousPdfUrl = browserPdfUrl;
       const previousAssetUrls = browserAssetUrls;
+      const nextTextFiles = {
+        ...browserTextFiles,
+        [activeFile || "main.tex"]: source
+      };
       browserPages = result.page_artifact.pages;
       browserBuildMetadata = result.build_metadata;
       browserDiagnostics = [...result.diagnostics, ...nextAssets.diagnostics];
       browserEventCount = result.event_count;
       browserFiles = projectFiles;
-      browserTextFiles = { ...browserTextFiles, [activeFile]: source };
+      browserTextFiles = nextTextFiles;
+      browserRenderedTextFiles = nextTextFiles;
+      browserHoveredSource = null;
+      browserSelectedSourceKey = null;
       browserPdfUrl = nextPdfUrl;
       browserAssetUrls = nextAssets.urls;
       if (previousPdfUrl) {
@@ -257,6 +275,51 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       browserCompileTimer = null;
       void compileBrowserSource(editorText);
     }, 250);
+  }
+
+  function handleBrowserSourceHover(source: BrowserSourceProvenance | null) {
+    browserHoveredSource = source
+      ? resolveBrowserSourceSelection(source, browserRenderedTextFiles)
+      : null;
+  }
+
+  async function handleBrowserSourceSelect(source: BrowserSourceProvenance) {
+    const selection = resolveBrowserSourceSelection(source, browserRenderedTextFiles);
+    if (!selection) {
+      return;
+    }
+    const editableSource = selection.path === activeFile
+      ? editorText
+      : browserTextFiles[selection.path];
+    if (editableSource === undefined) {
+      editorMessage = `Preview source ${selection.path} is not available in browser memfs.`;
+      return;
+    }
+
+    browserSelectedSourceKey = selection.key;
+    browserHoveredSource = selection;
+    currentFocus = {
+      file: selection.path,
+      line: selection.line,
+      column: selection.column
+    };
+    if (selection.path !== activeFile) {
+      await openFile(selection.path);
+    }
+    await tick();
+    if (editorText === browserRenderedTextFiles[selection.path]) {
+      focusEditorRange(
+        selection.start_index,
+        selection.end_index,
+        selection.line,
+        selection.column
+      );
+      editorMessage = `Selected ${selection.path}:${selection.line}:${selection.column} from preview.`;
+      return;
+    }
+
+    await focusEditorLine(selection.line, selection.column);
+    editorMessage = `Preview source ${selection.path} changed after the last successful build.`;
   }
 
   async function syncFromViewer(event: ViewerEvent) {
@@ -596,15 +659,31 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       caret += lines[index].length + 1;
     }
     caret += Math.min(lines[clampedLine - 1]?.length ?? 0, targetColumn - 1);
+    focusEditorRange(caret, caret, clampedLine, targetColumn);
+  }
+
+  function focusEditorRange(
+    startIndex: number,
+    endIndex: number,
+    line: number,
+    column: number
+  ) {
+    if (!editorNode) {
+      return;
+    }
+    const clampedStart = Math.max(0, Math.min(editorText.length, startIndex));
+    const clampedEnd = Math.max(clampedStart, Math.min(editorText.length, endIndex));
+    const targetLine = Math.max(1, Math.round(line));
+    const targetColumn = Math.max(1, Math.round(column));
     suppressEditorSyncUntil = Date.now() + 200;
-    lastEditorSyncKey = focusKeyForPosition(activeFile, clampedLine, targetColumn);
+    lastEditorSyncKey = focusKeyForPosition(activeFile, targetLine, targetColumn);
     const pageScrollX = window.scrollX;
     const pageScrollY = window.scrollY;
     editorNode.focus({ preventScroll: true });
-    editorNode.setSelectionRange(caret, caret);
+    editorNode.setSelectionRange(clampedStart, clampedEnd);
     const computedLineHeight = Number.parseFloat(window.getComputedStyle(editorNode).lineHeight);
     const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 22;
-    editorNode.scrollTop = Math.max(0, (clampedLine - 2) * lineHeight);
+    editorNode.scrollTop = Math.max(0, (targetLine - 2) * lineHeight);
     window.scrollTo(pageScrollX, pageScrollY);
   }
 
@@ -813,6 +892,11 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
             <span>{browserEventCount} events</span>
             <span>{browserDiagnostics.length} diagnostics</span>
             <span>{browserTextFallbackCount} CSS text fallback(s)</span>
+            {#if browserHoveredSource}
+              <span data-browser-source-hover>
+                {browserHoveredSource.path}:{browserHoveredSource.line}:{browserHoveredSource.column}
+              </span>
+            {/if}
             {#if browserPdfUrl}
               <a href={browserPdfUrl} download="latexd-output.pdf">Download PDF</a>
             {/if}
@@ -836,6 +920,9 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
                   page={page}
                   pageNumber={index + 1}
                   assetUrls={browserAssetUrls}
+                  activeSourceKey={browserActiveSourceKey}
+                  onSourceHover={handleBrowserSourceHover}
+                  onSourceSelect={(source) => void handleBrowserSourceSelect(source)}
                 />
               {/each}
             </div>

@@ -11,7 +11,7 @@
     "check": "pnpm --filter @latexd/viewer-core build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "pnpm check && pnpm test:runtime",
-    "test:runtime": "pnpm --filter @latexd/viewer-core build && tsx --test test/latexd-client.test.ts test/viewer-host.test.ts test/display-list-renderer.test.ts test/browser-assets.test.ts",
+    "test:runtime": "pnpm --filter @latexd/viewer-core build && tsx --test test/latexd-client.test.ts test/viewer-host.test.ts test/display-list-renderer.test.ts test/display-list-source.test.ts test/browser-assets.test.ts",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:e2e:wasm": "LATEXD_VIEWER_BASE_PATH=/latexd VITE_LATEXD_BROWSER_ONLY=true pnpm build && playwright test --config playwright.wasm.config.ts"
   },

@@ -27,7 +27,17 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(displayPage).toHaveCount(1);
   await expect(displayPage).toHaveAttribute("data-page-id", /^[0-9a-f]{64}$/);
   await expect(displayPage.locator("svg")).toHaveAttribute("viewBox", /^0 0 \d+(?:\.\d+)? \d+(?:\.\d+)?$/);
+  const heading = displayPage.getByText("Try it", { exact: true });
+  const editor = page.getByPlaceholder("Type LaTeX here…");
   await expect(displayPage.getByText("latexd in WebAssembly", { exact: true })).toBeVisible();
+  await heading.hover();
+  await expect(page.locator("[data-browser-source-hover]")).toContainText("main.tex:");
+  await heading.click();
+  await expect(editor).toBeFocused();
+  await expect.poll(() => editor.evaluate((input) => {
+    const textarea = input as HTMLTextAreaElement;
+    return textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
+  })).toBe("Try it");
   await expect(displayPage.locator("svg")).toContainText("x^2");
   await expect(displayPage.locator('[data-text-rendering="css-fallback"]').first()).toBeVisible();
   await expect(pdfPreview).toHaveCount(0);
@@ -50,7 +60,6 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(displayPage).toBeVisible();
   await expect(pdfPreview).toHaveCount(0);
 
-  const editor = page.getByPlaceholder("Type LaTeX here…");
   const source = await editor.inputValue();
   await editor.fill(source.replace("Try it", "Edited in browser"));
 
