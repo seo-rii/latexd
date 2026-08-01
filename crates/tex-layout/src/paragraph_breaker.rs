@@ -476,6 +476,9 @@ fn run_pass(
                             difference_pt as f64 / stretch_pt as f64
                         } else {
                             let shrink_pt = interword_spaces as f32 * space_width_pt / 3.0;
+                            if -difference_pt > shrink_pt + WIDTH_EPSILON_PT {
+                                continue;
+                            }
                             difference_pt as f64 / shrink_pt as f64
                         };
                         let badness = (100.0 * ratio.abs().powi(3)).min(10_000.0);
@@ -559,7 +562,7 @@ mod tests {
 
     use super::{
         MAX_PARAGRAPH_BYTES, ParagraphBreakRequest, ParagraphBreakSettings, ParagraphMetrics,
-        select_paragraph_breaks,
+        WIDTH_EPSILON_PT, select_paragraph_breaks,
     };
     use crate::font_metrics::text_advance_pt;
 
@@ -722,6 +725,29 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(!lines[0].append_hyphen);
         assert_eq!(&text[lines[0].start_utf8..lines[0].end_utf8], "aa1 bb2");
+    }
+
+    #[test]
+    fn sloppy_tolerance_does_not_exceed_interword_shrink_capacity() {
+        let text = "aa1 bb2 cc3 dd4";
+        let font = mono_font();
+        let space_width = text_advance_pt(" ", &font, 10.0);
+        let pair_width = text_advance_pt("aa1 bb2", &font, 10.0);
+        let width = pair_width - (space_width / 3.0 * 1.01);
+        let mut sloppy = request(text, &font, width, width);
+        sloppy.settings.tolerance = 9_999.0;
+        sloppy.settings.emergency_stretch_pt = width - text_advance_pt("aa1", &font, 10.0);
+
+        let lines = select_paragraph_breaks(sloppy).unwrap();
+
+        for line in lines.iter().filter(|line| !line.final_line) {
+            let maximum_shrink = line.interword_spaces as f32 * space_width / 3.0;
+            assert!(
+                line.natural_width_pt - width <= maximum_shrink + WIDTH_EPSILON_PT,
+                "line {:?} requires more than {maximum_shrink}pt of shrink",
+                &text[line.start_utf8..line.end_utf8]
+            );
+        }
     }
 
     #[test]
