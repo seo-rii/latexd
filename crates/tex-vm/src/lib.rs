@@ -25199,6 +25199,7 @@ impl<'i> Vm<'i> {
                         "neurips_2019.sty",
                         "neurips_2020.sty",
                         "neurips_2021.sty",
+                        "pstricks.sty",
                         "relsize.sty",
                         "scicite.sty",
                         "wacv.sty",
@@ -40247,6 +40248,28 @@ Fallback text.
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
+    }
+
+    #[test]
+    fn installed_pstricks_source_does_not_override_preview_shim() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "pstricks.sty",
+            r"\errmessage{installed pstricks was loaded}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{pstricks}\begin{document}Visible text.\end{document}",
+        );
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(
+            !outcome
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.detail.contains("installed pstricks was loaded"))
+        );
     }
 
     #[test]
