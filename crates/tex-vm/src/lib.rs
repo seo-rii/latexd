@@ -143,6 +143,9 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("package", package) if package.eq_ignore_ascii_case("braket.sty") => {
             Some(BRAKET_PACKAGE_SHIM)
         }
+        ("package", package) if package.eq_ignore_ascii_case("framed.sty") => {
+            Some(FRAMED_PACKAGE_SHIM)
+        }
         ("package", package) if is_icml_package_name(package) => Some(ICML_PACKAGE_SHIM),
         ("package", package) if package.eq_ignore_ascii_case("wacv.sty") => Some(WACV_PACKAGE_SHIM),
         ("input", input)
@@ -633,6 +636,26 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\textlarger}[2][]{#2}
 \providecommand{\mathsmaller}[1]{#1}
 \providecommand{\mathlarger}[1]{#1}
+";
+
+const FRAMED_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{framed}[2026/01/01 latexd framed preview shim]
+\newlength{\OuterFrameSep}
+\newlength{\FrameSep}
+\newlength{\FrameRule}
+\setlength{\OuterFrameSep}{0pt}
+\setlength{\FrameSep}{0pt}
+\setlength{\FrameRule}{0pt}
+\providecommand{\FrameRestore}{}
+\providecommand{\MakeFramed}[1]{#1}
+\providecommand{\endMakeFramed}{}
+\providecommand{\CustomFBox}[7]{#7}
+\providecommand{\OpenFBox}[2]{}
+\newenvironment{framed}{}{}
+\newenvironment{shaded}{}{}
+\newenvironment{snugshade}{}{}
+\newenvironment{leftbar}{}{}
+\newenvironment{oframed}{}{}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -25193,6 +25216,7 @@ impl<'i> Vm<'i> {
                         "cvpr.sty",
                         "eso-pic.sty",
                         "fancyhdr.sty",
+                        "framed.sty",
                         "multirow.sty",
                         "natbib.sty",
                         "neurips.sty",
@@ -40270,6 +40294,23 @@ Fallback text.
                 .iter()
                 .any(|diagnostic| diagnostic.detail.contains("installed pstricks was loaded"))
         );
+    }
+
+    #[test]
+    fn installed_framed_source_does_not_override_preview_shim() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("framed.sty", r"\errmessage{installed framed was loaded}");
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{framed}\makeatletter\@ifundefined{OuterFrameSep}{\errmessage{missing OuterFrameSep}}{framed-ready}\makeatother",
+        );
+
+        assert!(outcome.output.contains("framed-ready"));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.detail.contains("installed framed was loaded")
+                || diagnostic.detail.contains("missing OuterFrameSep")
+        }));
     }
 
     #[test]
