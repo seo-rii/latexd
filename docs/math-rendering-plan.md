@@ -306,39 +306,50 @@ Completed exit criteria:
 - explicit VM errors are distinguishable from recoverable diagnostics;
 - preview failures can be classified separately from PDF-generation failures.
 
-Compiler-owned page-count/geometry validation and formula, table, and figure
-visual fixtures are acceptance gates for P0.2 and P0.3, where the browser can
-inspect page artifacts instead of relying on the host PDF viewer.
+Compiler-owned page-count/geometry validation is part of P0.2. Formula, table,
+and figure visual fixtures remain P0.3 acceptance gates, where the browser can
+inspect rendered page artifacts instead of relying on the host PDF viewer.
 
-### P0.2 Page Artifact Protocol
+### P0.2 Page Artifact Protocol (Complete)
 
-Add `/workspace/pages.json` and `/workspace/build-meta.json`. The first
-one-shot schema contains all pages; the later session schema uses changed and
-removed page sets.
+WASI builds now write `/workspace/pages.json` and
+`/workspace/build-meta.json`. The version 1 one-shot schema contains all pages
+and marks each page as changed; the later session implementation will populate
+the same changed, reused, and removed fields incrementally.
 
 ```rust
-pub struct BrowserBuildOutput {
+pub struct BrowserPagesArtifact {
     pub schema_version: u32,
     pub revision: u64,
-    pub pages: Vec<BrowserPage>,
+    pub pages: Vec<PageDisplayList>,
     pub changed_page_ids: Vec<PageId>,
     pub removed_page_ids: Vec<PageId>,
-    pub diagnostics: Vec<Diagnostic>,
-    pub stats: BuildStats,
+    pub assets: Vec<BrowserAssetManifestEntry>,
 }
 
-pub struct BrowserPage {
-    pub page: PageDisplayList,
-    pub source_spans: Vec<SourceSpanMapping>,
+pub struct BrowserBuildMetadata {
+    pub schema_version: u32,
+    pub revision: u64,
+    pub compile_mode: BrowserCompileMode,
+    pub event_count: u64,
+    pub diagnostic_count: u64,
+    pub pages: BrowserPageStats,
 }
 ```
 
 Page ID, order, size, content hash, source spans, and changed/removed state come
 from the compiler. The browser must not synthesize them.
 
-Image operations require an explicit browser asset manifest. A page artifact
-must never rely on native filesystem discovery or an unresolvable renderer-only
-path.
+The browser rejects unsupported schemas, stale revisions, duplicate or empty
+page identities, invalid geometry, inconsistent page counts, and invalid
+changed/removed sets before replacing its last-good state. The E2E test verifies
+revision and page-identity replacement after a successful edit and retention
+after an explicit TeX error.
+
+Image operations contribute their `asset_ref`, format, and content hash to an
+explicit deduplicated manifest. The current paths resolve against the project
+memfs; P0.3 must consume this manifest rather than perform native filesystem
+discovery.
 
 ### P0.3 Display-List Browser Renderer
 

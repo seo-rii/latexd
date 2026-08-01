@@ -9,7 +9,9 @@
   } from "$lib";
   import {
     compileInBrowser,
-    compileProjectInBrowser
+    compileProjectInBrowser,
+    type BrowserBuildMetadata,
+    type BrowserPageDisplayList
   } from "$lib/browser-compiler";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -46,7 +48,8 @@
   let suppressEditorSyncUntil = 0;
   const browserOnly = import.meta.env.VITE_LATEXD_BROWSER_ONLY === "true";
   let browserMode = $state(browserOnly);
-  let browserPageCount = $state(0);
+  let browserPages = $state.raw<BrowserPageDisplayList[]>([]);
+  let browserBuildMetadata = $state.raw<BrowserBuildMetadata | null>(null);
   let browserDiagnostics = $state<string[]>([]);
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -175,12 +178,13 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       };
       const entry = projectFiles["main.tex"] ? "main.tex" : activeFile;
       const result = Object.keys(projectFiles).length === 1 && entry === "main.tex"
-        ? await compileInBrowser(source)
-        : await compileProjectInBrowser(projectFiles, entry);
+        ? await compileInBrowser(source, requestId)
+        : await compileProjectInBrowser(projectFiles, entry, requestId);
       if (requestId !== browserCompileSerial) {
         return;
       }
-      browserPageCount = result.page_count;
+      browserPages = result.page_artifact.pages;
+      browserBuildMetadata = result.build_metadata;
       browserDiagnostics = result.diagnostics;
       browserEventCount = result.event_count;
       browserFiles = projectFiles;
@@ -196,7 +200,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       previewState.lastBuildSucceeded = true;
       lastSavedContent = source;
       editorStatus = "saved";
-      editorMessage = `Compiled locally: ${result.page_count} page(s), ${result.event_count} render events.`;
+      editorMessage = `Compiled locally: ${browserPages.length} page(s), ${result.event_count} render events.`;
     } catch (error) {
       if (requestId !== browserCompileSerial) {
         return;
@@ -761,9 +765,17 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       </div>
 
       {#if browserMode}
-        <div class="browser-preview" aria-label="WebAssembly document preview">
+        <div
+          class="browser-preview"
+          aria-label="WebAssembly document preview"
+          data-build-revision={browserBuildMetadata?.revision}
+          data-compile-mode={browserBuildMetadata?.compile_mode}
+          data-page-ids={browserPages.map((page) => page.page_id).join(",")}
+          data-page-hashes={browserPages.map((page) => page.content_hash).join(",")}
+          data-page-sizes={browserPages.map((page) => `${page.width_pt}x${page.height_pt}`).join(",")}
+        >
           <div class="browser-preview__meta">
-            <span>{browserPageCount} page(s)</span>
+            <span>{browserPages.length} page(s)</span>
             <span>{browserEventCount} events</span>
             <span>{browserDiagnostics.length} diagnostics</span>
             {#if browserPdfUrl}

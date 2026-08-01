@@ -2,13 +2,15 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
-use tex_render_model::RenderEventStream;
+use tex_render_model::{BrowserBuildMetadata, BrowserPagesArtifact, RenderEventStream};
 use tex_tokens::ControlSequenceInterner;
 
 const WORKSPACE: &str = "/workspace";
 
 #[derive(Debug, Deserialize)]
 struct CompileRequest {
+    #[serde(default)]
+    revision: u64,
     entry: String,
     files: Vec<String>,
 }
@@ -103,16 +105,34 @@ fn compile() -> Result<CompileResponse, String> {
         &document,
         tex_layout::PageDisplayListOptions::for_document_ir(&document),
     );
-    let pdf = tex_pdf::render_display_list_pdf_with_assets(&pages, |asset_ref| {
+    let pages_artifact = BrowserPagesArtifact::one_shot(request.revision, pages);
+    let build_metadata = BrowserBuildMetadata::one_shot(
+        request.revision,
+        event_count as u64,
+        diagnostics.len() as u64,
+        &pages_artifact,
+    );
+    let pdf = tex_pdf::render_display_list_pdf_with_assets(&pages_artifact.pages, |asset_ref| {
         let path = normalize_path(asset_ref).ok()?;
         fs::read(Path::new(WORKSPACE).join(path)).ok()
     });
+    let pages_json = serde_json::to_vec(&pages_artifact)
+        .map_err(|error| format!("failed to serialize pages.json: {error}"))?;
+    let build_meta_json = serde_json::to_vec(&build_metadata)
+        .map_err(|error| format!("failed to serialize build-meta.json: {error}"))?;
     fs::write(Path::new(WORKSPACE).join("output.pdf"), pdf).map_err(|error| error.to_string())?;
+    fs::write(Path::new(WORKSPACE).join("pages.json"), pages_json)
+        .map_err(|error| error.to_string())?;
+    fs::write(
+        Path::new(WORKSPACE).join("build-meta.json"),
+        build_meta_json,
+    )
+    .map_err(|error| error.to_string())?;
     Ok(CompileResponse {
         schema_version: 1,
         success: true,
         event_count,
-        page_count: pages.len(),
+        page_count: pages_artifact.pages.len(),
         extracted_text,
         diagnostics,
         error: None,
