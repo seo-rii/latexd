@@ -115,6 +115,12 @@ fn is_icml_package_name(file_name: &str) -> bool {
     year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit())
 }
 
+fn is_upstream_hyperref_source(source: &str) -> bool {
+    source.contains(r"\ProvidesPackage{hyperref}")
+        && source.contains(r"\hyper@normalise")
+        && source.contains(r"\href@split")
+}
+
 fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static str> {
     let file_name = path.file_name().unwrap_or(path.as_str());
     match (label, file_name) {
@@ -145,6 +151,9 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         }
         ("package", package) if package.eq_ignore_ascii_case("framed.sty") => {
             Some(FRAMED_PACKAGE_SHIM)
+        }
+        ("package", package) if package.eq_ignore_ascii_case("hyperref.sty") => {
+            Some(HYPERREF_PACKAGE_SHIM)
         }
         ("package", package) if is_icml_package_name(package) => Some(ICML_PACKAGE_SHIM),
         ("package", package) if package.eq_ignore_ascii_case("wacv.sty") => Some(WACV_PACKAGE_SHIM),
@@ -656,6 +665,27 @@ const FRAMED_PACKAGE_SHIM: &str = r"
 \newenvironment{snugshade}{}{}
 \newenvironment{leftbar}{}{}
 \newenvironment{oframed}{}{}
+";
+
+const HYPERREF_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{hyperref}[2026/01/01 latexd hyperref preview shim]
+\providecommand{\hypersetup}[1]{}
+\providecommand{\href}[2]{#2}
+\renewcommand{\href}[2]{#2}
+\providecommand{\url}[1]{#1}
+\renewcommand{\url}[1]{#1}
+\providecommand{\nolinkurl}[1]{#1}
+\renewcommand{\nolinkurl}[1]{#1}
+\providecommand{\path}[1]{#1}
+\renewcommand{\path}[1]{#1}
+\providecommand{\hyperref}[2][]{#2}
+\providecommand{\hyperlink}[2]{#2}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\autoref}[1]{\ref{#1}}
+\providecommand{\autopageref}[1]{\pageref{#1}}
+\providecommand{\texorpdfstring}[2]{#1}
+\providecommand{\pdfstringdefDisableCommands}[1]{}
+\providecommand{\phantomsection}{}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -25201,6 +25231,12 @@ impl<'i> Vm<'i> {
 
         let builtin_source = builtin_latex_module_source(label, &path);
         let file_name = path.file_name().unwrap_or(path.as_str());
+        let mounted_source = self.mounted_files.get(&path).cloned();
+        let project_source = self
+            .file_root
+            .as_ref()
+            .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok());
+        let provided_source = mounted_source.or(project_source);
         let prefer_builtin_module = ((label == "input"
             || (label == "class"
                 && (["llncs.cls", "IEEEtran.cls"]
@@ -25230,16 +25266,15 @@ impl<'i> Vm<'i> {
                         "wrapfig.sty",
                     ]
                     .iter()
-                    .any(|known| file_name.eq_ignore_ascii_case(known))));
+                    .any(|known| file_name.eq_ignore_ascii_case(known))
+                    || (file_name.eq_ignore_ascii_case("hyperref.sty")
+                        && provided_source
+                            .as_deref()
+                            .is_some_and(is_upstream_hyperref_source))));
         let source = prefer_builtin_module
             .then(|| builtin_source.map(ToOwned::to_owned))
             .flatten()
-            .or_else(|| self.mounted_files.get(&path).cloned())
-            .or_else(|| {
-                self.file_root
-                    .as_ref()
-                    .and_then(|root| read_tex_source_lossy(&root.join(&path)).ok())
-            })
+            .or(provided_source)
             .or_else(|| builtin_source.map(ToOwned::to_owned));
         let Some(source) = source else {
             self.diagnostics.push(VmDiagnostic {
@@ -40311,6 +40346,28 @@ Fallback text.
             diagnostic.detail.contains("installed framed was loaded")
                 || diagnostic.detail.contains("missing OuterFrameSep")
         }));
+    }
+
+    #[test]
+    fn upstream_hyperref_source_does_not_override_preview_shim() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}\def\hyper@normalise#1{#1}\def\href@split#1{#1}\errmessage{installed hyperref was loaded}\def\href#1{broken link}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{hyperref}\begin{document}\href {https://example.test} {Visible link text.}\end{document}",
+        );
+
+        assert!(outcome.output.contains("Visible link text."));
+        assert!(
+            !outcome
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.detail.contains("installed hyperref was loaded") })
+        );
     }
 
     #[test]
