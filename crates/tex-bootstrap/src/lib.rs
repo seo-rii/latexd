@@ -1869,7 +1869,7 @@ mod tests {
 
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
-    use tex_render_model::{EventProducer, RenderEvent};
+    use tex_render_model::{EventProducer, MetadataField, RenderEvent};
     use tex_vm::{VmDiagnosticKind, VmReplayFrame};
     use tex_world::ProjectWorld;
 
@@ -1972,6 +1972,77 @@ mod tests {
             matches!(&event.event, RenderEvent::Text(text) if text.text == "Visible")
         }));
         assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
+    fn segmented_project_preserves_front_matter_when_package_overrides_maketitle() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(
+            root.join("nips_2017.sty"),
+            r"\ProvidesPackage{nips_2017}[2017/01/01]
+\makeatletter
+\def\@maketitle{\latexdtitle\latexdauthor}
+\def\@thanks{}
+\renewcommand{\maketitle}{\begingroup\@maketitle\@thanks\endgroup}
+\makeatother
+\endinput",
+        )
+        .expect("package");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}
+\usepackage{nips_2017}
+\title{Attention Is All You Need}
+\author{Ashish Vaswani\thanks{Equal contribution. Listing order is random.}}
+\begin{document}
+\maketitle
+Body.
+\end{document}",
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let (build, _) = run_project_from_base_snapshot(&world, &snapshot).expect("build");
+
+        let metadata = build
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata) => {
+                    Some((metadata.field, metadata.value.as_str()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            metadata.contains(&(MetadataField::Title, "Attention Is All You Need")),
+            "{:#?}",
+            build.render_events
+        );
+        assert!(
+            metadata.contains(&(
+                MetadataField::AuthorNote,
+                "Equal contribution. Listing order is random."
+            )),
+            "{:#?}",
+            build.render_events
+        );
+        assert!(
+            build
+                .render_events
+                .iter()
+                .any(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_))),
+            "{:#?}",
+            build.render_events
+        );
     }
 
     #[test]

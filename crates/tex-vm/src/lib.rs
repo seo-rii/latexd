@@ -16881,10 +16881,11 @@ impl<'i> Vm<'i> {
                             token_span.start,
                             invocation_end_utf8,
                         );
-                        self.record_overridden_front_matter_invocation(
+                        self.record_overridden_front_matter_macro_invocation(
                             &control_sequence,
                             token_span.start,
                             invocation_end_utf8,
+                            expanded.is_empty(),
                         );
                         self.record_overridden_bibliography_invocation(
                             &control_sequence,

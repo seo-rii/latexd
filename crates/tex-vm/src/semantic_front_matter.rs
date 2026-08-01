@@ -77,6 +77,20 @@ impl Vm<'_> {
         }
     }
 
+    pub(super) fn record_overridden_front_matter_macro_invocation(
+        &mut self,
+        command_name: &str,
+        start_utf8: u32,
+        end_utf8: u32,
+        expansion_is_empty: bool,
+    ) {
+        self.record_overridden_front_matter_invocation(command_name, start_utf8, end_utf8);
+        if !expansion_is_empty && matches!(command_name, "maketitle" | "printAffiliationsAndNotice")
+        {
+            self.emit_executed_compat_flush_title_block(start_utf8, end_utf8);
+        }
+    }
+
     pub(super) fn emit_executed_document_metadata(
         &mut self,
         field: MetadataField,
@@ -238,6 +252,35 @@ impl Vm<'_> {
         }
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
+        self.push_executed_flush_title_block(source, producer);
+    }
+
+    fn emit_executed_compat_flush_title_block(&mut self, start_utf8: u32, end_utf8: u32) {
+        if !self.render_event_capture || !self.execution_in_document {
+            return;
+        }
+        self.finish_executed_block_content();
+        let source =
+            SourceProvenance::file(self.current_execution_source_path(), start_utf8, end_utf8);
+        self.push_executed_flush_title_block(source, EventProducer::Macro);
+    }
+
+    fn push_executed_flush_title_block(
+        &mut self,
+        source: SourceProvenance,
+        producer: EventProducer,
+    ) {
+        if self
+            .semantic_front_matter
+            .executed_events
+            .iter()
+            .any(|event| {
+                matches!(event.event, RenderEvent::FlushTitleBlock(_))
+                    && provenance_overlaps(&event.meta.source, &source)
+            })
+        {
+            return;
+        }
         let event_id = self.render_events.allocate_event_sequence();
         let mut envelope = RenderEventEnvelope::new(
             event_id,
