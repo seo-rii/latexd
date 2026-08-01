@@ -18885,6 +18885,22 @@ impl<'i> Vm<'i> {
                     self.last_token_end_utf8.max(source_end_utf8),
                 );
             }
+            Primitive::Rule => {
+                self.skip_optional_spaces(queue);
+                let _ = self.read_optional_bracket_tokens(queue);
+                self.skip_optional_spaces(queue);
+                if self.read_macro_argument(queue).is_none() {
+                    return;
+                }
+                self.skip_optional_spaces(queue);
+                if self.read_macro_argument(queue).is_none() {
+                    return;
+                }
+                self.record_suppressed_source_range(
+                    source_offset_utf8,
+                    self.last_token_end_utf8.max(source_end_utf8),
+                );
+            }
             Primitive::BoxWrapper(command) => {
                 match command {
                     BoxWrapperCommand::FrameBox | BoxWrapperCommand::MakeBox => {
@@ -25812,6 +25828,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
                 },
             }))
         }
+        "rule" => Some(Primitive::Rule),
         "framebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::FrameBox)),
         "makebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::MakeBox)),
         "raisebox" => Some(Primitive::BoxWrapper(BoxWrapperCommand::RaiseBox)),
@@ -26341,6 +26358,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::BibliographyWrapper(command) => command.canonical_name,
         Primitive::NatbibSplitSuffix(command) => command.canonical_name,
         Primitive::PhantomWrapper(command) => command.canonical_name,
+        Primitive::Rule => "rule",
         Primitive::BoxWrapper(BoxWrapperCommand::FrameBox) => "framebox",
         Primitive::BoxWrapper(BoxWrapperCommand::MakeBox) => "makebox",
         Primitive::BoxWrapper(BoxWrapperCommand::RaiseBox) => "raisebox",

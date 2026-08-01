@@ -214,6 +214,7 @@ pub(crate) enum Primitive {
     BibliographyWrapper(BibliographyWrapperCommand),
     NatbibSplitSuffix(NatbibSplitSuffixCommand),
     PhantomWrapper(PhantomWrapperCommand),
+    Rule,
     BoxWrapper(BoxWrapperCommand),
     BeginGroupCommand,
     EndGroupCommand,

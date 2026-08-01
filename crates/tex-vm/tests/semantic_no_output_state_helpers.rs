@@ -1,6 +1,6 @@
 use tex_render_model::RenderEvent;
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{Vm, VmOutcome};
+use tex_vm::{Vm, VmDiagnosticKind, VmOutcome};
 
 fn run(source: &str, capture_events: bool) -> VmOutcome {
     let mut interner = ControlSequenceInterner::new();
@@ -81,6 +81,19 @@ fn macro_alias_and_false_conditional_execute_only_reached_state_helpers() {
     assert!(outcome.output.contains(expected), "{}", outcome.output);
     assert_eq!(bibliography_items(&outcome), vec![expected]);
     assert!(!outcome.output.contains("Hidden"), "{}", outcome.output);
+}
+
+#[test]
+fn rule_dimensions_do_not_become_visible_text() {
+    let outcome = run(
+        r"\def\z@{0}\def\p@{1pt}\begin{document}Before\rule{\z@}{24\p@}Middle\rule[.5ex]{1em}{.4pt}After\end{document}",
+        true,
+    );
+
+    assert_eq!(outcome.output, "BeforeMiddleAfter");
+    assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence && diagnostic.detail == "rule"
+    }));
 }
 
 #[test]
