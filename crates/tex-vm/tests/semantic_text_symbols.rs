@@ -53,6 +53,37 @@ fn visible_text_symbols_execute_with_or_without_event_capture() {
 }
 
 #[test]
+fn tex_latin_letter_symbols_preserve_visible_characters() {
+    let source = r"\begin{document}\aa{}\AA{}\ae{}\AE{}\oe{}\OE{}\o{}\O{}\l{}\L{}\ss{}\i{}\j{}; {\L}ukasz and \l{}odz.\end{document}";
+    let expected = "åÅæÆœŒøØłŁßıȷ; Łukasz and łodz.";
+
+    for capture_events in [false, true] {
+        let outcome = run(source, capture_events);
+
+        assert!(outcome.output.contains(expected), "{}", outcome.output);
+        if capture_events {
+            let visible_text =
+                outcome
+                    .render_events
+                    .iter()
+                    .fold(String::new(), |mut visible_text, event| {
+                        match &event.event {
+                            RenderEvent::Text(text) => visible_text.push_str(&text.text),
+                            RenderEvent::Space(_) => visible_text.push(' '),
+                            _ => {}
+                        }
+                        visible_text
+                    });
+            assert!(
+                visible_text.contains(expected),
+                "{visible_text}; events: {:#?}",
+                outcome.render_events
+            );
+        }
+    }
+}
+
+#[test]
 fn mounted_bibliography_executes_visible_text_symbols() {
     let refs = r#"\begin{thebibliography}{1}
 \bibitem{key}Quote\textquotesingle s. Double\textquotedbl q. Angles\textless x\textgreater. Pipe\textbar join. Path\slash name.

@@ -15668,6 +15668,9 @@ impl<'i> Vm<'i> {
         let mut emitted_break_for_whitespace = false;
         for (relative_index, ch) in source[start..end].char_indices() {
             let absolute_index = start + relative_index;
+            if matches!(ch, '{' | '}') {
+                continue;
+            }
             if ch.is_whitespace() || ch == '~' {
                 if !pending_word.is_empty() {
                     let word_start = pending_word_start.take().unwrap_or(start);
@@ -18823,10 +18826,19 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::TextSymbol(command) => {
+                self.flush_executed_text_capture();
+                self.record_suppressed_source_range(source_offset_utf8, source_end_utf8);
+                self.record_executed_text_authority_range(
+                    self.current_execution_source_path(),
+                    source_offset_utf8,
+                    source_end_utf8,
+                    self.current_execution_anchor(),
+                );
                 for ch in command.visible_text.chars() {
                     self.capture_executed_text_character(ch, source_offset_utf8, source_end_utf8);
                     self.push_legacy_output_char(ch);
                 }
+                self.flush_executed_text_capture();
             }
             Primitive::TextScript(_) => {
                 let Some(body) = self.read_macro_argument(queue) else {
@@ -25704,6 +25716,35 @@ fn strip_macro_argument_outer_group(mut tokens: Vec<Token>) -> Vec<Token> {
     tokens
 }
 
+fn builtin_text_symbol(name: &str) -> Option<TextSymbolCommand> {
+    let (canonical_name, visible_text) = match name {
+        "textquotesingle" => ("textquotesingle", "'"),
+        "textquotedbl" => ("textquotedbl", "\""),
+        "textless" => ("textless", "<"),
+        "textgreater" => ("textgreater", ">"),
+        "textbar" => ("textbar", "|"),
+        "slash" => ("slash", "/"),
+        "aa" => ("aa", "å"),
+        "AA" => ("AA", "Å"),
+        "ae" => ("ae", "æ"),
+        "AE" => ("AE", "Æ"),
+        "oe" => ("oe", "œ"),
+        "OE" => ("OE", "Œ"),
+        "o" => ("o", "ø"),
+        "O" => ("O", "Ø"),
+        "l" => ("l", "ł"),
+        "L" => ("L", "Ł"),
+        "ss" => ("ss", "ß"),
+        "i" => ("i", "ı"),
+        "j" => ("j", "ȷ"),
+        _ => return None,
+    };
+    Some(TextSymbolCommand {
+        canonical_name,
+        visible_text,
+    })
+}
+
 fn builtin_primitive(name: &str) -> Option<Primitive> {
     let bibliography_text =
         |canonical_name: &'static str, visible_text: &'static str, attach_next: bool| {
@@ -25724,12 +25765,9 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
             separate_before,
         }))
     };
-    let text_symbol = |canonical_name: &'static str, visible_text: &'static str| {
-        Some(Primitive::TextSymbol(TextSymbolCommand {
-            canonical_name,
-            visible_text,
-        }))
-    };
+    if let Some(command) = builtin_text_symbol(name) {
+        return Some(Primitive::TextSymbol(command));
+    }
     match name {
         "relax" => Some(Primitive::Relax),
         "newblock" => bibliography_text("newblock", " ", true),
@@ -25806,12 +25844,6 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "strip@prefix" => Some(Primitive::StripPrefix),
         "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf" | "textup"
         | "textmd" | "textnormal" | "underline" | "mbox" | "hbox" => Some(Primitive::TextWrapper),
-        "textquotesingle" => text_symbol("textquotesingle", "'"),
-        "textquotedbl" => text_symbol("textquotedbl", "\""),
-        "textless" => text_symbol("textless", "<"),
-        "textgreater" => text_symbol("textgreater", ">"),
-        "textbar" => text_symbol("textbar", "|"),
-        "slash" => text_symbol("slash", "/"),
         "textsuperscript" => Some(Primitive::TextScript(TextScriptCommand::Superscript)),
         "textsubscript" => Some(Primitive::TextScript(TextScriptCommand::Subscript)),
         "uppercase" => Some(Primitive::Uppercase),
@@ -28755,15 +28787,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = command_name_end;
             continue;
         }
-        let text_symbol = match command {
-            "textquotesingle" => Some("'"),
-            "textquotedbl" => Some("\""),
-            "textless" => Some("<"),
-            "textgreater" => Some(">"),
-            "textbar" => Some("|"),
-            "slash" => Some("/"),
-            _ => None,
-        };
+        let text_symbol = builtin_text_symbol(command).map(|symbol| symbol.visible_text);
         if let Some(symbol) = text_symbol {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             text.push_str(symbol);
