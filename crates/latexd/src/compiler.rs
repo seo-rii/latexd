@@ -1236,7 +1236,6 @@ struct StoredModuleCheckpoint {
     #[serde(default)]
     continuation_stack: Vec<VmReplayFrame>,
     output_start_utf8: u32,
-    snapshot: tex_vm::VmSnapshot,
 }
 
 #[derive(Debug, Clone)]
@@ -2540,7 +2539,6 @@ impl CompilerDriver {
                         source_offset_utf8: checkpoint.source_offset_utf8,
                         continuation_stack: checkpoint.continuation_stack.clone(),
                         output_start_utf8: checkpoint.output_start_utf8,
-                        snapshot: checkpoint.snapshot.clone(),
                     })
                     .collect::<Vec<_>>(),
             )
@@ -5412,10 +5410,21 @@ mod tests {
                 .contains(&Utf8PathBuf::from("main.bbl"))
         );
 
-        let sources = serde_json::from_slice::<StoredSourceTexts>(
-            &fs::read(build_root.join("rev-1/sources.json")).expect("read source snapshots"),
-        )
-        .expect("parse source snapshots");
+        let sources_payload =
+            fs::read(build_root.join("rev-1/sources.json")).expect("read source snapshots");
+        let sources_json = serde_json::from_slice::<serde_json::Value>(&sources_payload)
+            .expect("parse source JSON");
+        let persisted_module_checkpoints = sources_json["module_checkpoints"]
+            .as_array()
+            .expect("module checkpoint array");
+        assert!(!persisted_module_checkpoints.is_empty());
+        assert!(
+            persisted_module_checkpoints
+                .iter()
+                .all(|checkpoint| checkpoint.get("snapshot").is_none())
+        );
+        let sources = serde_json::from_slice::<StoredSourceTexts>(&sources_payload)
+            .expect("parse source snapshots");
         assert_eq!(
             sources.executed_files[&Utf8PathBuf::from("main.bbl")],
             bibliography_source
@@ -6380,10 +6389,6 @@ mod tests {
                     source_offset_utf8: 2,
                     continuation_stack: vec![],
                     output_start_utf8: 0,
-                    snapshot: compile_format_snapshot(
-                        &mut ControlSequenceInterner::new(),
-                        r"\def\fmt{enter}",
-                    ),
                 },
                 StoredModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Exit,
@@ -6392,10 +6397,6 @@ mod tests {
                     source_offset_utf8: 9,
                     continuation_stack: vec![],
                     output_start_utf8: 7,
-                    snapshot: compile_format_snapshot(
-                        &mut ControlSequenceInterner::new(),
-                        r"\def\fmt{exit}",
-                    ),
                 },
             ],
             &BTreeMap::from([(path.clone(), "XXAAsegmentYYZZ".to_string())]),
@@ -6652,7 +6653,6 @@ mod tests {
                 source_offset_utf8: 0,
                 continuation_stack: Vec::new(),
                 output_start_utf8: 0,
-                snapshot: preamble_snapshot.clone(),
             }],
         )
         .expect("write sources");
