@@ -1986,6 +1986,40 @@ mod tests {
     }
 
     #[test]
+    fn mini_kernel_snapshot_executes_mounted_bibliography_url_style() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(root.join("main.tex"), "placeholder").expect("main");
+        fs::write(root.join("refs.bbl"), "placeholder").expect("bibliography");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let mounted = BTreeMap::from([
+            (
+                Utf8PathBuf::from("main.tex"),
+                r"\documentclass{article}\begin{document}\input{refs.bbl}\end{document}"
+                    .to_string(),
+            ),
+            (
+                Utf8PathBuf::from("refs.bbl"),
+                r"\begin{thebibliography}{1}\bibitem{key}\urlstyle{same}Visible.\end{thebibliography}"
+                    .to_string(),
+            ),
+        ]);
+        let (build, _) =
+            run_project_from_base_snapshot_with_mounts(&world, &snapshot, &mounted).expect("build");
+
+        assert_eq!(build.output, "Visible.");
+        assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
     fn project_runner_loads_local_class_and_package_files() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

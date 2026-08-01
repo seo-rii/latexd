@@ -85,6 +85,7 @@ pub(crate) enum EpsfDimension {
 pub(crate) enum BibliographyMetadataCommand {
     AddResource,
     Style,
+    UrlStyle,
     NoCite,
     DefineAlias,
 }

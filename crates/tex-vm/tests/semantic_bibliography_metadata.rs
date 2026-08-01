@@ -65,6 +65,23 @@ Visible.
 }
 
 #[test]
+fn url_style_consumes_non_visible_argument_without_package_shim() {
+    let outcome = capture(r"\begin{document}\urlstyle{same}Visible.\end{document}");
+    let text = visible_text(&outcome);
+
+    assert_eq!(outcome.output, "Visible.");
+    assert_eq!(text.trim(), "Visible.", "{:#?}", outcome.render_events);
+    assert!(
+        !outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail.contains("urlstyle")
+        }),
+        "{:#?}",
+        outcome.diagnostics
+    );
+}
+
+#[test]
 fn macro_generated_bibliography_metadata_does_not_leak_arguments() {
     let outcome = capture(
         r"\def\setbibliography#1{%
@@ -95,11 +112,13 @@ fn user_overrides_keep_their_visible_execution_semantics() {
     let outcome = capture(
         r"\def\addbibresource#1{Resource #1.}
 \def\bibliographystyle#1{Style #1.}
+\def\urlstyle#1{URL style #1.}
 \def\defcitealias#1#2{Alias #1 is #2.}
 \def\nocite#1{Keys #1.}
 \begin{document}
 \addbibresource{shown.bib}
 \bibliographystyle{visible}
+\urlstyle{shown}
 \defcitealias{paper}{Visible Alias}
 \nocite{shown}
 \end{document}",
@@ -109,6 +128,7 @@ fn user_overrides_keep_their_visible_execution_semantics() {
     for visible in [
         "Resource shown.bib.",
         "Style visible.",
+        "URL style shown.",
         "Alias paper is Visible Alias.",
         "Keys shown.",
     ] {

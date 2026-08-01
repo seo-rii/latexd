@@ -18596,7 +18596,9 @@ impl<'i> Vm<'i> {
                         }
                         let _ = self.read_macro_argument(queue);
                     }
-                    BibliographyMetadataCommand::Style | BibliographyMetadataCommand::NoCite => {
+                    BibliographyMetadataCommand::Style
+                    | BibliographyMetadataCommand::UrlStyle
+                    | BibliographyMetadataCommand::NoCite => {
                         let _ = self.read_macro_argument(queue);
                     }
                     BibliographyMetadataCommand::DefineAlias => {
@@ -25741,6 +25743,9 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "bibliographystyle" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::Style,
         )),
+        "urlstyle" => Some(Primitive::BibliographyMetadata(
+            BibliographyMetadataCommand::UrlStyle,
+        )),
         "nocite" => Some(Primitive::BibliographyMetadata(
             BibliographyMetadataCommand::NoCite,
         )),
@@ -26336,6 +26341,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
             "addbibresource"
         }
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::Style) => "bibliographystyle",
+        Primitive::BibliographyMetadata(BibliographyMetadataCommand::UrlStyle) => "urlstyle",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::NoCite) => "nocite",
         Primitive::BibliographyMetadata(BibliographyMetadataCommand::DefineAlias) => "defcitealias",
         Primitive::BibliographyField(command) => command.canonical_name,
