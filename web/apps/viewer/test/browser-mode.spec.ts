@@ -39,7 +39,11 @@ test("static viewer renders display-list pages and retains PDF comparison output
     return textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
   })).toBe("Try it");
   await expect(displayPage.locator("svg")).toContainText("x^2");
-  await expect(displayPage.locator('[data-text-rendering="css-fallback"]').first()).toBeVisible();
+  const fontBackedRun = displayPage.locator('[data-resolved-font-face="cmr10"]').first();
+  await expect(fontBackedRun).toBeVisible();
+  await expect(fontBackedRun).toHaveAttribute("data-font-content-hash", /^blake3:[0-9a-f]{64}$/);
+  await expect(fontBackedRun).toHaveAttribute("data-positioned-glyph-count", /^[1-9]\d*$/);
+  await expect(fontBackedRun).toHaveAttribute("data-text-rendering", "css-fallback");
   const initialPageWidth = (await displayPage.boundingBox())?.width ?? 0;
   const zoomIn = page.getByRole("button", { name: "Zoom in" });
   await zoomIn.click();

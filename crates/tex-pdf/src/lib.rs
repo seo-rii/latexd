@@ -462,20 +462,27 @@ fn render_display_list_pdf_with_font_mode(
                     let requested_tex_face = prefer_tex_fonts
                         .then(|| face_for_request(&run.font, run.size_pt))
                         .flatten();
-                    let resolved_tex_face =
-                        requested_tex_face.filter(|face| resolve_font(*face).is_some());
-                    let font_resource = if let Some(face) = requested_tex_face {
-                        match face {
-                            TexFontFace::Roman10 => "F1",
-                            TexFontFace::MathExtension10 => "F21",
-                            TexFontFace::MathItalic10 => "F14",
-                            TexFontFace::MathItalic7 => "F15",
-                            TexFontFace::Roman7 => "F16",
-                            TexFontFace::TimesRoman => "F17",
-                            TexFontFace::TimesBold => "F18",
-                            TexFontFace::TimesItalic => "F19",
-                            TexFontFace::TimesBoldItalic => "F20",
-                        }
+                    let tex_font_resource = requested_tex_face.and_then(|face| match face {
+                        TexFontFace::Roman10 => Some("F1"),
+                        TexFontFace::MathExtension10 => Some("F21"),
+                        TexFontFace::MathItalic10 => Some("F14"),
+                        TexFontFace::MathItalic7 => Some("F15"),
+                        TexFontFace::Roman7 => Some("F16"),
+                        TexFontFace::TimesRoman => Some("F17"),
+                        TexFontFace::TimesBold => Some("F18"),
+                        TexFontFace::TimesItalic => Some("F19"),
+                        TexFontFace::TimesBoldItalic => Some("F20"),
+                        TexFontFace::Roman5
+                        | TexFontFace::MathItalic5
+                        | TexFontFace::MathSymbol10
+                        | TexFontFace::MathSymbol7
+                        | TexFontFace::MathSymbol5 => None,
+                    });
+                    let resolved_tex_face = requested_tex_face
+                        .filter(|_| tex_font_resource.is_some())
+                        .filter(|face| resolve_font(*face).is_some());
+                    let font_resource = if let Some(resource) = tex_font_resource {
+                        resource
                     } else {
                         match (&run.font.family, run.font.series, run.font.shape) {
                             (
@@ -3014,8 +3021,9 @@ fn build_type1_font_descriptor(
     font: &ResolvedTexFont,
 ) -> Vec<u8> {
     let italic_angle = match font.face {
-        TexFontFace::MathItalic10 | TexFontFace::MathItalic7 => -14,
+        TexFontFace::MathItalic10 | TexFontFace::MathItalic7 | TexFontFace::MathItalic5 => -14,
         TexFontFace::TimesItalic | TexFontFace::TimesBoldItalic => -15,
+        TexFontFace::MathSymbol10 | TexFontFace::MathSymbol7 | TexFontFace::MathSymbol5 => 0,
         _ => 0,
     };
     format!(

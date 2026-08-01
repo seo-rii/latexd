@@ -3178,6 +3178,10 @@ pub fn build_page_display_lists(
             pending
                 .hash_input
                 .push_str(&shaped.resolved_font.postscript_name);
+            pending.hash_input.push(':');
+            pending
+                .hash_input
+                .push_str(&shaped.resolved_font.content_hash);
             for glyph in &shaped.glyphs {
                 pending.hash_input.push(':');
                 pending.hash_input.push_str(&format!(

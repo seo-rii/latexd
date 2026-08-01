@@ -61,6 +61,7 @@ export type BrowserDrawOp =
         face_id: string;
         postscript_name: string;
         glyph_id_kind: "type1_char_code" | "open_type_glyph_id";
+        content_hash: string;
       };
       glyphs?: Array<{
         glyph_id: number;

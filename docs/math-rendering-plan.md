@@ -40,8 +40,8 @@ P0.1 closed this baseline gap on 2026-08-01. Browser-only builds now display
 the generated `output.pdf` through an iframe using the same Blob URL as the
 download action, and the synthetic extracted-text page path has been removed.
 Explicit TeX errors fail the browser build while preserving the last successful
-PDF. Compiler-owned page artifacts and direct display-list rendering remain the
-P0.2 and P0.3 work.
+PDF. P0.2 is complete and the first direct display-list rendering slice is in
+place; browser outline fidelity remains the active P0.3 work.
 
 This means browser delivery is the first validation blocker, but it is not the
 root cause of incorrect PDF math. The downloaded PDF and native/WASI display
@@ -389,22 +389,31 @@ The first renderer slice landed on 2026-08-01:
 
 The renderer-neutral positioned-glyph contract is also in place. A resolved
 text run carries one `ResolvedFontRef` containing the stable face ID,
-PostScript name, and glyph-ID interpretation. Its glyph array contains glyph
-IDs, advances, and run-relative positions, while UTF-8 clusters preserve the
-logical-text mapping. Native layout fills this data from `tex-fonts`, and the
-resolved face plus glyph geometry participates in the page content hash.
+PostScript name, glyph-ID interpretation, and a BLAKE3 identity derived from
+the exact metric and outline bytes. Its glyph array contains glyph IDs,
+advances, and run-relative positions, while UTF-8 clusters preserve the
+logical-text mapping. Native and WASI layout fill this data from `tex-fonts`;
+the resolved font content hash plus glyph geometry participates in the page
+content hash.
 
-This is not yet browser font parity. The current native resolver still uses
-runtime TeX installation discovery, which is unavailable under WASI. WASI
-therefore leaves `resolved_font` and `glyphs` absent, and the browser reports
-and uses its existing CSS-shaped fallback. The contract is intentionally
-optional until the audited bundle is available; an incomplete combination is
-not treated as a positioned run.
+The first hermetic font slice is complete. `tex-fonts` embeds unmodified
+Computer Modern TFM and Type 1 files for `cmr10/7/5`, `cmmi10/7/5`,
+`cmsy10/7/5`, and `cmex10`. The default resolver checks this bundle first in
+both native and WASI builds, then permits Kpathsea discovery only as a native
+fallback for faces outside the bundle. The checked-in manifest records source
+archive and per-file SHA-256 values; the AMS Type 1 files retain OFL-1.1 and
+the TFM files retain the Knuth License instead of being relicensed as MIT.
+Hermetic tests verify every bundled payload against the manifest, and the WASI
+browser E2E gate verifies that a `cmr10` content hash and positioned glyphs
+reach the page artifact.
+
+This is not yet browser outline parity. The browser does not receive the Type 1
+outline program and therefore still marks and draws these runs as an explicit
+CSS-shaped fallback. Bundling fixes deterministic face selection and metrics;
+it does not make host CSS glyph shapes equivalent to Computer Modern.
 
 Remaining P0.3 work:
 
-- add the audited, content-hashed font bundle and resolve the same face IDs and
-  glyph slots under native and WASI;
 - expose bundled glyph outlines as a browser artifact and draw positioned SVG
   paths instead of CSS-shaped text;
 - make native/WASI display-list parity a gate before removing the diagnosed CSS
@@ -413,32 +422,35 @@ Remaining P0.3 work:
 
 ## P1: Font And Metric Substrate
 
-Introduce a common resolver:
+The first common resolver slice is implemented as:
 
 ```rust
 pub trait FontResolver {
-    fn resolve_tfm(&self, name: &str) -> Result<FontData, FontError>;
-    fn resolve_virtual_font(&self, name: &str) -> Result<FontData, FontError>;
-    fn resolve_outline(&self, name: &str) -> Result<FontData, FontError>;
-    fn resolve_encoding(&self, name: &str) -> Result<FontData, FontError>;
+    fn resolve_tfm(&self, stem: &str) -> Option<FontData>;
+    fn resolve_type1(&self, stem: &str) -> Option<FontData>;
 }
 ```
 
+Virtual-font and encoding lookups remain planned extensions; they are not
+represented by placeholder methods in the current API.
+
 Implement:
 
-- `KpathseaFontResolver` for native development;
-- `BundledFontResolver` for WASI and hermetic tests;
+- `BundledFontResolver` for the deterministic native/WASI baseline;
+- `KpathseaFontResolver` as a validated native-only fallback;
 - a versioned, hashed, license-audited font manifest;
-- identical fallback policy and diagnostics in both environments.
+- bundle-first resolution in both environments.
 
 `PageDisplayList` already has the consumer-side seam for this work:
 `PositionedTextRun::resolved_font`, positioned glyphs, and UTF-8 text clusters.
-The bundle manifest must add the resolved font binary/content hash to the page
-cache key; a face name alone is not sufficient to prove renderer parity.
+The resolved binary/content hash is now part of `ResolvedFontRef` and the page
+content hash; a face name alone is not sufficient to prove renderer parity.
 
 The first classic bundle includes `cmr10/7/5`, `cmmi10/7/5`,
-`cmsy10/7/5`, and `cmex10`, plus required encoding and outline data. The bundle
-must be checked for redistribution terms before repository inclusion.
+`cmsy10/7/5`, and `cmex10` TFM and Type 1 data. `cmsy` is available through
+the resolver but is deliberately not selected by the current Unicode-string
+symbol fallback: structured MathList family/slot mapping must become
+authoritative first. Encoding and virtual-font support remain follow-up work.
 
 The TFM/VF layer must preserve:
 
@@ -769,8 +781,8 @@ run.
 
 1. Browser PDF bootstrap and compiler-owned page artifacts can proceed directly
    in the browser/WASI lane.
-2. `FontResolver` and the hermetic classic font manifest can proceed directly
-   in the disjoint font lane.
+2. Extend the completed hermetic `FontResolver`/classic-manifest slice with
+   full TFM math metrics, encoding/VF support, and browser outline artifacts.
 3. Complete the direct VM foundation batches through execution-owned
    `SemanticSink`.
 4. Add `tex-math-model` serialization and source-reference goldens.

@@ -32,17 +32,121 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 8.250020980834961,
+            "glyph_id": 65,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 100,
+            "offset": {
+              "x": 8.250020980834961,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 14.361150741577148,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 0.1527719497680664,
+            "glyph_id": 32,
+            "offset": {
+              "x": 19.86117172241211,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.875020980834961,
+            "glyph_id": 76,
+            "offset": {
+              "x": 20.01394271850586,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.194456100463867,
+            "glyph_id": 111,
+            "offset": {
+              "x": 26.88896369934082,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 118,
+            "offset": {
+              "x": 32.08341979980469,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 101,
+            "offset": {
+              "x": 37.58344268798828,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 42.47234344482422,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 45.52790832519531,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 99,
+            "offset": {
+              "x": 51.027931213378906,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 101,
+            "offset": {
+              "x": 55.916831970214844,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 275.5971374511719,
           "y": 100.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
         "text": "Ada Lovelace"
       },
       {
-        "approximate_advance_pt": 46.75015640258789,
+        "approximate_advance_pt": 46.750160217285156,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -51,10 +155,82 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 10.083357810974121,
+            "glyph_id": 77,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.194456100463867,
+            "glyph_id": 97,
+            "offset": {
+              "x": 10.083357810974121,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.805585861206055,
+            "glyph_id": 121,
+            "offset": {
+              "x": 15.277813911437988,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 21.08340072631836,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 49,
+            "offset": {
+              "x": 24.75007438659668,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 56,
+            "offset": {
+              "x": 30.25009536743164,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 52,
+            "offset": {
+              "x": 35.75011444091797,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 51,
+            "offset": {
+              "x": 41.25013732910156,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 282.62493896484375,
           "y": 114.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -70,10 +246,82 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 8.250020980834961,
+            "glyph_id": 65,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 98,
+            "offset": {
+              "x": 8.250020980834961,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.338899612426758,
+            "glyph_id": 115,
+            "offset": {
+              "x": 14.361150741577148,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 18.700050354003906,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.308351516723633,
+            "glyph_id": 114,
+            "offset": {
+              "x": 22.97784423828125,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 27.286195755004883,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 99,
+            "offset": {
+              "x": 32.786216735839844,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 37.67511749267578,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 72.0,
           "y": 142.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -89,10 +337,58 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 83,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 104,
+            "offset": {
+              "x": 6.1111297607421875,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 111,
+            "offset": {
+              "x": 12.222259521484375,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.308351516723633,
+            "glyph_id": 114,
+            "offset": {
+              "x": 17.722280502319336,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 22.03063201904297,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 90.0,
           "y": 156.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -108,10 +404,26 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 116.30842590332031,
           "y": 156.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -127,10 +439,90 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 98,
+            "offset": {
+              "x": 5.500020980834961,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.338899612426758,
+            "glyph_id": 115,
+            "offset": {
+              "x": 11.611150741577148,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 15.950050354003906,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.308351516723633,
+            "glyph_id": 114,
+            "offset": {
+              "x": 20.22784423828125,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 24.536195755004883,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 99,
+            "offset": {
+              "x": 30.036216735839844,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 34.92511749267578,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 46,
+            "offset": {
+              "x": 39.202911376953125,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 119.97509765625,
           "y": 156.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -194,7 +586,7 @@
         "text": "Intro"
       },
       {
-        "approximate_advance_pt": 24.750072479248047,
+        "approximate_advance_pt": 24.75007438659668,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -203,10 +595,58 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 8.250020980834961,
+            "glyph_id": 72,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 101,
+            "offset": {
+              "x": 8.250020980834961,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 13.138922691345215,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 16.194488525390625,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 111,
+            "offset": {
+              "x": 19.25005340576172,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 72.0,
           "y": 198.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -222,10 +662,26 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 96.75007629394531,
           "y": 198.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -241,10 +697,42 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 91,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.194466590881348,
+            "glyph_id": 63,
+            "offset": {
+              "x": 3.0555648803710938,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 93,
+            "offset": {
+              "x": 8.250031471252441,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 100.416748046875,
           "y": 198.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -260,10 +748,26 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 46,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 111.72234344482422,
           "y": 198.0
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -279,10 +783,26 @@
           "shape": "italic",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 6.286812782287598,
+            "glyph_id": 120,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 300.38922119140625,
           "y": 230.8249969482422
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmmi10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMMI10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -298,17 +818,33 @@
           "shape": "upright",
           "size_pt": 7.699999809265137
         },
+        "glyphs": [
+          {
+            "advance_pt": 4.3847455978393555,
+            "glyph_id": 50,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 307.2260437011719,
           "y": 224.77499389648438
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr7",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR7"
         },
         "size_pt": 7.699999809265137,
         "source": "<present>",
         "text": "2"
       },
       {
-        "approximate_advance_pt": 82.83636474609375,
+        "approximate_advance_pt": 82.83635711669922,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -317,10 +853,162 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 91,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 49,
+            "offset": {
+              "x": 3.0555648803710938,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 93,
+            "offset": {
+              "x": 8.555585861206055,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 11.611150741577148,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 8.250020980834961,
+            "glyph_id": 65,
+            "offset": {
+              "x": 15.277824401855469,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 117,
+            "offset": {
+              "x": 23.52784538269043,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 29.638975143432617,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 104,
+            "offset": {
+              "x": 33.91676712036133,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 111,
+            "offset": {
+              "x": 40.027896881103516,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.308351516723633,
+            "glyph_id": 114,
+            "offset": {
+              "x": 45.527915954589844,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 46,
+            "offset": {
+              "x": 49.836265563964844,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 52.89183044433594,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 7.944466590881348,
+            "glyph_id": 84,
+            "offset": {
+              "x": 56.558502197265625,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 105,
+            "offset": {
+              "x": 64.50296783447266,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 67.55853271484375,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 71.8363265991211,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 101,
+            "offset": {
+              "x": 74.89189147949219,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 46,
+            "offset": {
+              "x": 79.78079223632812,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 72.0,
           "y": 253.9250030517578
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -336,10 +1024,130 @@
           "shape": "upright",
           "size_pt": 11.0
         },
+        "glyphs": [
+          {
+            "advance_pt": 6.263912200927734,
+            "glyph_id": 70,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 6.263912200927734,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 11.763933181762695,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 108,
+            "offset": {
+              "x": 14.819498062133789,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 6.1111297607421875,
+            "glyph_id": 98,
+            "offset": {
+              "x": 17.875062942504883,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.500020980834961,
+            "glyph_id": 97,
+            "offset": {
+              "x": 23.98619270324707,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.58333683013916,
+            "glyph_id": 99,
+            "offset": {
+              "x": 29.48621368408203,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.805585861206055,
+            "glyph_id": 107,
+            "offset": {
+              "x": 34.069549560546875,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.6666736602783203,
+            "glyph_id": 32,
+            "offset": {
+              "x": 39.87513732910156,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 43.54180908203125,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.888901710510254,
+            "glyph_id": 101,
+            "offset": {
+              "x": 47.819602966308594,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 5.805585861206055,
+            "glyph_id": 120,
+            "offset": {
+              "x": 52.70850372314453,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 4.277792930603027,
+            "glyph_id": 116,
+            "offset": {
+              "x": 58.51409149169922,
+              "y": 0.0
+            }
+          },
+          {
+            "advance_pt": 3.0555648803710938,
+            "glyph_id": 46,
+            "offset": {
+              "x": 62.79188537597656,
+              "y": 0.0
+            }
+          }
+        ],
         "kind": "text_run",
         "origin": {
           "x": 72.0,
           "y": 274.92498779296875
+        },
+        "resolved_font": {
+          "content_hash": "<present>",
+          "face_id": "cmr10",
+          "glyph_id_kind": "type1_char_code",
+          "postscript_name": "CMR10"
         },
         "size_pt": 11.0,
         "source": "<present>",

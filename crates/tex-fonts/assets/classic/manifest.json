@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "bundle_id": "amsfonts-classic-3.04+cm-tfm-2022-12-23",
+  "sources": [
+    {
+      "package": "amsfonts",
+      "version": "3.04",
+      "url": "https://mirrors.ctan.org/fonts/amsfonts.zip",
+      "archive_sha256": "aaab3930b952128b7ed65260144493eb3d88cb063b50da1f90272e23c7e08ba2",
+      "license": "OFL-1.1"
+    },
+    {
+      "package": "cm-tfm",
+      "version": "2022-12-23",
+      "url": "https://mirrors.ctan.org/fonts/cm/tfm.zip",
+      "archive_sha256": "9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c",
+      "license": "Knuth"
+    }
+  ],
+  "faces": [
+    {
+      "face_id": "cmr10",
+      "postscript_name": "CMR10",
+      "tfm": { "path": "tfm/cmr10.tfm", "sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244" },
+      "type1": { "path": "type1/cmr10.pfb", "sha256": "fdcede8794018df5f2b58f0905fb20a2b418ed8f67b73ee12445855dfbe5b1be" }
+    },
+    {
+      "face_id": "cmr7",
+      "postscript_name": "CMR7",
+      "tfm": { "path": "tfm/cmr7.tfm", "sha256": "28f9f4d237bdae4babef4a59d90f17686a09d6f9df0b2c3c23b2ba15f20eee82" },
+      "type1": { "path": "type1/cmr7.pfb", "sha256": "b37e8671820b0753c6e233eaa3230c6ab9cff04e6c4baee312d60ae261e5aba1" }
+    },
+    {
+      "face_id": "cmr5",
+      "postscript_name": "CMR5",
+      "tfm": { "path": "tfm/cmr5.tfm", "sha256": "581be818f67bd11a1792d05e129abe3ea30c5cbdfce3bed8da7c5fb50f5ba95b" },
+      "type1": { "path": "type1/cmr5.pfb", "sha256": "84d38aac226b5274baca7a292e2039f5284a35d8a2ae31074a475fad87da310b" }
+    },
+    {
+      "face_id": "cmmi10",
+      "postscript_name": "CMMI10",
+      "tfm": { "path": "tfm/cmmi10.tfm", "sha256": "e442c5487f84df70218ff37f775c87060856f5b6e04c011b6cadbbadfcf46645" },
+      "type1": { "path": "type1/cmmi10.pfb", "sha256": "e3661061e8aa474d6de5ffa916edceb0e3d8b998862018c147f0357fce00bcd7" }
+    },
+    {
+      "face_id": "cmmi7",
+      "postscript_name": "CMMI7",
+      "tfm": { "path": "tfm/cmmi7.tfm", "sha256": "ce55681703aae565f17286d800ea9780223132589bdbaeda1751b869aba26a38" },
+      "type1": { "path": "type1/cmmi7.pfb", "sha256": "5b293a581ddb937b02559c3ce1a60184cc434295533204a2cd3864a6ad8a1f53" }
+    },
+    {
+      "face_id": "cmmi5",
+      "postscript_name": "CMMI5",
+      "tfm": { "path": "tfm/cmmi5.tfm", "sha256": "8839e40838381a0a3c976bdd5becf72afd60bde5a965c3d9b985c3479c6cf75e" },
+      "type1": { "path": "type1/cmmi5.pfb", "sha256": "35048e58e53f4aa53025069c1d0de33a16d8d4c111bfa329669e6456ec0a967b" }
+    },
+    {
+      "face_id": "cmsy10",
+      "postscript_name": "CMSY10",
+      "tfm": { "path": "tfm/cmsy10.tfm", "sha256": "0ca13d421ac7133271aed7c935099ecf3d1d08ac9e15f81acb34a16564ab8a46" },
+      "type1": { "path": "type1/cmsy10.pfb", "sha256": "62ee8cef552017551cd3e026a483e700730103eceaad959c87b7730017f59cff" }
+    },
+    {
+      "face_id": "cmsy7",
+      "postscript_name": "CMSY7",
+      "tfm": { "path": "tfm/cmsy7.tfm", "sha256": "4f59bbf683e947c807158641621982dc83f55fec042fea7963d8ce9f9da98256" },
+      "type1": { "path": "type1/cmsy7.pfb", "sha256": "583b65bd1857bffc2ab184fcb4aad4e70e12eb05c9ca9f1c58c9a00a86c8bccf" }
+    },
+    {
+      "face_id": "cmsy5",
+      "postscript_name": "CMSY5",
+      "tfm": { "path": "tfm/cmsy5.tfm", "sha256": "6b7dc18cba9ca8996d7b146f1ed78d9227577b26248083310fec227692198ca5" },
+      "type1": { "path": "type1/cmsy5.pfb", "sha256": "46da57e5a06866efa9a20f3dd350811b5d3279a5ae789af63e530f1f570e3c7f" }
+    },
+    {
+      "face_id": "cmex10",
+      "postscript_name": "CMEX10",
+      "tfm": { "path": "tfm/cmex10.tfm", "sha256": "0890bccea1dd4d27f001ac30e86c63af35bc803e0557c35aafb1903c8d208e92" },
+      "type1": { "path": "type1/cmex10.pfb", "sha256": "791b31aa1db8608d0144b3a40fc0fe53383a60f6b00d0e8fd9f06ac4a11df8cb" }
+    }
+  ]
+}

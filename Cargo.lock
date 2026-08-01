@@ -1598,6 +1598,9 @@ dependencies = [
 name = "tex-fonts"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "serde_json",
+ "sha2",
  "tex-render-model",
 ]
 

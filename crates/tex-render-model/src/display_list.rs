@@ -103,6 +103,7 @@ pub struct ResolvedFontRef {
     pub face_id: FontFaceId,
     pub postscript_name: String,
     pub glyph_id_kind: GlyphIdKind,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -544,6 +545,7 @@ mod tests {
                 face_id: FontFaceId::new("cmr10"),
                 postscript_name: "CMR10".to_string(),
                 glyph_id_kind: GlyphIdKind::Type1CharCode,
+                content_hash: "blake3:font".to_string(),
             }),
             glyphs: Some(vec![PositionedGlyph {
                 glyph_id: u32::from(b'A'),
@@ -563,6 +565,7 @@ mod tests {
         assert_eq!(json["resolved_font"]["face_id"], "cmr10");
         assert_eq!(json["resolved_font"]["postscript_name"], "CMR10");
         assert_eq!(json["resolved_font"]["glyph_id_kind"], "type1_char_code");
+        assert_eq!(json["resolved_font"]["content_hash"], "blake3:font");
         assert_eq!(json["glyphs"][0]["glyph_id"], u32::from(b'A'));
         assert!(json["glyphs"][0].get("font_face_id").is_none());
 

@@ -127,6 +127,9 @@
             font-style={op.font.shape === "italic" ? "italic" : "normal"}
             clip-path={clipPath}
             data-text-rendering="css-fallback"
+            data-resolved-font-face={op.resolved_font?.face_id}
+            data-font-content-hash={op.resolved_font?.content_hash}
+            data-positioned-glyph-count={op.glyphs?.length}
             data-source-kind={op.source?.primary?.kind ?? "unknown"}
             data-source-key={sourceKey}
             class:display-list-source-linked={sourceKey !== null}

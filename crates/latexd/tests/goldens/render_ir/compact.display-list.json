@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "96e0dde7972509b9939a024839dd073c8cd27ab5f6944e0b2c45c47ec410fb9e",
+    "page_id": "d6f534dfdfaee79109f15813177cebe7d5e5fb377b2b883b796bc16bb9675b50",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -85,11 +85,181 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 60.805733,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 65,
+            "advance_pt": 8.250021,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 100,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 8.250021,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 14.361151,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 32,
+            "advance_pt": 0.15277195,
+            "offset": {
+              "x": 19.861172,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 76,
+            "advance_pt": 6.875021,
+            "offset": {
+              "x": 20.013943,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 111,
+            "advance_pt": 5.194456,
+            "offset": {
+              "x": 26.888964,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 118,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 32.08342,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 101,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 37.583443,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 42.472343,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 45.52791,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 99,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 51.02793,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 101,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 55.916832,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 12,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
+            "glyph_end": 8
+          },
+          {
+            "text_start_utf8": 8,
+            "text_end_utf8": 9,
+            "glyph_start": 8,
+            "glyph_end": 9
+          },
+          {
+            "text_start_utf8": 9,
+            "text_end_utf8": 10,
+            "glyph_start": 9,
+            "glyph_end": 10
+          },
+          {
+            "text_start_utf8": 10,
+            "text_end_utf8": 11,
+            "glyph_start": 10,
+            "glyph_end": 11
+          },
+          {
+            "text_start_utf8": 11,
+            "text_end_utf8": 12,
+            "glyph_start": 11,
             "glyph_end": 12
           }
         ],
@@ -149,12 +319,126 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 46.750156,
+        "approximate_advance_pt": 46.75016,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 77,
+            "advance_pt": 10.083358,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.194456,
+            "offset": {
+              "x": 10.083358,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 121,
+            "advance_pt": 5.805586,
+            "offset": {
+              "x": 15.277814,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 21.0834,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 49,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 24.750074,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 56,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 30.250095,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 52,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 35.750114,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 51,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 41.250137,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 8,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
             "glyph_end": 8
           }
         ],
@@ -215,11 +499,125 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 41.95291,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 65,
+            "advance_pt": 8.250021,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 98,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 8.250021,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 115,
+            "advance_pt": 4.3388996,
+            "offset": {
+              "x": 14.361151,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 18.70005,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 114,
+            "advance_pt": 4.3083515,
+            "offset": {
+              "x": 22.977844,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 27.286196,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 99,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 32.786217,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 37.675117,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 8,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
             "glyph_end": 8
           }
         ],
@@ -252,11 +650,83 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 26.308426,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 83,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 104,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 6.1111298,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 111,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 12.2222595,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 114,
+            "advance_pt": 4.3083515,
+            "offset": {
+              "x": 17.72228,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 22.030632,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 5,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
             "glyph_end": 5
           }
         ],
@@ -289,6 +759,22 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 3.6666737,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -326,11 +812,139 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 42.258476,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 98,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 5.500021,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 115,
+            "advance_pt": 4.3388996,
+            "offset": {
+              "x": 11.611151,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 15.95005,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 114,
+            "advance_pt": 4.3083515,
+            "offset": {
+              "x": 20.227844,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 24.536196,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 99,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 30.036217,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 34.925117,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 46,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 39.20291,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 9,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
+            "glyph_end": 8
+          },
+          {
+            "text_start_utf8": 8,
+            "text_end_utf8": 9,
+            "glyph_start": 8,
             "glyph_end": 9
           }
         ],
@@ -503,12 +1117,84 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 24.750072,
+        "approximate_advance_pt": 24.750074,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 72,
+            "advance_pt": 8.250021,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 101,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 8.250021,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 13.138923,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 16.194489,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 111,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 19.250053,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 5,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
             "glyph_end": 5
           }
         ],
@@ -541,6 +1227,22 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 3.6666737,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -578,11 +1280,55 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 11.305596,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 91,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 63,
+            "advance_pt": 5.1944666,
+            "offset": {
+              "x": 3.0555649,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 93,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 8.250031,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 3,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
             "glyph_end": 3
           }
         ],
@@ -625,6 +1371,22 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 3.0555649,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 46,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -662,6 +1424,22 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 6.286813,
+        "resolved_font": {
+          "face_id": "cmmi10",
+          "postscript_name": "CMMI10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:a05a5851055ae1ac351314e733521d1b18a72eb64ec1c66dbdc27a37e5007a0e"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 120,
+            "advance_pt": 6.286813,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -709,6 +1487,22 @@
         },
         "size_pt": 7.7,
         "approximate_advance_pt": 4.3847456,
+        "resolved_font": {
+          "face_id": "cmr7",
+          "postscript_name": "CMR7",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:5a5e3b209735225b0c74a552c361b586bcb867a8330917296f61ec275e049cf7"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 50,
+            "advance_pt": 4.3847456,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -755,12 +1549,266 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 82.836365,
+        "approximate_advance_pt": 82.83636,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 91,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 49,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 3.0555649,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 93,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 8.555586,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 11.611151,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 65,
+            "advance_pt": 8.250021,
+            "offset": {
+              "x": 15.277824,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 117,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 23.527845,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 29.638975,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 104,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 33.916767,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 111,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 40.027897,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 114,
+            "advance_pt": 4.3083515,
+            "offset": {
+              "x": 45.527916,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 46,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 49.836266,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 52.89183,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 84,
+            "advance_pt": 7.9444666,
+            "offset": {
+              "x": 56.558502,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 105,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 64.50297,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 67.55853,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 71.83633,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 101,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 74.89189,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 46,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 79.78079,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 18,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
+            "glyph_end": 8
+          },
+          {
+            "text_start_utf8": 8,
+            "text_end_utf8": 9,
+            "glyph_start": 8,
+            "glyph_end": 9
+          },
+          {
+            "text_start_utf8": 9,
+            "text_end_utf8": 10,
+            "glyph_start": 9,
+            "glyph_end": 10
+          },
+          {
+            "text_start_utf8": 10,
+            "text_end_utf8": 11,
+            "glyph_start": 10,
+            "glyph_end": 11
+          },
+          {
+            "text_start_utf8": 11,
+            "text_end_utf8": 12,
+            "glyph_start": 11,
+            "glyph_end": 12
+          },
+          {
+            "text_start_utf8": 12,
+            "text_end_utf8": 13,
+            "glyph_start": 12,
+            "glyph_end": 13
+          },
+          {
+            "text_start_utf8": 13,
+            "text_end_utf8": 14,
+            "glyph_start": 13,
+            "glyph_end": 14
+          },
+          {
+            "text_start_utf8": 14,
+            "text_end_utf8": 15,
+            "glyph_start": 14,
+            "glyph_end": 15
+          },
+          {
+            "text_start_utf8": 15,
+            "text_end_utf8": 16,
+            "glyph_start": 15,
+            "glyph_end": 16
+          },
+          {
+            "text_start_utf8": 16,
+            "text_end_utf8": 17,
+            "glyph_start": 16,
+            "glyph_end": 17
+          },
+          {
+            "text_start_utf8": 17,
+            "text_end_utf8": 18,
+            "glyph_start": 17,
             "glyph_end": 18
           }
         ],
@@ -803,11 +1851,209 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 65.84745,
+        "resolved_font": {
+          "face_id": "cmr10",
+          "postscript_name": "CMR10",
+          "glyph_id_kind": "type1_char_code",
+          "content_hash": "blake3:3e7895710a3bf005ff29585096a30f58f6182db16e99eb454a662bd66769a697"
+        },
+        "glyphs": [
+          {
+            "glyph_id": 70,
+            "advance_pt": 6.263912,
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 6.263912,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 11.763933,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 108,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 14.819498,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 98,
+            "advance_pt": 6.1111298,
+            "offset": {
+              "x": 17.875063,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 97,
+            "advance_pt": 5.500021,
+            "offset": {
+              "x": 23.986193,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 99,
+            "advance_pt": 4.583337,
+            "offset": {
+              "x": 29.486214,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 107,
+            "advance_pt": 5.805586,
+            "offset": {
+              "x": 34.06955,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 32,
+            "advance_pt": 3.6666737,
+            "offset": {
+              "x": 39.875137,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 43.54181,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 101,
+            "advance_pt": 4.8889017,
+            "offset": {
+              "x": 47.819603,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 120,
+            "advance_pt": 5.805586,
+            "offset": {
+              "x": 52.708504,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 116,
+            "advance_pt": 4.277793,
+            "offset": {
+              "x": 58.51409,
+              "y": 0.0
+            }
+          },
+          {
+            "glyph_id": 46,
+            "advance_pt": 3.0555649,
+            "offset": {
+              "x": 62.791885,
+              "y": 0.0
+            }
+          }
+        ],
         "clusters": [
           {
             "text_start_utf8": 0,
-            "text_end_utf8": 14,
+            "text_end_utf8": 1,
             "glyph_start": 0,
+            "glyph_end": 1
+          },
+          {
+            "text_start_utf8": 1,
+            "text_end_utf8": 2,
+            "glyph_start": 1,
+            "glyph_end": 2
+          },
+          {
+            "text_start_utf8": 2,
+            "text_end_utf8": 3,
+            "glyph_start": 2,
+            "glyph_end": 3
+          },
+          {
+            "text_start_utf8": 3,
+            "text_end_utf8": 4,
+            "glyph_start": 3,
+            "glyph_end": 4
+          },
+          {
+            "text_start_utf8": 4,
+            "text_end_utf8": 5,
+            "glyph_start": 4,
+            "glyph_end": 5
+          },
+          {
+            "text_start_utf8": 5,
+            "text_end_utf8": 6,
+            "glyph_start": 5,
+            "glyph_end": 6
+          },
+          {
+            "text_start_utf8": 6,
+            "text_end_utf8": 7,
+            "glyph_start": 6,
+            "glyph_end": 7
+          },
+          {
+            "text_start_utf8": 7,
+            "text_end_utf8": 8,
+            "glyph_start": 7,
+            "glyph_end": 8
+          },
+          {
+            "text_start_utf8": 8,
+            "text_end_utf8": 9,
+            "glyph_start": 8,
+            "glyph_end": 9
+          },
+          {
+            "text_start_utf8": 9,
+            "text_end_utf8": 10,
+            "glyph_start": 9,
+            "glyph_end": 10
+          },
+          {
+            "text_start_utf8": 10,
+            "text_end_utf8": 11,
+            "glyph_start": 10,
+            "glyph_end": 11
+          },
+          {
+            "text_start_utf8": 11,
+            "text_end_utf8": 12,
+            "glyph_start": 11,
+            "glyph_end": 12
+          },
+          {
+            "text_start_utf8": 12,
+            "text_end_utf8": 13,
+            "glyph_start": 12,
+            "glyph_end": 13
+          },
+          {
+            "text_start_utf8": 13,
+            "text_end_utf8": 14,
+            "glyph_start": 13,
             "glyph_end": 14
           }
         ],
@@ -942,6 +2188,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "4fcb0def09c8378214df6046820ba5175af0e0dc21283516f8ad79a72559bdce"
+    "content_hash": "acc03e266d9d912899c92260a95266bbe55b174611127a3765de8498b24c4849"
   }
 ]

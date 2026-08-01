@@ -12,8 +12,9 @@ use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, GraphicBlock, ImageCrop,
     ImageRotation, ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MathAtomKind,
-    MathNode, MathScriptPlacement, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
-    SpaceKind, TableBlock, TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
+    MathNode, MathScriptPlacement, MetadataField, ModeHint, PositionedTextRun, RenderEvent,
+    SemanticConfidence, SpaceKind, TableBlock, TableColumnAlignment, TextCluster, to_pretty_json,
+    to_semantic_pretty_json,
 };
 use tex_render_model::{
     DocumentIr, FloatBlock, FloatKind, InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole,
@@ -40,6 +41,22 @@ impl GraphicIrView<'_> {
 struct TableIrView<'a> {
     table: &'a TableBlock,
     float: Option<&'a FloatBlock>,
+}
+
+fn provenance_cluster_coverage(run: &PositionedTextRun) -> Option<Vec<TextCluster>> {
+    let clusters = run.clusters.as_ref()?;
+    if clusters.is_empty() {
+        return Some(Vec::new());
+    }
+    Some(vec![TextCluster {
+        text_start_utf8: clusters
+            .iter()
+            .map(|cluster| cluster.text_start_utf8)
+            .min()?,
+        text_end_utf8: clusters.iter().map(|cluster| cluster.text_end_utf8).max()?,
+        glyph_start: clusters.iter().map(|cluster| cluster.glyph_start).min()?,
+        glyph_end: clusters.iter().map(|cluster| cluster.glyph_end).max()?,
+    }])
 }
 
 impl TableIrView<'_> {
@@ -550,7 +567,7 @@ fn compact_title_provenance_matches_golden() {
         "display_list": {
             "text": title_text_run.text,
             "source": title_text_run.source,
-            "clusters": title_text_run.clusters,
+            "clusters": provenance_cluster_coverage(title_text_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -642,7 +659,7 @@ fn compact_citation_provenance_preserves_invocation_and_key_spans() {
         "display_list": {
             "text": citation_text_run.text,
             "source": citation_text_run.source,
-            "clusters": citation_text_run.clusters,
+            "clusters": provenance_cluster_coverage(citation_text_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -731,7 +748,7 @@ fn compact_heading_provenance_preserves_argument_and_invocation_spans() {
         "display_list": {
             "text": heading_text_run.text,
             "source": heading_text_run.source,
-            "clusters": heading_text_run.clusters,
+            "clusters": provenance_cluster_coverage(heading_text_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -895,7 +912,18 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
             "source": display_math_block.source,
         },
         "display_list": {
-            "runs": display_math_text_runs,
+            "runs": display_math_text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "origin": run.origin,
+                    "text": run.text,
+                    "font": run.font,
+                    "size_pt": run.size_pt,
+                    "approximate_advance_pt": run.approximate_advance_pt,
+                    "clusters": provenance_cluster_coverage(run),
+                    "source": run.source,
+                }))
+                .collect::<Vec<_>>(),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -5054,7 +5082,7 @@ fn caption_provenance_preserves_text_and_invocation_spans() {
         "display_list": {
             "text": caption_text_run.text,
             "source": caption_text_run.source,
-            "clusters": caption_text_run.clusters,
+            "clusters": provenance_cluster_coverage(caption_text_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -8703,7 +8731,7 @@ fn captionof_provenance_preserves_long_caption_and_invocation_spans() {
             "display_list": {
                 "text": caption_text_run.text,
                 "source": caption_text_run.source,
-                "clusters": caption_text_run.clusters,
+                "clusters": provenance_cluster_coverage(caption_text_run),
             },
         }));
     }
@@ -17299,7 +17327,7 @@ fn link_provenance_preserves_text_target_and_invocation_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -17571,7 +17599,7 @@ fn hyperref_visible_text_provenance_preserves_invocation_and_target_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -17802,7 +17830,7 @@ fn nohyper_link_provenance_preserves_visible_text_and_invocation_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -18019,7 +18047,7 @@ fn url_text_wrapper_provenance_preserves_content_and_invocation_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -18205,7 +18233,7 @@ fn text_wrapper_provenance_preserves_content_and_invocation_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -18423,7 +18451,7 @@ fn nested_text_wrapper_inline_provenance_preserves_invocation_and_key_spans() {
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     }));
@@ -18521,7 +18549,7 @@ fn nested_text_wrapper_inline_provenance_preserves_invocation_and_key_spans() {
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     }));
@@ -18774,7 +18802,7 @@ fn nested_text_wrapper_link_provenance_preserves_text_target_and_invocation_span
                     .map(|run| serde_json::json!({
                         "text": run.text,
                         "source": run.source,
-                        "clusters": run.clusters,
+                        "clusters": provenance_cluster_coverage(run),
                     }))
                     .collect::<Vec<_>>(),
                 "annotations": annotations
@@ -19068,7 +19096,7 @@ fn nested_text_wrapper_math_provenance_preserves_body_and_delimiter_spans() {
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -19231,7 +19259,7 @@ fn nested_text_wrapper_provenance_preserves_inner_wrapper_content_and_invocation
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -19382,7 +19410,7 @@ fn nested_text_wrapper_unknown_command_provenance_preserves_content_and_invocati
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     });
@@ -19647,7 +19675,7 @@ fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() 
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -19805,7 +19833,7 @@ fn input_file_heading_provenance_points_to_included_source() {
         "display_list": {
             "text": heading_run.text,
             "source": heading_run.source,
-            "clusters": heading_run.clusters,
+            "clusters": provenance_cluster_coverage(heading_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -21322,7 +21350,7 @@ fn nested_text_wrapper_unknown_command_inline_provenance_preserves_key_spans() {
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     }));
@@ -21420,7 +21448,7 @@ fn nested_text_wrapper_unknown_command_inline_provenance_preserves_key_spans() {
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     }));
@@ -21681,7 +21709,7 @@ fn nested_text_wrapper_unknown_command_link_math_provenance_preserves_invocation
                     .map(|run| serde_json::json!({
                         "text": run.text,
                         "source": run.source,
-                        "clusters": run.clusters,
+                        "clusters": provenance_cluster_coverage(run),
                     }))
                     .collect::<Vec<_>>(),
                 "annotations": annotations
@@ -21778,7 +21806,7 @@ fn nested_text_wrapper_unknown_command_link_math_provenance_preserves_invocation
             .map(|run| serde_json::json!({
                 "text": run.text,
                 "source": run.source,
-                "clusters": run.clusters,
+                "clusters": provenance_cluster_coverage(run),
             }))
             .collect::<Vec<_>>(),
     }));
@@ -22220,7 +22248,7 @@ fn nested_text_wrapper_unknown_command_nested_unknown_link_provenance_preserves_
                     .map(|run| serde_json::json!({
                         "text": run.text,
                         "source": run.source,
-                        "clusters": run.clusters,
+                        "clusters": provenance_cluster_coverage(run),
                     }))
                     .collect::<Vec<_>>(),
                 "annotations": annotations
@@ -22428,7 +22456,7 @@ fn nested_text_wrapper_unknown_command_nested_unknown_url_text_provenance_preser
                 .map(|run| serde_json::json!({
                     "text": run.text,
                     "source": run.source,
-                    "clusters": run.clusters,
+                    "clusters": provenance_cluster_coverage(run),
                 }))
                 .collect::<Vec<_>>(),
         }));
@@ -30399,7 +30427,7 @@ fn macro_heading_provenance_matches_golden() {
         "display_list": {
             "text": heading_text_run.text,
             "source": heading_text_run.source,
-            "clusters": heading_text_run.clusters,
+            "clusters": provenance_cluster_coverage(heading_text_run),
         },
     });
     let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
@@ -31157,7 +31185,7 @@ fn assert_macro_heading_provenance_golden(
         serde_json::json!({
             "text": heading_run.text,
             "source": heading_run.source,
-            "clusters": heading_run.clusters,
+            "clusters": provenance_cluster_coverage(heading_run),
         }),
     );
     let provenance_json =

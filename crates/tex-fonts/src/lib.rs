@@ -1,5 +1,11 @@
+mod bundled;
+
+use std::borrow::Cow;
+#[cfg(not(target_family = "wasm"))]
 use std::fs;
+#[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
+#[cfg(not(target_family = "wasm"))]
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -8,14 +14,22 @@ use tex_render_model::{
     PositionedGlyph, ResolvedFontRef, TextCluster,
 };
 
+pub use bundled::BundledFontResolver;
+
+#[cfg(not(target_family = "wasm"))]
 const MAX_FONT_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TexFontFace {
     Roman10,
     Roman7,
+    Roman5,
     MathItalic10,
     MathItalic7,
+    MathItalic5,
+    MathSymbol10,
+    MathSymbol7,
+    MathSymbol5,
     MathExtension10,
     TimesRoman,
     TimesBold,
@@ -28,8 +42,13 @@ impl TexFontFace {
         match self {
             Self::Roman10 => "cmr10",
             Self::Roman7 => "cmr7",
+            Self::Roman5 => "cmr5",
             Self::MathItalic10 => "cmmi10",
             Self::MathItalic7 => "cmmi7",
+            Self::MathItalic5 => "cmmi5",
+            Self::MathSymbol10 => "cmsy10",
+            Self::MathSymbol7 => "cmsy7",
+            Self::MathSymbol5 => "cmsy5",
             Self::MathExtension10 => "cmex10",
             Self::TimesRoman => "ptmr8r",
             Self::TimesBold => "ptmb8r",
@@ -42,8 +61,13 @@ impl TexFontFace {
         match self {
             Self::Roman10
             | Self::Roman7
+            | Self::Roman5
             | Self::MathItalic10
             | Self::MathItalic7
+            | Self::MathItalic5
+            | Self::MathSymbol10
+            | Self::MathSymbol7
+            | Self::MathSymbol5
             | Self::MathExtension10 => self.stem(),
             Self::TimesRoman => "utmr8a",
             Self::TimesBold => "utmb8a",
@@ -56,8 +80,13 @@ impl TexFontFace {
         match self {
             Self::Roman10 => "CMR10",
             Self::Roman7 => "CMR7",
+            Self::Roman5 => "CMR5",
             Self::MathItalic10 => "CMMI10",
             Self::MathItalic7 => "CMMI7",
+            Self::MathItalic5 => "CMMI5",
+            Self::MathSymbol10 => "CMSY10",
+            Self::MathSymbol7 => "CMSY7",
+            Self::MathSymbol5 => "CMSY5",
             Self::MathExtension10 => "CMEX10",
             Self::TimesRoman => "NimbusRomNo9L-Regu",
             Self::TimesBold => "NimbusRomNo9L-Medi",
@@ -82,8 +111,71 @@ pub struct ShapedText {
 #[derive(Debug)]
 pub struct ResolvedTexFont {
     pub face: TexFontFace,
+    pub content_hash: String,
     pub metrics: TfmMetrics,
     pub type1: Type1Program,
+}
+
+#[derive(Debug, Clone)]
+pub struct FontData {
+    bytes: Cow<'static, [u8]>,
+    content_hash: String,
+}
+
+impl FontData {
+    pub fn borrowed(bytes: &'static [u8]) -> Self {
+        Self::new(Cow::Borrowed(bytes))
+    }
+
+    pub fn owned(bytes: Vec<u8>) -> Self {
+        Self::new(Cow::Owned(bytes))
+    }
+
+    fn new(bytes: Cow<'static, [u8]>) -> Self {
+        let content_hash = format!("blake3:{}", blake3::hash(&bytes).to_hex());
+        Self {
+            bytes,
+            content_hash,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn content_hash(&self) -> &str {
+        &self.content_hash
+    }
+}
+
+pub trait FontResolver {
+    fn resolve_tfm(&self, stem: &str) -> Option<FontData>;
+    fn resolve_type1(&self, stem: &str) -> Option<FontData>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct KpathseaFontResolver;
+
+impl FontResolver for KpathseaFontResolver {
+    #[cfg(not(target_family = "wasm"))]
+    fn resolve_tfm(&self, stem: &str) -> Option<FontData> {
+        read_kpse_file(stem, "tfm").map(FontData::owned)
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn resolve_tfm(&self, _stem: &str) -> Option<FontData> {
+        None
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn resolve_type1(&self, stem: &str) -> Option<FontData> {
+        read_kpse_file(stem, "pfb").map(FontData::owned)
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn resolve_type1(&self, _stem: &str) -> Option<FontData> {
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -246,6 +338,7 @@ pub fn shape_text(face: TexFontFace, text: &str, size_pt: f32) -> Option<ShapedT
             face_id: face.face_id(),
             postscript_name: face.postscript_name().to_string(),
             glyph_id_kind: GlyphIdKind::Type1CharCode,
+            content_hash: font.content_hash.clone(),
         },
         glyphs,
         clusters,
@@ -299,8 +392,13 @@ pub fn face_for_request(request: &FontRequest, size_pt: f32) -> Option<TexFontFa
 pub fn resolve_font(face: TexFontFace) -> Option<&'static ResolvedTexFont> {
     static ROMAN_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static ROMAN_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static ROMAN_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static MATH_ITALIC_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static MATH_ITALIC_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static MATH_ITALIC_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static MATH_SYMBOL_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static MATH_SYMBOL_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static MATH_SYMBOL_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static MATH_EXTENSION_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static TIMES_ROMAN: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
     static TIMES_BOLD: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
@@ -309,28 +407,57 @@ pub fn resolve_font(face: TexFontFace) -> Option<&'static ResolvedTexFont> {
     let slot = match face {
         TexFontFace::Roman10 => &ROMAN_10,
         TexFontFace::Roman7 => &ROMAN_7,
+        TexFontFace::Roman5 => &ROMAN_5,
         TexFontFace::MathItalic10 => &MATH_ITALIC_10,
         TexFontFace::MathItalic7 => &MATH_ITALIC_7,
+        TexFontFace::MathItalic5 => &MATH_ITALIC_5,
+        TexFontFace::MathSymbol10 => &MATH_SYMBOL_10,
+        TexFontFace::MathSymbol7 => &MATH_SYMBOL_7,
+        TexFontFace::MathSymbol5 => &MATH_SYMBOL_5,
         TexFontFace::MathExtension10 => &MATH_EXTENSION_10,
         TexFontFace::TimesRoman => &TIMES_ROMAN,
         TexFontFace::TimesBold => &TIMES_BOLD,
         TexFontFace::TimesItalic => &TIMES_ITALIC,
         TexFontFace::TimesBoldItalic => &TIMES_BOLD_ITALIC,
     };
-    slot.get_or_init(|| load_font(face)).as_ref()
+    slot.get_or_init(|| {
+        resolve_font_with(face, &BundledFontResolver)
+            .or_else(|| resolve_font_with(face, &KpathseaFontResolver))
+    })
+    .as_ref()
 }
 
-fn load_font(face: TexFontFace) -> Option<ResolvedTexFont> {
-    let tfm = read_kpse_file(&format!("{}.tfm", face.stem()))?;
-    let pfb = read_kpse_file(&format!("{}.pfb", face.type1_stem()))?;
+pub fn resolve_font_with(
+    face: TexFontFace,
+    resolver: &dyn FontResolver,
+) -> Option<ResolvedTexFont> {
+    let tfm = resolver.resolve_tfm(face.stem())?;
+    let pfb = resolver.resolve_type1(face.type1_stem())?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"tex-fonts-resolved-v1\0");
+    hasher.update(face.stem().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(tfm.content_hash().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(pfb.content_hash().as_bytes());
     Some(ResolvedTexFont {
         face,
-        metrics: parse_tfm(&tfm)?,
-        type1: parse_pfb(&pfb)?,
+        content_hash: format!("blake3:{}", hasher.finalize().to_hex()),
+        metrics: parse_tfm(tfm.as_bytes())?,
+        type1: parse_pfb(pfb.as_bytes())?,
     })
 }
 
-fn read_kpse_file(name: &str) -> Option<Vec<u8>> {
+#[cfg(not(target_family = "wasm"))]
+fn read_kpse_file(stem: &str, extension: &str) -> Option<Vec<u8>> {
+    if stem.is_empty()
+        || !stem
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return None;
+    }
+    let name = format!("{stem}.{extension}");
     let output = Command::new("kpsewhich").arg(name).output().ok()?;
     if !output.status.success() {
         return None;
