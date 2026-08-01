@@ -57,6 +57,11 @@ export type BrowserDrawOp =
       font: BrowserFontRequest;
       size_pt: number;
       approximate_advance_pt: number;
+      resolved_font?: {
+        face_id: string;
+        postscript_name: string;
+        glyph_id_kind: "type1_char_code" | "open_type_glyph_id";
+      };
       glyphs?: Array<{
         glyph_id: number;
         advance_pt: number;

@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use tex_render_model::{FontFamilyRequest, FontRequest, FontSeries, FontShape};
+use tex_render_model::{
+    FontFaceId, FontFamilyRequest, FontRequest, FontSeries, FontShape, GlyphIdKind, Point,
+    PositionedGlyph, ResolvedFontRef, TextCluster,
+};
 
 const MAX_FONT_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -62,6 +65,18 @@ impl TexFontFace {
             Self::TimesBoldItalic => "NimbusRomNo9L-MediItal",
         }
     }
+
+    pub fn face_id(self) -> FontFaceId {
+        FontFaceId::new(self.stem())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapedText {
+    pub resolved_font: ResolvedFontRef,
+    pub glyphs: Vec<PositionedGlyph>,
+    pub clusters: Vec<TextCluster>,
+    pub advance_pt: f32,
 }
 
 #[derive(Debug)]
@@ -184,6 +199,58 @@ pub fn encode_text(face: TexFontFace, text: &str) -> Option<Vec<u8>> {
 pub fn text_advance_em(face: TexFontFace, text: &str) -> Option<f32> {
     let font = resolve_font(face)?;
     font.metrics.advance_bytes(&encode_text(face, text)?)
+}
+
+pub fn shape_text(face: TexFontFace, text: &str, size_pt: f32) -> Option<ShapedText> {
+    if !size_pt.is_finite() || size_pt <= 0.0 {
+        return None;
+    }
+    let font = resolve_font(face)?;
+    let encoded = encode_text(face, text)?;
+    if encoded.len() != text.chars().count() {
+        return None;
+    }
+
+    let mut glyphs = Vec::with_capacity(encoded.len());
+    let mut clusters = Vec::with_capacity(encoded.len());
+    let mut pen_x = 0.0;
+    for (glyph_index, ((text_start, character), code)) in
+        text.char_indices().zip(encoded.iter().copied()).enumerate()
+    {
+        let width_em = if code == b' ' {
+            font.metrics.space_em
+        } else {
+            font.metrics.width_em(code)?
+        };
+        let kern_em = encoded
+            .get(glyph_index + 1)
+            .and_then(|next| font.metrics.kern_em(code, *next))
+            .unwrap_or(0.0);
+        let advance_pt = (width_em + kern_em) * size_pt;
+        glyphs.push(PositionedGlyph {
+            glyph_id: u32::from(code),
+            advance_pt,
+            offset: Point { x: pen_x, y: 0.0 },
+        });
+        clusters.push(TextCluster {
+            text_start_utf8: text_start as u32,
+            text_end_utf8: (text_start + character.len_utf8()) as u32,
+            glyph_start: glyph_index as u32,
+            glyph_end: glyph_index as u32 + 1,
+        });
+        pen_x += advance_pt;
+    }
+
+    Some(ShapedText {
+        resolved_font: ResolvedFontRef {
+            face_id: face.face_id(),
+            postscript_name: face.postscript_name().to_string(),
+            glyph_id_kind: GlyphIdKind::Type1CharCode,
+        },
+        glyphs,
+        clusters,
+        advance_pt: pen_x,
+    })
 }
 
 pub fn face_for_request(request: &FontRequest, size_pt: f32) -> Option<TexFontFace> {

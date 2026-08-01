@@ -3016,6 +3016,7 @@ pub fn build_page_display_lists(
                         size_pt: note_font_size_pt,
                         text: text.clone(),
                         approximate_advance_pt: advance,
+                        resolved_font: None,
                         glyphs: None,
                         clusters: approximate_text_clusters(&text),
                         source: source.clone(),
@@ -3094,6 +3095,7 @@ pub fn build_page_display_lists(
                             size_pt: footnote_font_size_pt,
                             text: footnote.marker.clone(),
                             approximate_advance_pt: marker_advance,
+                            resolved_font: None,
                             glyphs: None,
                             clusters: approximate_text_clusters(&footnote.marker),
                             source: footnote.source.clone(),
@@ -3114,6 +3116,7 @@ pub fn build_page_display_lists(
                         size_pt: footnote_font_size_pt,
                         text: line.clone(),
                         approximate_advance_pt: advance,
+                        resolved_font: None,
                         glyphs: None,
                         clusters: approximate_text_clusters(line),
                         source: footnote.source.clone(),
@@ -3147,10 +3150,45 @@ pub fn build_page_display_lists(
                 size_pt: options.page_number_font_size_pt,
                 text,
                 approximate_advance_pt: advance,
+                resolved_font: None,
                 glyphs: None,
                 clusters: None,
                 source,
             }));
+        }
+        for op in &mut pending.ops {
+            let DrawOp::TextRun(run) = op else {
+                continue;
+            };
+            let Some(face) = tex_fonts::face_for_request(&run.font, run.size_pt) else {
+                continue;
+            };
+            let Some(shaped) = tex_fonts::shape_text(face, &run.text, run.size_pt) else {
+                continue;
+            };
+            pending.hash_input.push('\u{1f}');
+            pending
+                .hash_input
+                .push_str("positioned-glyphs:type1-char-code-v1");
+            pending.hash_input.push(':');
+            pending
+                .hash_input
+                .push_str(shaped.resolved_font.face_id.as_str());
+            pending.hash_input.push(':');
+            pending
+                .hash_input
+                .push_str(&shaped.resolved_font.postscript_name);
+            for glyph in &shaped.glyphs {
+                pending.hash_input.push(':');
+                pending.hash_input.push_str(&format!(
+                    "{}:{:.5}:{:.5}:{:.5}",
+                    glyph.glyph_id, glyph.offset.x, glyph.offset.y, glyph.advance_pt
+                ));
+            }
+            run.approximate_advance_pt = shaped.advance_pt;
+            run.resolved_font = Some(shaped.resolved_font);
+            run.glyphs = Some(shaped.glyphs);
+            run.clusters = Some(shaped.clusters);
         }
         let content_hash = blake3::hash(pending.hash_input.as_bytes())
             .to_hex()
@@ -3720,6 +3758,7 @@ pub fn build_page_display_lists(
                                 font: logical.font.clone(),
                                 size_pt: logical.size_pt,
                                 approximate_advance_pt: advance,
+                                resolved_font: None,
                                 glyphs: None,
                                 clusters: approximate_text_clusters(&logical.fallback_text),
                                 source: logical.source.clone(),
@@ -4345,6 +4384,7 @@ pub fn build_page_display_lists(
                             font: logical.font.clone(),
                             size_pt: logical.size_pt,
                             approximate_advance_pt: 0.0,
+                            resolved_font: None,
                             glyphs: None,
                             clusters: None,
                             source: logical.source.clone(),
@@ -4488,6 +4528,7 @@ pub fn build_page_display_lists(
                                 font: segment_font,
                                 size_pt: segment_size_pt,
                                 approximate_advance_pt: advance,
+                                resolved_font: None,
                                 glyphs: None,
                                 clusters,
                                 source: source.clone(),
@@ -5284,6 +5325,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         approximate_advance_pt: caption_advance,
+                        resolved_font: None,
                         glyphs: None,
                         clusters: None,
                         source: caption_source,
@@ -5412,6 +5454,49 @@ mod tests {
         assert_eq!(text_runs[1].text, "Ada Lovelace");
         assert_eq!(text_runs[2].text, "Hello world");
         assert_eq!(display_lists[0].source_spans.len(), 1);
+    }
+
+    #[test]
+    fn supported_native_text_runs_include_positioned_glyphs() {
+        if tex_fonts::resolve_font(tex_fonts::TexFontFace::Roman10).is_none() {
+            eprintln!("skipping positioned glyph layout test because cmr10 is not installed");
+            return;
+        }
+        let source = SourceProvenance::file("main.tex", 0, 2);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "AV".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let run = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "AV" => Some(run),
+                _ => None,
+            })
+            .expect("AV text run");
+        let glyphs = run.glyphs.as_ref().expect("positioned glyphs");
+
+        assert_eq!(glyphs.len(), 2);
+        assert_eq!(
+            run.resolved_font
+                .as_ref()
+                .expect("resolved font")
+                .face_id
+                .as_str(),
+            "cmr10"
+        );
+        assert_eq!(glyphs[0].glyph_id, u32::from(b'A'));
+        assert_eq!(glyphs[1].glyph_id, u32::from(b'V'));
+        assert_eq!(run.clusters.as_ref().map(Vec::len), Some(2));
+        let glyph_advance: f32 = glyphs.iter().map(|glyph| glyph.advance_pt).sum();
+        assert!((glyph_advance - run.approximate_advance_pt).abs() < 0.000_1);
     }
 
     #[test]

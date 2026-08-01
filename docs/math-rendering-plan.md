@@ -387,9 +387,28 @@ The first renderer slice landed on 2026-08-01:
   multi-page E2E gate verifies that replacing a middle page retains the visible
   tail page's scroll offset.
 
+The renderer-neutral positioned-glyph contract is also in place. A resolved
+text run carries one `ResolvedFontRef` containing the stable face ID,
+PostScript name, and glyph-ID interpretation. Its glyph array contains glyph
+IDs, advances, and run-relative positions, while UTF-8 clusters preserve the
+logical-text mapping. Native layout fills this data from `tex-fonts`, and the
+resolved face plus glyph geometry participates in the page content hash.
+
+This is not yet browser font parity. The current native resolver still uses
+runtime TeX installation discovery, which is unavailable under WASI. WASI
+therefore leaves `resolved_font` and `glyphs` absent, and the browser reports
+and uses its existing CSS-shaped fallback. The contract is intentionally
+optional until the audited bundle is available; an incomplete combination is
+not treated as a positioned run.
+
 Remaining P0.3 work:
 
-- consume positioned glyphs and bundled outlines instead of CSS shaping;
+- add the audited, content-hashed font bundle and resolve the same face IDs and
+  glyph slots under native and WASI;
+- expose bundled glyph outlines as a browser artifact and draw positioned SVG
+  paths instead of CSS-shaped text;
+- make native/WASI display-list parity a gate before removing the diagnosed CSS
+  fallback;
 - add formula, table, image, link, and multi-page visual regression fixtures.
 
 ## P1: Font And Metric Substrate
@@ -411,6 +430,11 @@ Implement:
 - `BundledFontResolver` for WASI and hermetic tests;
 - a versioned, hashed, license-audited font manifest;
 - identical fallback policy and diagnostics in both environments.
+
+`PageDisplayList` already has the consumer-side seam for this work:
+`PositionedTextRun::resolved_font`, positioned glyphs, and UTF-8 text clusters.
+The bundle manifest must add the resolved font binary/content hash to the page
+cache key; a face name alone is not sufficient to prove renderer parity.
 
 The first classic bundle includes `cmr10/7/5`, `cmmi10/7/5`,
 `cmsy10/7/5`, and `cmex10`, plus required encoding and outline data. The bundle

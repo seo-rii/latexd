@@ -83,6 +83,8 @@ pub struct PositionedTextRun {
     pub size_pt: f32,
     pub approximate_advance_pt: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_font: Option<ResolvedFontRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glyphs: Option<Vec<PositionedGlyph>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clusters: Option<Vec<TextCluster>>,
@@ -94,6 +96,34 @@ pub struct PositionedGlyph {
     pub glyph_id: u32,
     pub advance_pt: f32,
     pub offset: Point,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedFontRef {
+    pub face_id: FontFaceId,
+    pub postscript_name: String,
+    pub glyph_id_kind: GlyphIdKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FontFaceId(String);
+
+impl FontFaceId {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GlyphIdKind {
+    Type1CharCode,
+    OpenTypeGlyphId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -488,11 +518,57 @@ pub enum FontRole {
 #[cfg(test)]
 mod tests {
     use crate::{
-        Destination, DrawOp, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection,
-        MaterializedGraphicAsset, Point, PositionedImage, PreparedPdfDictionaryEntry,
-        PreparedPdfForm, PreparedPdfObject, Rect, SourceProvenance, VectorAspectAlign,
-        VectorAspectScale, VectorPreserveAspectRatio, VectorScene,
+        Destination, DrawOp, FontFaceId, FontFamilyRequest, FontRequest, FontRole, FontSeries,
+        FontShape, GlyphIdKind, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection,
+        MaterializedGraphicAsset, Point, PositionedGlyph, PositionedImage, PositionedTextRun,
+        PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, Rect, ResolvedFontRef,
+        SourceProvenance, TextCluster, VectorAspectAlign, VectorAspectScale,
+        VectorPreserveAspectRatio, VectorScene,
     };
+
+    #[test]
+    fn positioned_text_run_roundtrips_run_level_font_and_glyph_contract() {
+        let run = DrawOp::TextRun(PositionedTextRun {
+            origin: Point { x: 10.0, y: 20.0 },
+            text: "A".to_string(),
+            font: FontRequest {
+                family: FontFamilyRequest::Serif,
+                series: FontSeries::Regular,
+                shape: FontShape::Upright,
+                size_pt: 10.0,
+                role: FontRole::Body,
+            },
+            size_pt: 10.0,
+            approximate_advance_pt: 7.5,
+            resolved_font: Some(ResolvedFontRef {
+                face_id: FontFaceId::new("cmr10"),
+                postscript_name: "CMR10".to_string(),
+                glyph_id_kind: GlyphIdKind::Type1CharCode,
+            }),
+            glyphs: Some(vec![PositionedGlyph {
+                glyph_id: u32::from(b'A'),
+                advance_pt: 7.5,
+                offset: Point { x: 0.0, y: 0.0 },
+            }]),
+            clusters: Some(vec![TextCluster {
+                text_start_utf8: 0,
+                text_end_utf8: 1,
+                glyph_start: 0,
+                glyph_end: 1,
+            }]),
+            source: SourceProvenance::file("main.tex", 0, 1),
+        });
+
+        let json = serde_json::to_value(&run).expect("serialize positioned run");
+        assert_eq!(json["resolved_font"]["face_id"], "cmr10");
+        assert_eq!(json["resolved_font"]["postscript_name"], "CMR10");
+        assert_eq!(json["resolved_font"]["glyph_id_kind"], "type1_char_code");
+        assert_eq!(json["glyphs"][0]["glyph_id"], u32::from(b'A'));
+        assert!(json["glyphs"][0].get("font_face_id").is_none());
+
+        let decoded: DrawOp = serde_json::from_value(json).expect("deserialize positioned run");
+        assert_eq!(decoded, run);
+    }
 
     #[test]
     fn draw_ops_translate_renderer_geometry() {
