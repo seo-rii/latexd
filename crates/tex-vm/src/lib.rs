@@ -155,6 +155,7 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("package", package) if package.eq_ignore_ascii_case("hyperref.sty") => {
             Some(HYPERREF_PACKAGE_SHIM)
         }
+        ("package", package) if package.eq_ignore_ascii_case("url.sty") => Some(URL_PACKAGE_SHIM),
         ("package", package) if is_icml_package_name(package) => Some(ICML_PACKAGE_SHIM),
         ("package", package) if package.eq_ignore_ascii_case("wacv.sty") => Some(WACV_PACKAGE_SHIM),
         ("input", input)
@@ -688,6 +689,14 @@ const HYPERREF_PACKAGE_SHIM: &str = r"
 \providecommand{\phantomsection}{}
 ";
 
+const URL_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{url}[2026/01/01 latexd URL preview shim]
+\providecommand{\urlstyle}[1]{}
+\providecommand{\UrlFont}{}
+\providecommand{\nolinkurl}[1]{#1}
+\providecommand{\path}[1]{#1}
+";
+
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "adjustbox.sty",
     "afterpage.sty",
@@ -1159,6 +1168,7 @@ pub struct Vm<'i> {
     scanner_execution_anchors: Vec<VmExecutionAnchor>,
     execution_occurrences: HashMap<VmExecutionAnchor, u64>,
     source_stack: Vec<ActiveSourceFrame>,
+    transient_catcode_overrides: BTreeMap<char, CatCode>,
     restored_input_continuation: Option<RestoredInputContinuation>,
     last_token_end_utf8: u32,
     next_count_register: u32,
@@ -1244,6 +1254,7 @@ impl<'i> Vm<'i> {
             scanner_execution_anchors: Vec::new(),
             execution_occurrences: HashMap::new(),
             source_stack: Vec::new(),
+            transient_catcode_overrides: BTreeMap::new(),
             restored_input_continuation: None,
             last_token_end_utf8: 0,
             next_count_register: default_next_count_register(),
@@ -17457,46 +17468,54 @@ impl<'i> Vm<'i> {
                     };
                     tokens
                 } else {
-                    let Some(opening) = self.pop_next_token(queue) else {
+                    let previous_percent_catcode =
+                        self.transient_catcode_overrides.insert('%', CatCode::Other);
+                    let tokens = if let Some(opening) = self.pop_next_token(queue) {
+                        if matches!(
+                            &opening.kind,
+                            TokenKind::Character {
+                                catcode: CatCode::BeginGroup,
+                                ..
+                            }
+                        ) {
+                            self.push_token_front(queue, opening);
+                            self.read_balanced_group(queue)
+                        } else if let TokenKind::Character {
+                            ch: delimiter,
+                            catcode: delimiter_catcode,
+                        } = &opening.kind
+                        {
+                            let delimiter = *delimiter;
+                            let delimiter_catcode = *delimiter_catcode;
+                            let mut tokens = Vec::new();
+                            loop {
+                                let Some(token) = self.pop_next_token(queue) else {
+                                    break None;
+                                };
+                                if matches!(
+                                    token.kind,
+                                    TokenKind::Character { ch, catcode }
+                                        if ch == delimiter && catcode == delimiter_catcode
+                                ) {
+                                    break Some(tokens);
+                                }
+                                tokens.push(token);
+                            }
+                        } else {
+                            Some(vec![opening])
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(catcode) = previous_percent_catcode {
+                        self.transient_catcode_overrides.insert('%', catcode);
+                    } else {
+                        self.transient_catcode_overrides.remove(&'%');
+                    }
+                    let Some(tokens) = tokens else {
                         return;
                     };
-                    if matches!(
-                        &opening.kind,
-                        TokenKind::Character {
-                            catcode: CatCode::BeginGroup,
-                            ..
-                        }
-                    ) {
-                        self.push_token_front(queue, opening);
-                        let Some(tokens) = self.read_balanced_group(queue) else {
-                            return;
-                        };
-                        tokens
-                    } else if let TokenKind::Character {
-                        ch: delimiter,
-                        catcode: delimiter_catcode,
-                    } = &opening.kind
-                    {
-                        let delimiter = *delimiter;
-                        let delimiter_catcode = *delimiter_catcode;
-                        let mut tokens = Vec::new();
-                        loop {
-                            let Some(token) = self.pop_next_token(queue) else {
-                                return;
-                            };
-                            if matches!(
-                                token.kind,
-                                TokenKind::Character { ch, catcode }
-                                    if ch == delimiter && catcode == delimiter_catcode
-                            ) {
-                                break;
-                            }
-                            tokens.push(token);
-                        }
-                        tokens
-                    } else {
-                        vec![opening]
-                    }
+                    tokens
                 };
                 let target = self
                     .tokens_to_text(target_tokens.clone())
@@ -22958,23 +22977,29 @@ impl<'i> Vm<'i> {
                     let Some(QueueItem::CharacterSource(mut mouth)) = queue.pop_front() else {
                         unreachable!()
                     };
-                    let active_overrides = self.source_stack.last().filter(|frame| {
+                    let has_source_overrides = self.source_stack.last().is_some_and(|frame| {
                         frame
                             .catcode_overrides
                             .iter()
                             .any(|(ch, _)| !frame.suppressed_catcode_overrides.contains_key(ch))
                     });
-                    let token = if let Some(frame) = active_overrides {
-                        let mut catcodes = self.eqtb.catcodes().clone();
-                        for (ch, catcode) in &frame.catcode_overrides {
-                            if !frame.suppressed_catcode_overrides.contains_key(ch) {
+                    let token =
+                        if has_source_overrides || !self.transient_catcode_overrides.is_empty() {
+                            let mut catcodes = self.eqtb.catcodes().clone();
+                            if let Some(frame) = self.source_stack.last() {
+                                for (ch, catcode) in &frame.catcode_overrides {
+                                    if !frame.suppressed_catcode_overrides.contains_key(ch) {
+                                        catcodes.set(*ch, *catcode);
+                                    }
+                                }
+                            }
+                            for (ch, catcode) in &self.transient_catcode_overrides {
                                 catcodes.set(*ch, *catcode);
                             }
-                        }
-                        mouth.next_token(&catcodes, &mut *self.interner)
-                    } else {
-                        mouth.next_token(self.eqtb.catcodes(), &mut *self.interner)
-                    };
+                            mouth.next_token(&catcodes, &mut *self.interner)
+                        } else {
+                            mouth.next_token(self.eqtb.catcodes(), &mut *self.interner)
+                        };
                     if let Some(token) = token {
                         queue.push_front(QueueItem::CharacterSource(mouth));
                         queue.push_front(QueueItem::Token(token));
@@ -25262,6 +25287,7 @@ impl<'i> Vm<'i> {
                         "pstricks.sty",
                         "relsize.sty",
                         "scicite.sty",
+                        "url.sty",
                         "wacv.sty",
                         "wrapfig.sty",
                     ]

@@ -128,7 +128,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \newcommand{\citep}[2][]{#2}
 \newcommand{\citet}[2][]{#2}
 \def\href#1#2{#2}
-\def\url#1{#1}
 \def\nolinkurl#1{#1}
 \def\path#1{#1}
 \def\hypersetup#1{}
@@ -2216,6 +2215,55 @@ Body.
 
         assert_eq!(build.output, "Visible.");
         assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
+    fn mini_kernel_snapshot_preserves_percent_encoded_bibliography_urls() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("class");
+        fs::write(root.join("main.tex"), "placeholder").expect("main");
+        fs::write(root.join("refs.bbl"), "placeholder").expect("bibliography");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let snapshot = compile_mini_kernel_snapshot();
+        let mounted = BTreeMap::from([
+            (
+                Utf8PathBuf::from("main.tex"),
+                r"\documentclass{article}\usepackage{url}\begin{document}\input{refs.bbl}\end{document}"
+                    .to_string(),
+            ),
+            (
+                Utf8PathBuf::from("refs.bbl"),
+                r"\begin{thebibliography}{1}
+\bibitem{key}
+\urldef\tempurl%
+\url{https://example.test/Compound%E2%80%98s-Liquidation.pdf}
+Following text.
+\end{thebibliography}"
+                    .to_string(),
+            ),
+        ]);
+        let (build, _) =
+            run_project_from_base_snapshot_with_mounts(&world, &snapshot, &mounted).expect("build");
+
+        assert!(
+            build
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.detail.contains("paragraph ended before \\url"))
+        );
+        assert!(
+            build
+                .output
+                .contains("https://example.test/Compound%E2%80%98s-Liquidation.pdf")
+        );
+        assert!(build.output.contains("Following text."));
     }
 
     #[test]

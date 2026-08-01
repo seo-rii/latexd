@@ -759,6 +759,40 @@ fn link_aliases_preserve_canonical_semantics() {
 }
 
 #[test]
+fn braced_url_preserves_percent_escapes_and_following_text() {
+    let outcome = capture(
+        r"\usepackage{url}
+\begin{document}
+\urldef\tempurl%
+\url{https://example.test/Compound%E2%80%98s-Liquidation.pdf}
+\tempurl
+Following text.
+\end{document}",
+    );
+    let link = outcome
+        .render_events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::InlineLink(link) if link.command == "url" => Some(link),
+            _ => None,
+        })
+        .expect("URL event");
+
+    assert_eq!(
+        link.target,
+        "https://example.test/Compound%E2%80%98s-Liquidation.pdf"
+    );
+    assert_eq!(link.text, link.target);
+    for expected in ["Following", "text."] {
+        assert!(
+            outcome.render_events.iter().any(
+                |event| matches!(&event.event, RenderEvent::Text(text) if text.text == expected)
+            )
+        );
+    }
+}
+
+#[test]
 fn link_visible_content_executes_and_is_folded_into_the_link() {
     let outcome = capture(
         r"\begin{document}
