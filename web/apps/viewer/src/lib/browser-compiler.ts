@@ -9,18 +9,11 @@ import {
   type Inode
 } from "@bjorn3/browser_wasi_shim";
 
-export type BrowserCompilePage = {
-  page_id: string;
-  width_pt: number;
-  height_pt: number;
-  lines: string[];
-};
-
 export type BrowserCompileResult = {
   schema_version: number;
   extracted_text: string;
   event_count: number;
-  pages: BrowserCompilePage[];
+  page_count: number;
   diagnostics: string[];
   pdf: Uint8Array;
 };
@@ -58,23 +51,6 @@ function addFile(root: Directory, path: string, file: File) {
     directory = child;
   }
   directory.contents.set(parts.at(-1) ?? path, file);
-}
-
-function toPages(text: string, expectedCount: number): BrowserCompilePage[] {
-  const lines = text.split("\n");
-  const chunks: string[][] = [];
-  for (let index = 0; index < lines.length; index += 48) {
-    chunks.push(lines.slice(index, index + 48));
-  }
-  while (chunks.length < expectedCount) {
-    chunks.push([]);
-  }
-  return (chunks.length > 0 ? chunks : [[]]).map((pageLines, index) => ({
-    page_id: `wasi-page-${index + 1}`,
-    width_pt: 612,
-    height_pt: 792,
-    lines: pageLines
-  }));
 }
 
 export async function compileProjectInBrowser(
@@ -119,7 +95,7 @@ export async function compileProjectInBrowser(
     schema_version: response.schema_version,
     extracted_text: response.extracted_text,
     event_count: response.event_count,
-    pages: toPages(response.extracted_text, response.page_count),
+    page_count: response.page_count,
     diagnostics: [...response.diagnostics, ...stderr],
     pdf: outputPdf.data.slice()
   };

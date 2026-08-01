@@ -9,8 +9,7 @@
   } from "$lib";
   import {
     compileInBrowser,
-    compileProjectInBrowser,
-    type BrowserCompilePage
+    compileProjectInBrowser
   } from "$lib/browser-compiler";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -47,7 +46,7 @@
   let suppressEditorSyncUntil = 0;
   const browserOnly = import.meta.env.VITE_LATEXD_BROWSER_ONLY === "true";
   let browserMode = $state(browserOnly);
-  let browserPages = $state<BrowserCompilePage[]>([]);
+  let browserPageCount = $state(0);
   let browserDiagnostics = $state<string[]>([]);
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,7 +180,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       if (requestId !== browserCompileSerial) {
         return;
       }
-      browserPages = result.pages;
+      browserPageCount = result.page_count;
       browserDiagnostics = result.diagnostics;
       browserEventCount = result.event_count;
       browserFiles = projectFiles;
@@ -197,7 +196,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       previewState.lastBuildSucceeded = true;
       lastSavedContent = source;
       editorStatus = "saved";
-      editorMessage = `Compiled locally: ${result.pages.length} page(s), ${result.event_count} render events.`;
+      editorMessage = `Compiled locally: ${result.page_count} page(s), ${result.event_count} render events.`;
     } catch (error) {
       if (requestId !== browserCompileSerial) {
         return;
@@ -764,25 +763,20 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       {#if browserMode}
         <div class="browser-preview" aria-label="WebAssembly document preview">
           <div class="browser-preview__meta">
-            <span>{browserPages.length} page(s)</span>
+            <span>{browserPageCount} page(s)</span>
             <span>{browserEventCount} events</span>
             <span>{browserDiagnostics.length} diagnostics</span>
             {#if browserPdfUrl}
               <a href={browserPdfUrl} download="latexd-output.pdf">Download PDF</a>
             {/if}
           </div>
-          {#each browserPages as page, index (page.page_id)}
-            <article
-              class="browser-page"
-              aria-label={`Page ${index + 1}`}
-              style={`aspect-ratio: ${page.width_pt} / ${page.height_pt}`}
-            >
-              {#each page.lines as line}
-                <p class:browser-page__blank={line.length === 0}>{line || "\u00a0"}</p>
-              {/each}
-              <span class="browser-page__number">{index + 1}</span>
-            </article>
-          {/each}
+          {#if browserPdfUrl}
+            <iframe
+              class="browser-pdf-preview"
+              title="Compiled PDF preview"
+              src={browserPdfUrl}
+            ></iframe>
+          {/if}
           {#if browserDiagnostics.length > 0}
             <details class="browser-diagnostics">
               <summary>Compiler diagnostics</summary>
@@ -1120,6 +1114,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
   .browser-preview {
     display: grid;
     justify-items: center;
+    flex: 1;
     gap: 1.25rem;
     overflow: auto;
     min-height: 0;
@@ -1146,38 +1141,14 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     color: #f7c873;
   }
 
-  .browser-page {
-    position: relative;
+  .browser-pdf-preview {
     box-sizing: border-box;
-    width: min(100%, 46rem);
+    width: 100%;
     min-height: 48rem;
-    margin: 0;
-    padding: 4.75rem 4.5rem;
-    background: #fffef9;
-    color: #161616;
+    border: 0;
+    border-radius: 0.8rem;
+    background: white;
     box-shadow: 0 12px 36px rgba(15, 23, 42, 0.24);
-    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-    font-size: 0.98rem;
-    line-height: 1.48;
-  }
-
-  .browser-page p {
-    min-height: 1.48em;
-    margin: 0;
-    white-space: pre-wrap;
-  }
-
-  .browser-page__blank {
-    height: 0.7em;
-  }
-
-  .browser-page__number {
-    position: absolute;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
-    color: #6b7280;
-    font-size: 0.8rem;
   }
 
   .browser-diagnostics {

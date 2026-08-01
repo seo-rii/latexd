@@ -36,6 +36,13 @@ The first gap is directly visible in
 `PageDisplayList` pages and writes `output.pdf`. The browser currently exposes
 that PDF only as a download.
 
+P0.1 closed this baseline gap on 2026-08-01. Browser-only builds now display
+the generated `output.pdf` through an iframe using the same Blob URL as the
+download action, and the synthetic extracted-text page path has been removed.
+Explicit TeX errors fail the browser build while preserving the last successful
+PDF. Compiler-owned page artifacts and direct display-list rendering remain the
+P0.2 and P0.3 work.
+
 This means browser delivery is the first validation blocker, but it is not the
 root cause of incorrect PDF math. The downloaded PDF and native/WASI display
 lists remain the authoritative probes for the font, execution, and layout
@@ -277,26 +284,31 @@ VM V7 continuation snapshot -> I2 persistent session -> I3 stable-tail replay
 
 ## P0: Actual Browser Output
 
-### P0.1 PDF Bootstrap
+### P0.1 PDF Bootstrap (Complete)
 
 Use the existing `output.pdf` as the first real browser preview through PDF.js
 or an iframe fallback. Preserve the download action, but do not use
 `extracted_text` as visible page content.
 
-Tests are written first:
+The TDD browser test now verifies:
 
 - a successful WASI build displays the PDF result;
-- preview page count matches the generated PDF;
+- the preview and download action reference the same generated PDF;
+- the preview payload has a PDF header;
 - fake `wasi-page-*` elements do not exist;
-- a formula, table, and figure fixture differ visibly from plain extracted
-  text;
+- a successful edit replaces the PDF Blob URL;
 - a failed build preserves the last good PDF.
 
-Exit criteria:
+Completed exit criteria:
 
-- downloaded PDF and browser preview show the same pages;
-- browser screenshot tests verify real page geometry;
+- downloaded PDF and browser preview consume the same artifact;
+- visible page content no longer comes from `extracted_text`;
+- explicit VM errors are distinguishable from recoverable diagnostics;
 - preview failures can be classified separately from PDF-generation failures.
+
+Compiler-owned page-count/geometry validation and formula, table, and figure
+visual fixtures are acceptance gates for P0.2 and P0.3, where the browser can
+inspect page artifacts instead of relying on the host PDF viewer.
 
 ### P0.2 Page Artifact Protocol
 

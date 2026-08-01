@@ -39,6 +39,13 @@ fn main() {
         .expect("WASI memfs should accept output.json");
 }
 
+fn explicit_error_message(diagnostics: &[tex_vm::VmDiagnostic]) -> Option<String> {
+    diagnostics
+        .iter()
+        .find(|diagnostic| matches!(&diagnostic.kind, tex_vm::VmDiagnosticKind::ExplicitError))
+        .map(|diagnostic| format!("{:?}: {}", diagnostic.kind, diagnostic.detail))
+}
+
 fn compile() -> Result<CompileResponse, String> {
     let request: CompileRequest = serde_json::from_slice(
         &fs::read(Path::new(WORKSPACE).join("request.json")).map_err(|error| error.to_string())?,
@@ -71,6 +78,23 @@ fn compile() -> Result<CompileResponse, String> {
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
     let outcome = vm.run_plain(source);
+    let explicit_error = explicit_error_message(&outcome.diagnostics);
+    let diagnostics = outcome
+        .diagnostics
+        .iter()
+        .map(|diagnostic| format!("{:?}: {}", diagnostic.kind, diagnostic.detail))
+        .collect();
+    if let Some(error) = explicit_error {
+        return Ok(CompileResponse {
+            schema_version: 1,
+            success: false,
+            event_count: 0,
+            page_count: 0,
+            extracted_text: String::new(),
+            diagnostics,
+            error: Some(error),
+        });
+    }
     let stream = RenderEventStream::new(Some(entry), outcome.render_events);
     let event_count = stream.events.len();
     let document = tex_layout::build_document_ir(&stream, &());
@@ -84,12 +108,6 @@ fn compile() -> Result<CompileResponse, String> {
         fs::read(Path::new(WORKSPACE).join(path)).ok()
     });
     fs::write(Path::new(WORKSPACE).join("output.pdf"), pdf).map_err(|error| error.to_string())?;
-    let diagnostics = outcome
-        .diagnostics
-        .into_iter()
-        .map(|diagnostic| format!("{:?}: {}", diagnostic.kind, diagnostic.detail))
-        .collect();
-
     Ok(CompileResponse {
         schema_version: 1,
         success: true,
@@ -125,7 +143,10 @@ fn is_tex_source(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_path;
+    use tex_tokens::ControlSequenceInterner;
+    use tex_vm::Vm;
+
+    use super::{explicit_error_message, normalize_path};
 
     #[test]
     fn project_paths_are_relative_and_sandboxed() {
@@ -135,5 +156,26 @@ mod tests {
         );
         assert!(normalize_path("../secret.tex").is_err());
         assert!(normalize_path("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn explicit_tex_errors_fail_the_browser_build() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\errmessage{browser failure}");
+
+        assert_eq!(
+            explicit_error_message(&outcome.diagnostics).as_deref(),
+            Some("ExplicitError: errmessage: browser failure")
+        );
+    }
+
+    #[test]
+    fn recoverable_vm_diagnostics_keep_the_browser_build_available() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\undefinedcommand");
+
+        assert!(explicit_error_message(&outcome.diagnostics).is_none());
     }
 }
