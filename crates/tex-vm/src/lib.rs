@@ -374,6 +374,10 @@ const LLNCS_CLASS_SHIM: &str = r"
 const IEEE_TRAN_CLASS_SHIM: &str = r"
 \ProvidesClass{IEEEtran}[2026/01/01 latexd IEEEtran shim]
 \LoadClass{article}
+\makeatletter
+\long\def\author#1{\gdef\@author{#1}\latexdsetauthor{#1}}
+\makeatother
+\providecommand{\thanks}[1]{#1}
 \newcommand{\IEEEauthorblockN}[1]{#1}
 \newcommand{\IEEEauthorblockA}[1]{#1}
 \newcommand{\IEEEpeerreviewmaketitle}{}
