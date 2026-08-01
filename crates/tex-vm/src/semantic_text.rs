@@ -920,22 +920,86 @@ impl Vm<'_> {
 
         let mut events_by_slot = vec![Vec::<RenderEventEnvelope>::new(); slots.len()];
         let mut unmatched = Vec::new();
+        let mut slot_ranges =
+            HashMap::<VmExecutionAnchor, HashMap<Utf8PathBuf, Vec<(usize, u32)>>>::new();
+        for (index, slot) in slots.iter().enumerate() {
+            slot_ranges
+                .entry(slot.execution_anchor.clone())
+                .or_default()
+                .entry(slot.path.clone())
+                .or_default()
+                .push((index, 0));
+        }
+        for ranges_by_path in slot_ranges.values_mut() {
+            for ranges in ranges_by_path.values_mut() {
+                ranges.sort_unstable_by_key(|(index, _)| {
+                    (slots[*index].start_utf8, slots[*index].end_utf8, *index)
+                });
+                let mut prefix_max_end = 0;
+                for (index, max_end) in ranges {
+                    prefix_max_end = prefix_max_end.max(slots[*index].end_utf8);
+                    *max_end = prefix_max_end;
+                }
+            }
+        }
         for event in executed {
-            if let Some(index) = slots.iter().position(|slot| {
-                event_belongs_to_slot(
-                    &event,
-                    executed_event_anchors.get(&event.meta.sequence),
-                    slot,
-                    self.render_event_sources
-                        .get(&slot.path)
-                        .map(|source| source.len() as u32),
-                )
-            }) {
+            let matching_slot =
+                executed_event_anchors
+                    .get(&event.meta.sequence)
+                    .and_then(|execution_anchor| {
+                        let ProvenanceSpan::File(span) = &event.meta.source.primary else {
+                            return None;
+                        };
+                        let ranges = slot_ranges.get(execution_anchor)?.get(&span.path)?;
+                        let upper = ranges.partition_point(|(index, _)| {
+                            slots[*index].start_utf8 <= span.start_utf8
+                        });
+                        let source_len = self
+                            .render_event_sources
+                            .get(&span.path)
+                            .map(|source| source.len() as u32);
+                        let required_end = if source_len == Some(span.start_utf8)
+                            && span.end_utf8 == span.start_utf8.saturating_add(1)
+                            && matches!(
+                                event.event,
+                                RenderEvent::Space(SpaceEvent {
+                                    kind: SpaceKind::Interword,
+                                })
+                            ) {
+                            span.start_utf8
+                        } else {
+                            span.end_utf8
+                        };
+                        let mut matching = None;
+                        for (index, prefix_max_end) in ranges[..upper].iter().rev() {
+                            if *prefix_max_end < required_end {
+                                break;
+                            }
+                            if event_belongs_to_slot(
+                                &event,
+                                Some(execution_anchor),
+                                &slots[*index],
+                                source_len,
+                            ) {
+                                matching = Some(
+                                    matching.map_or(*index, |current: usize| current.min(*index)),
+                                );
+                            }
+                        }
+                        matching
+                    });
+            if let Some(index) = matching_slot {
                 events_by_slot[index].push(event);
             } else {
                 unmatched.push(event);
             }
         }
+        let render_event_positions = self
+            .render_events
+            .iter()
+            .enumerate()
+            .map(|(index, event)| (event.meta.sequence, index))
+            .collect::<HashMap<_, _>>();
         for (slot, replacements) in slots.iter().zip(events_by_slot.iter_mut()) {
             if self.executed_environment_covers_source_range(
                 &slot.path,
@@ -944,11 +1008,16 @@ impl Vm<'_> {
             ) {
                 continue;
             }
-            let originals = self
-                .render_events
+            let mut original_positions = slot
+                .event_ids
                 .iter()
-                .filter(|event| slot.event_ids.contains(&event.meta.sequence))
-                .cloned()
+                .filter_map(|event_id| render_event_positions.get(event_id).copied())
+                .collect::<Vec<_>>();
+            original_positions.sort_unstable();
+            original_positions.dedup();
+            let originals = original_positions
+                .into_iter()
+                .map(|index| self.render_events[index].clone())
                 .collect::<Vec<_>>();
             let leading_space = originals.first().filter(|event| {
                 matches!(
@@ -1316,6 +1385,38 @@ fn insert_unmatched_execution_events(
     forced_execution_ranges: &[ExecutionAuthorityRange],
     executed_event_anchors: &HashMap<EventSequence, VmExecutionAnchor>,
 ) {
+    let mut scanner_semantic_ranges = HashMap::<Utf8PathBuf, Vec<(u32, u32)>>::new();
+    for event in events.iter().filter(|event| {
+        !matches!(event.event, RenderEvent::RawFallback(_))
+            && matches!(
+                event.meta.producer,
+                EventProducer::ScannerRecovery | EventProducer::Fallback
+            )
+    }) {
+        for span in provenance_spans(&event.meta.source) {
+            if span.start_utf8 < span.end_utf8 {
+                scanner_semantic_ranges
+                    .entry(span.path.clone())
+                    .or_default()
+                    .push((span.start_utf8, span.end_utf8));
+            }
+        }
+    }
+    for ranges in scanner_semantic_ranges.values_mut() {
+        ranges.sort_unstable();
+        let mut merged = Vec::<(u32, u32)>::with_capacity(ranges.len());
+        for (start, end) in ranges.drain(..) {
+            if let Some((_, previous_end)) = merged.last_mut()
+                && start <= *previous_end
+            {
+                *previous_end = (*previous_end).max(end);
+            } else {
+                merged.push((start, end));
+            }
+        }
+        *ranges = merged;
+    }
+
     let mut index = 0;
     while index < unmatched.len() {
         let Some(anchor) = event_anchor(&unmatched[index]) else {
@@ -1343,14 +1444,12 @@ fn insert_unmatched_execution_events(
         {
             end += 1;
         }
-        let has_scanner_semantics = events.iter().any(|event| {
-            event_overlaps_anchor(event, &anchor.0, anchor.1, anchor.2)
-                && !matches!(event.event, RenderEvent::RawFallback(_))
-                && matches!(
-                    event.meta.producer,
-                    EventProducer::ScannerRecovery | EventProducer::Fallback
-                )
-        });
+        let has_scanner_semantics = scanner_semantic_ranges
+            .get(&anchor.0)
+            .is_some_and(|ranges| {
+                let upper = ranges.partition_point(|(start, _)| *start < anchor.2);
+                upper > 0 && ranges[upper - 1].1 > anchor.1
+            });
         let forced_execution = unmatched[index..end].iter().any(|event| {
             event_is_in_forced_execution_range(
                 event,
@@ -1485,6 +1584,57 @@ mod tests {
         attach_trailing_scanner_spaces_to_eof_slots(&mut slots, &[trailing_space], &sources);
 
         assert_eq!(slots[0].event_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn unmatched_macro_events_only_fill_scanner_semantic_gaps() {
+        let path = Utf8PathBuf::from("main.tex");
+        let scanner_event = |sequence, start_utf8, end_utf8, text: &str| {
+            let mut event = RenderEventEnvelope::new(
+                sequence,
+                RenderEvent::Text(TextEvent {
+                    text: text.to_string(),
+                }),
+                SourceProvenance::file(path.clone(), start_utf8, end_utf8),
+            );
+            event.meta.producer = EventProducer::ScannerRecovery;
+            event
+        };
+        let macro_event = |sequence, start_utf8, end_utf8, text: &str| {
+            let mut event = RenderEventEnvelope::new(
+                sequence,
+                RenderEvent::Text(TextEvent {
+                    text: text.to_string(),
+                }),
+                SourceProvenance::file(path.clone(), start_utf8, end_utf8),
+            );
+            event.meta.producer = EventProducer::Macro;
+            event
+        };
+        let anchor = VmExecutionAnchor {
+            path: path.clone(),
+            continuation_stack: Vec::new(),
+            occurrence: 0,
+        };
+        let mut events = vec![
+            scanner_event(1, 0, 5, "left"),
+            scanner_event(2, 10, 15, "right"),
+        ];
+        let unmatched = vec![
+            macro_event(3, 6, 9, "gap"),
+            macro_event(4, 12, 14, "overlap"),
+        ];
+        let executed_event_anchors = HashMap::from([(3, anchor.clone()), (4, anchor)]);
+
+        insert_unmatched_execution_events(&mut events, unmatched, &[], &executed_event_anchors);
+
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.meta.sequence)
+                .collect::<Vec<_>>(),
+            vec![1, 3, 2]
+        );
     }
 
     #[test]
