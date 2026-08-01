@@ -1510,7 +1510,7 @@ fn raster_smoke_from_rgba(
         width_px,
         height_px,
         non_white_pixel_count,
-        non_white_bbox: found.then_some(RasterBoundingBox {
+        non_white_bbox: found.then(|| RasterBoundingBox {
             x: min_x,
             y: min_y,
             width: max_x - min_x + 1,
@@ -2361,6 +2361,16 @@ fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
             height: 2,
         })
     );
+}
+
+#[test]
+fn arxiv_oracle_raster_smoke_reports_blank_image_without_bbox() {
+    let smoke = raster_smoke_from_rgba(2, 2, vec![255; 16]).expect("raster smoke");
+
+    assert_eq!(smoke.width_px, 2);
+    assert_eq!(smoke.height_px, 2);
+    assert_eq!(smoke.non_white_pixel_count, 0);
+    assert_eq!(smoke.non_white_bbox, None);
 }
 
 #[test]
