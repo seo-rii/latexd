@@ -37,6 +37,25 @@ fn explicit_bibliography_spacing_helpers_execute_as_spaces() {
 }
 
 #[test]
+fn article_newblock_preserves_the_bibliography_word_boundary() {
+    let outcome = capture(
+        r"\documentclass{article}
+\begin{document}
+\begin{thebibliography}{1}
+\bibitem{key}Author.\newblock Long title.
+\end{thebibliography}
+\end{document}",
+    );
+
+    assert!(
+        outcome.output.contains("Author. Long title."),
+        "{}",
+        outcome.output
+    );
+    assert_eq!(bibliography_items(&outcome), vec!["Author. Long title."]);
+}
+
+#[test]
 fn macro_alias_and_false_conditional_use_executed_spacing_only() {
     let outcome = capture(
         r"\def\join#1#2{#1\addnbspace#2}

@@ -309,7 +309,6 @@ const ARTICLE_CLASS_SHIM: &str = r##"
 \def\listoffigures{}
 \def\listoftables{}
 \def\theenumiv{}
-\def\newblock{}
 \def\footnoterule{}
 \def\contentsname{Contents}
 \def\listfigurename{List of Figures}
@@ -18713,6 +18712,12 @@ impl<'i> Vm<'i> {
             Primitive::BibliographyText(command) => {
                 for ch in command.visible_text.chars() {
                     if ch.is_whitespace() {
+                        if self
+                            .last_legacy_output_char()
+                            .is_some_and(char::is_whitespace)
+                        {
+                            continue;
+                        }
                         self.capture_executed_space(source_offset_utf8, source_end_utf8);
                     } else {
                         self.capture_executed_text_character(
@@ -25640,7 +25645,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         }))
     };
     match name {
-        "relax" | "newblock" => Some(Primitive::Relax),
+        "relax" => Some(Primitive::Relax),
+        "newblock" => bibliography_text("newblock", " ", true),
         "par" => Some(Primitive::Par),
         "\\" | "newline" | "linebreak" => Some(Primitive::LineBreak),
         "newpage" => Some(Primitive::PageBreak(PageBreakKind::NewPage)),
