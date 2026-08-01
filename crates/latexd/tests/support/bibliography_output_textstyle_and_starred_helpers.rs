@@ -2,7 +2,6 @@ async fn assert_bibliography_output_textstyle_and_starred_case(
     refs: &str,
     expected_output_fragment: &str,
     forbidden_output_fragments: &[&str],
-    expected_executed_refs: &str,
     include_fullcite: bool,
     expected_exact_output: Option<&str>,
 ) {
@@ -65,7 +64,7 @@ toplevel:
     .expect("parse sources");
     assert_eq!(
         stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
-        expected_executed_refs
+        refs
     );
 }
 
@@ -86,12 +85,8 @@ enum BibliographyOutputTextstyleAndStarredCase {
 async fn run_bibliography_output_textstyle_and_starred_case(
     case: BibliographyOutputTextstyleAndStarredCase,
 ) {
-    let include_fullcite = !matches!(
-        case,
-        BibliographyOutputTextstyleAndStarredCase::TextScripts
-    );
-    let (refs, expected_output_fragment, forbidden_output_fragments, expected_executed_refs) =
-        match case {
+    let include_fullcite = !matches!(case, BibliographyOutputTextstyleAndStarredCase::TextScripts);
+    let (refs, expected_output_fragment, forbidden_output_fragments) = match case {
             BibliographyOutputTextstyleAndStarredCase::CaseTextstyleAndTextsuper => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\NoCaseChange{NASA}. \\MakeSentenceCase{alpha title}. \\MakeTitleCase{beta title}. \\protect\\relax\\leavevmode\\ignorespaces   \\emph{Emph}. Trimmed \\unskip. \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Visible. Tight\\!Join. Soft\\,Gap. Wide\\;Gap. Colon\\:Gap. Named\\space Gap. Backslash\\ Gap. Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name. \\mbox{Stable}. \\hbox{Fixed}. \\fbox{Framed}. \\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t]{4em}{Paragraph}. \\makebox[3em][l]{Inline}. \\texttt{Code}. \\textsf{Sans}. \\textsc{Caps}. \\textbf{Bold}. \\textit{Italic}. \\textrm{Roman}. \\textup{Upright}. \\textmd{Medium}. \\textnormal{Normal}. Edition\\textsuperscript{2}\\textsubscript{a}.\\end{thebibliography}",
                 "NASA. alpha title. beta title. Emph. Trimmed. Visible. TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap. Quote's. Double\"q. Angles<x>. Pipe|join. Path/name. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.",
@@ -140,7 +135,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\textsubscript",
                     "Edition2 a.",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}\\NoCaseChange{NASA}. \\MakeSentenceCase{alpha title}. \\MakeTitleCase{beta title}. \\protect\\relax\\leavevmode\\ignorespaces   \\emph{Emph}. Trimmed \\unskip. \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Visible. Tight\\!Join. Soft\\,Gap. Wide\\;Gap. Colon\\:Gap. Named\\space Gap. Backslash\\ Gap. Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name. \\mbox{Stable}. \\hbox{Fixed}. \\fbox{Framed}. \\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t]{4em}{Paragraph}. \\makebox[3em][l]{Inline}. \\texttt{Code}. \\textsf{Sans}. \\textsc{Caps}. \\textbf{Bold}. \\textit{Italic}. \\textrm{Roman}. \\textup{Upright}. \\textmd{Medium}. \\textnormal{Normal}. Edition\\textsuperscript{2}\\textsubscript{a}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::StateHelpers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
@@ -152,7 +146,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\ignorespaces",
                     "\\unskip",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}\\protect\\relax\\leavevmode\\ignorespaces   Visible. Trimmed   \\unskip. Solid\\unskip.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::BoxWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t][5em][b]{4em}{Paragraph}. \\makebox[3em][l]{Inline}.\\end{thebibliography}",
@@ -170,7 +163,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "4em",
                     "3em",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}\\framebox[2em][c]{Wide}. \\raisebox{0.5ex}[1ex][0ex]{Raised}. \\parbox[t][5em][b]{4em}{Paragraph}. \\makebox[3em][l]{Inline}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::TextSymbols => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name.\\end{thebibliography}",
@@ -183,7 +175,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\textbar",
                     "\\slash",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}Quote\\textquotesingle s. Double\\textquotedbl q. Angles\\textless x\\textgreater. Pipe\\textbar join. Path\\slash name.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::TextScripts => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Edition\\textsuperscript{2}\\textsubscript{a}. Marker\\textsuperscript{1}Word. Nested\\textsuperscript{a\\textsubscript{b}c}.\\end{thebibliography}",
@@ -195,7 +186,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "Marker1Word",
                     "Nestedab c",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}Edition\\textsuperscript{2}\\textsubscript{a}. Marker\\textsuperscript{1}Word. Nested\\textsuperscript{a\\textsubscript{b}c}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::PhantomWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",
@@ -208,25 +198,21 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "Wide",
                     "Tall",
                 ],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}Visible \\phantom{Ghost}\\hphantom{Wide}\\vphantom{Tall}Text.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::Urlstyle => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\urlstyle{same}\\url{https://example.test/paper}.\\end{thebibliography}",
                 "https://example.test/paper.",
                 vec!["\\urlstyle"],
-                "[1] https://example.test/paper.",
             ),
             BibliographyOutputTextstyleAndStarredCase::NameAffix => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\mkbibnamefamily{Doe}, \\mkbibnameaffix{Jr.}.\\end{thebibliography}",
                 "Doe, Jr..",
                 vec!["\\mkbibnamefamily", "\\mkbibnameaffix"],
-                "[1] Doe, Jr..",
             ),
             BibliographyOutputTextstyleAndStarredCase::StarredCaseWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\MakeSentenceCase*{alpha title}. \\MakeTitleCase*{beta title}.\\end{thebibliography}",
                 "alpha title. beta title.",
                 vec!["\\MakeSentenceCase*", "\\MakeTitleCase*"],
-                "\\begin{thebibliography}{1}\\bibitem{alpha}\\MakeSentenceCase*{alpha title}. \\MakeTitleCase*{beta title}.\\end{thebibliography}",
             ),
             BibliographyOutputTextstyleAndStarredCase::StarredFormattingWrappers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}\\mkbibquote*{Alpha Title}. \\mkbibparens*{2024}. \\mkbibbrackets*{note}. \\mkbibbraces*{Supplement}. \\mkbibemph*{Emph}. \\mkbibbold*{Bold}. \\mkbibitalic*{Italic}.\\end{thebibliography}",
@@ -240,7 +226,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
                     "\\mkbibbold*",
                     "\\mkbibitalic*",
                 ],
-                "[1] \"Alpha Title\". (2024). [note]. {Supplement}. Emph. Bold. Italic.",
             ),
         };
     let expected_exact_output = match case {
@@ -257,7 +242,6 @@ async fn run_bibliography_output_textstyle_and_starred_case(
         refs,
         expected_output_fragment,
         &forbidden_output_fragments,
-        expected_executed_refs,
         include_fullcite,
         expected_exact_output.as_deref(),
     )

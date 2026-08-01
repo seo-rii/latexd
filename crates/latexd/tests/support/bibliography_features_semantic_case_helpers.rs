@@ -93,9 +93,11 @@ async fn compile_bibliography_features_semantic_case_fixture(
 async fn run_bibliography_features_semantic_case(case: BibliographyFeaturesSemanticCase) {
     match case {
         BibliographyFeaturesSemanticCase::CoreAux => {
+            let bibliography_source =
+                "\\begin{thebibliography}{1}\\bibitem{alpha} Alpha entry.\\end{thebibliography}";
             let fixture = prepare_bibliography_features_semantic_case_fixture(
                 "\\documentclass{article}\\begin{document}\\tableofcontents\\section{Intro}\\label{sec:intro}See \\ref{sec:intro} on page \\pageref{sec:intro}. Cite \\cite{alpha}.\\bibliography{refs}\\end{document}",
-                "\\begin{thebibliography}{1}\\bibitem{alpha} Alpha entry.\\end{thebibliography}",
+                bibliography_source,
             );
             compile_bibliography_features_semantic_case_fixture(&fixture)
                 .await
@@ -128,10 +130,8 @@ async fn run_bibliography_features_semantic_case(case: BibliographyFeaturesSeman
             assert_eq!(aux.bibliography[0].key, "alpha");
             assert_eq!(concrete_aux, aux);
             assert!(concrete_aux_text.contains("\\newlabel{"));
-            assert!(
-                concrete_aux_text
-                    .contains("\\@writefile{toc}{\\contentsline{section}{\\numberline{31}")
-            );
+            assert!(concrete_aux_text
+                .contains("\\@writefile{toc}{\\contentsline{section}{\\numberline{31}"));
             assert!(concrete_aux_text.contains("\\citation{616c706861}"));
             assert!(concrete_aux_text.contains("\\bibdata{726566732e62626c}"));
             assert!(!concrete_aux_text.contains("\\latexdtoc{"));
@@ -147,7 +147,10 @@ async fn run_bibliography_features_semantic_case(case: BibliographyFeaturesSeman
             assert!(!executed_main.contains("\\ref{sec:intro}"));
             assert!(executed_main.contains("See 1 on page 1. Cite [1]."));
             assert!(executed_main.contains("Contents"));
-            assert_eq!(stored_sources.executed_files[&refs_bbl], "[1] Alpha entry.");
+            assert_eq!(
+                stored_sources.executed_files[&refs_bbl],
+                bibliography_source
+            );
         }
         BibliographyFeaturesSemanticCase::NatexlabOutput => {
             let bibliography_source = r"\begin{thebibliography}{1}\bibitem[Alpha 2024\natexlab{a}]{alpha} Alpha \newblock 2024\NAT@exlab{a}.\end{thebibliography}";

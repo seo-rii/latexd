@@ -55,9 +55,10 @@ async fn run_bibliography_features_citation_fields_basic_variants_case(
 ) {
     match case {
         BibliographyFeaturesCitationFieldsBasicVariantsCase::StarredRefs => {
+            let bibliography_source = "\\begin{thebibliography}{1}\\bibitem[Alpha 2024]{alpha} Alpha {Entry} \\emph{Title}.\\end{thebibliography}";
             let fixture = prepare_bibliography_features_citation_fields_basic_variants_fixture(
                 "\\documentclass{article}\\begin{document}\\section{Intro}\\label{sec:intro}See \\ref*{sec:intro} on page \\pageref*{sec:intro}. Cite \\cite[see][chap.~2]{alpha}.\\bibliography{refs}\\end{document}",
-                "\\begin{thebibliography}{1}\\bibitem[Alpha 2024]{alpha} Alpha {Entry} \\emph{Title}.\\end{thebibliography}",
+                bibliography_source,
             );
             let stored_sources = assert_basic_citation_variant_output_and_sources(
                 &fixture,
@@ -72,7 +73,7 @@ async fn run_bibliography_features_citation_fields_basic_variants_case(
             .await;
             assert_eq!(
                 stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
-                "[1] Alpha Entry Title."
+                bibliography_source
             );
         }
         BibliographyFeaturesCitationFieldsBasicVariantsCase::CiteauthorYear => {

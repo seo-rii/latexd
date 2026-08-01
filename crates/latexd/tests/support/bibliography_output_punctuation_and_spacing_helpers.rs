@@ -10,7 +10,6 @@ async fn assert_bibliography_output_punctuation_and_spacing_case(
     refs: &str,
     expected_output_fragments: &[&str],
     forbidden_output_fragments: &[&str],
-    expected_executed_refs: &str,
 ) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -66,15 +65,14 @@ toplevel:
     .expect("parse sources");
     assert_eq!(
         stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
-        expected_executed_refs
+        refs
     );
 }
 
 async fn run_bibliography_output_punctuation_and_spacing_case(
     case: BibliographyOutputPunctuationAndSpacingCase,
 ) {
-    let (refs, expected_output_fragments, forbidden_output_fragments, expected_executed_refs) =
-        match case {
+    let (refs, expected_output_fragments, forbidden_output_fragments) = match case {
             BibliographyOutputPunctuationAndSpacingCase::LowLevelHelpers => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Alpha\\adddotspace Beta\\unspace\\isdot\\nopunct Gamma\\isdot \\bibopenparen Delta\\bibcloseparen \\bibopenbracket Epsilon\\bibclosebracket \\bibopenbrace Zeta\\bibclosebrace\\end{thebibliography}",
                 vec!["Alpha. Beta. Gamma. (Delta) [Epsilon] Zeta"],
@@ -90,13 +88,11 @@ async fn run_bibliography_output_punctuation_and_spacing_case(
                     "\\bibopenbrace",
                     "\\bibclosebrace",
                 ],
-                "[1] Alpha. Beta. Gamma. (Delta) [Epsilon] {Zeta}",
             ),
             BibliographyOutputPunctuationAndSpacingCase::SuperSubAndBraces => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Edition\\mkbibsuperscript{2}\\mkbibsubscript{a} \\mkbibbraces{Supplement}.\\end{thebibliography}",
                 vec!["Edition2a Supplement."],
                 vec!["\\mkbibsuperscript", "\\mkbibsubscript", "\\mkbibbraces"],
-                "[1] Edition2a {Supplement}.",
             ),
             BibliographyOutputPunctuationAndSpacingCase::DashAndSlash => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Pages 10\\bibrangedash20\\addcomma\\addspace Vol\\adddot 2\\addslash Issue 3\\addhyphen4\\textendash5\\textemdash appendix.\\end{thebibliography}",
@@ -108,7 +104,6 @@ async fn run_bibliography_output_punctuation_and_spacing_case(
                     "\\textendash",
                     "\\textemdash",
                 ],
-                "[1] Pages 10-20, Vol. 2/Issue 3-4-5--- appendix.",
             ),
             BibliographyOutputPunctuationAndSpacingCase::ParentextAndSpacing => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Alpha\\addabbrvspace Beta\\addnbspace Gamma\\addthinspace Delta\\addlowpenspace Epsilon\\addhighpenspace Zeta\\parentext{Supplement}.\\end{thebibliography}",
@@ -121,20 +116,17 @@ async fn run_bibliography_output_punctuation_and_spacing_case(
                     "\\addhighpenspace",
                     "\\parentext",
                 ],
-                "[1] Alpha Beta Gamma Delta Epsilon Zeta (Supplement).",
             ),
             BibliographyOutputPunctuationAndSpacingCase::UrlPathDetokenize => (
                 "\\begin{thebibliography}{1}\\bibitem{alpha}Source: \\nolinkurl{https://example.test/paper} at \\path{/tmp/archive} via \\detokenize{arXiv:2401.01234}.\\end{thebibliography}",
                 vec!["Source: https://example.test/paper at /tmp/archive via arXiv:2401.01234."],
                 vec!["\\nolinkurl", "\\path", "\\detokenize"],
-                "[1] Source: https://example.test/paper at /tmp/archive via arXiv:2401.01234.",
             ),
         };
     assert_bibliography_output_punctuation_and_spacing_case(
         refs,
         &expected_output_fragments,
         &forbidden_output_fragments,
-        expected_executed_refs,
     )
     .await;
 }

@@ -11,7 +11,6 @@ async fn assert_bibliography_output_basic_wrappers_case(
     refs: &str,
     expected_output_fragments: &[&str],
     forbidden_output_fragments: &[&str],
-    expected_executed_refs: &str,
 ) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -63,24 +62,17 @@ toplevel:
     .expect("parse sources");
     assert_eq!(
         stored_sources.executed_files[&Utf8PathBuf::from("refs.bbl")],
-        expected_executed_refs
+        refs
     );
 }
 
 async fn run_bibliography_output_basic_wrappers_case(case: BibliographyOutputBasicWrappersCase) {
-    let (
-        main_source,
-        refs,
-        expected_output_fragments,
-        forbidden_output_fragments,
-        expected_executed_refs,
-    ) = match case {
+    let (main_source, refs, expected_output_fragments, forbidden_output_fragments) = match case {
         BibliographyOutputBasicWrappersCase::BibstringAndAcro => (
             "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{1}\\bibitem{alpha}\\mkbibnamefamily{Alpha} \\bibstring{andothers}. \\mkbibacro{URL}: \\url{https://example.test/paper}.\\end{thebibliography}",
             vec!["Alpha et al. URL: https://example.test/paper."],
             vec!["\\bibstring", "\\mkbibacro", "\\mkbibnamefamily"],
-            "[1] Alpha et al. URL: https://example.test/paper.",
         ),
         BibliographyOutputBasicWrappersCase::CommonWrappers => (
             "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
@@ -95,14 +87,12 @@ async fn run_bibliography_output_basic_wrappers_case(case: BibliographyOutputBas
                 "\\mkbibitalic",
                 "\\enquote",
             ],
-            "[1] \"Alpha Title\". (2024). [note]. Emph. Bold. Italic. \"Nested\".",
         ),
         BibliographyOutputBasicWrappersCase::Href => (
             "\\documentclass{article}\\begin{document}See \\cite{alpha}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{1}\\bibitem{alpha} Alpha \\href{https://example.test/paper}{Paper Link}.\\end{thebibliography}",
             vec!["See [1].", "Alpha Paper Link."],
             vec!["https://example.test/paper"],
-            "[1] Alpha Paper Link.",
         ),
         BibliographyOutputBasicWrappersCase::NewunitAndPunctuation => (
             "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
@@ -117,14 +107,12 @@ async fn run_bibliography_output_basic_wrappers_case(case: BibliographyOutputBas
                 "\\addsemicolon",
                 "\\adddot",
             ],
-            "[1] Alpha, Beta Gamma: Delta; Epsilon.",
         ),
         BibliographyOutputBasicWrappersCase::UrlprefixAndNamedash => (
             "\\documentclass{article}\\begin{document}\\fullcite{alpha}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{1}\\bibitem{alpha}\\bibnamedash. \\urlprefix\\url{https://example.test/paper}.\\end{thebibliography}",
             vec!["---. https://example.test/paper."],
             vec!["\\urlprefix", "\\bibnamedash"],
-            "[1] ---. https://example.test/paper.",
         ),
     };
     assert_bibliography_output_basic_wrappers_case(
@@ -132,7 +120,6 @@ async fn run_bibliography_output_basic_wrappers_case(case: BibliographyOutputBas
         refs,
         &expected_output_fragments,
         &forbidden_output_fragments,
-        expected_executed_refs,
     )
     .await;
 }
