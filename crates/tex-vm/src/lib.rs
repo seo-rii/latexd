@@ -323,7 +323,7 @@ const ARTICLE_CLASS_SHIM: &str = r##"
 \def\@date{}
 \def\@frontmatterspace{ }
 \def\title#1{\gdef\@title{#1}\latexdsettitle{#1}}
-\def\author#1{\gdef\@author{#1}\latexdsetauthor{#1}}
+\long\def\author#1{\gdef\@author{#1}\latexdsetauthor{#1}}
 \def\date#1{\gdef\@date{#1}\latexdsetdate{#1}}
 \def\and{ and }
 \def\maketitle{\latexdflushtitle\@title\@frontmatterspace\@author\@frontmatterspace\@date}

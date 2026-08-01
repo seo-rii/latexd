@@ -721,6 +721,39 @@ fn profile_shims_delegate_metadata_to_vm_execution() {
 }
 
 #[test]
+fn article_author_accepts_paragraphs_between_affiliations() {
+    let source = r"\documentclass{article}
+\begin{document}
+\author{Ada Lovelace
+
+Analytical Engine Institute}
+\maketitle
+\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+
+    assert!(
+        outcome.diagnostics.iter().all(|diagnostic| !diagnostic
+            .detail
+            .contains("paragraph ended before \\author")),
+        "{:#?}",
+        outcome.diagnostics
+    );
+    assert!(outcome.render_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Author
+                    && metadata.value.contains("Ada Lovelace")
+                    && metadata.value.contains("Analytical Engine Institute")
+        )
+    }));
+}
+
+#[test]
 fn ieee_author_accepts_paragraphs_between_authors_and_notes() {
     let source = r"\documentclass{IEEEtran}
 \begin{document}
