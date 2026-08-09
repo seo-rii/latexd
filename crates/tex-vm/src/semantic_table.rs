@@ -363,6 +363,18 @@ impl Vm<'_> {
         let scanner_ids = mem::take(&mut self.semantic_table.scanner_event_ids);
         let mut executed = mem::take(&mut self.semantic_table.executed_tables);
         self.semantic_table.open_tables.clear();
+        let suppressed_scanner_ids = self
+            .render_events
+            .iter()
+            .filter(|event| {
+                scanner_ids.contains(&event.meta.sequence)
+                    && self.semantic_source_is_suppressed(&event.meta.source)
+            })
+            .map(|event| event.meta.sequence)
+            .collect::<HashSet<_>>();
+        self.render_events
+            .retain(|event| !suppressed_scanner_ids.contains(&event.meta.sequence));
+        executed.retain(|table| !self.semantic_source_is_suppressed(&table.source));
 
         for scanner_event in self.render_events.iter_mut() {
             if !scanner_ids.contains(&scanner_event.meta.sequence) {

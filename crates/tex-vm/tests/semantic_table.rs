@@ -110,6 +110,54 @@ fn false_conditional_table_recovery_is_discarded() {
         "{:#?}",
         outcome.render_events
     );
+    assert!(
+        !outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+        )),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn runtime_false_conditional_table_recovery_is_discarded() {
+    let outcome = capture(
+        r"\begin{document}
+\count0=0
+\ifnum\count0>0
+\begin{tabular}{l}Wrong\end{tabular}
+\fi
+\begin{tabular}{l}Right\end{tabular}
+\end{document}",
+    );
+    let tables = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Table(table) if table.environment == "tabular" => {
+                Some((table.rows[0].cells[0].text.as_str(), event.meta.producer))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        tables,
+        vec![("Right", EventProducer::ScannerRecovery)],
+        "{:#?}",
+        outcome.render_events
+    );
+    assert!(
+        !outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+        )),
+        "{:#?}",
+        outcome.render_events
+    );
 }
 
 #[test]
