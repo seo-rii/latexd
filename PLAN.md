@@ -14,10 +14,18 @@
 
 ## Status Snapshot
 
-- 기준 시점: `2026-07-26`
+- 기준 시점: `2026-08-09`
+- 기준 commit: `5105e89` (`feat(fonts): bundle classic TeX fonts`)
+- working tree: `P0.3a` positioned Type1 outline sub-slice가 구현되어 focused
+  verification은 green이다. 이는 formula/table/image/link/multi-page visual 및
+  broader differential gate를 포함하는 umbrella `P0.3` 완료를 뜻하지 않는다.
 - `M11`: `M11.1`~`M11.4` 완료
 - `M12`: `M12.1`~`M12.6` 완료
 - 현재 집중 범위: `M13` 단일 VM 실행 의미와 실행 기반 event/IR/checkpoint
+
+이후 `현재 구현`은 landed vertical slice만, `완료 조건`은 phase exit만
+가리킨다. 뒤 단계의 slice가 일부 구현됐더라도 앞 단계 exit나 뒤 단계 전체
+완료를 자동으로 뜻하지 않는다.
 
 ## M11 Split
 
@@ -159,8 +167,9 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 현재 구현:
 - command, input, Eqtb, SaveStack, snapshot, semantic family가 독립 module로
   이동했다.
-- `lib.rs`에는 여전히 source recovery와 compatibility surface가 크게 남아
-  있으므로 mechanical split 완료로 보지는 않는다.
+- `lib.rs`는 기준 working tree에서 약 52,200줄이며 source recovery,
+  compatibility surface, control-sequence state ownership이 크게 남아 있다.
+  따라서 module 파일의 존재를 mechanical facade exit로 보지 않는다.
 
 - `tex-vm/src/lib.rs`를 facade로 축소한다.
 - engine/input/mouth/expansion/macro/condition/eqtb/save-stack/assignment/
@@ -181,7 +190,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - scanner event는 `ScannerRecovery`와 medium confidence를 명시한다.
 - migrated family는 primitive/macro 실행 event로 scanner 결과를
   reconciliation한다.
-- sequence/stable identity 분리와 bounded recovery 전환은 남아 있다.
+- serialized `event_id`는 build-local `sequence`로 전환됐다.
+- phase exit는 열려 있다. 기본 `RenderEventEnvelope::new()`가 대부분의
+  event를 아직 `Command`/high confidence로 자동 분류하고, final bounded
+  `ExecutedSourceSlice` recovery boundary와 known leakage 제거가 남아 있다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
@@ -207,10 +219,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 상태: `in progress`
 
 현재 구현:
-- control-sequence definition과 주요 register/catcode assignment가 공통
-  Eqtb/SaveStack scope 경로를 사용한다.
-- 남은 assignment class 이전, old scope 제거, persistent root/state hash는
-  완료 전이다.
+- `Count`, `Dimen`, `Skip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
+  SaveStack assignment/restore 경로를 사용한다.
+- control-sequence definition과 `\let`은 아직
+  `Vm.scopes: Vec<HashMap<String, Meaning>>`가 소유한다. mathcode/delcode,
+  font/box/parameter, old scope 제거, persistent root/state hash도 남아 있다.
+- 따라서 control-sequence까지 공통 Eqtb/SaveStack을 사용한다는 이전
+  status 주장은 철회하며 phase exit는 열려 있다.
 
 이전 순서:
 1. control sequence definition과 `\let`
@@ -528,6 +543,13 @@ LayoutIr, PageDisplayList, write state다.
 
 ### M13.B2 Display-List Page Renderer
 
+- `P0.3a` implemented/focused-green:
+  - schema v2 `BrowserFontAsset`과 normalized glyph command
+  - bundled face의 used-glyph deduplication과 bounded Type1 outline extraction
+  - exact identity/coverage가 맞는 run의 positioned SVG path
+  - known-empty whitespace와 missing glyph를 구분하고 mismatch/missing 시
+    whole-run CSS fallback
+  - WASI PDF의 bundled TeX font selection
 - Canvas/SVG가 positioned glyph/rule/image/link op를 소비
 - changed page만 교체
 - exact bundled outline font 사용
@@ -634,25 +656,37 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 
 ## Direct Commit Order
 
-1. VM semantic divergence characterization
-2. unsafe continuation checkpoint reuse 보수 차단
-3. behavior-preserving `tex-vm` module split
-4. scanner quarantine와 explicit event origin
-5. phase-aware structured diagnostic contract
-6. Eqtb/SaveStack definition+count slice
-7. dimen/skip/toks/catcode/mathcode/font assignment migration
-8. streaming Mouth와 TokenOrigin
-9. macro parameter text/prefix/command split
-10. EngineState와 execution mode/nest 통합
-11. token/expansion 기반 stable event ID와 SemanticSink event family migration
-12. Snapshot v2와 transactional replay
-13. SemanticDocumentIr metadata/frame builder와 LayoutIr
-14. MathList/수식 layout/AMS/OpenType 순서
+1. `P0.3a` closeout evidence와 truthful plan rebaseline
+2. V2 exit criterion을 path/test별 green/red/missing으로 고정
+3. control-sequence behavior characterization
+4. 현 `Vm.scopes` representation을 semantics 변경 없이 bounded module/API로 격리
+5. V2 gate가 green이거나 storage migration과 무관함이 증명된 뒤에만
+   control-sequence definition/`\let`을 Eqtb/SaveStack 단일 owner로 이전
+6. remaining assignment class와 old split scope 제거
+7. streaming Mouth의 file/revision-aware TokenOrigin과 expansion arena
+8. macro/command boundary를 유지하며 EngineState와 execution mode/nest 통합
+9. V6 whole-source scanner retirement와 실행 기반 SemanticSink exit
+10. token/expansion 기반 stable event ID
+11. Snapshot v2와 transactional replay
+12. SemanticDocumentIr metadata/frame builder와 LayoutIr
+13. MathList/수식 layout/AMS/OpenType 순서
+
+4번은 전체 52,200줄 split 완료를 한 batch로 요구하지 않는다. 즉시 필요한
+control-sequence state family부터 기계적으로 격리하고, backing ownership을
+바꾸는 5번과 별도 work unit/rollback boundary로 유지한다. 새 V6/V7 feature
+family는 이 dependency spine이 닫힐 때까지 동결하고 기존 slice는
+characterization evidence로 보존한다.
 
 브라우저 PDF/pages와 font resolver는 disjoint file lane에서 병렬 진행할 수
 있다. persistent session은 Snapshot v2보다 먼저 시작하지 않는다.
 
 ## CI Gates
+
+현재 `.github/workflows/ci.yml`의 실제 gate는 stable Rust/web/E2E, external
+component diff, push-only licensed corpus와 renderer benchmark다. 아래 목록은
+현재 gate와 future target을 함께 적은 것이며, 구현되지 않은 StableEventId,
+MathList, persistent session용 항목을 현재 CI가 이미 보장한다고 해석하지
+않는다.
 
 ### Default
 
@@ -663,7 +697,8 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 - event-to-IR mapping과 builder recovery
 - format/continuation snapshot equivalence
 - browser PDF/pages artifact
-- compact font/native-WASI parity와 math atlas
+- bundled ten-face outline audit와 actual WASI PDF font-resource parity
+- compact font/native-WASI parity
 
 ### Push
 
@@ -675,6 +710,7 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 
 ### Nightly/Manual
 
+- 현재 scheduled workflow는 없으며 다음은 future target이다.
 - randomized group/assignment/macro/math grammar
 - 모든 safe boundary checkpoint/replay stress
 - licensed paper corpus와 CC0 corpus

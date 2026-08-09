@@ -96,7 +96,7 @@ More precisely:
 - `VmSnapshot` stores substantial compatibility state but omits enough input,
   conditional, expansion, sink, and ID state that it is not a full
   continuation;
-- `tex-vm/src/lib.rs` is 47,997 lines in the reviewed checkout, including core
+- `tex-vm/src/lib.rs` is about 52,200 lines in the 2026-08-09 working tree, including core
   execution, compatibility, and tests.
 
 The first semantic invariant is therefore:
@@ -133,6 +133,27 @@ persistent CompilerSession ------- requires V7
 incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
+
+### Current State Matrix (2026-08-09)
+
+| Phase | Implemented slices | Phase exit | Blocking evidence |
+| --- | --- | --- | --- |
+| V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
+| V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, and explicit scanner recovery exist | open | the default envelope still assigns `Command`/high confidence broadly; bounded `ExecutedSourceSlice` recovery and remaining leakage closure are absent |
+| V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices | open | control-sequence meanings remain in `Vm.scopes`; remaining assignment classes and persistent root/hash are absent |
+| V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
+| V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
+| V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
+| V7 | partial continuation/replay characterization | open | this is not Snapshot v2, transactional-sink completion, or persistent-session readiness |
+| V8 | existing SemanticDocumentIr compatibility builder | open/not implemented as designed | no `StableEventId` or renderer-neutral `LayoutIr` boundary |
+
+Design snippets below for `TokenOrigin`, `EngineState`, `NestFrame`,
+`StableEventId`, state roots, and `LayoutIr` are target contracts, not current
+implementation. Later vertical slices do not waive earlier entry gates. New
+V6/V7 feature families are frozen while the state-ownership dependency spine
+is closed; existing slices remain characterization evidence and may receive
+bounded correctness fixes.
 
 ## V0: Characterization And Divergence Tests
 
@@ -730,7 +751,7 @@ Final V6 exit criteria:
 - sequence and stable identity are separate, and replay preserves next-ID
   state.
 
-### Current V6 Implementation Status
+### Current V6 Implemented Vertical Slices (Phase Exit Open)
 
 As of 2026-07-30, the footnote, standard/common-profile front-matter, direct
 bibliography item, and bibliography materialization vertical slices are
