@@ -23,7 +23,26 @@ await new Promise((resolve, reject) => {
 
 const outputDir = path.join(webRoot, "apps/viewer/static/wasi");
 await mkdir(outputDir, { recursive: true });
-await cp(
-  path.join(repoRoot, "target/wasm32-wasip1/release/latexd-wasi.wasm"),
-  path.join(outputDir, "latexd-wasi.wasm")
+const artifactPath = path.join(
+  repoRoot,
+  "target/wasm32-wasip1/release/latexd-wasi.wasm"
 );
+
+await new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [
+    path.join(webRoot, "scripts/report-wasi-cost.mjs"),
+    artifactPath,
+    "--budget",
+    path.join(webRoot, "benchmarks/latexd-wasi-cost-budget.json"),
+    "--output",
+    path.join(outputDir, "latexd-wasi-cost.json"),
+    "--compile-samples",
+    "0"
+  ], { stdio: "inherit" });
+  child.on("error", reject);
+  child.on("exit", (code) => code === 0
+    ? resolve()
+    : reject(new Error(`WASI cost reporter exited with ${code}`)));
+});
+
+await cp(artifactPath, path.join(outputDir, "latexd-wasi.wasm"));

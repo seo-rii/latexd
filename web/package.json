@@ -12,7 +12,9 @@
     "dev:latexd": "cargo run --manifest-path ../Cargo.toml -p latexd -- serve --root ../fixtures/arxiv-basic --compiler-bin internal",
     "dev:viewer-app": "pnpm --filter @latexd/viewer-app dev",
     "dev:viewer-core": "pnpm --filter @latexd/viewer-core dev",
-    "test": "pnpm --filter @latexd/viewer-core test && pnpm --filter @latexd/viewer-app test",
+    "report:wasi-cost": "node scripts/report-wasi-cost.mjs apps/viewer/static/wasi/latexd-wasi.wasm --budget benchmarks/latexd-wasi-cost-budget.json --output apps/viewer/static/wasi/latexd-wasi-cost.json --compile-samples 5",
+    "test": "pnpm test:scripts && pnpm --filter @latexd/viewer-core test && pnpm --filter @latexd/viewer-app test",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:e2e": "pnpm --filter @latexd/viewer-app test:e2e",
     "test:e2e:wasm": "pnpm --filter @latexd/viewer-app test:e2e:wasm"
   },

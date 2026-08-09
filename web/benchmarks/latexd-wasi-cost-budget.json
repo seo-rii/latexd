@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "artifact": "latexd-wasi.wasm",
+  "max_raw_bytes": 4800000,
+  "max_gzip_bytes": 1650000,
+  "max_brotli_bytes": 1260000
+}
