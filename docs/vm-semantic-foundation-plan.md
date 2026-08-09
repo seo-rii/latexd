@@ -139,9 +139,9 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
-| V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
+| V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
 | V2 | serialized build-local `sequence`, producer/confidence metadata, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | the default envelope still assigns `Command`/high confidence broadly; the producer taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
-| V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices | open | control-sequence meanings remain in `Vm.scopes`; remaining assignment classes and persistent root/hash are absent |
+| V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
@@ -473,6 +473,18 @@ Migration order:
 6. catcodes;
 7. mathcodes and delcodes;
 8. fonts, boxes, and remaining parameters.
+
+Current migration evidence at `94d277e`:
+
+- the former raw `Vm.scopes` field is isolated behind
+  `control_sequence_scopes.rs`;
+- root/current insertion, visible lookup, group transitions, depth, and
+  snapshot layer conversion use the bounded owner API;
+- the serialized `VmSnapshot.scopes` shape and layered-map semantics are
+  unchanged;
+- this is a mechanical ownership boundary only. Control-sequence definitions
+  and `\let` have not entered the common Eqtb/SaveStack assignment path, so
+  migration step 1 and the V3 exit remain open.
 
 Every migrated class gets:
 

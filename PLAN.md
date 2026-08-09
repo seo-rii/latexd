@@ -15,7 +15,7 @@
 ## Status Snapshot
 
 - 기준 시점: `2026-08-10`
-- 기준 commit: `610ee27` (`fix(vm): suppress tables in runtime-false branches`)
+- 기준 commit: `94d277e` (`refactor(vm): isolate control sequence scopes`)
 - `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
   verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
   예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
@@ -170,8 +170,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 현재 구현:
 - command, input, Eqtb, SaveStack, snapshot, semantic family가 독립 module로
   이동했다.
+- `ControlSequenceScopes`가 root/current definition, visible lookup, group
+  depth/push/pop과 snapshot layer 변환을 소유한다. 기존 layered-map 의미와
+  serialized `scopes` schema는 유지한다.
 - `lib.rs`는 기준 working tree에서 약 52,200줄이며 source recovery,
-  compatibility surface, control-sequence state ownership이 크게 남아 있다.
+  compatibility surface와 주요 execution/state path가 크게 남아 있다.
   따라서 module 파일의 존재를 mechanical facade exit로 보지 않는다.
 
 - `tex-vm/src/lib.rs`를 facade로 축소한다.
@@ -195,7 +198,9 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   reconciliation한다.
 - serialized `event_id`는 build-local `sequence`로 전환됐다.
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
-  scanner/fallback event도 executed suppression range로 제거한다.
+  scanner/fallback event도 executed suppression range로 제거한다. 판정은
+  table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
+  table 전체를 제거하지 않는다.
 - phase exit는 열려 있다. 기본 `RenderEventEnvelope::new()`가 대부분의
   event를 아직 `Command`/high confidence로 자동 분류하고, explicit producer
   constructor, `ExecutedSourceSlice` interface, revision/dependency metadata,
@@ -232,9 +237,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 현재 구현:
 - `Count`, `Dimen`, `Skip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
   SaveStack assignment/restore 경로를 사용한다.
-- control-sequence definition과 `\let`은 아직
-  `Vm.scopes: Vec<HashMap<String, Meaning>>`가 소유한다. mathcode/delcode,
-  font/box/parameter, old scope 제거, persistent root/state hash도 남아 있다.
+- control-sequence definition과 `\let`의 기존 layered-map storage는
+  `ControlSequenceScopes` module/API 뒤로 격리됐지만 아직 Eqtb/SaveStack
+  assignment owner로 이전되지 않았다. mathcode/delcode, font/box/parameter,
+  old scope 제거, persistent root/state hash도 남아 있다.
 - 따라서 control-sequence까지 공통 Eqtb/SaveStack을 사용한다는 이전
   status 주장은 철회하며 phase exit는 열려 있다.
 
@@ -671,8 +677,10 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 
 1. `P0.3a` closeout evidence와 truthful plan rebaseline
 2. V2 exit criterion을 path/test별 green/red/missing으로 고정
-3. control-sequence behavior characterization
-4. 현 `Vm.scopes` representation을 semantics 변경 없이 bounded module/API로 격리
+3. control-sequence behavior characterization — 기존 grouping/global/
+   `\globaldefs`/snapshot tests green
+4. 기존 layered scope representation을 semantics 변경 없이 bounded
+   `ControlSequenceScopes` module/API로 격리 — `94d277e` landed
 5. V2 gate가 green이거나 storage migration과 무관함이 증명된 뒤에만
    control-sequence definition/`\let`을 Eqtb/SaveStack 단일 owner로 이전
 6. remaining assignment class와 old split scope 제거
