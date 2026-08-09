@@ -302,6 +302,13 @@ RenderEventEnvelope::from_scanner_recovery(...)
 RenderEventEnvelope::fallback(...)
 ```
 
+The incremental migration bridge is
+`RenderEventEnvelope::with_origin(sequence, event, source, producer,
+confidence)`. It landed in `525607a`, and executed list-item emission moved to
+it in `43ba5de`. The broad `new()` compatibility path remains until each
+producer family declares its origin at the emission boundary, so this contract
+is only partial.
+
 Policy:
 
 - VM primitive or verified macro path: high confidence;
@@ -381,8 +388,8 @@ the next event sequence before replay reuse is enabled.
 | --- | --- | --- | --- |
 | build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
 | scanner producer/confidence | `from_scanner_recovery()` assigns `ScannerRecovery`/medium and has a focused model test | green | preserve this on every bounded recovery path |
-| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro` | partial | remove the broad default constructor path |
-| explicit constructor contract | `RenderEventEnvelope::new()` still assigns `Command`/high to every ordinary event | red | require producer/confidence through explicit constructors or `EventMeta` |
+| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro`; executed list items now pass that origin into construction | partial | migrate every remaining emission family and remove the broad default constructor path |
+| explicit constructor contract | `with_origin()` requires producer/confidence and has a focused model test; executed list items use it, while `new()` remains a broad compatibility default | partial | migrate all production call sites, then remove or restrict the compatibility constructor |
 | producer taxonomy | implementation has `Command`; the target contract names `CompatCommand`, while `Shim` and `BblParser` lack audited production assignments | red | settle names and audit all production assignment sites |
 | false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |

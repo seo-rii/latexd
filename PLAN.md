@@ -197,14 +197,18 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - migrated family는 primitive/macro 실행 event로 scanner 결과를
   reconciliation한다.
 - serialized `event_id`는 build-local `sequence`로 전환됐다.
+- `RenderEventEnvelope::with_origin()`이 producer/confidence를 생성 시점에
+  필수로 받고, executed list item 경로가 이 API로 이전됐다
+  (`525607a`, `43ba5de`).
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
-- phase exit는 열려 있다. 기본 `RenderEventEnvelope::new()`가 대부분의
-  event를 아직 `Command`/high confidence로 자동 분류하고, explicit producer
-  constructor, `ExecutedSourceSlice` interface, revision/dependency metadata,
-  shared diagnostic schema와 남은 family leakage characterization이 없다.
+- phase exit는 열려 있다. 명시적 생성 경로는 생겼지만 기본
+  `RenderEventEnvelope::new()`가 대부분의 event를 아직 `Command`/high
+  confidence로 자동 분류한다. 남은 family 이전, `ExecutedSourceSlice`
+  interface, revision/dependency metadata, shared diagnostic schema와 남은
+  family leakage characterization도 완료되지 않았다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
