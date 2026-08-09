@@ -368,13 +368,27 @@ impl Vm<'_> {
             .iter()
             .filter(|event| {
                 scanner_ids.contains(&event.meta.sequence)
-                    && self.semantic_source_is_suppressed(&event.meta.source)
+                    && table_start_anchor(&event.meta.source).is_some_and(|(path, start_utf8)| {
+                        self.semantic_source_is_suppressed(&SourceProvenance::file(
+                            path,
+                            start_utf8,
+                            start_utf8.saturating_add(1),
+                        ))
+                    })
             })
             .map(|event| event.meta.sequence)
             .collect::<HashSet<_>>();
         self.render_events
             .retain(|event| !suppressed_scanner_ids.contains(&event.meta.sequence));
-        executed.retain(|table| !self.semantic_source_is_suppressed(&table.source));
+        executed.retain(|table| {
+            !table_start_anchor(&table.source).is_some_and(|(path, start_utf8)| {
+                self.semantic_source_is_suppressed(&SourceProvenance::file(
+                    path,
+                    start_utf8,
+                    start_utf8.saturating_add(1),
+                ))
+            })
+        });
 
         for scanner_event in self.render_events.iter_mut() {
             if !scanner_ids.contains(&scanner_event.meta.sequence) {
