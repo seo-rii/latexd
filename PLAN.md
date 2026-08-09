@@ -14,11 +14,14 @@
 
 ## Status Snapshot
 
-- 기준 시점: `2026-08-09`
-- 기준 commit: `5105e89` (`feat(fonts): bundle classic TeX fonts`)
-- working tree: `P0.3a` positioned Type1 outline sub-slice가 구현되어 focused
-  verification은 green이다. 이는 formula/table/image/link/multi-page visual 및
-  broader differential gate를 포함하는 umbrella `P0.3` 완료를 뜻하지 않는다.
+- 기준 시점: `2026-08-10`
+- 기준 commit: `8cbea9d` (`feat(web): gate WASI artifact cost`)
+- `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
+  verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
+  예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
+  WASI cost reporter를 추가했다. 이는 formula/table/image/link/multi-page
+  visual 및 broader differential gate를 포함하는 umbrella `P0.3` 완료를
+  뜻하지 않는다.
 - `M11`: `M11.1`~`M11.4` 완료
 - `M12`: `M12.1`~`M12.6` 완료
 - 현재 집중 범위: `M13` 단일 VM 실행 의미와 실행 기반 event/IR/checkpoint
@@ -550,6 +553,8 @@ LayoutIr, PageDisplayList, write state다.
   - known-empty whitespace와 missing glyph를 구분하고 mismatch/missing 시
     whole-run CSS fallback
   - WASI PDF의 bundled TeX font selection
+  - deterministic raw/gzip/Brotli budget과 SHA-256 identity
+  - 별도 명령으로 환경을 기록하는 fresh-process Node compile 표본
 - Canvas/SVG가 positioned glyph/rule/image/link op를 소비
 - changed page만 교체
 - exact bundled outline font 사용
@@ -706,7 +711,7 @@ MathList, persistent session용 항목을 현재 CI가 이미 보장한다고 �
 - conditional/macro/package interaction
 - selected AMS/alignment/package fixtures
 - external-engine differential artifact
-- browser screenshot/source-span checks
+- browser source-span/E2E checks; screenshot baseline은 아직 future target
 
 ### Nightly/Manual
 

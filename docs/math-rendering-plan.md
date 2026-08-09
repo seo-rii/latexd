@@ -402,8 +402,8 @@ Hermetic tests verify every bundled payload against the manifest, and the WASI
 browser E2E gate verifies that a `cmr10` content hash and positioned glyphs
 reach the page artifact.
 
-The `P0.3a` positioned Type1 outline sub-slice is implemented in the 2026-08-09
-working tree and its focused verification is green:
+The `P0.3a` positioned Type1 outline sub-slice landed in `2c2b2db` and its
+focused verification is green:
 
 - browser schema v2 carries `BrowserFontAsset` entries with normalized,
   renderer-neutral glyph commands for used bundled glyphs only;
@@ -416,22 +416,40 @@ working tree and its focused verification is green:
   glyph-ID kind, content hash, and complete glyph coverage match. Otherwise the
   whole run remains an explicit CSS fallback;
 - WASI PDF generation selects the same bundled TeX-font path instead of the PDF
-  core-font path.
+  core-font path. The browser E2E fetches that actual PDF and requires `%PDF-`,
+  `/BaseFont /CMR10`, and `/FontFile` markers.
 
-The 2026-08-09 optimized WASI artifact is 4,552,875 raw bytes and 1,557,487
-bytes with `gzip -9`. This is a current-tree baseline only: a same-environment
-`5105e89` comparison, Brotli size, and cold module/compile latency remain open,
-so these numbers do not yet prove the dependency has acceptable cost.
+`8cbea9d` makes `build:wasi` check committed raw/gzip/Brotli ceilings and
+record the artifact SHA-256 without running a timing probe. `pnpm -C web
+report:wasi-cost` reproduces those sizes and explicitly adds five fresh-process
+Node/V8 byte-buffer `WebAssembly.compile` samples. On 2026-08-10, Linux x64
+with Node v24.1.0 measured 4,552,875 raw bytes, 1,561,448 gzip bytes, and
+1,191,757 Brotli bytes for SHA-256
+`4e684b3f07b3ab6d4f537b7ea756a034915cb1277a5bf2130300a330d194a3b3`.
+Three timing runs produced medians of 44.8 ms, 51.7 ms, and 76.8 ms; the last
+run also contained a 2,372.9 ms outlier under host load.
+The size ceilings allow approximately 6% growth. The timing probe has bounded
+input/process counts and per-child timeouts, but remains environment-specific
+evidence rather than a hard build gate. It does not measure browser fetch,
+decompression, `compileStreaming`, instantiation, WASI import wiring, or
+`_start`. A same-environment `5105e89` comparison remains open, so this
+current-tree measurement alone does not attribute dependency cost.
 
 `P0.3a` does not close the umbrella `P0.3` phase. Unresolved bold/style faces
 remain honestly counted CSS fallbacks, and broader visual/differential,
 accessibility, and cost evidence remains below.
 
+For pushed commit `1bbd8c8`, the external component diff, licensed smoke
+corpus, renderer benchmark, Web build/tests, and browser WASM E2E are green.
+The long-running Rust workspace job is still pending at this snapshot and is
+not reported as green early.
+
 Remaining P0.3 work:
 
-- close `P0.3a` with broader workspace/component-diff evidence, an actual WASI
-  PDF embedded-font assertion, and a recorded optimized WASM size/startup
-  baseline;
+- close `P0.3a` with the pushed Rust workspace result and a same-environment
+  pre-outline WASM cost comparison;
+- record browser fetch/decompression/compile/instantiate/WASI-start timing;
+  the Node byte-buffer compile sample is not a browser startup gate;
 - preserve accessible naming and source navigation for path-backed logical text;
   decide copy/find sidecar requirements separately without letting host text
   determine geometry;
