@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DrawOp, GraphicAssetFormat, PageDisplayList, PageId};
+use crate::{
+    DrawOp, FontFaceId, GlyphIdKind, GlyphOutline, GraphicAssetFormat, PageDisplayList, PageId,
+};
 
-pub const BROWSER_PAGES_SCHEMA_VERSION: u32 = 1;
+pub const BROWSER_PAGES_SCHEMA_VERSION: u32 = 2;
 pub const BROWSER_BUILD_METADATA_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,6 +17,17 @@ pub struct BrowserAssetManifestEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserFontAsset {
+    pub face_id: FontFaceId,
+    pub postscript_name: String,
+    pub glyph_id_kind: GlyphIdKind,
+    pub content_hash: String,
+    pub glyphs: Vec<GlyphOutline>,
+}
+
+pub type BrowserGlyphOutline = GlyphOutline;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserPagesArtifact {
     pub schema_version: u32,
     pub revision: u64,
@@ -22,10 +35,15 @@ pub struct BrowserPagesArtifact {
     pub changed_page_ids: Vec<PageId>,
     pub removed_page_ids: Vec<PageId>,
     pub assets: Vec<BrowserAssetManifestEntry>,
+    pub fonts: Vec<BrowserFontAsset>,
 }
 
 impl BrowserPagesArtifact {
-    pub fn one_shot(revision: u64, pages: Vec<PageDisplayList>) -> Self {
+    pub fn one_shot(
+        revision: u64,
+        pages: Vec<PageDisplayList>,
+        fonts: Vec<BrowserFontAsset>,
+    ) -> Self {
         let changed_page_ids = pages.iter().map(|page| page.page_id.clone()).collect();
         let mut assets = Vec::new();
         for page in &pages {
@@ -50,6 +68,7 @@ impl BrowserPagesArtifact {
             changed_page_ids,
             removed_page_ids: Vec::new(),
             assets,
+            fonts,
         }
     }
 }

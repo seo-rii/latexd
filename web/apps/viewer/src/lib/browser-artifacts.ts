@@ -123,6 +123,34 @@ export type BrowserAssetManifestEntry = {
   content_hash?: string;
 };
 
+export type BrowserGlyphOutlineCommand =
+  | { kind: "move_to"; x: number; y: number }
+  | { kind: "line_to"; x: number; y: number }
+  | { kind: "quad_to"; x1: number; y1: number; x: number; y: number }
+  | {
+      kind: "curve_to";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      x: number;
+      y: number;
+    }
+  | { kind: "close" };
+
+export type BrowserGlyphOutline = {
+  glyph_id: number;
+  commands: BrowserGlyphOutlineCommand[];
+};
+
+export type BrowserFontAsset = {
+  face_id: string;
+  postscript_name: string;
+  glyph_id_kind: "type1_char_code" | "open_type_glyph_id";
+  content_hash: string;
+  glyphs: BrowserGlyphOutline[];
+};
+
 export type BrowserPagesArtifact = {
   schema_version: number;
   revision: number;
@@ -130,6 +158,7 @@ export type BrowserPagesArtifact = {
   changed_page_ids: string[];
   removed_page_ids: string[];
   assets: BrowserAssetManifestEntry[];
+  fonts: BrowserFontAsset[];
 };
 
 export type BrowserBuildMetadata = {
@@ -153,12 +182,17 @@ export type BrowserArtifactExpectations = {
   diagnostic_count: number;
 };
 
+const MAX_BROWSER_FONT_ASSETS = 32;
+const MAX_BROWSER_GLYPHS_PER_FONT = 4_096;
+const MAX_BROWSER_OUTLINE_COMMANDS_PER_GLYPH = 4_096;
+const MAX_BROWSER_OUTLINE_COMMANDS_TOTAL = 524_288;
+
 export function validateBrowserArtifacts(
   pageArtifact: BrowserPagesArtifact,
   buildMetadata: BrowserBuildMetadata,
   expected: BrowserArtifactExpectations
 ) {
-  if (pageArtifact.schema_version !== 1 || buildMetadata.schema_version !== 1) {
+  if (pageArtifact.schema_version !== 2 || buildMetadata.schema_version !== 1) {
     throw new Error("WASI compiler returned an unsupported browser artifact schema");
   }
   if (pageArtifact.revision !== expected.revision || buildMetadata.revision !== expected.revision) {
@@ -224,5 +258,84 @@ export function validateBrowserArtifacts(
       throw new Error("WASI compiler returned an invalid browser asset manifest");
     }
     assetRefs.add(entry.asset_ref);
+  }
+
+  const fonts: unknown = pageArtifact.fonts;
+  if (!Array.isArray(fonts) || fonts.length > MAX_BROWSER_FONT_ASSETS) {
+    throw new Error("WASI compiler returned an invalid browser font manifest");
+  }
+  const fontKeys = new Set<string>();
+  let outlineCommandCount = 0;
+  for (const font of fonts) {
+    if (!font || typeof font !== "object") {
+      throw new Error("WASI compiler returned an invalid browser font manifest");
+    }
+    const entry = font as Record<string, unknown>;
+    const fontKey = `${entry.face_id}\0${entry.postscript_name}\0${entry.glyph_id_kind}\0${entry.content_hash}`;
+    if (
+      typeof entry.face_id !== "string"
+      || entry.face_id.length === 0
+      || typeof entry.postscript_name !== "string"
+      || entry.postscript_name.length === 0
+      || (entry.glyph_id_kind !== "type1_char_code"
+        && entry.glyph_id_kind !== "open_type_glyph_id")
+      || typeof entry.content_hash !== "string"
+      || entry.content_hash.length === 0
+      || !Array.isArray(entry.glyphs)
+      || entry.glyphs.length > MAX_BROWSER_GLYPHS_PER_FONT
+      || fontKeys.has(fontKey)
+    ) {
+      throw new Error("WASI compiler returned an invalid browser font manifest");
+    }
+    fontKeys.add(fontKey);
+
+    const glyphIds = new Set<number>();
+    for (const glyph of entry.glyphs) {
+      if (!glyph || typeof glyph !== "object") {
+        throw new Error("WASI compiler returned an invalid browser font manifest");
+      }
+      const outline = glyph as Record<string, unknown>;
+      if (
+        !Number.isSafeInteger(outline.glyph_id)
+        || (outline.glyph_id as number) < 0
+        || glyphIds.has(outline.glyph_id as number)
+        || !Array.isArray(outline.commands)
+        || outline.commands.length > MAX_BROWSER_OUTLINE_COMMANDS_PER_GLYPH
+        || outline.commands.some((command) => !isGlyphOutlineCommand(command))
+      ) {
+        throw new Error("WASI compiler returned an invalid browser font manifest");
+      }
+      outlineCommandCount += outline.commands.length;
+      if (outlineCommandCount > MAX_BROWSER_OUTLINE_COMMANDS_TOTAL) {
+        throw new Error("WASI compiler returned an invalid browser font manifest");
+      }
+      glyphIds.add(outline.glyph_id as number);
+    }
+  }
+}
+
+function isFiniteFields(entry: Record<string, unknown>, fields: string[]) {
+  return fields.every((field) => (
+    typeof entry[field] === "number" && Number.isFinite(entry[field])
+  ));
+}
+
+function isGlyphOutlineCommand(command: unknown) {
+  if (!command || typeof command !== "object") {
+    return false;
+  }
+  const entry = command as Record<string, unknown>;
+  switch (entry.kind) {
+    case "move_to":
+    case "line_to":
+      return isFiniteFields(entry, ["x", "y"]);
+    case "quad_to":
+      return isFiniteFields(entry, ["x1", "y1", "x", "y"]);
+    case "curve_to":
+      return isFiniteFields(entry, ["x1", "y1", "x2", "y2", "x", "y"]);
+    case "close":
+      return true;
+    default:
+      return false;
   }
 }

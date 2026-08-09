@@ -1,6 +1,7 @@
 mod bundled;
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 #[cfg(not(target_family = "wasm"))]
 use std::fs;
 #[cfg(not(target_family = "wasm"))]
@@ -9,15 +10,18 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use hayro_font::{Matrix, OutlineBuilder};
 use tex_render_model::{
-    FontFaceId, FontFamilyRequest, FontRequest, FontSeries, FontShape, GlyphIdKind, Point,
-    PositionedGlyph, ResolvedFontRef, TextCluster,
+    BrowserFontAsset, DrawOp, FontFaceId, FontFamilyRequest, FontRequest, FontSeries, FontShape,
+    GlyphIdKind, GlyphOutline, GlyphOutlineCommand, PageDisplayList, Point, PositionedGlyph,
+    ResolvedFontRef, TextCluster,
 };
 
 pub use bundled::BundledFontResolver;
 
 #[cfg(not(target_family = "wasm"))]
 const MAX_FONT_FILE_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_BROWSER_OUTLINE_COMMANDS_PER_GLYPH: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TexFontFace {
@@ -98,7 +102,24 @@ impl TexFontFace {
     pub fn face_id(self) -> FontFaceId {
         FontFaceId::new(self.stem())
     }
+
+    fn has_bundled_outline(self) -> bool {
+        BUNDLED_TEX_FONT_FACES.contains(&self)
+    }
 }
+
+pub const BUNDLED_TEX_FONT_FACES: [TexFontFace; 10] = [
+    TexFontFace::Roman10,
+    TexFontFace::Roman7,
+    TexFontFace::Roman5,
+    TexFontFace::MathItalic10,
+    TexFontFace::MathItalic7,
+    TexFontFace::MathItalic5,
+    TexFontFace::MathSymbol10,
+    TexFontFace::MathSymbol7,
+    TexFontFace::MathSymbol5,
+    TexFontFace::MathExtension10,
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedText {
@@ -447,6 +468,230 @@ pub fn resolve_font_with(
         type1: parse_pfb(pfb.as_bytes())?,
     })
 }
+
+struct NormalizedOutlineBuilder {
+    matrix: Matrix,
+    commands: Vec<GlyphOutlineCommand>,
+    overflowed: bool,
+}
+
+impl NormalizedOutlineBuilder {
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.matrix.sx * x + self.matrix.kx * y + self.matrix.tx,
+            self.matrix.ky * x + self.matrix.sy * y + self.matrix.ty,
+        )
+    }
+
+    fn push(&mut self, command: GlyphOutlineCommand) {
+        if self.commands.len() == MAX_BROWSER_OUTLINE_COMMANDS_PER_GLYPH {
+            self.overflowed = true;
+            return;
+        }
+        self.commands.push(command);
+    }
+}
+
+impl OutlineBuilder for NormalizedOutlineBuilder {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.push(GlyphOutlineCommand::MoveTo { x, y });
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.push(GlyphOutlineCommand::LineTo { x, y });
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x, y) = self.point(x, y);
+        self.push(GlyphOutlineCommand::QuadTo { x1, y1, x, y });
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x2, y2) = self.point(x2, y2);
+        let (x, y) = self.point(x, y);
+        self.push(GlyphOutlineCommand::CurveTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        });
+    }
+
+    fn close(&mut self) {
+        self.push(GlyphOutlineCommand::Close);
+    }
+}
+
+pub fn outline_glyph(face: TexFontFace, glyph_id: u32) -> Option<GlyphOutline> {
+    let outline_table = bundled_outline_table(face)?;
+    let code = u8::try_from(glyph_id).ok()?;
+    let glyph_name = outline_table.code_to_string(code)?;
+    let mut builder = NormalizedOutlineBuilder {
+        matrix: outline_table.matrix(),
+        commands: Vec::new(),
+        overflowed: false,
+    };
+    outline_table.outline(glyph_name, &mut builder)?;
+    (!builder.overflowed && builder.commands.iter().all(GlyphOutlineCommand::is_finite)).then_some(
+        GlyphOutline {
+            glyph_id,
+            commands: builder.commands,
+        },
+    )
+}
+
+fn bundled_outline_table(face: TexFontFace) -> Option<&'static hayro_font::type1::Table> {
+    static ROMAN_10: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static ROMAN_7: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static ROMAN_5: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_ITALIC_10: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_ITALIC_7: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_ITALIC_5: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_SYMBOL_10: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_SYMBOL_7: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_SYMBOL_5: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    static MATH_EXTENSION_10: OnceLock<Option<hayro_font::type1::Table>> = OnceLock::new();
+    let slot = match face {
+        TexFontFace::Roman10 => &ROMAN_10,
+        TexFontFace::Roman7 => &ROMAN_7,
+        TexFontFace::Roman5 => &ROMAN_5,
+        TexFontFace::MathItalic10 => &MATH_ITALIC_10,
+        TexFontFace::MathItalic7 => &MATH_ITALIC_7,
+        TexFontFace::MathItalic5 => &MATH_ITALIC_5,
+        TexFontFace::MathSymbol10 => &MATH_SYMBOL_10,
+        TexFontFace::MathSymbol7 => &MATH_SYMBOL_7,
+        TexFontFace::MathSymbol5 => &MATH_SYMBOL_5,
+        TexFontFace::MathExtension10 => &MATH_EXTENSION_10,
+        TexFontFace::TimesRoman
+        | TexFontFace::TimesBold
+        | TexFontFace::TimesItalic
+        | TexFontFace::TimesBoldItalic => return None,
+    };
+    slot.get_or_init(|| {
+        let pfb = BundledFontResolver.resolve_type1(face.type1_stem())?;
+        hayro_font::type1::Table::parse(pfb.as_bytes())
+    })
+    .as_ref()
+}
+
+pub fn browser_font_assets_for_pages(pages: &[PageDisplayList]) -> Vec<BrowserFontAsset> {
+    let mut used = BTreeMap::<(FontFaceId, String), (ResolvedFontRef, BTreeMap<u32, bool>)>::new();
+    for run in pages
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run),
+            _ => None,
+        })
+    {
+        let (Some(resolved), Some(glyphs)) = (&run.resolved_font, &run.glyphs) else {
+            continue;
+        };
+        if resolved.glyph_id_kind != GlyphIdKind::Type1CharCode {
+            continue;
+        }
+        let entry = used
+            .entry((resolved.face_id.clone(), resolved.content_hash.clone()))
+            .or_insert_with(|| (resolved.clone(), BTreeMap::new()));
+        for (glyph_index, glyph) in glyphs.iter().enumerate() {
+            let known_empty = run.clusters.as_ref().is_some_and(|clusters| {
+                clusters.iter().any(|cluster| {
+                    usize::try_from(cluster.glyph_start)
+                        .ok()
+                        .is_some_and(|start| {
+                            usize::try_from(cluster.glyph_end).ok().is_some_and(|end| {
+                                glyph_index >= start
+                                    && glyph_index < end
+                                    && usize::try_from(cluster.text_start_utf8).ok().is_some_and(
+                                        |text_start| {
+                                            usize::try_from(cluster.text_end_utf8).ok().is_some_and(
+                                                |text_end| {
+                                                    run.text.get(text_start..text_end).is_some_and(
+                                                        |text| {
+                                                            !text.is_empty()
+                                                                && text
+                                                                    .chars()
+                                                                    .all(char::is_whitespace)
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                        },
+                                    )
+                            })
+                        })
+                })
+            });
+            entry
+                .1
+                .entry(glyph.glyph_id)
+                .and_modify(|empty| *empty &= known_empty)
+                .or_insert(known_empty);
+        }
+    }
+
+    used.into_values()
+        .filter_map(|(resolved, glyph_ids)| {
+            let face = ALL_TEX_FONT_FACES
+                .iter()
+                .copied()
+                .find(|face| face.face_id() == resolved.face_id)?;
+            if !face.has_bundled_outline() {
+                return None;
+            }
+            let font = resolve_font(face)?;
+            if font.content_hash != resolved.content_hash
+                || face.postscript_name() != resolved.postscript_name
+                || resolved.glyph_id_kind != GlyphIdKind::Type1CharCode
+            {
+                return None;
+            }
+            let glyphs = glyph_ids
+                .into_iter()
+                .map(|(glyph_id, known_empty)| {
+                    if known_empty {
+                        Some(GlyphOutline {
+                            glyph_id,
+                            commands: Vec::new(),
+                        })
+                    } else {
+                        outline_glyph(face, glyph_id)
+                    }
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(BrowserFontAsset {
+                face_id: resolved.face_id,
+                postscript_name: resolved.postscript_name,
+                glyph_id_kind: resolved.glyph_id_kind,
+                content_hash: resolved.content_hash,
+                glyphs,
+            })
+        })
+        .collect()
+}
+
+const ALL_TEX_FONT_FACES: [TexFontFace; 14] = [
+    TexFontFace::Roman10,
+    TexFontFace::Roman7,
+    TexFontFace::Roman5,
+    TexFontFace::MathItalic10,
+    TexFontFace::MathItalic7,
+    TexFontFace::MathItalic5,
+    TexFontFace::MathSymbol10,
+    TexFontFace::MathSymbol7,
+    TexFontFace::MathSymbol5,
+    TexFontFace::MathExtension10,
+    TexFontFace::TimesRoman,
+    TexFontFace::TimesBold,
+    TexFontFace::TimesItalic,
+    TexFontFace::TimesBoldItalic,
+];
 
 #[cfg(not(target_family = "wasm"))]
 fn read_kpse_file(stem: &str, extension: &str) -> Option<Vec<u8>> {

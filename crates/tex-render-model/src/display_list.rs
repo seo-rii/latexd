@@ -98,6 +98,67 @@ pub struct PositionedGlyph {
     pub offset: Point,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlyphOutline {
+    pub glyph_id: u32,
+    pub commands: Vec<GlyphOutlineCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GlyphOutlineCommand {
+    MoveTo {
+        x: f32,
+        y: f32,
+    },
+    LineTo {
+        x: f32,
+        y: f32,
+    },
+    QuadTo {
+        x1: f32,
+        y1: f32,
+        x: f32,
+        y: f32,
+    },
+    CurveTo {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        x: f32,
+        y: f32,
+    },
+    Close,
+}
+
+impl GlyphOutlineCommand {
+    pub fn is_finite(&self) -> bool {
+        match self {
+            Self::MoveTo { x, y } | Self::LineTo { x, y } => x.is_finite() && y.is_finite(),
+            Self::QuadTo { x1, y1, x, y } => {
+                x1.is_finite() && y1.is_finite() && x.is_finite() && y.is_finite()
+            }
+            Self::CurveTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
+                x1.is_finite()
+                    && y1.is_finite()
+                    && x2.is_finite()
+                    && y2.is_finite()
+                    && x.is_finite()
+                    && y.is_finite()
+            }
+            Self::Close => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedFontRef {
     pub face_id: FontFaceId,

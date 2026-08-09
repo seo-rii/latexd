@@ -127,6 +127,21 @@ pub fn render_display_list_pdf_with_assets(
     })
 }
 
+pub fn render_display_list_pdf_with_assets_and_tex_fonts(
+    pages: &[PageDisplayList],
+    mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Vec<u8> {
+    render_display_list_pdf_with_materialized_assets_and_tex_fonts(pages, |request| {
+        let bytes = resolve_asset(&request.asset_ref)?;
+        let materialized = MaterializedGraphicAsset::from_source(request, bytes)?;
+        Some(prepare_resolved_asset(
+            request,
+            materialized,
+            &mut resolve_asset,
+        ))
+    })
+}
+
 pub fn render_display_list_pdf_with_converted_assets(
     pages: &[PageDisplayList],
     mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
@@ -3174,6 +3189,7 @@ mod tests {
 
     use super::{
         ConvertedImageAsset, render_display_list_pdf, render_display_list_pdf_with_assets,
+        render_display_list_pdf_with_assets_and_tex_fonts,
         render_display_list_pdf_with_converted_assets,
         render_display_list_pdf_with_materialized_assets,
         render_display_list_pdf_with_materialized_assets_and_tex_fonts, render_display_list_svg,
@@ -3354,7 +3370,7 @@ mod tests {
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
         };
-        let pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(&[page], |_| None);
+        let pdf = render_display_list_pdf_with_assets_and_tex_fonts(&[page], |_| None);
         let text = String::from_utf8_lossy(&pdf);
 
         for font_name in ["CMR10", "CMR7", "CMMI10", "CMMI7", "CMEX10"] {

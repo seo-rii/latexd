@@ -29,7 +29,12 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(displayPage.locator("svg")).toHaveAttribute("viewBox", /^0 0 \d+(?:\.\d+)? \d+(?:\.\d+)?$/);
   const heading = displayPage.getByText("Try it", { exact: true });
   const editor = page.getByPlaceholder("Type LaTeX here…");
-  await expect(displayPage.getByText("latexd in WebAssembly", { exact: true })).toBeVisible();
+  const outlinedTitle = displayPage.getByRole("img", {
+    name: "latexd in WebAssembly",
+    exact: true
+  });
+  await expect(outlinedTitle).toBeVisible();
+  await expect(outlinedTitle).toHaveAttribute("data-text-rendering", "positioned-outline");
   await heading.hover();
   await expect(page.locator("[data-browser-source-hover]")).toContainText("main.tex:");
   await heading.click();
@@ -43,7 +48,11 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await expect(fontBackedRun).toBeVisible();
   await expect(fontBackedRun).toHaveAttribute("data-font-content-hash", /^blake3:[0-9a-f]{64}$/);
   await expect(fontBackedRun).toHaveAttribute("data-positioned-glyph-count", /^[1-9]\d*$/);
-  await expect(fontBackedRun).toHaveAttribute("data-text-rendering", "css-fallback");
+  await expect(fontBackedRun).toHaveAttribute("data-text-rendering", "positioned-outline");
+  await expect(fontBackedRun.locator("path")).not.toHaveCount(0);
+  const cssFallbackCount = await displayPage.locator('[data-text-rendering="css-fallback"]').count();
+  expect(cssFallbackCount).toBeGreaterThan(0);
+  await expect(browserPreview).toContainText(`${cssFallbackCount} CSS text fallback(s)`);
   const initialPageWidth = (await displayPage.boundingBox())?.width ?? 0;
   const zoomIn = page.getByRole("button", { name: "Zoom in" });
   await zoomIn.click();
@@ -75,11 +84,13 @@ test("static viewer renders display-list pages and retains PDF comparison output
   await page.getByRole("button", { name: "PDF output" }).click();
   await expect(pdfPreview).toBeVisible();
   await expect(pdfPreview).toHaveAttribute("src", initialPdfUrl!);
-  const pdfHeader = await pdfPreview.evaluate(async (frame) => {
+  const pdfText = await pdfPreview.evaluate(async (frame) => {
     const response = await fetch((frame as HTMLIFrameElement).src);
-    return new TextDecoder().decode((await response.arrayBuffer()).slice(0, 8));
+    return new TextDecoder().decode(await response.arrayBuffer());
   });
-  expect(pdfHeader).toContain("%PDF-");
+  expect(pdfText.slice(0, 8)).toContain("%PDF-");
+  expect(pdfText).toContain("/BaseFont /CMR10");
+  expect(pdfText).toContain("/FontFile");
   await page.getByRole("button", { name: "Fast preview" }).click();
   await expect(displayPage).toBeVisible();
   await expect(pdfPreview).toHaveCount(0);

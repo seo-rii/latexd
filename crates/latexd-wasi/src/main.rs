@@ -105,17 +105,21 @@ fn compile() -> Result<CompileResponse, String> {
         &document,
         tex_layout::PageDisplayListOptions::for_document_ir(&document),
     );
-    let pages_artifact = BrowserPagesArtifact::one_shot(request.revision, pages);
+    let fonts = tex_fonts::browser_font_assets_for_pages(&pages);
+    let pages_artifact = BrowserPagesArtifact::one_shot(request.revision, pages, fonts);
     let build_metadata = BrowserBuildMetadata::one_shot(
         request.revision,
         event_count as u64,
         diagnostics.len() as u64,
         &pages_artifact,
     );
-    let pdf = tex_pdf::render_display_list_pdf_with_assets(&pages_artifact.pages, |asset_ref| {
-        let path = normalize_path(asset_ref).ok()?;
-        fs::read(Path::new(WORKSPACE).join(path)).ok()
-    });
+    let pdf = tex_pdf::render_display_list_pdf_with_assets_and_tex_fonts(
+        &pages_artifact.pages,
+        |asset_ref| {
+            let path = normalize_path(asset_ref).ok()?;
+            fs::read(Path::new(WORKSPACE).join(path)).ok()
+        },
+    );
     let pages_json = serde_json::to_vec(&pages_artifact)
         .map_err(|error| format!("failed to serialize pages.json: {error}"))?;
     let build_meta_json = serde_json::to_vec(&build_metadata)

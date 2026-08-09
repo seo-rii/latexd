@@ -1,4 +1,10 @@
-import type { BrowserDrawOp, BrowserRect } from "./browser-artifacts.ts";
+import type {
+  BrowserDrawOp,
+  BrowserFontAsset,
+  BrowserGlyphOutline,
+  BrowserPageDisplayList,
+  BrowserRect
+} from "./browser-artifacts.ts";
 
 type BrowserGraphicsStateOp = Extract<
   BrowserDrawOp,
@@ -16,6 +22,78 @@ export type PreparedDisplayList = {
   ops: PreparedDisplayListOp[];
   diagnostics: string[];
 };
+
+type BrowserTextRun = Extract<BrowserDrawOp, { kind: "text_run" }>;
+
+export type BrowserPositionedOutline = {
+  glyph_id: number;
+  path: string;
+  transform: string;
+};
+
+export function browserGlyphPathData(outline: BrowserGlyphOutline) {
+  return outline.commands.map((command) => {
+    switch (command.kind) {
+      case "move_to":
+        return `M ${command.x} ${command.y}`;
+      case "line_to":
+        return `L ${command.x} ${command.y}`;
+      case "quad_to":
+        return `Q ${command.x1} ${command.y1} ${command.x} ${command.y}`;
+      case "curve_to":
+        return `C ${command.x1} ${command.y1} ${command.x2} ${command.y2} ${command.x} ${command.y}`;
+      case "close":
+        return "Z";
+    }
+  }).join(" ");
+}
+
+export function browserPositionedGlyphOutlines(
+  run: BrowserTextRun,
+  fonts: BrowserFontAsset[]
+): BrowserPositionedOutline[] | null {
+  const resolved = run.resolved_font;
+  const positionedGlyphs = run.glyphs;
+  if (!resolved || !positionedGlyphs) {
+    return null;
+  }
+  const font = fonts.find((candidate) => (
+    candidate.face_id === resolved.face_id
+    && candidate.postscript_name === resolved.postscript_name
+    && candidate.glyph_id_kind === resolved.glyph_id_kind
+    && candidate.content_hash === resolved.content_hash
+  ));
+  if (!font) {
+    return null;
+  }
+  const outlines = new Map(font.glyphs.map((outline) => [outline.glyph_id, outline]));
+  const result: BrowserPositionedOutline[] = [];
+  for (const glyph of positionedGlyphs) {
+    const outline = outlines.get(glyph.glyph_id);
+    if (!outline) {
+      return null;
+    }
+    result.push({
+      glyph_id: glyph.glyph_id,
+      path: browserGlyphPathData(outline),
+      transform: `matrix(${run.size_pt} 0 0 ${-run.size_pt} ${run.origin.x + glyph.offset.x} ${run.origin.y + glyph.offset.y})`
+    });
+  }
+  return result;
+}
+
+export function countBrowserTextFallbacks(
+  pages: BrowserPageDisplayList[],
+  fonts: BrowserFontAsset[]
+) {
+  let count = 0;
+  for (const op of pages.flatMap((page) => page.ops)) {
+    if (op.kind === "text_run" && browserPositionedGlyphOutlines(op, fonts) === null) {
+      count += 1;
+    }
+  }
+  return count;
+}
 
 export function browserDestinationId(name: string) {
   const encoded = encodeURIComponent(name).replaceAll("%", "_");

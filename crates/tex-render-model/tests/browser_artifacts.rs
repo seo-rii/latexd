@@ -1,5 +1,6 @@
 use tex_render_model::{
-    BrowserBuildMetadata, BrowserCompileMode, BrowserPagesArtifact, DrawOp, GraphicAssetFormat,
+    BrowserBuildMetadata, BrowserCompileMode, BrowserFontAsset, BrowserGlyphOutline,
+    BrowserPagesArtifact, DrawOp, FontFaceId, GlyphIdKind, GlyphOutlineCommand, GraphicAssetFormat,
     PageDisplayList, PositionedImage, Rect, SourceProvenance,
 };
 
@@ -43,9 +44,23 @@ fn one_shot_browser_artifacts_preserve_compiler_page_identity_and_assets() {
         ),
     ];
 
-    let artifact = BrowserPagesArtifact::one_shot(17, pages);
+    let font = BrowserFontAsset {
+        face_id: FontFaceId::new("cmr10"),
+        postscript_name: "CMR10".to_string(),
+        glyph_id_kind: GlyphIdKind::Type1CharCode,
+        content_hash: "blake3:font".to_string(),
+        glyphs: vec![BrowserGlyphOutline {
+            glyph_id: u32::from(b'A'),
+            commands: vec![
+                GlyphOutlineCommand::MoveTo { x: 0.0, y: 0.0 },
+                GlyphOutlineCommand::LineTo { x: 0.5, y: 1.0 },
+                GlyphOutlineCommand::Close,
+            ],
+        }],
+    };
+    let artifact = BrowserPagesArtifact::one_shot(17, pages, vec![font]);
 
-    assert_eq!(artifact.schema_version, 1);
+    assert_eq!(artifact.schema_version, 2);
     assert_eq!(artifact.revision, 17);
     assert_eq!(artifact.changed_page_ids, ["page-a", "page-b"]);
     assert!(artifact.removed_page_ids.is_empty());
@@ -58,6 +73,9 @@ fn one_shot_browser_artifacts_preserve_compiler_page_identity_and_assets() {
         artifact.assets[0].content_hash.as_deref(),
         Some("asset-hash")
     );
+    assert_eq!(artifact.fonts.len(), 1);
+    assert_eq!(artifact.fonts[0].face_id.as_str(), "cmr10");
+    assert_eq!(artifact.fonts[0].glyphs[0].glyph_id, u32::from(b'A'));
 
     let metadata = BrowserBuildMetadata::one_shot(17, 42, 3, &artifact);
     assert_eq!(metadata.schema_version, 1);
@@ -103,6 +121,7 @@ fn browser_asset_manifest_deduplicates_repeated_image_references() {
             page("page-a", "hash-a", vec![image.clone()]),
             page("page-b", "hash-b", vec![image]),
         ],
+        Vec::new(),
     );
 
     assert_eq!(artifact.assets.len(), 1);

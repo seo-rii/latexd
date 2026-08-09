@@ -15,14 +15,15 @@ pub use aux_view::{
 };
 pub use browser::{
     BROWSER_BUILD_METADATA_SCHEMA_VERSION, BROWSER_PAGES_SCHEMA_VERSION, BrowserAssetManifestEntry,
-    BrowserBuildMetadata, BrowserCompileMode, BrowserPageStats, BrowserPagesArtifact,
+    BrowserBuildMetadata, BrowserCompileMode, BrowserFontAsset, BrowserGlyphOutline,
+    BrowserPageStats, BrowserPagesArtifact,
 };
 pub use display_list::{
     Destination, DrawOp, FontFaceId, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-    FontShape, GlyphIdKind, GraphicAssetRequest, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-    ImageViewport, LinkAnnotation, MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION,
-    MaterializedGraphicAsset, PageDisplayList, PageId, Point, PositionedGlyph, PositionedImage,
-    PositionedTextRun, Rect, ResolvedFontRef, TextCluster,
+    FontShape, GlyphIdKind, GlyphOutline, GlyphOutlineCommand, GraphicAssetRequest, ImageCrop,
+    ImageRotation, ImageScale, ImageTrim, ImageViewport, LinkAnnotation,
+    MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION, MaterializedGraphicAsset, PageDisplayList, PageId,
+    Point, PositionedGlyph, PositionedImage, PositionedTextRun, Rect, ResolvedFontRef, TextCluster,
 };
 pub use events::{
     BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyItemEvent,

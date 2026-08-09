@@ -20,28 +20,23 @@ raw-source parser.
 
 ## Verified Baseline
 
-As of 2026-07-26, the repository has four independent gaps.
+As of 2026-08-09 (`5105e89` plus the `P0.3a` working tree), the repository has
+four independent gaps. “Implemented slice” and “phase exit” are kept separate.
 
 | Layer | Current path | Observable failure |
 | --- | --- | --- |
-| Browser preview | `extracted_text` is split into 48-line synthetic pages | Math, tables, graphics, line breaking, and page geometry disappear |
+| Browser preview | compiler pages render directly; supported bundled Type1 runs use positioned SVG paths | unresolved styles still use diagnosed CSS fallback and umbrella visual/differential gates remain |
 | Math execution | source delimiters are scanned before VM execution and mostly become strings | expansion, catcodes, mathcodes, families, and local recovery are lost |
-| Fonts and metrics | a narrow Computer Modern set and partial TFM data drive approximate runs | missing symbols and incorrect scripts, fractions, accents, and delimiters |
+| Fonts and metrics | ten classic faces are hermetic and expose exact used-glyph outlines, but TFM data is partial | missing height/depth/italic/extensible/math parameters, encoding, and VF semantics block authoritative math layout |
 | Browser incrementality | each request instantiates a new WASI instance and VM | edits are full semantic re-executions despite module-byte reuse |
 
-The first gap is directly visible in
-[`browser-compiler.ts`](../web/apps/viewer/src/lib/browser-compiler.ts):
-`toPages()` creates `wasi-page-*` identities from extracted text. Meanwhile,
-[`latexd-wasi`](../crates/latexd-wasi/src/main.rs) already builds
-`PageDisplayList` pages and writes `output.pdf`. The browser currently exposes
-that PDF only as a download.
-
-P0.1 closed this baseline gap on 2026-08-01. Browser-only builds now display
+P0.1 closed the synthetic-page baseline gap on 2026-08-01. Browser-only builds display
 the generated `output.pdf` through an iframe using the same Blob URL as the
 download action, and the synthetic extracted-text page path has been removed.
 Explicit TeX errors fail the browser build while preserving the last successful
 PDF. P0.2 is complete and the first direct display-list rendering slice is in
-place; browser outline fidelity remains the active P0.3 work.
+place. P0.3a now implements positioned bundled Type1 outlines; broader browser
+visual fidelity remains the active umbrella P0.3 work.
 
 This means browser delivery is the first validation blocker, but it is not the
 root cause of incorrect PDF math. The downloaded PDF and native/WASI display
@@ -351,7 +346,7 @@ explicit deduplicated manifest. The current paths resolve against the project
 memfs; P0.3 must consume this manifest rather than perform native filesystem
 discovery.
 
-### P0.3 Display-List Browser Renderer (In Progress)
+### P0.3 Display-List Browser Renderer (In Progress; P0.3a Implemented)
 
 After the PDF bootstrap is stable, render `PageDisplayList` pages directly to
 Canvas or SVG. Replace only changed page nodes, preserve scroll/zoom/source
@@ -407,17 +402,41 @@ Hermetic tests verify every bundled payload against the manifest, and the WASI
 browser E2E gate verifies that a `cmr10` content hash and positioned glyphs
 reach the page artifact.
 
-This is not yet browser outline parity. The browser does not receive the Type 1
-outline program and therefore still marks and draws these runs as an explicit
-CSS-shaped fallback. Bundling fixes deterministic face selection and metrics;
-it does not make host CSS glyph shapes equivalent to Computer Modern.
+The `P0.3a` positioned Type1 outline sub-slice is implemented in the 2026-08-09
+working tree and its focused verification is green:
+
+- browser schema v2 carries `BrowserFontAsset` entries with normalized,
+  renderer-neutral glyph commands for used bundled glyphs only;
+- outline extraction is restricted to the ten hermetic bundled faces, applies
+  the PFB FontMatrix, rejects non-finite or over-budget command streams, and
+  deterministically deduplicates face/glyph identities;
+- whitespace is an explicit known-empty glyph only when the positioned run's
+  logical cluster is whitespace. A numeric Type1 slot is not globally erased;
+- the viewer uses positioned SVG paths only when face ID, PostScript name,
+  glyph-ID kind, content hash, and complete glyph coverage match. Otherwise the
+  whole run remains an explicit CSS fallback;
+- WASI PDF generation selects the same bundled TeX-font path instead of the PDF
+  core-font path.
+
+The 2026-08-09 optimized WASI artifact is 4,552,875 raw bytes and 1,557,487
+bytes with `gzip -9`. This is a current-tree baseline only: a same-environment
+`5105e89` comparison, Brotli size, and cold module/compile latency remain open,
+so these numbers do not yet prove the dependency has acceptable cost.
+
+`P0.3a` does not close the umbrella `P0.3` phase. Unresolved bold/style faces
+remain honestly counted CSS fallbacks, and broader visual/differential,
+accessibility, and cost evidence remains below.
 
 Remaining P0.3 work:
 
-- expose bundled glyph outlines as a browser artifact and draw positioned SVG
-  paths instead of CSS-shaped text;
-- make native/WASI display-list parity a gate before removing the diagnosed CSS
-  fallback;
+- close `P0.3a` with broader workspace/component-diff evidence, an actual WASI
+  PDF embedded-font assertion, and a recorded optimized WASM size/startup
+  baseline;
+- preserve accessible naming and source navigation for path-backed logical text;
+  decide copy/find sidecar requirements separately without letting host text
+  determine geometry;
+- make native/WASI display-list parity a gate before removing each remaining
+  diagnosed CSS fallback;
 - add formula, table, image, link, and multi-page visual regression fixtures.
 
 ## P1: Font And Metric Substrate
@@ -433,6 +452,11 @@ pub trait FontResolver {
 
 Virtual-font and encoding lookups remain planned extensions; they are not
 represented by placeholder methods in the current API.
+
+This is a partial P1 substrate, not the P1 exit. Current `TfmMetrics` retains
+widths, lig/kern programs, kerns, and space. Full height, depth, italic
+correction, extensible recipes, TeX math parameters, encoding behavior, and VF
+support remain required before authoritative TeX math layout.
 
 Implement:
 

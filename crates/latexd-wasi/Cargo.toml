@@ -9,6 +9,7 @@ camino.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tex-layout = { path = "../tex-layout" }
+tex-fonts = { path = "../tex-fonts" }
 tex-pdf = { path = "../tex-pdf" }
 tex-render-model = { path = "../tex-render-model" }
 tex-tokens = { path = "../tex-tokens" }

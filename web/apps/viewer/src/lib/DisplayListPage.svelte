@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    BrowserFontAsset,
     BrowserFontFamily,
     BrowserPageDisplayList,
     BrowserSourceProvenance
@@ -7,6 +8,7 @@
   import {
     browserDestinationId,
     browserLinkHref,
+    browserPositionedGlyphOutlines,
     prepareDisplayListOps
   } from "./display-list-renderer";
   import { browserSourceKey } from "./display-list-source";
@@ -15,6 +17,7 @@
     page,
     pageNumber,
     assetUrls = {},
+    fonts = [],
     zoom = 1,
     activeSourceKey = null,
     onSourceHover,
@@ -23,6 +26,7 @@
     page: BrowserPageDisplayList;
     pageNumber: number;
     assetUrls?: Record<string, string>;
+    fonts?: BrowserFontAsset[];
     zoom?: number;
     activeSourceKey?: string | null;
     onSourceHover?: (source: BrowserSourceProvenance | null) => void;
@@ -111,6 +115,7 @@
       {@const clipPath = entry.clip_rect ? `url(#${clipId(index)})` : undefined}
       {#if op.kind === "text_run"}
         {@const sourceKey = browserSourceKey(op.source)}
+        {@const positionedOutlines = browserPositionedGlyphOutlines(op, fonts)}
         <a
           href={sourceKey ? `#source-${encodeURIComponent(sourceKey)}` : undefined}
           aria-label={sourceKey ? `Select source for ${op.text}` : undefined}
@@ -118,24 +123,49 @@
           onpointerleave={() => onSourceHover?.(null)}
           onclick={(event) => selectSource(event, op.source, sourceKey)}
         >
-          <text
-            x={op.origin.x}
-            y={op.origin.y}
-            font-family={fontFamily(op.font.family)}
-            font-size={op.size_pt}
-            font-weight={op.font.series === "bold" ? 700 : 400}
-            font-style={op.font.shape === "italic" ? "italic" : "normal"}
-            clip-path={clipPath}
-            data-text-rendering="css-fallback"
-            data-resolved-font-face={op.resolved_font?.face_id}
-            data-font-content-hash={op.resolved_font?.content_hash}
-            data-positioned-glyph-count={op.glyphs?.length}
-            data-source-kind={op.source?.primary?.kind ?? "unknown"}
-            data-source-key={sourceKey}
-            class:display-list-source-linked={sourceKey !== null}
-            class:display-list-source-active={sourceKey === activeSourceKey}
-            xml:space="preserve"
-          >{op.text}</text>
+          {#if positionedOutlines !== null}
+            <g
+              role="img"
+              aria-label={op.text}
+              clip-path={clipPath}
+              fill="currentColor"
+              data-text-content={op.text}
+              data-text-rendering="positioned-outline"
+              data-resolved-font-face={op.resolved_font?.face_id}
+              data-font-content-hash={op.resolved_font?.content_hash}
+              data-positioned-glyph-count={op.glyphs?.length}
+              data-source-kind={op.source?.primary?.kind ?? "unknown"}
+              data-source-key={sourceKey}
+              class:display-list-source-linked={sourceKey !== null}
+              class:display-list-source-active={sourceKey === activeSourceKey}
+            >
+              <title>{op.text}</title>
+              {#each positionedOutlines as outline}
+                {#if outline.path}
+                  <path d={outline.path} transform={outline.transform} />
+                {/if}
+              {/each}
+            </g>
+          {:else}
+            <text
+              x={op.origin.x}
+              y={op.origin.y}
+              font-family={fontFamily(op.font.family)}
+              font-size={op.size_pt}
+              font-weight={op.font.series === "bold" ? 700 : 400}
+              font-style={op.font.shape === "italic" ? "italic" : "normal"}
+              clip-path={clipPath}
+              data-text-rendering="css-fallback"
+              data-resolved-font-face={op.resolved_font?.face_id}
+              data-font-content-hash={op.resolved_font?.content_hash}
+              data-positioned-glyph-count={op.glyphs?.length}
+              data-source-kind={op.source?.primary?.kind ?? "unknown"}
+              data-source-key={sourceKey}
+              class:display-list-source-linked={sourceKey !== null}
+              class:display-list-source-active={sourceKey === activeSourceKey}
+              xml:space="preserve"
+            >{op.text}</text>
+          {/if}
         </a>
       {:else if op.kind === "rule"}
         <rect

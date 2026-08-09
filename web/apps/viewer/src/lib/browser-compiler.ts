@@ -16,6 +16,7 @@ import {
 
 export type {
   BrowserBuildMetadata,
+  BrowserFontAsset,
   BrowserPageDisplayList,
   BrowserPagesArtifact
 } from "./browser-artifacts";

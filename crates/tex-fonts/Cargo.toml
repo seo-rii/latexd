@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 blake3.workspace = true
+hayro-font.workspace = true
 tex-render-model = { path = "../tex-render-model" }
 
 [dev-dependencies]

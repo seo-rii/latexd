@@ -11,6 +11,7 @@
     compileInBrowser,
     compileProjectInBrowser,
     type BrowserBuildMetadata,
+    type BrowserFontAsset,
     type BrowserPageDisplayList
   } from "$lib/browser-compiler";
   import {
@@ -18,6 +19,7 @@
     revokeBrowserAssetUrls
   } from "$lib/browser-assets";
   import type { BrowserSourceProvenance } from "$lib/browser-artifacts";
+  import { countBrowserTextFallbacks } from "$lib/display-list-renderer";
   import {
     resolveBrowserSourceSelection,
     type BrowserSourceSelection
@@ -59,6 +61,7 @@
   const browserOnly = import.meta.env.VITE_LATEXD_BROWSER_ONLY === "true";
   let browserMode = $state(browserOnly);
   let browserPages = $state.raw<BrowserPageDisplayList[]>([]);
+  let browserFonts = $state.raw<BrowserFontAsset[]>([]);
   let browserBuildMetadata = $state.raw<BrowserBuildMetadata | null>(null);
   let browserPreviewMode = $state<"display_list" | "pdf">("display_list");
   let browserZoomPercent = $state(100);
@@ -77,10 +80,7 @@
     browserHoveredSource?.key ?? browserSelectedSourceKey
   );
   const browserTextFallbackCount = $derived(
-    browserPages.reduce(
-      (count, page) => count + page.ops.filter((op) => op.kind === "text_run").length,
-      0
-    )
+    countBrowserTextFallbacks(browserPages, browserFonts)
   );
 
   const browserStarterSource = `\\documentclass{article}
@@ -234,6 +234,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
         [activeFile || "main.tex"]: source
       };
       browserPages = result.page_artifact.pages;
+      browserFonts = result.page_artifact.fonts;
       browserBuildMetadata = result.build_metadata;
       browserDiagnostics = [...result.diagnostics, ...nextAssets.diagnostics];
       browserEventCount = result.event_count;
@@ -949,6 +950,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
                   page={page}
                   pageNumber={index + 1}
                   assetUrls={browserAssetUrls}
+                  fonts={browserFonts}
                   zoom={browserZoomPercent / 100}
                   activeSourceKey={browserActiveSourceKey}
                   onSourceHover={handleBrowserSourceHover}
