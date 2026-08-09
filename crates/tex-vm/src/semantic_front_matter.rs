@@ -156,15 +156,13 @@ impl Vm<'_> {
             let mut protected_definitions = Vec::new();
             if field == MetadataField::Author {
                 for command_name in ["and", "thanks"] {
-                    let Some(scope_index) = self
-                        .scopes
-                        .iter()
-                        .rposition(|scope| scope.contains_key(command_name))
+                    let Some(scope_index) =
+                        self.control_sequences.visible_layer_index(command_name)
                     else {
                         continue;
                     };
                     let Some(Meaning::Macro(definition)) =
-                        self.scopes[scope_index].get_mut(command_name)
+                        self.control_sequences.get_mut_at(scope_index, command_name)
                     else {
                         continue;
                     };
@@ -178,8 +176,11 @@ impl Vm<'_> {
             }
             let expanded = self.fully_expand_tokens(segment_tokens);
             for (scope_index, command_name, definition) in protected_definitions {
-                self.scopes[scope_index]
-                    .insert(command_name.to_string(), Meaning::Macro(definition));
+                self.control_sequences.insert_at(
+                    scope_index,
+                    command_name.to_string(),
+                    Meaning::Macro(definition),
+                );
             }
             let (expanded_source, _) = tokens_to_source(&expanded, self.interner);
             let expanded_ranges = if field == MetadataField::Author {

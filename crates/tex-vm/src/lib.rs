@@ -24,6 +24,7 @@ use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::{normalize_relative_path, read_tex_source_lossy};
 
 mod command;
+mod control_sequence_scopes;
 mod diagnostic;
 mod eqtb;
 mod input;
@@ -52,6 +53,7 @@ use command::{
     MacroFlags, MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand,
     Primitive, ReferenceCommand, TextScriptCommand, TextSymbolCommand,
 };
+use control_sequence_scopes::ControlSequenceScopes;
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, Eqtb};
 use input::{
@@ -1106,7 +1108,7 @@ enum MacroArgumentError {
 #[derive(Debug)]
 pub struct Vm<'i> {
     interner: &'i mut ControlSequenceInterner,
-    scopes: Vec<HashMap<String, Meaning>>,
+    control_sequences: ControlSequenceScopes<Meaning>,
     eqtb: Eqtb,
     save_stack: SaveStack,
     conditionals: Vec<ConditionalState>,
@@ -1192,7 +1194,7 @@ impl<'i> Vm<'i> {
     pub fn new(interner: &'i mut ControlSequenceInterner) -> Self {
         let mut vm = Self {
             interner,
-            scopes: vec![HashMap::new()],
+            control_sequences: ControlSequenceScopes::new(),
             eqtb: Eqtb::default(),
             save_stack: SaveStack::default(),
             conditionals: Vec::new(),
@@ -16254,7 +16256,8 @@ impl<'i> Vm<'i> {
             module_traces: self.module_traces.clone(),
             module_boundaries: self.module_boundaries.clone(),
             scopes: self
-                .scopes
+                .control_sequences
+                .layers()
                 .iter()
                 .map(|scope| {
                     scope
@@ -16372,7 +16375,7 @@ impl<'i> Vm<'i> {
 
     fn continuation_safety(&self, input_continuation_captured: bool) -> VmContinuationSafety {
         let mut blockers = Vec::new();
-        if self.scopes.len() != 1 || self.aftergroup_tokens.len() != 1 {
+        if self.control_sequences.depth() != 1 || self.aftergroup_tokens.len() != 1 {
             blockers.push(VmContinuationBlocker::OpenGroup);
         }
         if !self.conditionals.is_empty() {
@@ -16393,16 +16396,18 @@ impl<'i> Vm<'i> {
     pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
         let mut vm = Self::new(interner);
         vm.jobname_source_path = snapshot.jobname_source_path.clone();
-        vm.scopes = snapshot
-            .scopes
-            .iter()
-            .map(|scope| {
-                scope
-                    .iter()
-                    .map(|(name, meaning)| (name.clone(), vm.snapshot_to_meaning(meaning)))
-                    .collect()
-            })
-            .collect();
+        vm.control_sequences = ControlSequenceScopes::from_layers(
+            snapshot
+                .scopes
+                .iter()
+                .map(|scope| {
+                    scope
+                        .iter()
+                        .map(|(name, meaning)| (name.clone(), vm.snapshot_to_meaning(meaning)))
+                        .collect()
+                })
+                .collect(),
+        );
         let token_registers = snapshot
             .token_registers
             .iter()
@@ -16451,10 +16456,11 @@ impl<'i> Vm<'i> {
                     .collect()
             })
             .collect();
-        if vm.aftergroup_tokens.len() < vm.scopes.len() {
-            vm.aftergroup_tokens.resize(vm.scopes.len(), Vec::new());
-        } else if vm.aftergroup_tokens.len() > vm.scopes.len() {
-            vm.aftergroup_tokens.truncate(vm.scopes.len());
+        if vm.aftergroup_tokens.len() < vm.control_sequences.depth() {
+            vm.aftergroup_tokens
+                .resize(vm.control_sequences.depth(), Vec::new());
+        } else if vm.aftergroup_tokens.len() > vm.control_sequences.depth() {
+            vm.aftergroup_tokens.truncate(vm.control_sequences.depth());
         }
         vm.after_assignment_token = snapshot
             .after_assignment_token
@@ -16767,7 +16773,7 @@ impl<'i> Vm<'i> {
     }
 
     fn begin_group(&mut self, queue: &mut VecDeque<QueueItem>) {
-        if self.scopes.len() >= MAX_GROUP_DEPTH {
+        if self.control_sequences.depth() >= MAX_GROUP_DEPTH {
             self.diagnostics.push(VmDiagnostic {
                 kind: VmDiagnosticKind::ExplicitError,
                 detail: format!(
@@ -16778,7 +16784,7 @@ impl<'i> Vm<'i> {
             self.at_end_document_hooks.clear();
             return;
         }
-        self.scopes.push(HashMap::new());
+        self.control_sequences.begin_group();
         self.save_stack.begin_group();
         self.aftergroup_tokens.push(Vec::new());
     }
@@ -16801,11 +16807,11 @@ impl<'i> Vm<'i> {
                 match catcode {
                     CatCode::BeginGroup => self.begin_group(queue),
                     CatCode::EndGroup => {
-                        if self.scopes.len() > 1 {
-                            let group_level = self.scopes.len() - 1;
+                        if self.control_sequences.depth() > 1 {
+                            let group_level = self.control_sequences.depth() - 1;
                             self.eqtb.end_group(&mut self.save_stack);
                             self.restore_source_catcode_overrides(group_level);
-                            self.scopes.pop();
+                            self.control_sequences.end_group();
                             if let Some(tokens) = self.aftergroup_tokens.pop() {
                                 for token in tokens.into_iter().rev() {
                                     self.push_token_front(queue, token);
@@ -16813,7 +16819,7 @@ impl<'i> Vm<'i> {
                             }
                         }
                         if self.legacy_math_text_wrapper_restore_scope_depth
-                            == Some(self.scopes.len())
+                            == Some(self.control_sequences.depth())
                         {
                             self.legacy_math_text_wrapper_restore_scope_depth = None;
                             self.legacy_math_output_active = true;
@@ -16823,7 +16829,7 @@ impl<'i> Vm<'i> {
                         while self
                             .legacy_math_script_boundary_scope_depths
                             .last()
-                            .is_some_and(|depth| *depth == self.scopes.len())
+                            .is_some_and(|depth| *depth == self.control_sequences.depth())
                         {
                             self.legacy_math_script_boundary_scope_depths.pop();
                             self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
@@ -16865,7 +16871,7 @@ impl<'i> Vm<'i> {
                                 Token::character('}', CatCode::EndGroup, 0, 0),
                             );
                             self.legacy_math_script_boundary_scope_depths
-                                .push(self.scopes.len());
+                                .push(self.control_sequences.depth());
                             for token in argument.into_iter().rev() {
                                 self.push_token_front(queue, token);
                             }
@@ -17964,11 +17970,11 @@ impl<'i> Vm<'i> {
             }
             Primitive::BeginGroupCommand => self.begin_group(queue),
             Primitive::EndGroupCommand => {
-                if self.scopes.len() > 1 {
-                    let group_level = self.scopes.len() - 1;
+                if self.control_sequences.depth() > 1 {
+                    let group_level = self.control_sequences.depth() - 1;
                     self.eqtb.end_group(&mut self.save_stack);
                     self.restore_source_catcode_overrides(group_level);
-                    self.scopes.pop();
+                    self.control_sequences.end_group();
                     if let Some(tokens) = self.aftergroup_tokens.pop() {
                         for token in tokens.into_iter().rev() {
                             self.push_token_front(queue, token);
@@ -17980,7 +17986,7 @@ impl<'i> Vm<'i> {
                 let Some(token) = self.pop_next_token(queue) else {
                     return;
                 };
-                if self.scopes.len() > 1 {
+                if self.control_sequences.depth() > 1 {
                     if let Some(tokens) = self.aftergroup_tokens.last_mut() {
                         tokens.push(token);
                     }
@@ -18317,7 +18323,8 @@ impl<'i> Vm<'i> {
                             queue,
                             Token::character('}', CatCode::EndGroup, 0, 0),
                         );
-                        self.legacy_math_text_wrapper_restore_scope_depth = Some(self.scopes.len());
+                        self.legacy_math_text_wrapper_restore_scope_depth =
+                            Some(self.control_sequences.depth());
                         self.legacy_math_output_active = false;
                         self.legacy_math_pending_word_boundary = false;
                     }
@@ -19127,10 +19134,10 @@ impl<'i> Vm<'i> {
                     '@',
                     catcode,
                     assignment_scope,
-                    self.scopes.len().saturating_sub(1),
+                    self.control_sequences.depth().saturating_sub(1),
                     &mut self.save_stack,
                 );
-                let group_level = self.scopes.len().saturating_sub(1);
+                let group_level = self.control_sequences.depth().saturating_sub(1);
                 for frame in self.source_stack.iter_mut().rev() {
                     if assignment_scope == AssignmentScope::Global || group_level == 0 {
                         frame.catcode_overrides.remove(&'@');
@@ -19302,10 +19309,10 @@ impl<'i> Vm<'i> {
                     ch,
                     catcode,
                     assignment_scope,
-                    self.scopes.len().saturating_sub(1),
+                    self.control_sequences.depth().saturating_sub(1),
                     &mut self.save_stack,
                 );
-                let group_level = self.scopes.len().saturating_sub(1);
+                let group_level = self.control_sequences.depth().saturating_sub(1);
                 for frame in self.source_stack.iter_mut().rev() {
                     if assignment_scope == AssignmentScope::Global || group_level == 0 {
                         frame.catcode_overrides.remove(&ch);
@@ -20050,7 +20057,7 @@ impl<'i> Vm<'i> {
                 } else {
                     AssignmentScope::Global
                 };
-                let group_level = self.scopes.len().saturating_sub(1);
+                let group_level = self.control_sequences.depth().saturating_sub(1);
                 let Some(counter_name_tokens) = self.read_macro_argument(queue) else {
                     return;
                 };
@@ -20194,7 +20201,7 @@ impl<'i> Vm<'i> {
                     register_index,
                     next,
                     assignment_scope,
-                    self.scopes.len().saturating_sub(1),
+                    self.control_sequences.depth().saturating_sub(1),
                     &mut self.save_stack,
                 );
             }
@@ -21134,18 +21141,16 @@ impl<'i> Vm<'i> {
                 body.push(Token::character('{', CatCode::BeginGroup, 0, 0));
                 body.extend(item);
                 body.push(Token::character('}', CatCode::EndGroup, 0, 0));
-                if let Some(scope) = self.scopes.first_mut() {
-                    scope.insert(
-                        target,
-                        Meaning::Macro(MacroDefinition {
-                            flags: MacroFlags::default(),
-                            parameter_text: Vec::new(),
-                            parameter_count: 0,
-                            optional_first_argument_default: None,
-                            body,
-                        }),
-                    );
-                }
+                self.control_sequences.insert_root(
+                    target,
+                    Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
+                        parameter_text: Vec::new(),
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                );
             }
             Primitive::RemoveElement => {
                 let Some(needle) = self.read_macro_argument(queue) else {
@@ -21915,9 +21920,7 @@ impl<'i> Vm<'i> {
                         body: argument,
                     }),
                 };
-                if let Some(scope) = self.scopes.first_mut() {
-                    scope.insert(target, meaning);
-                }
+                self.control_sequences.insert_root(target, meaning);
             }
             Primitive::NameDef => {
                 let force_global = mem::take(&mut self.global_prefix);
@@ -22022,7 +22025,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript.push(format!("count{index}+={delta}"));
@@ -22083,7 +22086,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript
@@ -22145,7 +22148,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript
@@ -22218,7 +22221,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript.push(match primitive {
@@ -22293,7 +22296,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript.push(match primitive {
@@ -22368,7 +22371,7 @@ impl<'i> Vm<'i> {
                         index,
                         next,
                         assignment_scope,
-                        self.scopes.len().saturating_sub(1),
+                        self.control_sequences.depth().saturating_sub(1),
                         &mut self.save_stack,
                     );
                     self.transcript.push(match primitive {
@@ -22484,7 +22487,7 @@ impl<'i> Vm<'i> {
                             index,
                             value,
                             assignment_scope,
-                            self.scopes.len().saturating_sub(1),
+                            self.control_sequences.depth().saturating_sub(1),
                             &mut self.save_stack,
                         );
                         self.transcript.push(format!("count{index}={value}"));
@@ -22523,7 +22526,7 @@ impl<'i> Vm<'i> {
                             index,
                             value,
                             assignment_scope,
-                            self.scopes.len().saturating_sub(1),
+                            self.control_sequences.depth().saturating_sub(1),
                             &mut self.save_stack,
                         );
                         self.transcript
@@ -22563,7 +22566,7 @@ impl<'i> Vm<'i> {
                             index,
                             value,
                             assignment_scope,
-                            self.scopes.len().saturating_sub(1),
+                            self.control_sequences.depth().saturating_sub(1),
                             &mut self.save_stack,
                         );
                         self.transcript
@@ -22615,7 +22618,7 @@ impl<'i> Vm<'i> {
                     index,
                     value,
                     assignment_scope,
-                    self.scopes.len().saturating_sub(1),
+                    self.control_sequences.depth().saturating_sub(1),
                     &mut self.save_stack,
                 );
                 self.transcript.push(format!("toks{index}=..."));
@@ -25388,7 +25391,7 @@ impl<'i> Vm<'i> {
                     .last()
                     .and_then(|frame| frame.global_definition_base_scope)
             } else {
-                Some(self.scopes.len())
+                Some(self.control_sequences.depth())
             },
             module_kind: match label {
                 "package" => Some(ActiveModuleKind::Package),
@@ -25571,15 +25574,11 @@ impl<'i> Vm<'i> {
     fn define(&mut self, name: String, meaning: Meaning, force_global: bool) {
         match self.current_globaldefs_value().cmp(&0) {
             std::cmp::Ordering::Greater => {
-                if let Some(scope) = self.scopes.first_mut() {
-                    scope.insert(name, meaning);
-                }
+                self.control_sequences.insert_root(name, meaning);
                 return;
             }
             std::cmp::Ordering::Less => {
-                if let Some(scope) = self.scopes.last_mut() {
-                    scope.insert(name, meaning);
-                }
+                self.control_sequences.insert_current(name, meaning);
                 return;
             }
             std::cmp::Ordering::Equal => {}
@@ -25589,24 +25588,16 @@ impl<'i> Vm<'i> {
                 .source_stack
                 .last()
                 .and_then(|frame| frame.global_definition_base_scope)
-                .is_some_and(|depth| self.scopes.len() == depth)
+                .is_some_and(|depth| self.control_sequences.depth() == depth)
         {
-            if let Some(scope) = self.scopes.first_mut() {
-                scope.insert(name, meaning);
-                return;
-            }
+            self.control_sequences.insert_root(name, meaning);
+            return;
         }
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, meaning);
-        }
+        self.control_sequences.insert_current(name, meaning);
     }
 
     fn lookup_meaning(&self, name: &str) -> Option<Meaning> {
-        self.scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name))
-            .cloned()
+        self.control_sequences.get_visible(name).cloned()
     }
 }
 
