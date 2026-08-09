@@ -3,7 +3,7 @@ use std::{collections::HashSet, mem};
 use camino::Utf8PathBuf;
 use tex_render_model::{
     EventSequence, ListItemEvent, ListKind, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
-    SourceProvenance, SourceSpan,
+    SemanticConfidence, SourceProvenance, SourceSpan,
 };
 
 use crate::{Vm, snapshot::VmSemanticListSnapshot};
@@ -82,12 +82,13 @@ impl Vm<'_> {
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::ListItem(ListItemEvent { marker }),
             source,
+            producer,
+            SemanticConfidence::High,
         );
-        envelope.meta.producer = producer;
         self.semantic_list.executed_items.push(envelope);
     }
 
