@@ -15,7 +15,7 @@
 ## Status Snapshot
 
 - 기준 시점: `2026-08-10`
-- 기준 commit: `8cbea9d` (`feat(web): gate WASI artifact cost`)
+- 기준 commit: `610ee27` (`fix(vm): suppress tables in runtime-false branches`)
 - `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
   verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
   예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
@@ -194,9 +194,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - migrated family는 primitive/macro 실행 event로 scanner 결과를
   reconciliation한다.
 - serialized `event_id`는 build-local `sequence`로 전환됐다.
+- lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
+  scanner/fallback event도 executed suppression range로 제거한다.
 - phase exit는 열려 있다. 기본 `RenderEventEnvelope::new()`가 대부분의
-  event를 아직 `Command`/high confidence로 자동 분류하고, final bounded
-  `ExecutedSourceSlice` recovery boundary와 known leakage 제거가 남아 있다.
+  event를 아직 `Command`/high confidence로 자동 분류하고, explicit producer
+  constructor, `ExecutedSourceSlice` interface, revision/dependency metadata,
+  shared diagnostic schema와 남은 family leakage characterization이 없다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
@@ -205,15 +208,20 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - whole-source scanner는 미이전 event family의 명시적 low-confidence
   compatibility bridge와 debug differential로만 동결하고 새 기능을
   추가하지 않는다.
-- M13.6에서 family별로 bridge를 제거하며, 최종 복구 scanner는 VM이
-  실제 실행한 bounded source slice에만 호출한다.
+- M13.2에서 VM이 실제 실행한 범위를 표현하는 bounded
+  `ExecutedSourceSlice` interface를 먼저 고정한다. M13.6에서 family별
+  whole-source bridge를 제거하고 이 interface를 유일한 production recovery
+  경로로 만든다.
 - mouth/expansion/execution/lowering/checkpoint/layout/rendering이 공유하는
   code/severity/provenance/recovery/phase diagnostic schema를 추가한다.
 
 완료 조건:
-- false conditional leakage는 해당 family 이전 전까지 known failing
-  characterization으로 드러나며 high-confidence output으로 숨기지 않는다.
+- false conditional leakage는 family별 suppression test로 제거하거나 이전
+  전까지 known failing characterization으로 드러내며 high-confidence
+  output으로 숨기지 않는다.
 - scanner recovery event는 medium/low confidence로 식별된다.
+- 모든 non-fallback event 생성 경로가 producer/confidence를 명시하고
+  `ExecutedSourceSlice` 경계가 file/revision/span/command/expansion을 가진다.
 - sequence를 revision-stable identity로 사용하지 않는다.
 - `StableEventId`는 M13.4의 token/expansion origin 이전에는 만들지 않는다.
 

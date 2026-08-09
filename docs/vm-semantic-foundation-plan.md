@@ -134,13 +134,13 @@ incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
 
-### Current State Matrix (2026-08-09)
+### Current State Matrix (2026-08-10)
 
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, and explicit scanner recovery exist | open | the default envelope still assigns `Command`/high confidence broadly; bounded `ExecutedSourceSlice` recovery and remaining leakage closure are absent |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | the default envelope still assigns `Command`/high confidence broadly; the producer taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices | open | control-sequence meanings remain in `Vm.scopes`; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -332,6 +332,12 @@ The VM creates this slice only after reaching the construct through normal
 execution. The scanner may recover a bounded command, argument, environment,
 or math region from that slice.
 
+V2 establishes this interface and the metadata/constructor contract. It does
+not require every family to leave the legacy bridge in the same batch. V6 owns
+the family-by-family migration, removal of the authoritative whole-source
+production stream, and making `ExecutedSourceSlice` the sole production
+recovery input.
+
 During V2-V6 migration, the old whole-source scanner may temporarily remain:
 
 - in debug artifacts;
@@ -342,9 +348,11 @@ During V2-V6 migration, the old whole-source scanner may temporarily remain:
 No new production feature is added to that whole-source path. Each V6 vertical
 slice removes one event family from the legacy bridge. The bounded
 `ExecutedSourceSlice` interface is the only remaining production recovery path
-at final V6 exit. Known false-conditional leakage remains an explicit failing
-characterization until the corresponding family migrates; it must not be
-hidden by a high-confidence event.
+at final V6 exit. False-conditional leakage must be removed by family-specific
+suppression tests or remain an explicit failing characterization until the
+corresponding family migrates; it must not be hidden by a high-confidence
+event. Table recovery now covers both lexical and runtime-false conditional
+branches in `crates/tex-vm/tests/semantic_table.rs`.
 
 ### Event Sequence
 
@@ -367,12 +375,31 @@ cannot be defined correctly until V4 supplies file-aware token origins and
 interned expansion records. Footnote or node identity must stop depending on
 the next event sequence before replay reuse is enabled.
 
+### V2 Evidence Matrix (2026-08-10)
+
+| Contract | Current evidence | State | Remaining gate |
+| --- | --- | --- | --- |
+| build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
+| scanner producer/confidence | `from_scanner_recovery()` assigns `ScannerRecovery`/medium and has a focused model test | green | preserve this on every bounded recovery path |
+| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro` | partial | remove the broad default constructor path |
+| explicit constructor contract | `RenderEventEnvelope::new()` still assigns `Command`/high to every ordinary event | red | require producer/confidence through explicit constructors or `EventMeta` |
+| producer taxonomy | implementation has `Command`; the target contract names `CompatCommand`, while `Shim` and `BblParser` lack audited production assignments | red | settle names and audit all production assignment sites |
+| false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
+| bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
+| revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
+| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages | missing | define the shared schema and adapters |
+| sequence-independent semantic identity | several reconciliation paths preserve sequence; the full dependent-ID audit is incomplete | partial | remove semantic identity dependence before replay reuse |
+| `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
+
 Exit criteria:
 
 - scanner events are visibly distinguishable in JSON/debug artifacts;
 - no default constructor overstates producer or confidence;
-- known false-conditional leakage is exposed as a low-confidence legacy
-  recovery failure until its event family migrates;
+- every known recovery family has a suppression regression or an explicit
+  low-confidence expected failure for false-conditional leakage;
+- the bounded `ExecutedSourceSlice` interface carries file, revision, span,
+  command, and expansion identity; whole-source production retirement remains
+  a V6 exit condition;
 - the current `event_id` contract is migrated/versioned as build-local
   `sequence`;
 - no code treats sequence as a revision-stable identity.
