@@ -32,15 +32,27 @@ pub struct RenderEventEnvelope {
 }
 
 impl RenderEventEnvelope {
-    pub fn new(sequence: EventSequence, event: RenderEvent, mut source: SourceProvenance) -> Self {
+    /// Creates an envelope using the legacy metadata defaults for the event kind.
+    pub fn new(sequence: EventSequence, event: RenderEvent, source: SourceProvenance) -> Self {
         let (confidence, producer) = match &event {
-            RenderEvent::RawFallback(_) => {
-                source = source.with_generated_by(GeneratedBy::Fallback);
-                (SemanticConfidence::Fallback, EventProducer::Fallback)
-            }
+            RenderEvent::RawFallback(_) => (SemanticConfidence::Fallback, EventProducer::Fallback),
             RenderEvent::Diagnostic(_) => (SemanticConfidence::Low, EventProducer::Unknown),
             _ => (SemanticConfidence::High, EventProducer::Command),
         };
+        Self::with_origin(sequence, event, source, producer, confidence)
+    }
+
+    /// Creates an envelope with producer and confidence declared at the emission boundary.
+    pub fn with_origin(
+        sequence: EventSequence,
+        event: RenderEvent,
+        mut source: SourceProvenance,
+        producer: EventProducer,
+        confidence: SemanticConfidence,
+    ) -> Self {
+        if matches!(event, RenderEvent::RawFallback(_)) {
+            source = source.with_generated_by(GeneratedBy::Fallback);
+        }
         let mode_hint = event.default_mode_hint();
         Self {
             event,
@@ -1089,6 +1101,24 @@ mod tests {
 
         assert_eq!(envelope.meta.producer, EventProducer::Unknown);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
+        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
+    }
+
+    #[test]
+    fn explicit_origin_constructor_uses_declared_producer_and_confidence() {
+        let envelope = RenderEventEnvelope::with_origin(
+            1,
+            RenderEvent::Text(TextEvent {
+                text: "Expanded".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 8),
+            EventProducer::Macro,
+            SemanticConfidence::Medium,
+        );
+
+        assert_eq!(envelope.meta.producer, EventProducer::Macro);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Medium);
+        assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
     }
 
