@@ -6,7 +6,7 @@ use std::{
 use camino::Utf8PathBuf;
 use tex_render_model::{
     BeginBlockEvent, BlockKind, EndBlockEvent, EventProducer, EventSequence, ProvenanceSpan,
-    RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
+    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan,
 };
 use tex_tokens::TokenKind;
 
@@ -192,8 +192,13 @@ impl Vm<'_> {
             RenderEvent::EndBlock(EndBlockEvent { block })
         };
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
-        envelope.meta.producer = producer;
+        let envelope = RenderEventEnvelope::with_origin(
+            event_id,
+            event,
+            source,
+            producer,
+            SemanticConfidence::High,
+        );
         self.semantic_environment.executed_events.push(envelope);
     }
 
