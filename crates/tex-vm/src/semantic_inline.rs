@@ -7,7 +7,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
     CaptionInlinePlaceholderEvent, EventProducer, EventSequence, InlineCitationEvent,
     InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
+    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -362,12 +362,13 @@ impl Vm<'_> {
             style_hint: citation_style_hint_for_command(&command),
             command,
         };
-        let mut envelope = RenderEventEnvelope::new(
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::InlineCitation(citation.clone()),
             source,
+            producer,
+            SemanticConfidence::High,
         );
-        envelope.meta.producer = producer;
         self.semantic_inline.executed_citations.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -388,12 +389,13 @@ impl Vm<'_> {
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
         let event_id = self.render_events.allocate_event_sequence();
         let reference = InlineReferenceEvent { keys, command };
-        let mut envelope = RenderEventEnvelope::new(
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::InlineReference(reference.clone()),
             source,
+            producer,
+            SemanticConfidence::High,
         );
-        envelope.meta.producer = producer;
         self.semantic_inline.executed_references.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -448,12 +450,13 @@ impl Vm<'_> {
         source = source.with_related(SourceSpanRole::Invocation, invocation_span);
 
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::LabelDefinition(LabelDefinitionEvent { key, command }),
             source,
+            producer,
+            SemanticConfidence::High,
         );
-        envelope.meta.producer = producer;
         self.semantic_inline.executed_labels.push(envelope);
     }
 
@@ -578,7 +581,7 @@ impl Vm<'_> {
         self.executed_math_events.truncate(capture.math_event_mark);
 
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::InlineLink(InlineLinkEvent {
                 target: capture.target,
@@ -586,8 +589,9 @@ impl Vm<'_> {
                 command: capture.command,
             }),
             capture.source,
+            capture.producer,
+            SemanticConfidence::High,
         );
-        envelope.meta.producer = capture.producer;
         self.semantic_inline.executed_links.push(envelope);
         self.mark_executed_inline_content();
         true
