@@ -199,8 +199,8 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - serialized `event_id`는 build-local `sequence`로 전환됐다.
 - `RenderEventEnvelope::with_origin()`이 producer/confidence를 생성 시점에
   필수로 받는다. executed list item, environment begin/end, inline
-  citation/reference/label/link 경로가 이 API로 이전됐다 (`525607a`,
-  `43ba5de`, `e6bb5a3`, `51aef83`).
+  citation/reference/label/link, loss-aware caption 경로가 이 API로 이전됐다
+  (`525607a`, `43ba5de`, `e6bb5a3`, `51aef83`, `7229c69`).
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
