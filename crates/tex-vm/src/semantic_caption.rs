@@ -236,7 +236,12 @@ impl Vm<'_> {
 
         let event_id = self.render_events.allocate_event_sequence();
         let lossy = capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
-        let mut envelope = RenderEventEnvelope::new(
+        let (producer, confidence) = if lossy {
+            (EventProducer::Fallback, SemanticConfidence::Low)
+        } else {
+            (capture.producer, SemanticConfidence::High)
+        };
+        let envelope = RenderEventEnvelope::with_origin(
             event_id,
             RenderEvent::Caption(CaptionEvent {
                 text,
@@ -245,13 +250,9 @@ impl Vm<'_> {
                 inline_placeholders,
             }),
             capture.source,
+            producer,
+            confidence,
         );
-        if lossy {
-            envelope.meta.producer = EventProducer::Fallback;
-            envelope.meta.confidence = SemanticConfidence::Low;
-        } else {
-            envelope.meta.producer = capture.producer;
-        }
         self.semantic_caption.executed_events.push(envelope);
         true
     }
