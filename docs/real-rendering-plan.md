@@ -189,11 +189,14 @@ same path, as are `\setkeys{Gin}{...}` graphic defaults. These placeholders
 preserve the image box without embedding the bitmap/vector asset. Missing
 graphic assets now produce render-event diagnostics when the capture has enough
 project or mounted-file context to know the asset is absent, while preserving
-the image placeholder, and those diagnostics now
-annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
-`data-image-*` attributes. Existing but unconvertible PDF/EPS assets surface as
-unsupported-image placeholders, while resolved PDF/EPS assets can be converted
-to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
+the image placeholder. Those diagnostics annotate `PageDisplayList::Image`,
+debug PDF placeholder text, and SVG debug `data-image-*` attributes. The
+internal compiler also projects the missing-graphic family into deduplicated
+non-fatal HMR warnings with the primary source file, so daemon/viewer consumers
+see the same failure (`ab589f7`). Existing but unconvertible PDF/EPS assets
+surface as unsupported-image placeholders, while resolved PDF/EPS assets can
+be converted to PNG for debug display-list PDF/SVG artifacts through
+Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, and simple
 relative PNG/JPEG `href` / `xlink:href` references inside those SVG assets are
