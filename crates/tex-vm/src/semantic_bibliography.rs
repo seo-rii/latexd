@@ -5,12 +5,13 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    BibliographyItemEvent, EventProducer, EventSequence, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
+    BibliographyItemEvent, EventBuildContext, EventOrigin, EventProducer, EventSequence,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 
 use crate::{
     Vm,
+    semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{
         VmActiveBibliographyCaptureSnapshot, VmBibliographyNestedSemanticSnapshot,
@@ -421,28 +422,30 @@ impl Vm<'_> {
 
         let event_id = self.render_events.allocate_event_sequence();
         let execution_anchor = capture.execution_anchor;
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
+        let execution_is_lossy =
+            capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
+        let projection_is_lossy = event_projection_loss.is_lossy() || nested_projection_loss;
+        let origin = if execution_is_lossy {
+            EventOrigin::lossy()
+        } else if projection_is_lossy {
+            match capture.producer {
+                EventProducer::Primitive => EventOrigin::primitive_with_projection_loss(),
+                EventProducer::Macro => EventOrigin::macro_with_projection_loss(),
+                _ => panic!("executed bibliography must be primitive- or macro-produced"),
+            }
+        } else {
+            event_origin_for_executed_producer(capture.producer)
+        };
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::BibliographyItem(BibliographyItemEvent {
                 key: capture.key,
                 label_hint: capture.label_hint,
                 text,
             }),
-            capture.source,
-        );
-        let execution_is_lossy =
-            capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
-        let projection_is_lossy = event_projection_loss.is_lossy() || nested_projection_loss;
-        if execution_is_lossy {
-            envelope.meta.producer = EventProducer::Fallback;
-            envelope.meta.confidence = SemanticConfidence::Low;
-        } else {
-            envelope.meta.producer = capture.producer;
-            if projection_is_lossy {
-                // VM execution is authoritative even when this string-only node loses structure.
-                envelope.meta.confidence = SemanticConfidence::Low;
-            }
-        }
+            EventBuildContext::new(event_id, capture.source),
+            origin,
+        )
+        .expect("executed bibliography uses an origin valid for ordinary events");
         self.semantic_bibliography.executed_events.push(envelope);
         self.semantic_bibliography
             .executed_event_anchors
