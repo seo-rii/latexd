@@ -5,8 +5,8 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventProducer, ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
-    SourceSpanRole,
+    EventBuildContext, EventProducer, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
+    SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{CatCode, Token, TokenKind};
 
@@ -15,6 +15,7 @@ use crate::{
     command::MathDelimiterCommand,
     input::QueueItem,
     math_source_event,
+    semantic_text::event_origin_for_executed_producer,
     snapshot::{
         VmExecutedMathCaptureSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
     },
@@ -442,8 +443,12 @@ impl Vm<'_> {
             .related
             .retain(|related| related.role != SourceSpanRole::Invocation);
         source = source.with_related(SourceSpanRole::Invocation, invocation_span);
-        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
-        envelope.meta.producer = capture.producer;
+        let envelope = RenderEventEnvelope::try_from_origin(
+            event,
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(capture.producer),
+        )
+        .expect("executed math uses an origin valid for ordinary events");
         self.executed_math_events.push(envelope);
     }
 
