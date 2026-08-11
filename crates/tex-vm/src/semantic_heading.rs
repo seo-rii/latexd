@@ -5,14 +5,15 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventProducer, EventSequence, HeadingEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
-    SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
+    EventBuildContext, EventOrigin, EventProducer, EventSequence, HeadingEvent, ProvenanceSpan,
+    RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
 use crate::{
     Vm,
     input::QueueItem,
+    semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{VmActiveHeadingCaptureSnapshot, VmSemanticHeadingSnapshot},
 };
@@ -240,21 +241,21 @@ impl Vm<'_> {
 
         let event_id = self.render_events.allocate_event_sequence();
         let lossy = capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
+        let origin = if lossy {
+            EventOrigin::lossy()
+        } else {
+            event_origin_for_executed_producer(capture.producer)
+        };
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::Heading(HeadingEvent {
                 level: capture.level,
                 text,
                 number: capture.numbered.then(String::new),
             }),
-            capture.source,
-        );
-        if lossy {
-            envelope.meta.producer = EventProducer::Fallback;
-            envelope.meta.confidence = SemanticConfidence::Low;
-        } else {
-            envelope.meta.producer = capture.producer;
-        }
+            EventBuildContext::new(event_id, capture.source),
+            origin,
+        )
+        .expect("executed headings use an origin valid for ordinary events");
         self.semantic_heading.executed_events.push(envelope);
         true
     }
