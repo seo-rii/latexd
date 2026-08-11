@@ -203,16 +203,22 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   producer/confidence 조합을 검증한다 (`f06bcdf`). scanner helper와 executed
   list item/environment begin-end (`e8840b2`), inline citation/reference/label/link
   (`a9ae789`), loss-aware caption (`e4a5cdb`), heading (`943e580`)이
-  `try_from_origin()`으로 이전됐다. raw `with_origin()`과 `new()`는 분류가
-  끝나지 않은 생산자와 호환 API를 위한 임시 경로다.
+  `try_from_origin()`으로 이전됐다. active capture snapshot producer 검증은
+  `6205f9d`, footnote, math, graphic 이전은 `c94664b`, `7edfd8b`, `75f0803`에
+  landed했다. text capture snapshot producer 검증은 `1baa07b`, front matter와
+  text 이전은 `5fa5a5c`, `081248e`에 landed했다. table snapshot/table 이전은
+  `70090a6`, `a3562f7`, bibliography snapshot/projection-loss origin/typed 이전은
+  `9fef0b7`, `9d122b0`, `69e75ea`에 landed했다. raw `with_origin()`과 `new()`는
+  wire/fixture contract를 위한 임시 호환 API다.
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
 - phase exit는 열려 있다. 명시적 생성 경로는 생겼지만 기본
   `RenderEventEnvelope::new()`가 대부분의 event를 아직 `Command`/high
-  confidence로 자동 분류한다. 남은 112개 call site의 생산자 분류와 family
-  이전, `ExecutedSourceSlice`
+  confidence로 자동 분류한다. 전체 call site 분류와 production migration
+  결과 `new()`는 production 0개, test fixture/contract 100개만 남았다.
+  test fixture 정책, reconciliation metadata mutation 정리, `ExecutedSourceSlice`
   interface, revision/dependency metadata, shared diagnostic schema와 남은
   family leakage characterization도 완료되지 않았다.
 
@@ -702,10 +708,12 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 2. V2 exit criterion을 path/test별 green/red/missing으로 고정
 3. scanner RawFallback/Diagnostic characterization과 opaque `EventOrigin` write
    boundary 도입 — `f06bcdf` landed
-4. 기존 migrated family를 typed origin으로 이전하고, 남은 112개 `new()`
-   call site를 실제 producer/consumer별로 분류
-5. family별 typed migration과 static guard를 작은 green commit으로 진행;
-   serialized `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
+4. 기존 migrated family를 typed origin으로 이전하고, `new()` call site를
+   실제 producer/consumer별로 분류 — 현재 production 0개/test 100개
+   inventory 완료
+5. production family typed migration은 완료. 24개 constructor contract test
+   allowlist와 76개 incidental fixture 정책을 정한 뒤 production static guard를
+   추가; serialized `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
 6. location-only reconciliation을 공통화하고 origin metadata를 matching
    identity에서 분리한 뒤 bounded `ExecutedSourceSlice`를 도입
 7. control-sequence behavior characterization — 기존 grouping/global/

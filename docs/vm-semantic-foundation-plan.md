@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation for migrated families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | 112 default-envelope call sites still assign `Command`/high confidence broadly; their producer classification, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation for production writes, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | no production default-envelope call sites remain, but 100 test sites, reconciliation metadata mutation, test-fixture policy, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -316,8 +316,16 @@ Executed inline citation, reference, label, and link emission followed in
 families now use the typed boundary: list/environment in `e8840b2`, inline in
 `a9ae789`, caption in `e4a5cdb`, and heading in `943e580`. Raw `with_origin()`
 and the broad `new()` path remain compatibility APIs until every producer
-family declares its origin at the emission boundary, so this contract is only
-partial.
+family declares its origin at the emission boundary. Active heading, caption,
+and footnote snapshot producers became fail-closed in `6205f9d`; footnote and
+math writes then moved to the typed boundary in `c94664b` and `7edfd8b`, with
+graphic following in `75f0803`. Active text snapshot validation landed in
+`1baa07b`; front matter and text writes moved in `5fa5a5c` and `081248e`. The
+table snapshot boundary and write moved in `70090a6` and `a3562f7`.
+Bibliography snapshot validation, typed projection-loss origins, and its write
+migration landed in `9fef0b7`, `9d122b0`, and `69e75ea`. The contract is still
+partial because compatibility tests/fixtures and reconciliation mutations
+remain.
 
 Policy:
 
@@ -399,14 +407,39 @@ cannot be defined correctly until V4 supplies file-aware token origins and
 interned expansion records. Footnote or node identity must stop depending on
 the next event sequence before replay reuse is enabled.
 
+### Legacy Constructor Inventory (2026-08-11)
+
+All 112 call sites present before this migration slice were classified. After
+all 12 production writes moved to `try_from_origin()`, 100 remain:
+
+| Class | Count | Policy |
+| --- | ---: | --- |
+| production writes | 0 | keep this invariant with a production-only static guard after fixture policy is settled |
+| intentional `new()` contract tests | 24 | keep while the compatibility constructor exists |
+| incidental test fixtures | 76 | migrate separately to honest synthetic origins or local fixture helpers; do not label synthetic layout events as primitive execution |
+
+Table now validates restored frame producers before typed construction.
+Bibliography validates restored captures and uses distinct
+`primitive_with_projection_loss()`/`macro_with_projection_loss()` origins, so
+authoritative execution with a lossy string projection is not collapsed into
+the generic `Fallback`/low origin. The table reconciliation path that converts
+an existing `RawFallback` payload into `Table` and retags its metadata remains
+an explicit reconciliation audit item; it is not a default-constructor write.
+
+The 100 test sites comprise the 24 constructor-contract tests plus 76
+incidental fixtures. Serde reads bypass constructors, so legacy wire-read
+compatibility remains independent from eventual `new()` restriction. Static
+guards need an allowlist for the intentional contract tests until that API is
+removed.
+
 ### V2 Evidence Matrix (2026-08-11)
 
 | Contract | Current evidence | State | Remaining gate |
 | --- | --- | --- | --- |
 | build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
 | scanner producer/confidence | typed scanner construction preserves ordinary `ScannerRecovery`/medium, `RawFallback` fallback origin, and current diagnostic `Unknown`/low behavior in focused model tests | green | preserve these semantics on every bounded recovery path; any diagnostic retag is a separate change |
-| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro`; executed list, environment, inline, caption, and heading events pass an opaque typed origin into construction | partial | classify and migrate every remaining emission family before restricting compatibility APIs |
-| explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; raw `with_origin()` and 112 `new()` call sites remain compatibility paths | partial | classify all 112 call sites, migrate production writes by family, then add static guards and restrict compatibility APIs |
+| primitive/macro origin | all current production `new()` writes have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | partial | audit reconciliation-time metadata mutation and preserve this invariant for new families |
+| explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; raw `with_origin()` and 100 classified test-only `new()` sites remain compatibility paths | partial | settle 76 incidental fixtures, add a production-only static guard, and retain the 24 contract-test allowlist while compatibility exists |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
 | false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
