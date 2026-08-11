@@ -216,6 +216,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   production assignment도 syntax test가 차단한다. table raw-fallback 승격과
   text leading-space 재조정은 sequence/source/mode를 보존한 채 typed origin으로
   envelope를 재구성하도록 이전됐다 (`75a79d5`).
+- list, environment, heading, caption, graphic, front-matter, bibliography의
+  동일한 full-provenance overlap은 `source_locations_overlap()`으로 공통화됐다
+  (`decccd7`). matching identity는 primary/related/expansion의 half-open file
+  span만 사용하고 `generated_by`, producer/confidence, truncation은 보지 않는다.
+  기존 호환 동작대로 모든 related role과 expansion definition span도 포함한다.
+  span 규칙이 다른 inline/text/footnote와 producer-coupled insertion anchor는
+  이 mechanical batch에서 제외했다.
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
@@ -225,9 +232,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   fixture 73개, 총 97개가 남았다. origin-sensitive semantic-text fixture 3개는
   scanner medium/macro high typed origin으로 이전됐다 (`91a8daa`). guard
   self-test의 source string 안에 있는 `new()` 예시 2개는 이 inventory에서
-  제외한다. 남은 fixture 정책, 위치 기반 reconciliation 공통화,
-  `ExecutedSourceSlice` interface, revision/dependency metadata, shared
-  diagnostic schema와 남은 family leakage characterization도 완료되지 않았다.
+  제외한다. 남은 fixture 정책, producer-coupled reconciliation anchor와
+  sequence/source reuse audit, `ExecutedSourceSlice` interface,
+  revision/dependency metadata, shared diagnostic schema와 남은 family leakage
+  characterization도 완료되지 않았다. definition span만 공유하는 반복 macro
+  invocation의 교차 matching 가능성은 기존 `ARCH-007`의 coarse byte-overlap
+  risk에 속하며 execution identity 도입 전에는 의미를 바꾸지 않는다.
 
 2026-08-11 Pro review 결정:
 - 새 write 경로는 opaque `EventOrigin`으로 제한하되 기존 wire field/tag와
@@ -722,8 +732,9 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
    (`776d604`, `75a79d5`). 24개 constructor contract test는 호환 API가 있는
    동안 유지하고 73개 incidental fixture를 origin별로 이전; serialized
    `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
-6. location-only reconciliation을 공통화하고 origin metadata를 matching
-   identity에서 분리한 뒤 bounded `ExecutedSourceSlice`를 도입
+6. 7개 family의 location-only overlap 공통화와 origin metadata 분리는
+   `decccd7`에 landed. producer-coupled anchor/sequence reuse를 audit한 뒤
+   bounded `ExecutedSourceSlice`를 도입
 7. control-sequence behavior characterization — 기존 grouping/global/
    `\globaldefs`/snapshot tests green
 8. 기존 layered scope representation을 semantics 변경 없이 bounded

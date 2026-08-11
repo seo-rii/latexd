@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for production writes, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | no production default-envelope call sites or direct origin-metadata assignments remain, but 97 test calls, the remaining test-fixture policy, final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for production writes, shared source-location overlap for seven reconciliation families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | no production default-envelope call sites or direct origin-metadata assignments remain, but 97 test calls, producer-coupled anchors and sequence/source reuse, the remaining test-fixture policy, final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -331,7 +331,16 @@ test, and workspace lib/bin calls are independently rejected by Clippy
 assignments to producer, confidence, and provenance generated-by fields.
 Table raw-fallback promotion and text leading-space reconciliation now rebuild
 envelopes through typed origins while preserving sequence, source, and mode
-(`75a79d5`).
+(`75a79d5`). List, environment, heading, caption, graphic, front-matter, and
+bibliography now share `source_locations_overlap()` (`decccd7`). The matching
+identity uses only strict half-open file-span overlap from primary, every
+related role, and expansion call/definition locations; it ignores
+`generated_by`, producer/confidence, and truncation metadata. Inline, text, and
+footnote retain their intentionally different span sets, while producer-coupled
+anchors and sequence/source reuse remain separate audited follow-ups. Including
+definition spans preserves existing behavior but can cross-match repeated macro
+invocations that share a definition; this remains part of `ARCH-007` until an
+execution identity or bounded `ExecutedSourceSlice` can replace coarse overlap.
 
 Policy:
 
@@ -455,6 +464,7 @@ that API is removed.
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; layered static guards cover production while raw `with_origin()` and 97 classified test-only `new()` calls remain compatibility paths | partial | settle 73 incidental fixtures and retain the 24 contract-test allowance while compatibility exists |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
 | false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
+| reconciliation location identity | seven families share a source-only overlap contract that excludes origin metadata while preserving their existing full-provenance span set | partial | audit producer-coupled anchors and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
 | shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages | missing | define the shared schema and adapters |
@@ -1460,8 +1470,9 @@ The direct implementation sequence is:
    write boundary, classify all remaining compatibility constructors, guard
    production writes statically, and migrate one event family or fixture class
    per green commit
-6. centralize location-only reconciliation, then introduce bounded
-   `ExecutedSourceSlice`
+6. centralize compatible location-only overlap (seven families landed in
+   `decccd7`), audit producer-coupled anchors/sequence reuse, then introduce
+   bounded `ExecutedSourceSlice`
 7. `feat(diagnostics): add phase-aware diagnostics and recovery metadata`
 8. `feat(tex-vm): introduce Eqtb and SaveStack for definitions and counts`
 9. migrate dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
