@@ -1349,6 +1349,10 @@ impl VmSemanticTableSnapshot {
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
             && values_are_unique_nonzero(&native_event_ids)
+            && self
+                .open_tables
+                .iter()
+                .all(|frame| executed_capture_producer_is_restorable(frame.producer))
     }
 }
 

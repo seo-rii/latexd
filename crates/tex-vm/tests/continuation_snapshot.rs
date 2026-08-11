@@ -1552,6 +1552,27 @@ fn semantic_snapshot_rejects_unsupported_active_capture_producers() {
         .expect("active text capture")
         .producer = EventProducer::Command;
     assert!(!text.is_restorable());
+
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.enable_structured_table_events();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "Child.");
+    let outcome = vm.run_plain(
+        r"\begin{document}\begin{tabular}{c}Before \input{barrier} After\end{tabular}\end{document}",
+    );
+    let mut table = outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
+        .expect("semantic capture with an open table");
+    table.table.open_tables[0].producer = EventProducer::Command;
+    assert!(!table.is_restorable());
 }
 
 #[test]
