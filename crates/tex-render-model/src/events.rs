@@ -999,6 +999,19 @@ mod tests {
         })
     }
 
+    fn synthetic_envelope(
+        sequence: u64,
+        event: RenderEvent,
+        source: SourceProvenance,
+    ) -> RenderEventEnvelope {
+        RenderEventEnvelope::try_from_origin(
+            event,
+            EventBuildContext::new(sequence, source),
+            EventOrigin::unknown_low(),
+        )
+        .expect("synthetic model fixture must use a valid event origin")
+    }
+
     #[test]
     fn stream_schema_version_is_top_level() {
         let stream = RenderEventStream::new(
@@ -1026,13 +1039,15 @@ mod tests {
 
     #[test]
     fn event_meta_accepts_the_legacy_event_id_field() {
-        let envelope = RenderEventEnvelope::new(
+        let envelope = synthetic_envelope(
             7,
             RenderEvent::Text(TextEvent {
                 text: "legacy".to_string(),
             }),
             SourceProvenance::file("main.tex", 0, 6),
         );
+        assert_eq!(envelope.meta.producer, EventProducer::Unknown);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
         let mut encoded = serde_json::to_value(&envelope).expect("encode event");
         let meta = encoded
             .get_mut("meta")
@@ -1054,7 +1069,7 @@ mod tests {
     fn space_event_uses_non_conflicting_payload_field() {
         let stream = RenderEventStream::new(
             Some("case".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::Space(SpaceEvent {
                     kind: SpaceKind::Interword,
@@ -1072,7 +1087,7 @@ mod tests {
     fn page_break_event_roundtrips_with_a_non_conflicting_payload_field() {
         let stream = RenderEventStream::new(
             Some("page-break".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::PageBreak(PageBreakEvent {
                     kind: PageBreakKind::ClearPage,
@@ -1094,14 +1109,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("block-boundary".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Abstract,
                     }),
                     SourceProvenance::file("main.tex", 0, 16),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Abstract,
@@ -1124,7 +1139,7 @@ mod tests {
     fn structured_table_event_roundtrips_without_fallback_fields() {
         let stream = RenderEventStream::new(
             Some("table".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::Table(TableEvent {
                     environment: "tabular".to_string(),
