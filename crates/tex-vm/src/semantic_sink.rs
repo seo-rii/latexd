@@ -237,19 +237,29 @@ impl DerefMut for SemanticEventBuffer {
 mod tests {
     use std::collections::BTreeSet;
 
-    use tex_render_model::{RenderEvent, RenderEventEnvelope, SourceProvenance, TextEvent};
+    use tex_render_model::{
+        EventBuildContext, EventOrigin, EventProducer, RenderEvent, RenderEventEnvelope,
+        SemanticConfidence, SourceProvenance, TextEvent,
+    };
 
     use super::SemanticEventBuffer;
 
     fn emit_text(buffer: &mut SemanticEventBuffer, text: &str) -> u64 {
         let event_sequence = buffer.allocate_event_sequence();
-        buffer.push(RenderEventEnvelope::new(
-            event_sequence,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::Text(TextEvent {
                 text: text.to_string(),
             }),
-            SourceProvenance::file("main.tex", 0, text.len() as u32),
-        ));
+            EventBuildContext::new(
+                event_sequence,
+                SourceProvenance::file("main.tex", 0, text.len() as u32),
+            ),
+            EventOrigin::unknown_low(),
+        )
+        .expect("synthetic sink text must use a valid event origin");
+        assert_eq!(envelope.meta.producer, EventProducer::Unknown);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
+        buffer.push(envelope);
         event_sequence
     }
 
@@ -362,13 +372,16 @@ mod tests {
         let old_end = emit_text(&mut buffer, "old end");
         emit_text(&mut buffer, "after");
         let replacement_id = buffer.allocate_event_sequence();
-        let replacement = RenderEventEnvelope::new(
-            replacement_id,
+        let replacement = RenderEventEnvelope::try_from_origin(
             RenderEvent::Text(TextEvent {
                 text: "replacement".to_string(),
             }),
-            SourceProvenance::file("child.tex", 0, 11),
-        );
+            EventBuildContext::new(replacement_id, SourceProvenance::file("child.tex", 0, 11)),
+            EventOrigin::unknown_low(),
+        )
+        .expect("synthetic sink replacement must use a valid event origin");
+        assert_eq!(replacement.meta.producer, EventProducer::Unknown);
+        assert_eq!(replacement.meta.confidence, SemanticConfidence::Low);
 
         let event_sequence_remap = buffer
             .replace_transaction(&BTreeSet::from([old_start, old_end]), vec![replacement])
