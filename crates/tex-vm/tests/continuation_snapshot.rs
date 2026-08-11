@@ -1573,6 +1573,17 @@ fn semantic_snapshot_rejects_unsupported_active_capture_producers() {
         .expect("semantic capture with an open table");
     table.table.open_tables[0].producer = EventProducer::Command;
     assert!(!table.is_restorable());
+
+    let mut bibliography = capture_at_input_exit(
+        r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{barrier} After\end{thebibliography}\end{document}",
+    );
+    bibliography
+        .bibliography
+        .active_item
+        .as_mut()
+        .expect("active bibliography item")
+        .producer = EventProducer::Command;
+    assert!(!bibliography.is_restorable());
 }
 
 #[test]

@@ -890,6 +890,7 @@ impl VmSemanticBibliographySnapshot {
             && usize::try_from(self.environment_depth).is_ok()
             && self.active_item.as_ref().is_none_or(|capture| {
                 self.environment_depth > 0
+                    && executed_capture_producer_is_restorable(capture.producer)
                     && capture.execution_anchor.is_restorable()
                     && capture.text_event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
