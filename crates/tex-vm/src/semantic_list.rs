@@ -2,11 +2,13 @@ use std::{collections::HashSet, mem};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventSequence, ListItemEvent, ListKind, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
-    SemanticConfidence, SourceProvenance, SourceSpan,
+    EventBuildContext, EventSequence, ListItemEvent, ListKind, ProvenanceSpan, RenderEvent,
+    RenderEventEnvelope, SourceProvenance, SourceSpan,
 };
 
-use crate::{Vm, snapshot::VmSemanticListSnapshot};
+use crate::{
+    Vm, semantic_text::event_origin_for_executed_producer, snapshot::VmSemanticListSnapshot,
+};
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticListState {
@@ -82,13 +84,12 @@ impl Vm<'_> {
         self.finish_executed_block_content();
         let (source, producer) = self.executed_semantic_source(start_utf8, end_utf8);
         let event_id = self.render_events.allocate_event_sequence();
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::ListItem(ListItemEvent { marker }),
-            source,
-            producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed list items use an origin valid for ordinary events");
         self.semantic_list.executed_items.push(envelope);
     }
 

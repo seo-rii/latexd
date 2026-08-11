@@ -5,8 +5,8 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    BeginBlockEvent, BlockKind, EndBlockEvent, EventProducer, EventSequence, ProvenanceSpan,
-    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan,
+    BeginBlockEvent, BlockKind, EndBlockEvent, EventBuildContext, EventProducer, EventSequence,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
 };
 use tex_tokens::TokenKind;
 
@@ -14,6 +14,7 @@ use crate::{
     Vm,
     input::QueueItem,
     semantic_list::list_kind_for_environment,
+    semantic_text::event_origin_for_executed_producer,
     snapshot::{
         VmExecutionAnchor, VmIncludedEnvironmentAuthoritySnapshot, VmSemanticEnvironmentSnapshot,
     },
@@ -192,13 +193,12 @@ impl Vm<'_> {
             RenderEvent::EndBlock(EndBlockEvent { block })
         };
         let event_id = self.render_events.allocate_event_sequence();
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             event,
-            source,
-            producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed environment boundaries use an origin valid for ordinary events");
         self.semantic_environment.executed_events.push(envelope);
     }
 

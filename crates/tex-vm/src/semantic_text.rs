@@ -5,10 +5,10 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventProducer, EventSequence, ExpansionFrame, LineBreakEvent, LineBreakReason, PageBreakEvent,
-    PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
-    SpaceEvent, SpaceKind, TextEvent,
+    EventOrigin, EventProducer, EventSequence, ExpansionFrame, LineBreakEvent, LineBreakReason,
+    PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan,
+    SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -36,6 +36,14 @@ pub(super) struct SemanticTextState {
     marker_actions: HashMap<ControlSequenceId, ExpansionMarkerAction>,
     expansion_stack: Vec<ExpansionContext>,
     next_marker_id: u64,
+}
+
+pub(super) fn event_origin_for_executed_producer(producer: EventProducer) -> EventOrigin {
+    match producer {
+        EventProducer::Primitive => EventOrigin::primitive(),
+        EventProducer::Macro => EventOrigin::macro_expansion(),
+        _ => panic!("executed semantic source must be primitive- or macro-produced"),
+    }
 }
 
 #[derive(Debug)]
