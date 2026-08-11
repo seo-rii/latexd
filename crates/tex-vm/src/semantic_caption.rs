@@ -5,8 +5,8 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    CaptionEvent, CaptionKind, EventProducer, EventSequence, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
+    CaptionEvent, CaptionKind, EventBuildContext, EventOrigin, EventProducer, EventSequence,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -14,6 +14,7 @@ use crate::{
     Vm,
     input::QueueItem,
     semantic_inline::ExecutedInlineEventMark,
+    semantic_text::event_origin_for_executed_producer,
     snapshot::{VmActiveCaptionCaptureSnapshot, VmSemanticCaptionSnapshot},
 };
 
@@ -236,23 +237,22 @@ impl Vm<'_> {
 
         let event_id = self.render_events.allocate_event_sequence();
         let lossy = capture.lossy_prefix || self.diagnostics.len() > capture.diagnostic_mark;
-        let (producer, confidence) = if lossy {
-            (EventProducer::Fallback, SemanticConfidence::Low)
+        let origin = if lossy {
+            EventOrigin::lossy()
         } else {
-            (capture.producer, SemanticConfidence::High)
+            event_origin_for_executed_producer(capture.producer)
         };
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::Caption(CaptionEvent {
                 text,
                 numbered: capture.numbered,
                 caption_kind: capture.caption_kind,
                 inline_placeholders,
             }),
-            capture.source,
-            producer,
-            confidence,
-        );
+            EventBuildContext::new(event_id, capture.source),
+            origin,
+        )
+        .expect("executed captions use an origin valid for ordinary events");
         self.semantic_caption.executed_events.push(envelope);
         true
     }
