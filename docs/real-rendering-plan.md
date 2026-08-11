@@ -196,7 +196,10 @@ non-fatal HMR warnings with the primary source file, so daemon/viewer consumers
 see the same failure (`ab589f7`). Existing but unconvertible PDF/EPS assets
 surface as unsupported-image placeholders, while resolved PDF/EPS assets can
 be converted to PNG for debug display-list PDF/SVG artifacts through
-Ghostscript or Poppler.
+Ghostscript or Poppler. The internal compiler now also projects the renderer's
+deterministic unconvertible-EPS state into a deduplicated HMR warning with the
+primary source file (`71f276b`). PDF and raster decode failures remain outside
+this bounded adapter until rendering exposes a shared structured outcome.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, and simple
 relative PNG/JPEG `href` / `xlink:href` references inside those SVG assets are

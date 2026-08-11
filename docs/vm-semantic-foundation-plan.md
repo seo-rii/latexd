@@ -497,7 +497,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
-| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler now boundedly projects missing-graphic render events into deduplicated HMR warnings with primary-file provenance | missing | define and version the shared schema and adapters; do not infer phase/recovery from remaining message strings |
+| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | missing | define and version the shared renderer outcome/schema adapters; do not infer phase/recovery from remaining message strings or duplicate raster/PDF decode policy |
 | sequence-independent semantic identity | several reconciliation paths preserve sequence; the full dependent-ID audit is incomplete | partial | remove semantic identity dependence before replay reuse |
 | `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
 
@@ -1255,12 +1255,15 @@ delegates for recovery.
 Introduce the shared schema in V2 and migrate command-specific diagnostics with
 their owning V3-V8 batches.
 
-As a bounded compatibility bridge, the internal compiler projects only
-`missing graphic asset ...` render events into deduplicated HMR warnings and
-preserves primary-file provenance (`ab589f7`). This fixes daemon/viewer loss
-without changing any wire type. It is not the shared contract: VM diagnostics,
-render-event messages, image annotations, HMR diagnostics, and WASM strings
-still have different fields, and phase/recovery cannot be reconstructed
+As bounded compatibility bridges, the internal compiler projects
+`missing graphic asset ...` render events and deterministic unconvertible-EPS
+materialization state into deduplicated HMR warnings, preserving primary-file
+provenance (`ab589f7`, `71f276b`). The EPS adapter uses the renderer's existing
+`Eps`/no-PDF-form/no-raster-fallback state; it does not duplicate PDF or raster
+decode policy. These bridges fix daemon/viewer loss without changing a wire
+type, but they are not the shared contract: VM diagnostics, render-event
+messages, image annotations, renderer outcomes, HMR diagnostics, and WASM
+strings still have different fields, and phase/recovery cannot be reconstructed
 reliably from their text.
 
 Use one structured diagnostic shape from mouth through rendering:
