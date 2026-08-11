@@ -20,9 +20,14 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Enforce production event-origin policy
+        run: cargo clippy --quiet --workspace --lib --bins --no-deps -- -A warnings -D clippy::disallowed_methods
 
       - name: Install Computer Modern test fonts
         run: |

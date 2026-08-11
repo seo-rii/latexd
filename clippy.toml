@@ -1,0 +1,4 @@
+disallowed-methods = [
+  { path = "tex_render_model::events::RenderEventEnvelope::new", reason = "production event writes must use RenderEventEnvelope::try_from_origin" },
+  { path = "tex_render_model::events::RenderEventEnvelope::with_origin", reason = "raw producer/confidence pairs are compatibility-only; production writes must use RenderEventEnvelope::try_from_origin" },
+]

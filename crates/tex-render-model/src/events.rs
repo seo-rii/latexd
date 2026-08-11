@@ -145,11 +145,21 @@ impl RenderEventEnvelope {
             RenderEvent::Diagnostic(_) => (SemanticConfidence::Low, EventProducer::Unknown),
             _ => (SemanticConfidence::High, EventProducer::Command),
         };
-        Self::with_origin(sequence, event, source, producer, confidence)
+        Self::from_metadata(sequence, event, source, producer, confidence)
     }
 
     /// Creates an envelope with producer and confidence declared at the emission boundary.
     pub fn with_origin(
+        sequence: EventSequence,
+        event: RenderEvent,
+        source: SourceProvenance,
+        producer: EventProducer,
+        confidence: SemanticConfidence,
+    ) -> Self {
+        Self::from_metadata(sequence, event, source, producer, confidence)
+    }
+
+    fn from_metadata(
         sequence: EventSequence,
         event: RenderEvent,
         mut source: SourceProvenance,
@@ -216,7 +226,7 @@ impl RenderEventEnvelope {
             ) => return Err(InvalidEventOrigin),
         };
         let EventBuildContext { sequence, source } = context;
-        Ok(Self::with_origin(
+        Ok(Self::from_metadata(
             sequence, event, source, producer, confidence,
         ))
     }
