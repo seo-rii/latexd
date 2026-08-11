@@ -5,15 +5,16 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventProducer, EventSequence, GeneratedBy, ProvenanceSpan, RawFallbackEvent, RelatedSourceSpan,
-    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpanRole,
-    TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent,
-    TableRulePosition,
+    EventBuildContext, EventProducer, EventSequence, GeneratedBy, ProvenanceSpan, RawFallbackEvent,
+    RelatedSourceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance,
+    SourceSpanRole, TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
+    TableRowEvent, TableRulePosition,
 };
 
 use crate::{
     Vm,
     input::QueueItem,
+    semantic_text::event_origin_for_executed_producer,
     snapshot::{VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot, VmSemanticTableSnapshot},
 };
 
@@ -319,8 +320,7 @@ impl Vm<'_> {
         frame.finish_row(false, end_source);
         let native_event = if self.semantic_table.structured_events && !frame.rows.is_empty() {
             let event_id = self.render_events.allocate_event_sequence();
-            let mut envelope = RenderEventEnvelope::new(
-                event_id,
+            let envelope = RenderEventEnvelope::try_from_origin(
                 RenderEvent::Table(TableEvent {
                     environment: frame.environment.clone(),
                     width_spec: frame.width_spec,
@@ -328,9 +328,10 @@ impl Vm<'_> {
                     rows: frame.rows,
                     caption: None,
                 }),
-                frame.source.clone(),
-            );
-            envelope.meta.producer = frame.producer;
+                EventBuildContext::new(event_id, frame.source.clone()),
+                event_origin_for_executed_producer(frame.producer),
+            )
+            .expect("executed tables use an origin valid for ordinary events");
             Some(envelope)
         } else {
             None
