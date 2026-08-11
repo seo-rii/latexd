@@ -15839,7 +15839,10 @@ impl<'i> Vm<'i> {
         let scanner_bibliography = matches!(&event, RenderEvent::BibliographyItem(_));
         let scanner_environment = matches!(
             &event,
-            RenderEvent::BeginBlock(_) | RenderEvent::EndBlock(_)
+            RenderEvent::BeginBlock(_)
+                | RenderEvent::EndBlock(_)
+                | RenderEvent::BeginLayoutContainer(_)
+                | RenderEvent::EndLayoutContainer(_)
         );
         let scanner_table = matches!(
             &event,
@@ -50140,6 +50143,29 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("appendices" | "subappendices")
                 )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_discards_runtime_false_minipage_layout() {
+        let source = r"\count0=0\begin{document}\ifnum\count0>0\begin{minipage}{1in}Hidden.\end{minipage}\fi Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            !outcome.render_events.iter().any(|event| matches!(
+                event.event,
+                RenderEvent::BeginLayoutContainer(_) | RenderEvent::EndLayoutContainer(_)
+            )),
+            "{:#?}",
+            outcome.render_events
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("Visible.")
         )));
     }
 
