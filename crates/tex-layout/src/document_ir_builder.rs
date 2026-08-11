@@ -1520,12 +1520,13 @@ mod tests {
         BeginBlockEvent, BeginFootnoteEvent, BibliographyBlock, BibliographyItemEvent, BlockKind,
         CaptionEvent, CaptionInlinePlaceholderEvent, CitationLabel, CitationLabelForm,
         CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
-        EndFootnoteEvent, FloatCaptionView, FloatKind, FloatPlacement, FlushTitleBlockEvent,
-        FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
-        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
-        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-        RenderEvent, RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent,
+        EndFootnoteEvent, EventBuildContext, EventOrigin, EventProducer, FloatCaptionView,
+        FloatKind, FloatPlacement, FlushTitleBlockEvent, FootnoteCommandKind,
+        GraphicAssetDimensions, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
+        InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
+        LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent, PageBreakKind,
+        ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
         SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellEvent,
         TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
     };
@@ -1585,12 +1586,30 @@ mod tests {
         }
     }
 
+    fn synthetic_envelope(
+        sequence: u64,
+        event: RenderEvent,
+        source: SourceProvenance,
+    ) -> RenderEventEnvelope {
+        let origin = if matches!(&event, RenderEvent::RawFallback(_)) {
+            EventOrigin::raw_fallback()
+        } else {
+            EventOrigin::unknown_low()
+        };
+        RenderEventEnvelope::try_from_origin(
+            event,
+            EventBuildContext::new(sequence, source),
+            origin,
+        )
+        .expect("synthetic layout fixture must use a valid event origin")
+    }
+
     #[test]
     fn preserves_document_class_layout_intent() {
         let source = SourceProvenance::file("main.tex", 0, 43);
         let stream = RenderEventStream::new(
             Some("document-class".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::DocumentClass(DocumentClassEvent {
                     name: "article".to_string(),
@@ -1599,6 +1618,8 @@ mod tests {
                 source.clone(),
             )],
         );
+        assert_eq!(stream.events[0].meta.producer, EventProducer::Unknown);
+        assert_eq!(stream.events[0].meta.confidence, SemanticConfidence::Low);
 
         let ir = build_document_ir(
             &stream,
@@ -1623,14 +1644,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("footnote".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::Text(TextEvent {
                         text: "Before".to_string(),
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::BeginFootnote(BeginFootnoteEvent {
                         note_id: 2,
@@ -1640,40 +1661,40 @@ mod tests {
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Text(TextEvent {
                         text: "Note".to_string(),
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::ParagraphBreak(ParagraphBreakEvent {
                         reason: ParagraphBreakReason::ParCommand,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     5,
                     RenderEvent::Text(TextEvent {
                         text: "continued".to_string(),
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     6,
                     RenderEvent::EndFootnote(EndFootnoteEvent { note_id: 2 }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     7,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     8,
                     RenderEvent::Text(TextEvent {
                         text: "after.".to_string(),
@@ -1727,7 +1748,7 @@ mod tests {
     fn builds_compact_paper_ir_from_events() {
         let mut next_id = 1;
         let mut push = |event| {
-            let envelope = RenderEventEnvelope::new(
+            let envelope = synthetic_envelope(
                 next_id,
                 event,
                 SourceProvenance::file("main.tex", next_id as u32, next_id as u32 + 1),
@@ -1889,7 +1910,7 @@ mod tests {
     fn resolved_numeric_citations_render_labels() {
         let stream = RenderEventStream::new(
             Some("citation".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::InlineCitation(InlineCitationEvent {
                     keys: vec!["alpha".to_string(), "beta".to_string()],
@@ -1917,7 +1938,7 @@ mod tests {
     fn resolved_numeric_citations_compact_three_or_more_consecutive_labels() {
         let stream = RenderEventStream::new(
             Some("citation-range".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::InlineCitation(InlineCitationEvent {
                     keys: vec![
@@ -1954,14 +1975,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("numeric-bibliography-label".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Bibliography,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::BibliographyItem(BibliographyItemEvent {
                         key: "bengio".to_string(),
@@ -1970,7 +1991,7 @@ mod tests {
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Bibliography,
@@ -2001,14 +2022,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("sequential-bibliography-labels".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Bibliography,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::BibliographyItem(BibliographyItemEvent {
                         key: "first".to_string(),
@@ -2017,7 +2038,7 @@ mod tests {
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::BibliographyItem(BibliographyItemEvent {
                         key: "second".to_string(),
@@ -2026,7 +2047,7 @@ mod tests {
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Bibliography,
@@ -2072,7 +2093,7 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("author-year-citations".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::InlineCitation(InlineCitationEvent {
                         keys: vec!["parenthetical".to_string()],
@@ -2081,14 +2102,14 @@ mod tests {
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::InlineCitation(InlineCitationEvent {
                         keys: vec!["textual".to_string()],
@@ -2112,7 +2133,7 @@ mod tests {
     fn references_resolve_through_aux_targets() {
         let stream = RenderEventStream::new(
             Some("reference".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::InlineReference(InlineReferenceEvent {
                     keys: vec!["eq:main".to_string()],
@@ -2138,42 +2159,42 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("trailing-space".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::Text(TextEvent {
                         text: "Hello".to_string(),
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     5,
                     RenderEvent::Text(TextEvent {
                         text: "world".to_string(),
                     }),
                     source.clone(),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     6,
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
@@ -2200,7 +2221,7 @@ mod tests {
     fn inline_links_preserve_display_text_and_target() {
         let stream = RenderEventStream::new(
             Some("link".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::InlineLink(InlineLinkEvent {
                     target: "https://example.test/paper".to_string(),
@@ -2230,14 +2251,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("label".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::Text(TextEvent {
                         text: "Intro".to_string(),
                     }),
                     SourceProvenance::file("main.tex", 0, 5),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::LabelDefinition(LabelDefinitionEvent {
                         key: "sec:intro".to_string(),
@@ -2259,7 +2280,7 @@ mod tests {
     fn raw_fallback_becomes_block_without_losing_visible_text() {
         let stream = RenderEventStream::new(
             Some("fallback".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::RawFallback(RawFallbackEvent {
                     source_excerpt: "\\begin{unknownenv}Fallback text.\\end{unknownenv}"
@@ -2301,7 +2322,7 @@ mod tests {
     fn structured_table_event_lowers_losslessly_to_table_ir() {
         let stream = RenderEventStream::new(
             Some("table".to_string()),
-            vec![RenderEventEnvelope::new(
+            vec![synthetic_envelope(
                 1,
                 RenderEvent::Table(TableEvent {
                     environment: "tabularx".to_string(),
@@ -2413,7 +2434,7 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("graphic".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
@@ -2431,7 +2452,7 @@ mod tests {
                     }),
                     SourceProvenance::file("main.tex", 0, 30),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 31, 52),
@@ -2506,14 +2527,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("resolved-caption".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Figure,
                     }),
                     SourceProvenance::file("main.tex", 0, 14),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::Caption(CaptionEvent {
                         text: "See [?] and [?].".to_string(),
@@ -2533,7 +2554,7 @@ mod tests {
                     }),
                     caption_source,
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Figure,
@@ -2557,14 +2578,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("table-caption".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Figure,
                     }),
                     SourceProvenance::file("main.tex", 0, 14),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
@@ -2576,31 +2597,31 @@ mod tests {
                     }),
                     SourceProvenance::file("main.tex", 15, 45),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 46, 67),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Figure,
                     }),
                     SourceProvenance::file("main.tex", 68, 80),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     5,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::Table,
                     }),
                     SourceProvenance::file("main.tex", 81, 94),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     6,
                     RenderEvent::Caption(CaptionEvent::new("Table caption.")),
                     SourceProvenance::file("main.tex", 95, 117),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     7,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Table,
@@ -2629,7 +2650,7 @@ mod tests {
         let source = SourceProvenance::file("main.tex", 0, 120);
         let mut next_id = 1;
         let mut event = |event| {
-            let envelope = RenderEventEnvelope::new(next_id, event, source.clone());
+            let envelope = synthetic_envelope(next_id, event, source.clone());
             next_id += 1;
             envelope
         };
@@ -2683,7 +2704,7 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("detached-caption".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
@@ -2695,12 +2716,12 @@ mod tests {
                     }),
                     SourceProvenance::file("main.tex", 0, 30),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
                     SourceProvenance::file("main.tex", 31, 52),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Caption(CaptionEvent::new("Algorithm caption.")),
                     SourceProvenance::file("main.tex", 53, 80),
@@ -2726,7 +2747,7 @@ mod tests {
         let source = SourceProvenance::file("main.tex", 0, 100);
         let mut next_id = 1;
         let mut event = |event| {
-            let envelope = RenderEventEnvelope::new(next_id, event, source.clone());
+            let envelope = synthetic_envelope(next_id, event, source.clone());
             next_id += 1;
             envelope
         };
@@ -2804,14 +2825,14 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("full-width-floats".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::FullWidthFigure,
                     }),
                     SourceProvenance::file("main.tex", 0, 15),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/wide.pdf".to_string(),
@@ -2823,31 +2844,31 @@ mod tests {
                     }),
                     SourceProvenance::file("main.tex", 16, 64),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Caption(CaptionEvent::new("Wide figure.")),
                     SourceProvenance::file("main.tex", 65, 87),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::FullWidthFigure,
                     }),
                     SourceProvenance::file("main.tex", 88, 100),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     5,
                     RenderEvent::BeginBlock(BeginBlockEvent {
                         block: BlockKind::FullWidthTable,
                     }),
                     SourceProvenance::file("main.tex", 101, 115),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     6,
                     RenderEvent::Caption(CaptionEvent::new("Wide table.")),
                     SourceProvenance::file("main.tex", 116, 137),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     7,
                     RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::FullWidthTable,
@@ -2887,12 +2908,12 @@ mod tests {
         let stream = RenderEventStream::new(
             Some("layout-and-page-break".to_string()),
             vec![
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     1,
                     RenderEvent::SetDocumentLayout(layout.clone()),
                     SourceProvenance::file("style.sty", 0, 20),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     2,
                     RenderEvent::SetDocumentLayout(DocumentLayoutIntent {
                         text_font_family: Some("times".to_string()),
@@ -2900,21 +2921,21 @@ mod tests {
                     }),
                     SourceProvenance::file("times.sty", 0, 18),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     3,
                     RenderEvent::Text(TextEvent {
                         text: "Before".to_string(),
                     }),
                     SourceProvenance::file("main.tex", 0, 6),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     4,
                     RenderEvent::PageBreak(PageBreakEvent {
                         kind: PageBreakKind::NewPage,
                     }),
                     SourceProvenance::file("main.tex", 6, 14),
                 ),
-                RenderEventEnvelope::new(
+                synthetic_envelope(
                     5,
                     RenderEvent::Text(TextEvent {
                         text: "After".to_string(),
