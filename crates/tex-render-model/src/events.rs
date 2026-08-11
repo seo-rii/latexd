@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
@@ -24,6 +26,96 @@ impl RenderEventStream {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventBuildContext {
+    sequence: EventSequence,
+    source: SourceProvenance,
+}
+
+impl EventBuildContext {
+    pub fn new(sequence: EventSequence, source: SourceProvenance) -> Self {
+        Self { sequence, source }
+    }
+
+    pub fn sequence(&self) -> EventSequence {
+        self.sequence
+    }
+
+    pub fn source(&self) -> &SourceProvenance {
+        &self.source
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryConfidence {
+    Medium,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EventOrigin(EventOriginKind);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventOriginKind {
+    Primitive,
+    Macro,
+    ScannerRecovery(RecoveryConfidence),
+    Lossy,
+    UnknownLow,
+    RawFallback,
+    DiagnosticUnknown,
+    DiagnosticScannerRecovery,
+}
+
+impl EventOrigin {
+    pub const fn primitive() -> Self {
+        Self(EventOriginKind::Primitive)
+    }
+
+    pub const fn macro_expansion() -> Self {
+        Self(EventOriginKind::Macro)
+    }
+
+    pub const fn scanner_recovery(confidence: RecoveryConfidence) -> Self {
+        Self(EventOriginKind::ScannerRecovery(confidence))
+    }
+
+    /// Preserves the current `fallback`/`low` wire projection for lossy execution.
+    ///
+    /// Changing this projection to fallback confidence requires a separate
+    /// reconciliation and downstream compatibility audit.
+    pub const fn lossy() -> Self {
+        Self(EventOriginKind::Lossy)
+    }
+
+    pub const fn unknown_low() -> Self {
+        Self(EventOriginKind::UnknownLow)
+    }
+
+    pub const fn raw_fallback() -> Self {
+        Self(EventOriginKind::RawFallback)
+    }
+
+    pub const fn diagnostic_unknown() -> Self {
+        Self(EventOriginKind::DiagnosticUnknown)
+    }
+
+    pub const fn diagnostic_scanner_recovery() -> Self {
+        Self(EventOriginKind::DiagnosticScannerRecovery)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidEventOrigin;
+
+impl fmt::Display for InvalidEventOrigin {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("event origin is incompatible with the render event kind")
+    }
+}
+
+impl std::error::Error for InvalidEventOrigin {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventEnvelope {
@@ -66,6 +158,49 @@ impl RenderEventEnvelope {
         }
     }
 
+    /// Creates an envelope from a validated semantic origin without changing
+    /// the serialized producer/confidence representation.
+    pub fn try_from_origin(
+        event: RenderEvent,
+        context: EventBuildContext,
+        origin: EventOrigin,
+    ) -> Result<Self, InvalidEventOrigin> {
+        let (producer, confidence) = match (&event, origin.0) {
+            (RenderEvent::RawFallback(_), EventOriginKind::RawFallback) => {
+                (EventProducer::Fallback, SemanticConfidence::Fallback)
+            }
+            (RenderEvent::Diagnostic(_), EventOriginKind::DiagnosticUnknown) => {
+                (EventProducer::Unknown, SemanticConfidence::Low)
+            }
+            (RenderEvent::Diagnostic(_), EventOriginKind::DiagnosticScannerRecovery) => {
+                (EventProducer::ScannerRecovery, SemanticConfidence::Low)
+            }
+            (RenderEvent::RawFallback(_) | RenderEvent::Diagnostic(_), _) => {
+                return Err(InvalidEventOrigin);
+            }
+            (_, EventOriginKind::Primitive) => (EventProducer::Primitive, SemanticConfidence::High),
+            (_, EventOriginKind::Macro) => (EventProducer::Macro, SemanticConfidence::High),
+            (_, EventOriginKind::ScannerRecovery(RecoveryConfidence::Medium)) => {
+                (EventProducer::ScannerRecovery, SemanticConfidence::Medium)
+            }
+            (_, EventOriginKind::ScannerRecovery(RecoveryConfidence::Low)) => {
+                (EventProducer::ScannerRecovery, SemanticConfidence::Low)
+            }
+            (_, EventOriginKind::Lossy) => (EventProducer::Fallback, SemanticConfidence::Low),
+            (_, EventOriginKind::UnknownLow) => (EventProducer::Unknown, SemanticConfidence::Low),
+            (
+                _,
+                EventOriginKind::RawFallback
+                | EventOriginKind::DiagnosticUnknown
+                | EventOriginKind::DiagnosticScannerRecovery,
+            ) => return Err(InvalidEventOrigin),
+        };
+        let EventBuildContext { sequence, source } = context;
+        Ok(Self::with_origin(
+            sequence, event, source, producer, confidence,
+        ))
+    }
+
     pub fn with_mode_hint(mut self, mode_hint: ModeHint) -> Self {
         self.meta.mode_hint = mode_hint;
         self
@@ -76,15 +211,13 @@ impl RenderEventEnvelope {
         event: RenderEvent,
         source: SourceProvenance,
     ) -> Self {
-        let mut envelope = Self::new(sequence, event, source);
-        if !matches!(
-            envelope.event,
-            RenderEvent::RawFallback(_) | RenderEvent::Diagnostic(_)
-        ) {
-            envelope.meta.confidence = SemanticConfidence::Medium;
-            envelope.meta.producer = EventProducer::ScannerRecovery;
-        }
-        envelope
+        let origin = match &event {
+            RenderEvent::RawFallback(_) => EventOrigin::raw_fallback(),
+            RenderEvent::Diagnostic(_) => EventOrigin::diagnostic_unknown(),
+            _ => EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+        };
+        Self::try_from_origin(event, EventBuildContext::new(sequence, source), origin)
+            .expect("scanner recovery chooses an origin compatible with the event kind")
     }
 }
 
@@ -802,15 +935,39 @@ pub struct RenderDiagnosticEvent {
 mod tests {
     use crate::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
-        EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
-        GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-        InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-        MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
-        ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
-        RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TableCellEvent,
-        TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
+        EndBlockEvent, EventBuildContext, EventMeta, EventOrigin, EventProducer, FallbackReason,
+        FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, GraphicRefEvent, HeadingEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+        LineBreakEvent, LineBreakReason, ListItemEvent, MathSourceEvent, MetadataField, ModeHint,
+        PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
+        RecoveryConfidence, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
+        TableRowEvent, TableRuleSpan, TextEvent,
     };
+
+    fn raw_fallback_event() -> RenderEvent {
+        RenderEvent::RawFallback(RawFallbackEvent {
+            source_excerpt: "\\begin{unknownenv}x\\end{unknownenv}".to_string(),
+            expanded_text: None,
+            normalized_visible_text: Some("x".to_string()),
+            environment: Some("unknownenv".to_string()),
+            reason: FallbackReason::UnsupportedEnvironment,
+            source_hash: None,
+            full_source_artifact: None,
+            table_rules: Vec::new(),
+            table_cell_spans: Vec::new(),
+            table_columns: Vec::new(),
+            table_width_spec: None,
+            truncated: false,
+        })
+    }
+
+    fn diagnostic_event() -> RenderEvent {
+        RenderEvent::Diagnostic(RenderDiagnosticEvent {
+            message: "missing input missing.tex".to_string(),
+        })
+    }
 
     #[test]
     fn stream_schema_version_is_top_level() {
@@ -1150,6 +1307,140 @@ mod tests {
 
         assert_eq!(envelope.meta.producer, EventProducer::ScannerRecovery);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::Medium);
+    }
+
+    #[test]
+    fn scanner_recovery_raw_fallback_keeps_fallback_origin() {
+        let envelope = RenderEventEnvelope::from_scanner_recovery(
+            1,
+            raw_fallback_event(),
+            SourceProvenance::file("main.tex", 0, 35),
+        );
+
+        assert_eq!(envelope.meta.producer, EventProducer::Fallback);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Fallback);
+        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Fallback);
+    }
+
+    #[test]
+    fn scanner_recovery_diagnostic_keeps_unknown_low_origin() {
+        let envelope = RenderEventEnvelope::from_scanner_recovery(
+            1,
+            diagnostic_event(),
+            SourceProvenance::file("main.tex", 0, 21),
+        );
+
+        assert_eq!(envelope.meta.producer, EventProducer::Unknown);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
+        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
+    }
+
+    #[test]
+    fn typed_origin_constructor_enforces_event_kind_policy() {
+        let cases = [
+            (
+                EventOrigin::primitive(),
+                EventProducer::Primitive,
+                SemanticConfidence::High,
+            ),
+            (
+                EventOrigin::macro_expansion(),
+                EventProducer::Macro,
+                SemanticConfidence::High,
+            ),
+            (
+                EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+                EventProducer::ScannerRecovery,
+                SemanticConfidence::Medium,
+            ),
+            (
+                EventOrigin::scanner_recovery(RecoveryConfidence::Low),
+                EventProducer::ScannerRecovery,
+                SemanticConfidence::Low,
+            ),
+            (
+                EventOrigin::lossy(),
+                EventProducer::Fallback,
+                SemanticConfidence::Low,
+            ),
+            (
+                EventOrigin::unknown_low(),
+                EventProducer::Unknown,
+                SemanticConfidence::Low,
+            ),
+        ];
+        for (origin, producer, confidence) in cases {
+            let envelope = RenderEventEnvelope::try_from_origin(
+                RenderEvent::Text(TextEvent {
+                    text: "Visible".to_string(),
+                }),
+                EventBuildContext::new(1, SourceProvenance::file("main.tex", 0, 7)),
+                origin,
+            )
+            .expect("ordinary event origin should be valid");
+
+            assert_eq!(envelope.meta.producer, producer);
+            assert_eq!(envelope.meta.confidence, confidence);
+            assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
+        }
+
+        let raw_fallback = RenderEventEnvelope::try_from_origin(
+            raw_fallback_event(),
+            EventBuildContext::new(2, SourceProvenance::file("main.tex", 8, 43)),
+            EventOrigin::raw_fallback(),
+        )
+        .expect("raw fallback origin should be valid");
+        assert_eq!(raw_fallback.meta.producer, EventProducer::Fallback);
+        assert_eq!(raw_fallback.meta.confidence, SemanticConfidence::Fallback);
+        assert_eq!(raw_fallback.meta.source.generated_by, GeneratedBy::Fallback);
+
+        let diagnostic = RenderEventEnvelope::try_from_origin(
+            diagnostic_event(),
+            EventBuildContext::new(3, SourceProvenance::file("main.tex", 44, 65)),
+            EventOrigin::diagnostic_unknown(),
+        )
+        .expect("unknown diagnostic origin should be valid");
+        assert_eq!(diagnostic.meta.producer, EventProducer::Unknown);
+        assert_eq!(diagnostic.meta.confidence, SemanticConfidence::Low);
+
+        let scanner_diagnostic = RenderEventEnvelope::try_from_origin(
+            diagnostic_event(),
+            EventBuildContext::new(4, SourceProvenance::file("main.tex", 66, 87)),
+            EventOrigin::diagnostic_scanner_recovery(),
+        )
+        .expect("scanner diagnostic origin should be valid");
+        assert_eq!(
+            scanner_diagnostic.meta.producer,
+            EventProducer::ScannerRecovery
+        );
+        assert_eq!(scanner_diagnostic.meta.confidence, SemanticConfidence::Low);
+
+        assert!(
+            RenderEventEnvelope::try_from_origin(
+                raw_fallback_event(),
+                EventBuildContext::new(5, SourceProvenance::file("main.tex", 88, 123)),
+                EventOrigin::primitive(),
+            )
+            .is_err()
+        );
+        assert!(
+            RenderEventEnvelope::try_from_origin(
+                diagnostic_event(),
+                EventBuildContext::new(6, SourceProvenance::file("main.tex", 124, 145)),
+                EventOrigin::macro_expansion(),
+            )
+            .is_err()
+        );
+        assert!(
+            RenderEventEnvelope::try_from_origin(
+                RenderEvent::Text(TextEvent {
+                    text: "Visible".to_string(),
+                }),
+                EventBuildContext::new(7, SourceProvenance::file("main.tex", 146, 153)),
+                EventOrigin::raw_fallback(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
