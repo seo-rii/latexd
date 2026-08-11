@@ -5,10 +5,10 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventOrigin, EventProducer, EventSequence, ExpansionFrame, LineBreakEvent, LineBreakReason,
-    PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan,
-    SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
+    EventBuildContext, EventOrigin, EventProducer, EventSequence, ExpansionFrame, LineBreakEvent,
+    LineBreakReason, PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RecoveryConfidence, RenderEvent, RenderEventEnvelope, SourceProvenance,
+    SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
@@ -787,12 +787,12 @@ impl Vm<'_> {
             return;
         }
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::Text(TextEvent { text: capture.text }),
-            capture.source,
-        );
-        envelope.meta.producer = capture.producer;
+            EventBuildContext::new(event_id, capture.source),
+            event_origin_for_executed_producer(capture.producer),
+        )
+        .expect("executed text uses an origin valid for ordinary events");
         self.semantic_text.executed_events.push(envelope);
         self.semantic_text
             .executed_event_anchors
@@ -1202,15 +1202,17 @@ impl Vm<'_> {
                 if !last_line_has_comment {
                     let event_id = self.render_events.allocate_event_sequence();
                     let source_end = source.len().try_into().unwrap_or(u32::MAX);
-                    let mut trailing_space = RenderEventEnvelope::new(
-                        event_id,
+                    let trailing_space = RenderEventEnvelope::try_from_origin(
                         RenderEvent::Space(SpaceEvent {
                             kind: SpaceKind::Interword,
                         }),
-                        SourceProvenance::file(path.clone(), source_end, source_end),
-                    );
-                    trailing_space.meta.producer = EventProducer::ScannerRecovery;
-                    trailing_space.meta.confidence = SemanticConfidence::Medium;
+                        EventBuildContext::new(
+                            event_id,
+                            SourceProvenance::file(path.clone(), source_end, source_end),
+                        ),
+                        EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+                    )
+                    .expect("scanner-recovered spaces use an origin valid for ordinary events");
                     replacements.push(trailing_space);
                 }
             }
@@ -1234,8 +1236,12 @@ impl Vm<'_> {
         let event_id = self.render_events.allocate_event_sequence();
         let (source, producer, _) = self.executed_text_source(start_utf8, end_utf8);
         let execution_anchor = self.current_execution_anchor();
-        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
-        envelope.meta.producer = producer;
+        let envelope = RenderEventEnvelope::try_from_origin(
+            event,
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed text flow uses an origin valid for ordinary events");
         self.semantic_text.executed_events.push(envelope);
         self.semantic_text
             .executed_event_anchors
