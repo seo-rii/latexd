@@ -5,15 +5,16 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    CaptionInlinePlaceholderEvent, EventProducer, EventSequence, InlineCitationEvent,
-    InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SemanticConfidence, SourceProvenance, SourceSpan, SourceSpanRole,
+    CaptionInlinePlaceholderEvent, EventBuildContext, EventProducer, EventSequence,
+    InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
 use crate::{
     Vm, citation_style_hint_for_command,
     input::QueueItem,
+    semantic_text::event_origin_for_executed_producer,
     snapshot::{
         VmActiveLinkCaptureSnapshot, VmExecutedInlineEventMarkSnapshot, VmExecutionAnchor,
         VmSemanticInlineSnapshot, VmSuppressedSourceRangeSnapshot,
@@ -362,13 +363,12 @@ impl Vm<'_> {
             style_hint: citation_style_hint_for_command(&command),
             command,
         };
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::InlineCitation(citation.clone()),
-            source,
-            producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed citations use an origin valid for ordinary events");
         self.semantic_inline.executed_citations.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -389,13 +389,12 @@ impl Vm<'_> {
         let (source, producer) = self.executed_inline_source(start_utf8, end_utf8);
         let event_id = self.render_events.allocate_event_sequence();
         let reference = InlineReferenceEvent { keys, command };
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::InlineReference(reference.clone()),
-            source,
-            producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed references use an origin valid for ordinary events");
         self.semantic_inline.executed_references.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -450,13 +449,12 @@ impl Vm<'_> {
         source = source.with_related(SourceSpanRole::Invocation, invocation_span);
 
         let event_id = self.render_events.allocate_event_sequence();
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::LabelDefinition(LabelDefinitionEvent { key, command }),
-            source,
-            producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed labels use an origin valid for ordinary events");
         self.semantic_inline.executed_labels.push(envelope);
     }
 
@@ -581,17 +579,16 @@ impl Vm<'_> {
         self.executed_math_events.truncate(capture.math_event_mark);
 
         let event_id = self.render_events.allocate_event_sequence();
-        let envelope = RenderEventEnvelope::with_origin(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::InlineLink(InlineLinkEvent {
                 target: capture.target,
                 text,
                 command: capture.command,
             }),
-            capture.source,
-            capture.producer,
-            SemanticConfidence::High,
-        );
+            EventBuildContext::new(event_id, capture.source),
+            event_origin_for_executed_producer(capture.producer),
+        )
+        .expect("executed links use an origin valid for ordinary events");
         self.semantic_inline.executed_links.push(envelope);
         self.mark_executed_inline_content();
         true
