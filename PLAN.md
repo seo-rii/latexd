@@ -236,6 +236,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
+- runtime-false `minipage`의 scanner-only `BeginLayoutContainer`/
+  `EndLayoutContainer`도 environment reconciliation family에 등록해 기존
+  suppression range로 제거한다 (`e69cb6d`). visible minipage의 layout pair와
+  본문은 유지된다.
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는

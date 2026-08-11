@@ -416,7 +416,10 @@ at final V6 exit. False-conditional leakage must be removed by family-specific
 suppression tests or remain an explicit failing characterization until the
 corresponding family migrates; it must not be hidden by a high-confidence
 event. Table recovery now covers both lexical and runtime-false conditional
-branches in `crates/tex-vm/tests/semantic_table.rs`.
+branches in `crates/tex-vm/tests/semantic_table.rs`. Runtime-false `minipage`
+layout-container pairs are registered with environment reconciliation and
+discarded through the same suppression ranges, while visible pairs remain
+covered (`e69cb6d`).
 
 ### Event Sequence
 
@@ -486,7 +489,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
-| false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
+| false-conditional isolation | lexical and runtime-false table recovery are suppressed; runtime-false scanner-only minipage layout-container pairs are also suppressed with a visible-container regression | partial | enumerate every remaining recovery family as green or expected-failing, including document layout/class, diagnostics, and non-table raw fallback |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
