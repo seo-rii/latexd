@@ -15839,7 +15839,8 @@ impl<'i> Vm<'i> {
         let scanner_bibliography = matches!(&event, RenderEvent::BibliographyItem(_));
         let scanner_environment = matches!(
             &event,
-            RenderEvent::BeginBlock(_)
+            RenderEvent::DocumentClass(_)
+                | RenderEvent::BeginBlock(_)
                 | RenderEvent::EndBlock(_)
                 | RenderEvent::BeginLayoutContainer(_)
                 | RenderEvent::EndLayoutContainer(_)
@@ -51353,6 +51354,35 @@ Fallback text.
                             == definition_text
             ));
         }
+    }
+
+    #[test]
+    fn render_event_capture_discards_runtime_false_document_class() {
+        let source = r"\count0=0\ifnum\count0>0\documentclass{llncs}\fi\documentclass{article}\begin{document}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let document_classes = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::DocumentClass(document_class) => Some(document_class.name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            document_classes,
+            ["article"],
+            "{:#?}",
+            outcome.render_events
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("Visible.")
+        )));
     }
 
     #[test]
