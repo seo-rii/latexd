@@ -240,6 +240,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `EndLayoutContainer`도 environment reconciliation family에 등록해 기존
   suppression range로 제거한다 (`e69cb6d`). visible minipage의 layout pair와
   본문은 유지된다.
+- runtime-false `DocumentClass` recovery도 같은 suppression-aware structural
+  family에서 제거하며 실제 class와 본문은 유지한다 (`7e24b0a`). 반면 false
+  package의 `SetDocumentLayout`과 기존 class-option in-place mutation은 event
+  drop만으로 복구되지 않으므로 `BUG-025`로 분리했다.
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
