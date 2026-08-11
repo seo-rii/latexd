@@ -12,6 +12,9 @@ use syn::{
 struct LegacyConstructorVisitor {
     calls: Vec<String>,
     assignments: Vec<String>,
+    constructor_surface_violations: Vec<String>,
+    in_render_event_envelope_impl: bool,
+    current_impl_function: Option<String>,
 }
 
 impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
@@ -29,13 +32,39 @@ impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
 
     fn visit_item_impl(&mut self, item: &'ast ItemImpl) {
         if !is_cfg_test(&item.attrs) {
+            let previous = self.in_render_event_envelope_impl;
+            self.in_render_event_envelope_impl = matches!(
+                item.self_ty.as_ref(),
+                syn::Type::Path(path)
+                    if path.path.segments.last().is_some_and(|segment| {
+                        segment.ident == "RenderEventEnvelope"
+                    })
+            );
             visit::visit_item_impl(self, item);
+            self.in_render_event_envelope_impl = previous;
         }
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast ImplItemFn) {
         if !is_cfg_test(&item.attrs) {
+            let previous = self
+                .current_impl_function
+                .replace(item.sig.ident.to_string());
+            if self.in_render_event_envelope_impl
+                && item.sig.receiver().is_none()
+                && matches!(item.vis, syn::Visibility::Public(_))
+                && !matches!(
+                    item.sig.ident.to_string().as_str(),
+                    "try_from_origin" | "from_scanner_recovery"
+                )
+            {
+                self.constructor_surface_violations.push(format!(
+                    "public RenderEventEnvelope associated function {}",
+                    item.sig.ident
+                ));
+            }
             visit::visit_impl_item_fn(self, item);
+            self.current_impl_function = previous;
         }
     }
 
@@ -47,7 +76,22 @@ impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
             if owner.as_deref() == Some("RenderEventEnvelope")
                 && matches!(constructor.as_deref(), Some("new" | "with_origin"))
             {
-                self.calls.push(constructor.expect("matched constructor"));
+                self.calls.push(
+                    constructor
+                        .as_deref()
+                        .expect("matched constructor")
+                        .to_string(),
+                );
+            }
+            if self.in_render_event_envelope_impl
+                && constructor.as_deref() == Some("from_metadata")
+                && matches!(owner.as_deref(), Some("Self" | "RenderEventEnvelope"))
+                && self.current_impl_function.as_deref() != Some("try_from_origin")
+            {
+                self.constructor_surface_violations.push(format!(
+                    "RenderEventEnvelope::{} calls private from_metadata",
+                    self.current_impl_function.as_deref().unwrap_or("<unknown>")
+                ));
             }
         }
         visit::visit_expr_call(self, call);
@@ -100,6 +144,13 @@ fn direct_origin_metadata_assignments(source: &str) -> Vec<String> {
     visitor.assignments
 }
 
+fn envelope_constructor_surface_violations(source: &str) -> Vec<String> {
+    let syntax = syn::parse_file(source).expect("test input must be valid Rust syntax");
+    let mut visitor = LegacyConstructorVisitor::default();
+    visitor.visit_file(&syntax);
+    visitor.constructor_surface_violations
+}
+
 fn collect_rust_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
     if !directory.is_dir() {
         return;
@@ -117,6 +168,25 @@ fn collect_rust_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
 #[test]
 fn origin_policy_finds_production_calls_and_ignores_test_modules() {
     let source = r#"
+struct RenderEventEnvelope;
+
+impl RenderEventEnvelope {
+    pub fn try_from_origin() {}
+    pub fn from_scanner_recovery() {}
+
+    pub fn new() {
+        Self::from_metadata();
+    }
+
+    pub fn with_origin() {
+        Self::from_metadata();
+    }
+
+    pub fn from_raw() {}
+
+    fn from_metadata() {}
+}
+
 fn emit() {
     RenderEventEnvelope::new(sequence, event, source);
     tex_render_model::RenderEventEnvelope::with_origin(
@@ -149,6 +219,16 @@ mod tests {
             "meta.producer".to_string(),
             "meta.confidence".to_string(),
             "meta.source.generated_by".to_string(),
+        ]
+    );
+    assert_eq!(
+        envelope_constructor_surface_violations(source),
+        vec![
+            "public RenderEventEnvelope associated function new".to_string(),
+            "RenderEventEnvelope::new calls private from_metadata".to_string(),
+            "public RenderEventEnvelope associated function with_origin".to_string(),
+            "RenderEventEnvelope::with_origin calls private from_metadata".to_string(),
+            "public RenderEventEnvelope associated function from_raw".to_string(),
         ]
     );
 }
@@ -184,6 +264,10 @@ fn production_sources_use_typed_event_origin_constructors() {
                 "{}: direct {assignment} assignment",
                 relative.display()
             ));
+        }
+        for violation in envelope_constructor_surface_violations(&source) {
+            let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
+            violations.push(format!("{}: {violation}", relative.display()));
         }
     }
 

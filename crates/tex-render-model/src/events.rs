@@ -138,27 +138,6 @@ pub struct RenderEventEnvelope {
 }
 
 impl RenderEventEnvelope {
-    /// Creates an envelope using the legacy metadata defaults for the event kind.
-    pub fn new(sequence: EventSequence, event: RenderEvent, source: SourceProvenance) -> Self {
-        let (confidence, producer) = match &event {
-            RenderEvent::RawFallback(_) => (SemanticConfidence::Fallback, EventProducer::Fallback),
-            RenderEvent::Diagnostic(_) => (SemanticConfidence::Low, EventProducer::Unknown),
-            _ => (SemanticConfidence::High, EventProducer::Command),
-        };
-        Self::from_metadata(sequence, event, source, producer, confidence)
-    }
-
-    /// Creates an envelope with producer and confidence declared at the emission boundary.
-    pub fn with_origin(
-        sequence: EventSequence,
-        event: RenderEvent,
-        source: SourceProvenance,
-        producer: EventProducer,
-        confidence: SemanticConfidence,
-    ) -> Self {
-        Self::from_metadata(sequence, event, source, producer, confidence)
-    }
-
     fn from_metadata(
         sequence: EventSequence,
         event: RenderEvent,
@@ -1266,77 +1245,63 @@ mod tests {
     }
 
     #[test]
-    fn raw_fallback_envelope_defaults_to_fallback_metadata() {
-        let envelope = RenderEventEnvelope::new(
-            1,
-            RenderEvent::RawFallback(RawFallbackEvent {
-                source_excerpt: "\\begin{unknownenv}x\\end{unknownenv}".to_string(),
-                expanded_text: None,
-                normalized_visible_text: Some("x".to_string()),
-                environment: Some("unknownenv".to_string()),
-                reason: FallbackReason::UnsupportedEnvironment,
-                source_hash: None,
-                full_source_artifact: None,
-                table_rules: Vec::new(),
-                table_cell_spans: Vec::new(),
-                table_columns: Vec::new(),
-                table_width_spec: None,
-                truncated: false,
-            }),
-            SourceProvenance::file("main.tex", 0, 35),
-        );
-
-        assert_eq!(envelope.meta.producer, EventProducer::Fallback);
-        assert_eq!(envelope.meta.confidence, SemanticConfidence::Fallback);
-        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Fallback);
-    }
-
-    #[test]
-    fn diagnostic_envelope_defaults_to_low_confidence_unknown_producer() {
-        let envelope = RenderEventEnvelope::new(
-            1,
-            RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                message: "missing input missing.tex".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 0, 21),
-        );
-
-        assert_eq!(envelope.meta.producer, EventProducer::Unknown);
-        assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
-        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
-    }
-
-    #[test]
-    fn explicit_origin_constructor_uses_declared_producer_and_confidence() {
-        let envelope = RenderEventEnvelope::with_origin(
-            1,
-            RenderEvent::Text(TextEvent {
-                text: "Expanded".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 0, 8),
-            EventProducer::Macro,
-            SemanticConfidence::Medium,
-        );
+    fn legacy_wire_reads_accept_raw_macro_medium_origin() {
+        let encoded = r#"{
+  "event": {
+    "kind": "text",
+    "text": "Expanded"
+  },
+  "meta": {
+    "sequence": 1,
+    "source": {
+      "primary": {
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 0,
+        "end_utf8": 8
+      },
+      "related": [],
+      "expansion_stack": [],
+      "generated_by": "source",
+      "expansion_stack_truncated": false
+    },
+    "mode_hint": "horizontal",
+    "confidence": "medium",
+    "producer": "macro"
+  }
+}"#;
+        let envelope: RenderEventEnvelope =
+            serde_json::from_str(encoded).expect("decode permissive legacy envelope");
 
         assert_eq!(envelope.meta.producer, EventProducer::Macro);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::Medium);
         assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
+        assert!(matches!(
+            envelope.event,
+            RenderEvent::Text(TextEvent { ref text }) if text == "Expanded"
+        ));
     }
 
     #[test]
-    fn envelope_builder_can_override_mode_hint_without_rebuilding_metadata() {
-        let envelope = RenderEventEnvelope::new(
-            1,
+    fn envelope_builder_overrides_only_the_mode_hint() {
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::Text(TextEvent {
                 text: "A Paper".to_string(),
             }),
-            SourceProvenance::file("main.tex", 0, 15),
+            EventBuildContext::new(1, SourceProvenance::file("main.tex", 0, 15)),
+            EventOrigin::macro_expansion(),
         )
-        .with_mode_hint(ModeHint::Horizontal);
+        .expect("macro text origin should be valid");
+        let original_event = envelope.event.clone();
+        let original_meta = envelope.meta.clone();
+        let envelope = envelope.with_mode_hint(ModeHint::Vertical);
 
-        assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(envelope.meta.producer, EventProducer::Command);
+        assert_eq!(envelope.event, original_event);
+        assert_eq!(envelope.meta.sequence, original_meta.sequence);
+        assert_eq!(envelope.meta.source, original_meta.source);
+        assert_eq!(envelope.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(envelope.meta.producer, EventProducer::Macro);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
     }
 
@@ -1499,201 +1464,143 @@ mod tests {
     }
 
     #[test]
-    fn envelope_new_applies_event_default_mode_hints() {
-        let metadata = RenderEventEnvelope::new(
-            1,
-            RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                field: MetadataField::Title,
-                value: "A Paper".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 0, 15),
-        );
-        let flush_title = RenderEventEnvelope::new(
-            2,
-            RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
-            SourceProvenance::file("main.tex", 30, 40),
-        );
-        let inline_math = RenderEventEnvelope::new(
-            3,
-            RenderEvent::InlineMath(MathSourceEvent {
-                raw_source: "x^2".to_string(),
-                normalized_text: None,
-            }),
-            SourceProvenance::file("main.tex", 50, 53),
-        );
-        let display_math = RenderEventEnvelope::new(
-            4,
-            RenderEvent::DisplayMath(MathSourceEvent {
-                raw_source: "y^2".to_string(),
-                normalized_text: None,
-            }),
-            SourceProvenance::file("main.tex", 60, 63),
-        );
-        let heading = RenderEventEnvelope::new(
-            5,
-            RenderEvent::Heading(HeadingEvent {
-                level: 1,
-                text: "Intro".to_string(),
-                number: None,
-            }),
-            SourceProvenance::file("main.tex", 70, 75),
-        );
-        let citation = RenderEventEnvelope::new(
-            6,
-            RenderEvent::InlineCitation(InlineCitationEvent {
-                keys: vec!["key".to_string()],
-                command: "cite".to_string(),
-                style_hint: CitationStyleHint::Parenthetical,
-            }),
-            SourceProvenance::file("main.tex", 80, 90),
-        );
-        let text = RenderEventEnvelope::new(
-            7,
-            RenderEvent::Text(TextEvent {
-                text: "Hello".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 100, 105),
-        );
-        let space = RenderEventEnvelope::new(
-            8,
-            RenderEvent::Space(SpaceEvent {
-                kind: SpaceKind::Interword,
-            }),
-            SourceProvenance::file("main.tex", 105, 106),
-        );
-        let begin_block = RenderEventEnvelope::new(
-            9,
-            RenderEvent::BeginBlock(BeginBlockEvent {
-                block: BlockKind::Abstract,
-            }),
-            SourceProvenance::file("main.tex", 110, 126),
-        );
-        let end_block = RenderEventEnvelope::new(
-            10,
-            RenderEvent::EndBlock(EndBlockEvent {
-                block: BlockKind::Abstract,
-            }),
-            SourceProvenance::file("main.tex", 140, 154),
-        );
-        let reference = RenderEventEnvelope::new(
-            11,
-            RenderEvent::InlineReference(InlineReferenceEvent {
-                keys: vec!["sec:intro".to_string()],
-                command: "ref".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 160, 175),
-        );
-        let link = RenderEventEnvelope::new(
-            12,
-            RenderEvent::InlineLink(InlineLinkEvent {
-                target: "https://example.test".to_string(),
-                text: "example".to_string(),
-                command: "href".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 180, 220),
-        );
-        let graphic = RenderEventEnvelope::new(
-            13,
-            RenderEvent::GraphicRef(GraphicRefEvent {
-                path: "figures/plot.pdf".to_string(),
-                options: Some("width=5cm".to_string()),
-                page_selection: None,
-                asset_format: Some(GraphicAssetFormat::Pdf),
-                asset_hash: None,
-                asset_dimensions: None,
-            }),
-            SourceProvenance::file("main.tex", 230, 278),
-        );
-        let caption = RenderEventEnvelope::new(
-            14,
-            RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
-            SourceProvenance::file("main.tex", 290, 303),
-        );
-        let bibliography_item = RenderEventEnvelope::new(
-            15,
-            RenderEvent::BibliographyItem(BibliographyItemEvent {
-                key: "ref".to_string(),
-                label_hint: None,
-                text: "Author. Title.".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 310, 340),
-        );
-        let line_break = RenderEventEnvelope::new(
-            16,
-            RenderEvent::LineBreak(LineBreakEvent {
-                reason: LineBreakReason::Explicit,
-            }),
-            SourceProvenance::file("main.tex", 350, 352),
-        );
-        let paragraph_break = RenderEventEnvelope::new(
-            17,
-            RenderEvent::ParagraphBreak(ParagraphBreakEvent {
-                reason: ParagraphBreakReason::ParCommand,
-            }),
-            SourceProvenance::file("main.tex", 360, 364),
-        );
-        let list_item = RenderEventEnvelope::new(
-            18,
-            RenderEvent::ListItem(ListItemEvent {
-                marker: Some("Custom".to_string()),
-            }),
-            SourceProvenance::file("main.tex", 370, 383),
-        );
-        let label_definition = RenderEventEnvelope::new(
-            19,
-            RenderEvent::LabelDefinition(LabelDefinitionEvent {
-                key: "sec:intro".to_string(),
-                command: "label".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 390, 408),
-        );
-        let raw_fallback = RenderEventEnvelope::new(
-            20,
-            RenderEvent::RawFallback(RawFallbackEvent {
-                source_excerpt: "\\begin{unknownenv}x\\end{unknownenv}".to_string(),
-                expanded_text: None,
-                normalized_visible_text: Some("x".to_string()),
-                environment: Some("unknownenv".to_string()),
-                reason: FallbackReason::UnsupportedEnvironment,
-                source_hash: None,
-                full_source_artifact: None,
-                table_rules: Vec::new(),
-                table_cell_spans: Vec::new(),
-                table_columns: Vec::new(),
-                table_width_spec: None,
-                truncated: false,
-            }),
-            SourceProvenance::file("main.tex", 420, 455),
-        );
-        let diagnostic = RenderEventEnvelope::new(
-            21,
-            RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                message: "missing input missing.tex".to_string(),
-            }),
-            SourceProvenance::file("main.tex", 460, 481),
-        );
+    fn render_events_have_expected_default_mode_hints() {
+        let cases = [
+            (
+                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                    field: MetadataField::Title,
+                    value: "A Paper".to_string(),
+                }),
+                ModeHint::Preamble,
+            ),
+            (
+                RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::InlineMath(MathSourceEvent {
+                    raw_source: "x^2".to_string(),
+                    normalized_text: None,
+                }),
+                ModeHint::Math,
+            ),
+            (
+                RenderEvent::DisplayMath(MathSourceEvent {
+                    raw_source: "y^2".to_string(),
+                    normalized_text: None,
+                }),
+                ModeHint::Math,
+            ),
+            (
+                RenderEvent::Heading(HeadingEvent {
+                    level: 1,
+                    text: "Intro".to_string(),
+                    number: None,
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::InlineCitation(InlineCitationEvent {
+                    keys: vec!["key".to_string()],
+                    command: "cite".to_string(),
+                    style_hint: CitationStyleHint::Parenthetical,
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::Text(TextEvent {
+                    text: "Hello".to_string(),
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::Space(SpaceEvent {
+                    kind: SpaceKind::Interword,
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Abstract,
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::EndBlock(EndBlockEvent {
+                    block: BlockKind::Abstract,
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::InlineReference(InlineReferenceEvent {
+                    keys: vec!["sec:intro".to_string()],
+                    command: "ref".to_string(),
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::InlineLink(InlineLinkEvent {
+                    target: "https://example.test".to_string(),
+                    text: "example".to_string(),
+                    command: "href".to_string(),
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::GraphicRef(GraphicRefEvent {
+                    path: "figures/plot.pdf".to_string(),
+                    options: Some("width=5cm".to_string()),
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Pdf),
+                    asset_hash: None,
+                    asset_dimensions: None,
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::Caption(CaptionEvent::new("Plot caption.")),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::BibliographyItem(BibliographyItemEvent {
+                    key: "ref".to_string(),
+                    label_hint: None,
+                    text: "Author. Title.".to_string(),
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::LineBreak(LineBreakEvent {
+                    reason: LineBreakReason::Explicit,
+                }),
+                ModeHint::Horizontal,
+            ),
+            (
+                RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                    reason: ParagraphBreakReason::ParCommand,
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::ListItem(ListItemEvent {
+                    marker: Some("Custom".to_string()),
+                }),
+                ModeHint::Vertical,
+            ),
+            (
+                RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                    key: "sec:intro".to_string(),
+                    command: "label".to_string(),
+                }),
+                ModeHint::Unknown,
+            ),
+            (raw_fallback_event(), ModeHint::Unknown),
+            (diagnostic_event(), ModeHint::Unknown),
+        ];
 
-        assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
-        assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
-        assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
-        assert_eq!(heading.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(citation.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(text.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(space.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(begin_block.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(end_block.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(reference.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(link.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(graphic.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(caption.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(bibliography_item.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
-        assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(list_item.meta.mode_hint, ModeHint::Vertical);
-        assert_eq!(label_definition.meta.mode_hint, ModeHint::Unknown);
-        assert_eq!(raw_fallback.meta.mode_hint, ModeHint::Unknown);
-        assert_eq!(diagnostic.meta.mode_hint, ModeHint::Unknown);
+        for (event, expected) in cases {
+            assert_eq!(event.default_mode_hint(), expected);
+        }
     }
 
     #[test]
