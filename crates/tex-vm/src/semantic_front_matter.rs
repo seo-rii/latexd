@@ -2,14 +2,16 @@ use std::{collections::HashSet, mem};
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventProducer, EventSequence, FlushTitleBlockEvent, MetadataField, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
+    EventBuildContext, EventProducer, EventSequence, FlushTitleBlockEvent, MetadataField,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance,
+    SourceSpan, SourceSpanRole,
 };
 use tex_tokens::Token;
 
 use crate::{
     Vm, author_metadata_ranges, command::Meaning, normalize_author_metadata,
-    normalize_latex_text_with_inline_placeholders, snapshot::VmSemanticFrontMatterSnapshot,
+    normalize_latex_text_with_inline_placeholders,
+    semantic_text::event_origin_for_executed_producer, snapshot::VmSemanticFrontMatterSnapshot,
 };
 
 #[derive(Debug, Default)]
@@ -283,12 +285,12 @@ impl Vm<'_> {
             return;
         }
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
-            source,
-        );
-        envelope.meta.producer = producer;
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed title flushes use an origin valid for ordinary events");
         self.semantic_front_matter.executed_events.push(envelope);
     }
 
@@ -378,8 +380,12 @@ impl Vm<'_> {
                 );
         }
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
-        envelope.meta.producer = producer;
+        let envelope = RenderEventEnvelope::try_from_origin(
+            event,
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed front matter uses an origin valid for ordinary events");
         self.semantic_front_matter.executed_events.push(envelope);
     }
 }
