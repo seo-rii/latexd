@@ -5,8 +5,8 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    EventProducer, EventSequence, GraphicAssetFormat, GraphicRefEvent, ProvenanceSpan, RenderEvent,
-    RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
+    EventBuildContext, EventProducer, EventSequence, GraphicAssetFormat, GraphicRefEvent,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{CatCode, Token, TokenKind};
 
@@ -15,7 +15,9 @@ use crate::{
     command::{EpsfDimension, GraphicCommand, LegacyGraphicCommand, LegacyGraphicSyntax},
     input::QueueItem,
     merge_graphic_default_options, merge_graphic_options, normalize_latex_text,
-    parse_graphic_page_selection, read_braced_source_argument, skip_ascii_whitespace,
+    parse_graphic_page_selection, read_braced_source_argument,
+    semantic_text::event_origin_for_executed_producer,
+    skip_ascii_whitespace,
     snapshot::{VmGraphicInvocationRangeSnapshot, VmSemanticGraphicSnapshot},
 };
 
@@ -420,16 +422,16 @@ impl Vm<'_> {
             asset_dimensions,
         };
         let event_id = self.render_events.allocate_event_sequence();
-        let mut envelope = RenderEventEnvelope::new(
-            event_id,
+        let envelope = RenderEventEnvelope::try_from_origin(
             if input.include_pdf {
                 RenderEvent::IncludePdf(event)
             } else {
                 RenderEvent::GraphicRef(event)
             },
-            source,
-        );
-        envelope.meta.producer = producer;
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed graphics use an origin valid for ordinary events");
         self.semantic_graphic.executed_events.push(envelope);
     }
 
