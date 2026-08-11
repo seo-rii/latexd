@@ -235,11 +235,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   table 전체를 제거하지 않는다.
 - phase exit는 열려 있다. 전체 call site 분류와 production migration 뒤
   `new()`는 production 0개이며, 실제 test call은 contract 24개와 incidental
-  fixture 69개, 총 93개가 남았다. origin-sensitive semantic-text fixture 3개는
+  fixture 6개, 총 30개가 남았다. origin-sensitive semantic-text fixture 3개는
   scanner medium/macro high typed origin으로 이전됐고 (`91a8daa`), synthetic
   semantic-sink fixture 2개는 unknown/low로 이전됐다 (`edbe93c`). golden text와
   compiler diagnostic fixture도 각각 unknown/low와 diagnostic-unknown으로
-  이전됐다 (`dc72656`). guard
+  이전됐다 (`dc72656`). layout fixture 63개도 ordinary synthetic event 62개는
+  unknown/low, `RawFallback` 1개는 fallback origin으로 이전됐다 (`247a647`). guard
   self-test의 source string 안에 있는 `new()` 예시 2개는 이 inventory에서
   제외한다. 남은 fixture 정책, bibliography/graphic의 producer-coupled
   reconciliation identity와 sequence/source reuse audit, `ExecutedSourceSlice` interface,
@@ -739,11 +740,11 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 3. scanner RawFallback/Diagnostic characterization과 opaque `EventOrigin` write
    boundary 도입 — `f06bcdf` landed
 4. 기존 migrated family를 typed origin으로 이전하고, `new()` call site를
-   실제 producer/consumer별로 분류 — 현재 production 0개/test call 93개
+   실제 producer/consumer별로 분류 — 현재 production 0개/test call 30개
    inventory 완료
 5. production family typed migration과 layered static guard는 완료
    (`776d604`, `75a79d5`). 24개 constructor contract test는 호환 API가 있는
-   동안 유지하고 69개 incidental fixture를 origin별로 이전; serialized
+   동안 유지하고 남은 6개 incidental fixture를 origin별로 이전; serialized
    `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
 6. 7개 family의 location-only overlap 공통화와 네 family insertion anchor의
    origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography/graphic
