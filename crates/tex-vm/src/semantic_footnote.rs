@@ -5,15 +5,16 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tex_render_model::{
-    BeginFootnoteEvent, EndFootnoteEvent, EventProducer, EventSequence, FootnoteCommandKind,
-    FootnoteId, FootnoteMarkEvent, ProvenanceSpan, RenderEvent, RenderEventEnvelope,
-    SourceProvenance, SourceSpan, SourceSpanRole,
+    BeginFootnoteEvent, EndFootnoteEvent, EventBuildContext, EventProducer, EventSequence,
+    FootnoteCommandKind, FootnoteId, FootnoteMarkEvent, ProvenanceSpan, RenderEvent,
+    RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
 };
 use tex_tokens::{ControlSequenceId, Token};
 
 use crate::{
     Vm,
     input::QueueItem,
+    semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticFlowMark,
     snapshot::{
         VmActiveFootnoteCaptureSnapshot, VmPendingFootnoteMarkSnapshot,
@@ -240,15 +241,15 @@ impl Vm<'_> {
         }
         let note_id = self.allocate_footnote_id();
         let event_id = self.render_events.allocate_event_sequence();
-        let mut event = RenderEventEnvelope::new(
-            event_id,
+        let event = RenderEventEnvelope::try_from_origin(
             RenderEvent::FootnoteMark(FootnoteMarkEvent {
                 note_id,
                 marker: marker.clone(),
             }),
-            source,
-        );
-        event.meta.producer = producer;
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed footnote marks use an origin valid for ordinary events");
         self.semantic_footnote
             .completed_transactions
             .push(vec![event]);
@@ -319,17 +320,17 @@ impl Vm<'_> {
         let note_id =
             pending_mark.map_or_else(|| self.allocate_footnote_id(), |pending| pending.note_id);
         let event_id = self.render_events.allocate_event_sequence();
-        let mut begin_event = RenderEventEnvelope::new(
-            event_id,
+        let begin_event = RenderEventEnvelope::try_from_origin(
             RenderEvent::BeginFootnote(BeginFootnoteEvent {
                 note_id,
                 marker,
                 command,
                 draw_reference: command != FootnoteCommandKind::FootnoteText,
             }),
-            source,
-        );
-        begin_event.meta.producer = producer;
+            EventBuildContext::new(event_id, source),
+            event_origin_for_executed_producer(producer),
+        )
+        .expect("executed footnote starts use an origin valid for ordinary events");
 
         let marker_id = self.semantic_footnote.next_marker_id;
         self.semantic_footnote.next_marker_id += 1;
@@ -383,12 +384,12 @@ impl Vm<'_> {
             _ => unreachable!("footnote capture must begin with a footnote event"),
         };
         let event_id = self.render_events.allocate_event_sequence();
-        let mut end_event = RenderEventEnvelope::new(
-            event_id,
+        let end_event = RenderEventEnvelope::try_from_origin(
             RenderEvent::EndFootnote(EndFootnoteEvent { note_id }),
-            capture.begin_event.meta.source.clone(),
-        );
-        end_event.meta.producer = capture.begin_event.meta.producer;
+            EventBuildContext::new(event_id, capture.begin_event.meta.source.clone()),
+            event_origin_for_executed_producer(capture.begin_event.meta.producer),
+        )
+        .expect("executed footnote ends use an origin valid for ordinary events");
 
         let mut transaction = Vec::with_capacity(body_events.len() + 2);
         transaction.push(capture.begin_event);
