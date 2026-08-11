@@ -16,7 +16,7 @@ use crate::{
     input::QueueItem,
     merge_graphic_default_options, merge_graphic_options, normalize_latex_text,
     parse_graphic_page_selection, read_braced_source_argument,
-    semantic_reconciliation::source_locations_overlap,
+    semantic_reconciliation::{call_invocation_primary_anchor, source_locations_overlap},
     semantic_text::event_origin_for_executed_producer,
     skip_ascii_whitespace,
     snapshot::{VmGraphicInvocationRangeSnapshot, VmSemanticGraphicSnapshot},
@@ -709,13 +709,14 @@ fn insert_unmatched_graphic_events(
     executed: Vec<RenderEventEnvelope>,
 ) {
     for event in executed {
-        let Some((path, start_utf8, end_utf8)) = event_anchor(&event) else {
+        let Some((path, start_utf8, end_utf8)) = call_invocation_primary_anchor(&event.meta.source)
+        else {
             continue;
         };
         let insertion = events
             .iter()
             .position(|existing| {
-                event_anchor(existing).is_some_and(
+                call_invocation_primary_anchor(&existing.meta.source).is_some_and(
                     |(existing_path, existing_start, existing_end)| {
                         existing_path == path
                             && (existing_start > start_utf8
@@ -728,34 +729,6 @@ fn insert_unmatched_graphic_events(
             })
             .unwrap_or(events.len());
         events.insert(insertion, event);
-    }
-}
-
-fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
-    if event.meta.producer == EventProducer::Macro
-        && let Some(ProvenanceSpan::File(span)) = event
-            .meta
-            .source
-            .expansion_stack
-            .last()
-            .map(|frame| &frame.call_span)
-    {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
-    }
-    if let Some(span) = event.meta.source.related.iter().find_map(|related| {
-        if related.role != SourceSpanRole::Invocation {
-            return None;
-        }
-        match &related.span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        }
-    }) {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
-    }
-    match &event.meta.source.primary {
-        ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
-        ProvenanceSpan::Generated(_) => None,
     }
 }
 

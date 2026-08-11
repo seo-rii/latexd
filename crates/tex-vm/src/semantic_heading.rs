@@ -3,7 +3,6 @@ use std::{
     mem,
 };
 
-use camino::Utf8PathBuf;
 use tex_render_model::{
     EventBuildContext, EventOrigin, EventProducer, EventSequence, HeadingEvent, ProvenanceSpan,
     RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan, SourceSpanRole,
@@ -13,7 +12,7 @@ use tex_tokens::{ControlSequenceId, Token};
 use crate::{
     Vm,
     input::QueueItem,
-    semantic_reconciliation::source_locations_overlap,
+    semantic_reconciliation::{call_invocation_primary_anchor, source_locations_overlap},
     semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{VmActiveHeadingCaptureSnapshot, VmSemanticHeadingSnapshot},
@@ -349,13 +348,14 @@ fn insert_unmatched_heading_events(
     executed: Vec<RenderEventEnvelope>,
 ) {
     for event in executed {
-        let Some((path, start_utf8, end_utf8)) = event_anchor(&event) else {
+        let Some((path, start_utf8, end_utf8)) = call_invocation_primary_anchor(&event.meta.source)
+        else {
             continue;
         };
         let insertion = events
             .iter()
             .position(|existing| {
-                event_anchor(existing).is_some_and(
+                call_invocation_primary_anchor(&existing.meta.source).is_some_and(
                     |(existing_path, existing_start, existing_end)| {
                         existing_path == path
                             && (existing_start > start_utf8
@@ -394,30 +394,93 @@ fn renumber_heading_events(events: &mut [RenderEventEnvelope]) {
     }
 }
 
-fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
-    if event.meta.producer == EventProducer::Macro
-        && let Some(ProvenanceSpan::File(span)) = event
-            .meta
-            .source
-            .expansion_stack
-            .last()
-            .map(|frame| &frame.call_span)
-    {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
+#[cfg(test)]
+mod tests {
+    use tex_render_model::{ExpansionFrame, SemanticConfidence};
+    use tex_tokens::ControlSequenceInterner;
+
+    use super::*;
+
+    #[test]
+    fn unmatched_heading_insertion_uses_source_geometry_independent_of_legacy_producer() {
+        let macro_order = reconciled_heading_text(EventProducer::Macro);
+        let primitive_order = reconciled_heading_text(EventProducer::Primitive);
+
+        assert_eq!(macro_order, vec!["legacy", "neighbor"]);
+        assert_eq!(primitive_order, macro_order);
     }
-    if let Some(span) = event.meta.source.related.iter().find_map(|related| {
-        if related.role != SourceSpanRole::Invocation {
-            return None;
-        }
-        match &related.span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        }
-    }) {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
+
+    fn reconciled_heading_text(producer: EventProducer) -> Vec<String> {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.render_events.push(heading_envelope(
+            1,
+            "neighbor",
+            SourceProvenance::file("main.tex", 30, 40),
+            EventOrigin::primitive(),
+        ));
+        let legacy = legacy_heading_envelope(producer);
+        vm.semantic_heading.executed_events.push(legacy.clone());
+
+        vm.reconcile_executed_heading_events();
+
+        assert!(vm.render_events.iter().any(|event| event == &legacy));
+
+        vm.render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Heading(heading) => Some(heading.text.clone()),
+                _ => None,
+            })
+            .collect()
     }
-    match &event.meta.source.primary {
-        ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
-        ProvenanceSpan::Generated(_) => None,
+
+    fn legacy_heading_envelope(producer: EventProducer) -> RenderEventEnvelope {
+        let source = SourceProvenance::file("main.tex", 70, 80)
+            .with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(SourceSpan {
+                    path: "main.tex".into(),
+                    start_utf8: 50,
+                    end_utf8: 60,
+                }),
+            )
+            .with_expansion_frame(ExpansionFrame {
+                call_span: ProvenanceSpan::File(SourceSpan {
+                    path: "main.tex".into(),
+                    start_utf8: 10,
+                    end_utf8: 20,
+                }),
+                definition_span: None,
+                command_name: Some("legacy-heading".to_string()),
+            });
+        let envelope = heading_envelope(2, "legacy", source, EventOrigin::macro_expansion());
+        let mut encoded = serde_json::to_value(envelope).expect("serialize heading envelope");
+        encoded["meta"]["producer"] =
+            serde_json::to_value(producer).expect("serialize legacy producer");
+        let envelope: RenderEventEnvelope =
+            serde_json::from_value(encoded).expect("deserialize legacy heading envelope");
+
+        assert_eq!(envelope.meta.producer, producer);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
+        envelope
+    }
+
+    fn heading_envelope(
+        sequence: EventSequence,
+        text: &str,
+        source: SourceProvenance,
+        origin: EventOrigin,
+    ) -> RenderEventEnvelope {
+        RenderEventEnvelope::try_from_origin(
+            RenderEvent::Heading(HeadingEvent {
+                level: 1,
+                text: text.to_string(),
+                number: None,
+            }),
+            EventBuildContext::new(sequence, source),
+            origin,
+        )
+        .expect("heading fixture must use a valid event origin")
     }
 }

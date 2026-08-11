@@ -1,6 +1,5 @@
 use std::{collections::HashSet, mem};
 
-use camino::Utf8PathBuf;
 use tex_render_model::{
     EventBuildContext, EventProducer, EventSequence, FlushTitleBlockEvent, MetadataField,
     ProvenanceSpan, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance,
@@ -9,10 +8,12 @@ use tex_render_model::{
 use tex_tokens::Token;
 
 use crate::{
-    Vm, author_metadata_ranges, command::Meaning, normalize_author_metadata,
-    normalize_latex_text_with_inline_placeholders,
-    semantic_reconciliation::source_locations_overlap,
-    semantic_text::event_origin_for_executed_producer, snapshot::VmSemanticFrontMatterSnapshot,
+    Vm, author_metadata_ranges,
+    command::Meaning,
+    normalize_author_metadata, normalize_latex_text_with_inline_placeholders,
+    semantic_reconciliation::{call_invocation_primary_anchor, source_locations_overlap},
+    semantic_text::event_origin_for_executed_producer,
+    snapshot::VmSemanticFrontMatterSnapshot,
 };
 
 #[derive(Debug, Default)]
@@ -419,13 +420,14 @@ fn insert_unmatched_front_matter_events(
     executed: Vec<RenderEventEnvelope>,
 ) {
     for event in executed {
-        let Some((path, start_utf8, end_utf8)) = event_anchor(&event) else {
+        let Some((path, start_utf8, end_utf8)) = call_invocation_primary_anchor(&event.meta.source)
+        else {
             continue;
         };
         let insertion = events
             .iter()
             .position(|existing| {
-                event_anchor(existing).is_some_and(
+                call_invocation_primary_anchor(&existing.meta.source).is_some_and(
                     |(existing_path, existing_start, existing_end)| {
                         existing_path == path
                             && (existing_start > start_utf8
@@ -438,33 +440,5 @@ fn insert_unmatched_front_matter_events(
             })
             .unwrap_or(events.len());
         events.insert(insertion, event);
-    }
-}
-
-fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
-    if event.meta.producer == EventProducer::Macro
-        && let Some(ProvenanceSpan::File(span)) = event
-            .meta
-            .source
-            .expansion_stack
-            .last()
-            .map(|frame| &frame.call_span)
-    {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
-    }
-    if let Some(span) = event.meta.source.related.iter().find_map(|related| {
-        if related.role != SourceSpanRole::Invocation {
-            return None;
-        }
-        match &related.span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        }
-    }) {
-        return Some((span.path.clone(), span.start_utf8, span.end_utf8));
-    }
-    match &event.meta.source.primary {
-        ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
-        ProvenanceSpan::Generated(_) => None,
     }
 }
