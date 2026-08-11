@@ -54,22 +54,28 @@ pub fn from_pretty_json<T: DeserializeOwned>(json: &str) -> serde_json::Result<T
 #[cfg(test)]
 mod tests {
     use crate::{
-        RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance, TextEvent,
-        from_pretty_json, to_pretty_json, to_semantic_pretty_json,
+        EventBuildContext, EventOrigin, EventProducer, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SourceProvenance, TextEvent, from_pretty_json,
+        to_pretty_json, to_semantic_pretty_json,
     };
 
     #[test]
     fn pretty_json_helper_roundtrips_stream() {
         let stream = RenderEventStream::new(
             Some("text".to_string()),
-            vec![RenderEventEnvelope::new(
-                1,
-                RenderEvent::Text(TextEvent {
-                    text: "hello".to_string(),
-                }),
-                SourceProvenance::file("main.tex", 0, 5),
-            )],
+            vec![
+                RenderEventEnvelope::try_from_origin(
+                    RenderEvent::Text(TextEvent {
+                        text: "hello".to_string(),
+                    }),
+                    EventBuildContext::new(1, SourceProvenance::file("main.tex", 0, 5)),
+                    EventOrigin::unknown_low(),
+                )
+                .expect("synthetic golden text must use a valid event origin"),
+            ],
         );
+        assert_eq!(stream.events[0].meta.producer, EventProducer::Unknown);
+        assert_eq!(stream.events[0].meta.confidence, SemanticConfidence::Low);
 
         let encoded = to_pretty_json(&stream).expect("encode stream");
         let decoded: RenderEventStream = from_pretty_json(&encoded).expect("decode stream");

@@ -4450,9 +4450,10 @@ mod tests {
     };
     use tex_layout::TextSpan;
     use tex_render_model::{
-        DocumentIr, DrawOp, EventProducer, GraphicAssetFormat, GraphicAssetRequest, IrBlock,
-        PageDisplayList, PositionedImage, ProvenanceSpan, Rect, RenderDiagnosticEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SourceProvenance, TextEvent,
+        DocumentIr, DrawOp, EventBuildContext, EventOrigin, EventProducer, GraphicAssetFormat,
+        GraphicAssetRequest, IrBlock, PageDisplayList, PositionedImage, ProvenanceSpan, Rect,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SourceProvenance, TextEvent,
     };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
@@ -5083,14 +5084,19 @@ mod tests {
         };
         let events = RenderEventStream::new(
             Some("diagnostic-page-id".to_string()),
-            vec![RenderEventEnvelope::new(
-                1,
-                RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                    message: "missing graphic asset figures/missing.png".to_string(),
-                }),
-                source.clone(),
-            )],
+            vec![
+                RenderEventEnvelope::try_from_origin(
+                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                        message: "missing graphic asset figures/missing.png".to_string(),
+                    }),
+                    EventBuildContext::new(1, source.clone()),
+                    EventOrigin::diagnostic_unknown(),
+                )
+                .expect("synthetic compiler diagnostic must use a valid event origin"),
+            ],
         );
+        assert_eq!(events.events[0].meta.producer, EventProducer::Unknown);
+        assert_eq!(events.events[0].meta.confidence, SemanticConfidence::Low);
 
         let mut original = vec![
             image_page("first", "first-hash", "figures/missing.png"),
