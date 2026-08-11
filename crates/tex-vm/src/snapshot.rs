@@ -725,7 +725,8 @@ impl VmSemanticHeadingSnapshot {
                 .iter()
                 .all(|marker_id| *marker_id < self.next_marker_id)
             && self.active_heading_actions.iter().all(|capture| {
-                capture.text_event_mark <= text_event_count
+                executed_capture_producer_is_restorable(capture.producer)
+                    && capture.text_event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
                     && capture.math_event_mark <= math_event_count
                     && capture.heading_event_mark
@@ -803,7 +804,8 @@ impl VmSemanticCaptionSnapshot {
                 .iter()
                 .all(|marker_id| *marker_id < self.next_marker_id)
             && self.active_caption_actions.iter().all(|capture| {
-                capture.text_event_mark <= text_event_count
+                executed_capture_producer_is_restorable(capture.producer)
+                    && capture.text_event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
                     && capture.math_event_mark <= math_event_count
                     && capture.caption_event_mark
@@ -1064,7 +1066,8 @@ impl VmSemanticFootnoteSnapshot {
                 .all(|note_id| *note_id >= 1 && *note_id < self.next_note_id)
             && pending_mark_is_valid
             && self.active_actions.iter().all(|capture| {
-                capture.text_flow_mark.event_mark <= text_event_count
+                executed_capture_producer_is_restorable(capture.begin_event.meta.producer)
+                    && capture.text_flow_mark.event_mark <= text_event_count
                     && capture.inline_event_mark.is_restorable(inline)
                     && capture.math_event_mark <= math_event_count
                     && capture.transaction_mark
@@ -1517,6 +1520,10 @@ fn event_execution_anchors_are_valid(anchors: &[VmEventExecutionAnchorSnapshot])
 
 fn values_are_unique_nonzero(values: &[EventSequence]) -> bool {
     values.iter().all(|value| *value >= 1) && values_are_unique(values)
+}
+
+fn executed_capture_producer_is_restorable(producer: EventProducer) -> bool {
+    matches!(producer, EventProducer::Primitive | EventProducer::Macro)
 }
 
 fn values_are_unique<T: Ord + Clone>(values: &[T]) -> bool {
