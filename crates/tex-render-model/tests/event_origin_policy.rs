@@ -4,13 +4,14 @@ use std::{
 };
 
 use syn::{
-    Expr, ExprCall, ImplItemFn, ItemFn, ItemImpl, ItemMod,
+    Expr, ExprAssign, ExprCall, ExprField, ImplItemFn, ItemFn, ItemImpl, ItemMod, Member,
     visit::{self, Visit},
 };
 
 #[derive(Default)]
 struct LegacyConstructorVisitor {
     calls: Vec<String>,
+    assignments: Vec<String>,
 }
 
 impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
@@ -51,6 +52,29 @@ impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
         }
         visit::visit_expr_call(self, call);
     }
+
+    fn visit_expr_assign(&mut self, assignment: &'ast ExprAssign) {
+        let mut fields = Vec::new();
+        collect_field_chain(assignment.left.as_ref(), &mut fields);
+        let field = fields.join(".");
+        if matches!(
+            field.as_str(),
+            "meta.producer" | "meta.confidence" | "meta.source.generated_by"
+        ) {
+            self.assignments.push(field);
+        }
+        visit::visit_expr_assign(self, assignment);
+    }
+}
+
+fn collect_field_chain(expression: &Expr, fields: &mut Vec<String>) {
+    let Expr::Field(ExprField { base, member, .. }) = expression else {
+        return;
+    };
+    collect_field_chain(base, fields);
+    if let Member::Named(field) = member {
+        fields.push(field.to_string());
+    }
 }
 
 fn is_cfg_test(attributes: &[syn::Attribute]) -> bool {
@@ -67,6 +91,13 @@ fn legacy_constructor_calls(source: &str) -> Vec<String> {
     let mut visitor = LegacyConstructorVisitor::default();
     visitor.visit_file(&syntax);
     visitor.calls
+}
+
+fn direct_origin_metadata_assignments(source: &str) -> Vec<String> {
+    let syntax = syn::parse_file(source).expect("test input must be valid Rust syntax");
+    let mut visitor = LegacyConstructorVisitor::default();
+    visitor.visit_file(&syntax);
+    visitor.assignments
 }
 
 fn collect_rust_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
@@ -95,6 +126,9 @@ fn emit() {
         producer,
         confidence,
     );
+    event.meta.producer = producer;
+    event.meta.confidence = confidence;
+    event.meta.source.generated_by = generated_by;
 }
 
 #[cfg(test)]
@@ -108,6 +142,14 @@ mod tests {
     assert_eq!(
         legacy_constructor_calls(source),
         vec!["new".to_string(), "with_origin".to_string()]
+    );
+    assert_eq!(
+        direct_origin_metadata_assignments(source),
+        vec![
+            "meta.producer".to_string(),
+            "meta.confidence".to_string(),
+            "meta.source.generated_by".to_string(),
+        ]
     );
 }
 
@@ -133,6 +175,13 @@ fn production_sources_use_typed_event_origin_constructors() {
             let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
             violations.push(format!(
                 "{}: RenderEventEnvelope::{constructor}",
+                relative.display()
+            ));
+        }
+        for assignment in direct_origin_metadata_assignments(&source) {
+            let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
+            violations.push(format!(
+                "{}: direct {assignment} assignment",
                 relative.display()
             ));
         }

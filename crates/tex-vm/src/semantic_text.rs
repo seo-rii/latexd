@@ -1094,9 +1094,17 @@ impl Vm<'_> {
                     && slot.preserve_leading_space
                     && let Some(leading_space) = leading_space
                 {
-                    let mut leading_space = leading_space.clone();
-                    leading_space.meta.producer = EventProducer::Primitive;
-                    leading_space.meta.confidence = tex_render_model::SemanticConfidence::High;
+                    let leading_space = leading_space.clone();
+                    let sequence = leading_space.meta.sequence;
+                    let source = leading_space.meta.source.clone();
+                    let mode_hint = leading_space.meta.mode_hint;
+                    let leading_space = RenderEventEnvelope::try_from_origin(
+                        leading_space.event,
+                        EventBuildContext::new(sequence, source),
+                        EventOrigin::primitive(),
+                    )
+                    .expect("leading-space reconciliation must produce a valid event origin")
+                    .with_mode_hint(mode_hint);
                     replacements.insert(0, leading_space);
                 }
                 if stripped_trailing && let Some(trailing_eof_space) = trailing_eof_space {

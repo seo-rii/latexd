@@ -5,10 +5,10 @@ use std::{
 
 use camino::Utf8PathBuf;
 use tex_render_model::{
-    EventBuildContext, EventProducer, EventSequence, GeneratedBy, ProvenanceSpan, RawFallbackEvent,
-    RelatedSourceSpan, RenderEvent, RenderEventEnvelope, SemanticConfidence, SourceProvenance,
-    SourceSpanRole, TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
-    TableRowEvent, TableRulePosition,
+    EventBuildContext, EventOrigin, EventProducer, EventSequence, GeneratedBy, ProvenanceSpan,
+    RawFallbackEvent, RecoveryConfidence, RelatedSourceSpan, RenderEvent, RenderEventEnvelope,
+    SourceProvenance, SourceSpanRole, TableCellEvent, TableColumnAlignment, TableColumnSpec,
+    TableEvent, TableRowEvent, TableRulePosition,
 };
 
 use crate::{
@@ -411,16 +411,25 @@ impl Vm<'_> {
                 && let RenderEvent::RawFallback(fallback) = &scanner_event.event
                 && let Some(table) = table_event_from_fallback(fallback)
             {
-                scanner_event.event = RenderEvent::Table(table);
-                scanner_event.meta.producer = EventProducer::ScannerRecovery;
-                scanner_event.meta.confidence = SemanticConfidence::Medium;
-                scanner_event.meta.source.generated_by = GeneratedBy::Source;
-                if scanner_event.meta.source.expansion_stack.is_empty() {
-                    scanner_event.meta.source.expansion_stack =
-                        executed_table.source.expansion_stack;
-                    scanner_event.meta.source.expansion_stack_truncated =
+                let sequence = scanner_event.meta.sequence;
+                let mode_hint = scanner_event.meta.mode_hint;
+                let mut source = scanner_event
+                    .meta
+                    .source
+                    .clone()
+                    .with_generated_by(GeneratedBy::Source);
+                if source.expansion_stack.is_empty() {
+                    source.expansion_stack = executed_table.source.expansion_stack;
+                    source.expansion_stack_truncated =
                         executed_table.source.expansion_stack_truncated;
                 }
+                *scanner_event = RenderEventEnvelope::try_from_origin(
+                    RenderEvent::Table(table),
+                    EventBuildContext::new(sequence, source),
+                    EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+                )
+                .expect("scanner table reconciliation must produce a valid event origin")
+                .with_mode_hint(mode_hint);
             }
         }
 
