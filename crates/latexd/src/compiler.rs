@@ -1811,7 +1811,7 @@ impl CompilerDriver {
             if has_fatal_internal_diagnostics(&build.run.diagnostics) {
                 return Err(internal_diagnostics_failure(&request.toplevel, build));
             }
-            let internal_diagnostics =
+            let mut internal_diagnostics =
                 map_internal_diagnostics(&request.toplevel, &build.run.diagnostics);
             let render_ir_artifact_dir = rev_dir.join("render-ir");
             let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
@@ -1838,6 +1838,29 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build render IR artifacts: {error}"),
             })?;
+            for envelope in &render_ir_capture.events.events {
+                let RenderEvent::Diagnostic(render_diagnostic) = &envelope.event else {
+                    continue;
+                };
+                if !render_diagnostic
+                    .message
+                    .starts_with("missing graphic asset ")
+                {
+                    continue;
+                }
+                let diagnostic = Diagnostic {
+                    level: DiagnosticLevel::Warning,
+                    file: match &envelope.meta.source.primary {
+                        ProvenanceSpan::File(span) => Some(span.path.to_string()),
+                        ProvenanceSpan::Generated(_) => None,
+                    },
+                    line: None,
+                    message: render_diagnostic.message.clone(),
+                };
+                if !internal_diagnostics.contains(&diagnostic) {
+                    internal_diagnostics.push(diagnostic);
+                }
+            }
             render_ir_capture
                 .write_debug_artifacts(&render_ir_artifact_dir)
                 .map_err(|error| CompileFailure {
@@ -6080,6 +6103,41 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_surfaces_missing_graphic_as_warning() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\includegraphics{figures/missing.png}\includegraphics{figures/missing.png}\end{document}",
+        )
+        .expect("main tex");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root,
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("internal compile");
+
+        let diagnostics = outcome
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message == "missing graphic asset figures/missing.png")
+            .collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 1, "{:#?}", outcome.diagnostics);
+        assert_eq!(diagnostics[0].level, DiagnosticLevel::Warning);
+        assert_eq!(diagnostics[0].file.as_deref(), Some("main.tex"));
+        assert_eq!(diagnostics[0].line, None);
     }
 
     #[tokio::test]
