@@ -1861,6 +1861,39 @@ impl CompilerDriver {
                     internal_diagnostics.push(diagnostic);
                 }
             }
+            for page in &render_ir_capture.page_display_lists {
+                for op in &page.ops {
+                    let DrawOp::Image(image) = op else {
+                        continue;
+                    };
+                    let request = GraphicAssetRequest::from(image);
+                    let Some(materialized) = render_ir_capture.materialized_assets.get(&request)
+                    else {
+                        continue;
+                    };
+                    if materialized.format != GraphicAssetFormat::Eps
+                        || materialized.pdf_form.is_some()
+                        || materialized.raster_fallback.is_some()
+                    {
+                        continue;
+                    }
+                    let diagnostic = Diagnostic {
+                        level: DiagnosticLevel::Warning,
+                        file: match &image.source.primary {
+                            ProvenanceSpan::File(span) => Some(span.path.to_string()),
+                            ProvenanceSpan::Generated(_) => None,
+                        },
+                        line: None,
+                        message: format!(
+                            "unsupported graphic asset format eps: {}",
+                            image.asset_ref
+                        ),
+                    };
+                    if !internal_diagnostics.contains(&diagnostic) {
+                        internal_diagnostics.push(diagnostic);
+                    }
+                }
+            }
             render_ir_capture
                 .write_debug_artifacts(&render_ir_artifact_dir)
                 .map_err(|error| CompileFailure {
@@ -6133,6 +6166,49 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.message == "missing graphic asset figures/missing.png")
+            .collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 1, "{:#?}", outcome.diagnostics);
+        assert_eq!(diagnostics[0].level, DiagnosticLevel::Warning);
+        assert_eq!(diagnostics[0].file.as_deref(), Some("main.tex"));
+        assert_eq!(diagnostics[0].line, None);
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_surfaces_unconvertible_eps_as_warning() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(root.join("figures")).expect("figures dir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\includegraphics{figures/vector.eps}\includegraphics{figures/vector.eps}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("figures/vector.eps"),
+            b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 144 72\nthis is not valid postscript\n",
+        )
+        .expect("invalid eps");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root,
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("internal compile");
+
+        let diagnostics = outcome
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.message == "unsupported graphic asset format eps: figures/vector.eps"
+            })
             .collect::<Vec<_>>();
         assert_eq!(diagnostics.len(), 1, "{:#?}", outcome.diagnostics);
         assert_eq!(diagnostics[0].level, DiagnosticLevel::Warning);
