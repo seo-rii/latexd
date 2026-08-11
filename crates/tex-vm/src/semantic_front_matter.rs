@@ -11,6 +11,7 @@ use tex_tokens::Token;
 use crate::{
     Vm, author_metadata_ranges, command::Meaning, normalize_author_metadata,
     normalize_latex_text_with_inline_placeholders,
+    semantic_reconciliation::source_locations_overlap,
     semantic_text::event_origin_for_executed_producer, snapshot::VmSemanticFrontMatterSnapshot,
 };
 
@@ -279,7 +280,7 @@ impl Vm<'_> {
             .iter()
             .any(|event| {
                 matches!(event.event, RenderEvent::FlushTitleBlock(_))
-                    && provenance_overlaps(&event.meta.source, &source)
+                    && source_locations_overlap(&event.meta.source, &source)
             })
         {
             return;
@@ -312,12 +313,15 @@ impl Vm<'_> {
                 .iter()
                 .position(|candidate| {
                     front_matter_payloads_match(candidate, &scanner_event)
-                        && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                        && source_locations_overlap(
+                            &candidate.meta.source,
+                            &scanner_event.meta.source,
+                        )
                 })
                 .or_else(|| {
                     executed.iter().position(|candidate| {
                         front_matter_kinds_match(candidate, &scanner_event)
-                            && provenance_overlaps(
+                            && source_locations_overlap(
                                 &candidate.meta.source,
                                 &scanner_event.meta.source,
                             )
@@ -408,31 +412,6 @@ fn front_matter_kinds_match(left: &RenderEventEnvelope, right: &RenderEventEnvel
         (RenderEvent::FlushTitleBlock(_), RenderEvent::FlushTitleBlock(_)) => true,
         _ => false,
     }
-}
-
-fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> bool {
-    provenance_spans(left).any(|left_span| {
-        provenance_spans(right).any(|right_span| {
-            left_span.path == right_span.path
-                && left_span.start_utf8 < right_span.end_utf8
-                && right_span.start_utf8 < left_span.end_utf8
-        })
-    })
-}
-
-fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
-    std::iter::once(&source.primary)
-        .chain(source.related.iter().map(|related| &related.span))
-        .chain(
-            source
-                .expansion_stack
-                .iter()
-                .flat_map(|frame| std::iter::once(&frame.call_span).chain(&frame.definition_span)),
-        )
-        .filter_map(|span| match span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        })
 }
 
 fn insert_unmatched_front_matter_events(

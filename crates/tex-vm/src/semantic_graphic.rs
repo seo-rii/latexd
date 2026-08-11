@@ -16,6 +16,7 @@ use crate::{
     input::QueueItem,
     merge_graphic_default_options, merge_graphic_options, normalize_latex_text,
     parse_graphic_page_selection, read_braced_source_argument,
+    semantic_reconciliation::source_locations_overlap,
     semantic_text::event_origin_for_executed_producer,
     skip_ascii_whitespace,
     snapshot::{VmGraphicInvocationRangeSnapshot, VmSemanticGraphicSnapshot},
@@ -452,7 +453,7 @@ impl Vm<'_> {
             }
             let matching = executed.iter().position(|candidate| {
                 graphic_shapes_match(candidate, &scanner_event)
-                    && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                    && source_locations_overlap(&candidate.meta.source, &scanner_event.meta.source)
                     && (graphic_paths_match(candidate, &scanner_event)
                         || candidate.meta.producer != EventProducer::Macro)
             });
@@ -756,16 +757,6 @@ fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> 
         ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
         ProvenanceSpan::Generated(_) => None,
     }
-}
-
-fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> bool {
-    provenance_spans(left).any(|left_span| {
-        provenance_spans(right).any(|right_span| {
-            left_span.path == right_span.path
-                && left_span.start_utf8 < right_span.end_utf8
-                && right_span.start_utf8 < left_span.end_utf8
-        })
-    })
 }
 
 fn provenance_overlaps_invocation(

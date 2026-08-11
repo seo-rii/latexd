@@ -11,6 +11,7 @@ use tex_render_model::{
 
 use crate::{
     Vm,
+    semantic_reconciliation::source_locations_overlap,
     semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{
@@ -476,7 +477,7 @@ impl Vm<'_> {
                     && executed_event_anchors.get(&candidate.meta.sequence)
                         == scanner_execution_anchor
                     && bibliography_payloads_match(candidate, &scanner_event)
-                    && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                    && source_locations_overlap(&candidate.meta.source, &scanner_event.meta.source)
             });
             let compatible = exact.or_else(|| {
                 executed.iter().position(|candidate| {
@@ -484,7 +485,10 @@ impl Vm<'_> {
                         && executed_event_anchors.get(&candidate.meta.sequence)
                             == scanner_execution_anchor
                         && bibliography_shapes_match(candidate, &scanner_event)
-                        && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                        && source_locations_overlap(
+                            &candidate.meta.source,
+                            &scanner_event.meta.source,
+                        )
                 })
             });
             if let Some(index) = compatible {
@@ -510,7 +514,7 @@ impl Vm<'_> {
             } else if let Some(index) = executed.iter().position(|candidate| {
                 executed_event_anchors.get(&candidate.meta.sequence) == scanner_execution_anchor
                     && bibliography_shapes_match(candidate, &scanner_event)
-                    && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                    && source_locations_overlap(&candidate.meta.source, &scanner_event.meta.source)
             }) {
                 let removed = executed.remove(index);
                 executed_event_anchors.remove(&removed.meta.sequence);
@@ -594,16 +598,6 @@ fn bibliography_shapes_match(left: &RenderEventEnvelope, right: &RenderEventEnve
     )
 }
 
-fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> bool {
-    provenance_spans(left).any(|left_span| {
-        provenance_spans(right).any(|right_span| {
-            left_span.path == right_span.path
-                && left_span.start_utf8 < right_span.end_utf8
-                && right_span.start_utf8 < left_span.end_utf8
-        })
-    })
-}
-
 fn provenance_overlaps_bibliography_invocation(
     source: &SourceProvenance,
     scanner_anchor: Option<&VmExecutionAnchor>,
@@ -659,21 +653,6 @@ fn provenance_span_overlaps_range(
                 && span.start_utf8 < end_utf8
                 && start_utf8 < span.end_utf8
     )
-}
-
-fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
-    std::iter::once(&source.primary)
-        .chain(source.related.iter().map(|related| &related.span))
-        .chain(
-            source
-                .expansion_stack
-                .iter()
-                .flat_map(|frame| std::iter::once(&frame.call_span).chain(&frame.definition_span)),
-        )
-        .filter_map(|span| match span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        })
 }
 
 fn insert_unmatched_bibliography_events(

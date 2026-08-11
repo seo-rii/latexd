@@ -40,6 +40,7 @@ mod semantic_heading;
 mod semantic_inline;
 mod semantic_list;
 mod semantic_math;
+mod semantic_reconciliation;
 mod semantic_sink;
 mod semantic_table;
 mod semantic_text;

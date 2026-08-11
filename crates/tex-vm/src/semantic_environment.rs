@@ -6,7 +6,7 @@ use std::{
 use camino::Utf8PathBuf;
 use tex_render_model::{
     BeginBlockEvent, BlockKind, EndBlockEvent, EventBuildContext, EventProducer, EventSequence,
-    ProvenanceSpan, RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
+    ProvenanceSpan, RenderEvent, RenderEventEnvelope,
 };
 use tex_tokens::TokenKind;
 
@@ -14,6 +14,7 @@ use crate::{
     Vm,
     input::QueueItem,
     semantic_list::list_kind_for_environment,
+    semantic_reconciliation::source_locations_overlap,
     semantic_text::event_origin_for_executed_producer,
     snapshot::{
         VmExecutionAnchor, VmIncludedEnvironmentAuthoritySnapshot, VmSemanticEnvironmentSnapshot,
@@ -239,7 +240,7 @@ impl Vm<'_> {
             }
             let matching = executed.iter().position(|candidate| {
                 environment_payloads_match(candidate, &scanner_event)
-                    && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                    && source_locations_overlap(&candidate.meta.source, &scanner_event.meta.source)
             });
             if let Some(index) = matching {
                 let mut executed_event = executed.remove(index);
@@ -312,31 +313,6 @@ fn environment_payloads_match(left: &RenderEventEnvelope, right: &RenderEventEnv
         (RenderEvent::EndBlock(left), RenderEvent::EndBlock(right)) => left.block == right.block,
         _ => false,
     }
-}
-
-fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> bool {
-    provenance_spans(left).any(|left_span| {
-        provenance_spans(right).any(|right_span| {
-            left_span.path == right_span.path
-                && left_span.start_utf8 < right_span.end_utf8
-                && right_span.start_utf8 < left_span.end_utf8
-        })
-    })
-}
-
-fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
-    std::iter::once(&source.primary)
-        .chain(source.related.iter().map(|related| &related.span))
-        .chain(
-            source
-                .expansion_stack
-                .iter()
-                .flat_map(|frame| std::iter::once(&frame.call_span).chain(&frame.definition_span)),
-        )
-        .filter_map(|span| match span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        })
 }
 
 fn insert_unmatched_environment_events(

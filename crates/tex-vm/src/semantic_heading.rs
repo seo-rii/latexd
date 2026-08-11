@@ -13,6 +13,7 @@ use tex_tokens::{ControlSequenceId, Token};
 use crate::{
     Vm,
     input::QueueItem,
+    semantic_reconciliation::source_locations_overlap,
     semantic_text::event_origin_for_executed_producer,
     semantic_transaction::ExecutedSemanticEventMark,
     snapshot::{VmActiveHeadingCaptureSnapshot, VmSemanticHeadingSnapshot},
@@ -279,13 +280,16 @@ impl Vm<'_> {
                 .position(|candidate| {
                     candidate.meta.producer != EventProducer::Fallback
                         && heading_payloads_match(candidate, &scanner_event)
-                        && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
+                        && source_locations_overlap(
+                            &candidate.meta.source,
+                            &scanner_event.meta.source,
+                        )
                 })
                 .or_else(|| {
                     executed.iter().position(|candidate| {
                         candidate.meta.producer != EventProducer::Fallback
                             && heading_levels_match(candidate, &scanner_event)
-                            && provenance_overlaps(
+                            && source_locations_overlap(
                                 &candidate.meta.source,
                                 &scanner_event.meta.source,
                             )
@@ -316,7 +320,7 @@ impl Vm<'_> {
             event.meta.producer != EventProducer::Fallback
                 || !reconciled.iter().any(|existing| {
                     heading_levels_match(event, existing)
-                        && provenance_overlaps(&event.meta.source, &existing.meta.source)
+                        && source_locations_overlap(&event.meta.source, &existing.meta.source)
                 })
         });
         insert_unmatched_heading_events(&mut reconciled, executed);
@@ -390,16 +394,6 @@ fn renumber_heading_events(events: &mut [RenderEventEnvelope]) {
     }
 }
 
-fn provenance_overlaps(left: &SourceProvenance, right: &SourceProvenance) -> bool {
-    provenance_spans(left).any(|left_span| {
-        provenance_spans(right).any(|right_span| {
-            left_span.path == right_span.path
-                && left_span.start_utf8 < right_span.end_utf8
-                && right_span.start_utf8 < left_span.end_utf8
-        })
-    })
-}
-
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
     if event.meta.producer == EventProducer::Macro
         && let Some(ProvenanceSpan::File(span)) = event
@@ -426,19 +420,4 @@ fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> 
         ProvenanceSpan::File(span) => Some((span.path.clone(), span.start_utf8, span.end_utf8)),
         ProvenanceSpan::Generated(_) => None,
     }
-}
-
-fn provenance_spans(source: &SourceProvenance) -> impl Iterator<Item = &SourceSpan> {
-    std::iter::once(&source.primary)
-        .chain(source.related.iter().map(|related| &related.span))
-        .chain(
-            source
-                .expansion_stack
-                .iter()
-                .flat_map(|frame| std::iter::once(&frame.call_span).chain(&frame.definition_span)),
-        )
-        .filter_map(|span| match span {
-            ProvenanceSpan::File(span) => Some(span),
-            ProvenanceSpan::Generated(_) => None,
-        })
 }
