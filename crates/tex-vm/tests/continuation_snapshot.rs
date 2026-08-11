@@ -1543,6 +1543,15 @@ fn semantic_snapshot_rejects_unsupported_active_capture_producers() {
         .meta
         .producer = EventProducer::Command;
     assert!(!footnote.is_restorable());
+
+    let mut text =
+        capture_at_input_exit(r"\begin{document}Before \input{barrier} After\end{document}");
+    text.text
+        .active_capture
+        .as_mut()
+        .expect("active text capture")
+        .producer = EventProducer::Command;
+    assert!(!text.is_restorable());
 }
 
 #[test]

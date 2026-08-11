@@ -1193,7 +1193,8 @@ impl VmExecutedTextCaptureSnapshot {
                     ProvenanceSpan::File(_) | ProvenanceSpan::Generated(_) => None,
                 })
         });
-        self.execution_anchor.is_restorable()
+        executed_capture_producer_is_restorable(self.producer)
+            && self.execution_anchor.is_restorable()
             && self.literal_path.as_ref().is_none_or(|_| {
                 literal_span.is_some_and(|span| {
                     span.start_utf8 <= span.end_utf8 && span.end_utf8 == self.end_utf8
