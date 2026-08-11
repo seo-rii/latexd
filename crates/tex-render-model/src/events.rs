@@ -60,6 +60,8 @@ pub struct EventOrigin(EventOriginKind);
 enum EventOriginKind {
     Primitive,
     Macro,
+    PrimitiveProjectionLoss,
+    MacroProjectionLoss,
     ScannerRecovery(RecoveryConfidence),
     Lossy,
     UnknownLow,
@@ -75,6 +77,18 @@ impl EventOrigin {
 
     pub const fn macro_expansion() -> Self {
         Self(EventOriginKind::Macro)
+    }
+
+    /// Records authoritative primitive execution whose serialized projection
+    /// loses semantic structure.
+    pub const fn primitive_with_projection_loss() -> Self {
+        Self(EventOriginKind::PrimitiveProjectionLoss)
+    }
+
+    /// Records authoritative macro execution whose serialized projection
+    /// loses semantic structure.
+    pub const fn macro_with_projection_loss() -> Self {
+        Self(EventOriginKind::MacroProjectionLoss)
     }
 
     pub const fn scanner_recovery(confidence: RecoveryConfidence) -> Self {
@@ -180,6 +194,12 @@ impl RenderEventEnvelope {
             }
             (_, EventOriginKind::Primitive) => (EventProducer::Primitive, SemanticConfidence::High),
             (_, EventOriginKind::Macro) => (EventProducer::Macro, SemanticConfidence::High),
+            (_, EventOriginKind::PrimitiveProjectionLoss) => {
+                (EventProducer::Primitive, SemanticConfidence::Low)
+            }
+            (_, EventOriginKind::MacroProjectionLoss) => {
+                (EventProducer::Macro, SemanticConfidence::Low)
+            }
             (_, EventOriginKind::ScannerRecovery(RecoveryConfidence::Medium)) => {
                 (EventProducer::ScannerRecovery, SemanticConfidence::Medium)
             }
@@ -1347,6 +1367,16 @@ mod tests {
                 EventOrigin::macro_expansion(),
                 EventProducer::Macro,
                 SemanticConfidence::High,
+            ),
+            (
+                EventOrigin::primitive_with_projection_loss(),
+                EventProducer::Primitive,
+                SemanticConfidence::Low,
+            ),
+            (
+                EventOrigin::macro_with_projection_loss(),
+                EventProducer::Macro,
+                SemanticConfidence::Low,
             ),
             (
                 EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
