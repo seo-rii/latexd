@@ -208,14 +208,17 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   landed했다. text capture snapshot producer 검증은 `1baa07b`, front matter와
   text 이전은 `5fa5a5c`, `081248e`에 landed했다. table snapshot/table 이전은
   `70090a6`, `a3562f7`, bibliography snapshot/projection-loss origin/typed 이전은
-  `9fef0b7`, `9d122b0`, `69e75ea`에 landed했다. raw `with_origin()`과 `new()`는
-  wire/fixture contract를 위한 임시 호환 API다.
-- production `src/`에서는 `new()`/`with_origin()` 직접 호출을 syntax test로
-  차단하고, workspace lib/bin에서는 Clippy `disallowed-methods`로 같은 정책을
-  이중 검증한다 (`776d604`). producer/confidence/generated-by를 직접 바꾸는
-  production assignment도 syntax test가 차단한다. table raw-fallback 승격과
-  text leading-space 재조정은 sequence/source/mode를 보존한 채 typed origin으로
-  envelope를 재구성하도록 이전됐다 (`75a79d5`).
+  `9fef0b7`, `9d122b0`, `69e75ea`에 landed했다. 임시 raw 호환 API였던
+  `with_origin()`과 `new()`는 전체 call-site 분류 뒤 함께 제거됐다 (`0940368`).
+  공개 Rust 호출자는 일반 event에 `try_from_origin()`, scanner 복구에
+  `from_scanner_recovery()`, 필요하면 마지막에 `with_mode_hint()`를 사용한다.
+- production `src/`에서는 legacy 생성자 호출과 직접 metadata 변경을 syntax
+  test로 차단하고, workspace lib/bin에서는 기존 Clippy `disallowed-methods`를
+  방어선으로 유지한다 (`776d604`). 구조 정책은 공개 associated constructor를
+  `try_from_origin()`/`from_scanner_recovery()`로 제한하고, private
+  `from_metadata()` 호출도 `try_from_origin()`에서만 허용한다 (`0940368`).
+  table raw-fallback 승격과 text leading-space 재조정은 sequence/source/mode를
+  보존한 채 typed origin으로 envelope를 재구성하도록 이전됐다 (`75a79d5`).
 - list, environment, heading, caption, graphic, front-matter, bibliography의
   동일한 full-provenance overlap은 `source_locations_overlap()`으로 공통화됐다
   (`decccd7`). matching identity는 primary/related/expansion의 half-open file
@@ -233,17 +236,18 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
-- phase exit는 열려 있다. 전체 call site 분류와 production migration 뒤
-  `new()`는 production 0개이며, 실제 test call은 contract 24개만 남았고
-  incidental fixture는 0개다. origin-sensitive semantic-text fixture 3개는
+- phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
+  migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
+  모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
   scanner medium/macro high typed origin으로 이전됐고 (`91a8daa`), synthetic
   semantic-sink fixture 2개는 unknown/low로 이전됐다 (`edbe93c`). golden text와
   compiler diagnostic fixture도 각각 unknown/low와 diagnostic-unknown으로
   이전됐다 (`dc72656`). layout fixture 63개도 ordinary synthetic event 62개는
   unknown/low, `RawFallback` 1개는 fallback origin으로 이전됐다 (`247a647`).
   model serialization fixture 6개도 unknown/low로 이전됐다 (`80ca0e2`). guard
-  self-test의 source string 안에 있는 `new()` 예시 2개는 이 inventory에서
-  제외한다. bibliography/graphic의 producer-coupled
+  self-test의 parsed source string 안에 있는 legacy call 예시는 이 inventory에서
+  제외한다. 고정 Macro/Medium JSON fixture는 permissive legacy read가 생성자
+  제거 뒤에도 유지됨을 검증한다. bibliography/graphic의 producer-coupled
   reconciliation identity와 sequence/source reuse audit, `ExecutedSourceSlice` interface,
   revision/dependency metadata, shared diagnostic schema와 남은 family leakage
   characterization도 완료되지 않았다. definition span만 공유하는 반복 macro
@@ -260,8 +264,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `Unknown`/low projection을 유지한다. taxonomy 정규화는 consumer와
   reconciliation audit 뒤 별도 semantic change로 진행한다.
 - 모든 `new()` call site를 분류하기 전 raw compatibility API를 제한하거나
-  제거하지 않는다. 위치 기반 reconciliation을 공통화하고 origin metadata를
-  matching key에서 분리한 뒤 `ExecutedSourceSlice`를 도입한다.
+  제거하지 않는다는 선행 조건은 fixture 이전으로 충족됐다. 후속 Pro review에
+  따라 두 raw 생성자는 함께 제거했고 (`0940368`), wire field/tag와 permissive
+  serde read는 바꾸지 않았다. typed constructor 경계가 sanctioned write path를
+  제한할 뿐 public field/serde로 만들 수 있는 모든 표현값의 유효성을 보장하지는
+  않는다.
 - 후속 Pro review는 네 개의 동일 insertion anchor만 source-only로 바꾸고,
   bibliography anchor, graphic equivalence, sequence/source reuse는 각각 별도
   RED로 남기도록 결정했다. file/revision/expansion identity가 없는 임시 타입을
@@ -269,7 +276,8 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
-- constructor가 producer/confidence를 필수로 받게 한다.
+- sanctioned constructor가 raw producer/confidence 쌍 대신 검증된
+  `EventOrigin`을 필수로 받게 한다.
 - 현재 `event_id`를 build-local `sequence`로 정직하게 versioning한다.
 - whole-source scanner는 미이전 event family의 명시적 low-confidence
   compatibility bridge와 debug differential로만 동결하고 새 기능을
@@ -741,12 +749,12 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 3. scanner RawFallback/Diagnostic characterization과 opaque `EventOrigin` write
    boundary 도입 — `f06bcdf` landed
 4. 기존 migrated family를 typed origin으로 이전하고, `new()` call site를
-   실제 producer/consumer별로 분류 — 현재 production 0개/test contract call 24개
-   inventory 완료
+   실제 producer/consumer별로 분류 — 전체 112개 inventory 완료
 5. production family typed migration과 layered static guard는 완료
-   (`776d604`, `75a79d5`). 24개 constructor contract test는 호환 API가 있는
-   동안 유지하며 incidental fixture 이전은 완료 (`247a647`, `80ca0e2`); serialized
-   `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
+   (`776d604`, `75a79d5`). incidental fixture 이전 뒤 두 public raw constructor와
+   24개 contract call을 함께 제거했고, 구조 guard와 legacy JSON read fixture를
+   보강했다 (`247a647`, `80ca0e2`, `0940368`); serialized `Command`, lossy
+   `Fallback`/low 의미는 별도 audit 전 유지
 6. 7개 family의 location-only overlap 공통화와 네 family insertion anchor의
    origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography/graphic
    identity와 sequence reuse를 별도 audit한 뒤 bounded `ExecutedSourceSlice`를 도입

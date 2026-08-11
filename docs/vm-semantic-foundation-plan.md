@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for production writes, shared source-location overlap for seven reconciliation families, source-only insertion anchors for four families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | no production default-envelope call sites, direct origin-metadata assignments, or incidental default-origin fixtures remain, but 24 constructor-contract calls, bibliography/graphic producer coupling and sequence/source reuse, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for production writes, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, source-only insertion anchors for four families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | raw constructor removal is complete, but bibliography/graphic producer coupling and sequence/source reuse, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -290,9 +290,9 @@ pub enum EventProducer {
 }
 ```
 
-`RenderEventEnvelope::new()` must not silently assign high confidence to
-events whose origin is unknown. New production writes use the opaque
-`EventOrigin` policy boundary and a private-field `EventBuildContext`:
+Production writes use the opaque `EventOrigin` policy boundary and a
+private-field `EventBuildContext` so an origin-unknown event cannot silently
+receive a high-confidence default:
 
 ```rust
 RenderEventEnvelope::try_from_origin(
@@ -307,28 +307,37 @@ This boundary landed in `f06bcdf` and rejects event-kind/origin mismatches.
 callers do not assemble an unrestricted raw pair. Scanner `RawFallback` and
 `Diagnostic` behavior is characterized and preserved by focused model tests.
 
-The older incremental migration bridge is
+The older incremental migration bridge was
 `RenderEventEnvelope::with_origin(sequence, event, source, producer,
 confidence)`. It landed in `525607a`, and executed list-item emission moved to
 it in `43ba5de`; executed environment begin/end emission followed in `e6bb5a3`.
 Executed inline citation, reference, label, and link emission followed in
 `51aef83`; loss-aware caption emission followed in `7229c69`. Those migrated
 families now use the typed boundary: list/environment in `e8840b2`, inline in
-`a9ae789`, caption in `e4a5cdb`, and heading in `943e580`. Raw `with_origin()`
-and the broad `new()` path remain compatibility APIs until every producer
-family declares its origin at the emission boundary. Active heading, caption,
+`a9ae789`, caption in `e4a5cdb`, and heading in `943e580`. Active heading, caption,
 and footnote snapshot producers became fail-closed in `6205f9d`; footnote and
 math writes then moved to the typed boundary in `c94664b` and `7edfd8b`, with
 graphic following in `75f0803`. Active text snapshot validation landed in
 `1baa07b`; front matter and text writes moved in `5fa5a5c` and `081248e`. The
 table snapshot boundary and write moved in `70090a6` and `a3562f7`.
 Bibliography snapshot validation, typed projection-loss origins, and its write
-migration landed in `9fef0b7`, `9d122b0`, and `69e75ea`. The contract is still
-partial because compatibility tests and incidental fixtures remain. Production
-`src/` calls to `new()`/`with_origin()` are rejected by a syntax-tree policy
-test, and workspace lib/bin calls are independently rejected by Clippy
-`disallowed-methods` in CI (`776d604`). The syntax policy also rejects direct
-assignments to producer, confidence, and provenance generated-by fields.
+migration landed in `9fef0b7`, `9d122b0`, and `69e75ea`. After every call site
+was classified and incidental fixture migration completed, public `new()` and
+`with_origin()` were removed together (`0940368`). This is a Rust source API
+break: ordinary callers migrate to `try_from_origin()`, scanner recovery uses
+`from_scanner_recovery()`, and a mode override is applied afterward with
+`with_mode_hint()`. JSON fields, producer/confidence tags, the legacy
+`event_id` alias, and permissive serde reads are unchanged; a fixed legacy
+Macro/Medium JSON fixture covers that read contract.
+
+The syntax-tree policy now admits only `try_from_origin()` and
+`from_scanner_recovery()` as public associated construction paths and allows
+private `from_metadata()` assembly only from `try_from_origin()`. Existing
+Clippy `disallowed-methods` remain as defense in depth (`776d604`, `0940368`).
+The policy also rejects direct assignments to producer, confidence, and
+provenance generated-by fields. This protects sanctioned write paths; it does
+not claim that every representable `RenderEventEnvelope` is valid while its
+fields and permissive serde remain public.
 Table raw-fallback promotion and text leading-space reconciliation now rebuild
 envelopes through typed origins while preserving sequence, source, and mode
 (`75a79d5`). List, environment, heading, caption, graphic, front-matter, and
@@ -387,11 +396,11 @@ The VM creates this slice only after reaching the construct through normal
 execution. The scanner may recover a bounded command, argument, environment,
 or math region from that slice.
 
-V2 establishes this interface and the metadata/constructor contract. It does
-not require every family to leave the legacy bridge in the same batch. V6 owns
-the family-by-family migration, removal of the authoritative whole-source
-production stream, and making `ExecutedSourceSlice` the sole production
-recovery input.
+V2 must establish this interface; the metadata/constructor boundary is already
+green. It does not require every family to leave the whole-source recovery
+bridge in the same batch. V6 owns the family-by-family migration, removal of
+the authoritative whole-source production stream, and making
+`ExecutedSourceSlice` the sole production recovery input.
 
 During V2-V6 migration, the old whole-source scanner may temporarily remain:
 
@@ -401,7 +410,7 @@ During V2-V6 migration, the old whole-source scanner may temporarily remain:
   have not migrated yet.
 
 No new production feature is added to that whole-source path. Each V6 vertical
-slice removes one event family from the legacy bridge. The bounded
+slice removes one event family from the whole-source recovery bridge. The bounded
 `ExecutedSourceSlice` interface is the only remaining production recovery path
 at final V6 exit. False-conditional leakage must be removed by family-specific
 suppression tests or remain an explicit failing characterization until the
@@ -436,12 +445,13 @@ All 112 call sites present before this migration slice were classified. After
 all 12 production writes, three origin-sensitive semantic-text fixtures, two
 synthetic semantic-sink fixtures, one golden fixture, one compiler fixture, and
 63 layout fixtures plus six model serialization fixtures moved to typed
-construction, 24 actual test calls remain:
+construction, the 24 constructor-contract calls and both raw APIs were removed
+together in `0940368`:
 
 | Class | Count | Policy |
 | --- | ---: | --- |
-| production writes | 0 | syntax-tree and Clippy CI guards keep this invariant |
-| intentional `new()` contract tests | 24 | keep while the compatibility constructor exists |
+| public raw constructor definitions | 0 | structural policy review-gates any new associated constructor |
+| real `new()`/`with_origin()` call expressions | 0 | syntax-tree and Clippy CI guards keep this invariant |
 | incidental test fixtures | 0 | all classified fixtures now declare typed origins |
 
 Table now validates restored frame producers before typed construction.
@@ -455,20 +465,17 @@ mode while adding the executed expansion stack only when the scanner source
 lacks one. The analogous text leading-space promotion reconstructs a
 primitive/high envelope without direct origin metadata mutation.
 
-The 24 test calls are all constructor-contract tests. The origin-sensitive
-semantic-text fixtures moved in `91a8daa`, and the synthetic semantic-sink
-fixtures now declare unknown/low origin in
+The origin-sensitive semantic-text fixtures moved in `91a8daa`, and the
+synthetic semantic-sink fixtures now declare unknown/low origin in
 `edbe93c`. Golden text declares unknown/low while the compiler diagnostic uses
 diagnostic-unknown in `dc72656`. The layout fixtures moved in `247a647`: 62
 ordinary synthetic events declare unknown/low, while the sole `RawFallback`
 uses its required fallback origin. The final six model serialization fixtures
-declare unknown/low in `80ca0e2`.
-Two textual `new()` examples in the syntax-guard self-test are parsed source
-strings, not compatibility-constructor call sites, and are excluded from the
-inventory. Serde reads bypass constructors, so legacy wire-read compatibility
-remains independent from eventual `new()` restriction. The syntax guard skips
-`#[cfg(test)]` items so the intentional contract tests remain possible until
-that API is removed.
+declare unknown/low in `80ca0e2`. Parsed legacy-call examples in the syntax
+guard self-test are source strings, not live compatibility-constructor call
+sites, and are excluded from the inventory. Serde reads bypass constructors,
+so legacy Macro/Medium wire input remains accepted and is covered by a fixed
+JSON fixture even though Rust callers can no longer use the raw APIs.
 
 ### V2 Evidence Matrix (2026-08-11)
 
@@ -477,7 +484,7 @@ that API is removed.
 | build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
 | scanner producer/confidence | typed scanner construction preserves ordinary `ScannerRecovery`/medium, `RawFallback` fallback origin, and current diagnostic `Unknown`/low behavior in focused model tests | green | preserve these semantics on every bounded recovery path; any diagnostic retag is a separate change |
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
-| explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; layered static guards cover production while raw `with_origin()` and 24 classified contract-test `new()` calls remain compatibility paths | partial | retain the 24 contract-test allowance while compatibility exists, then remove both compatibility paths together |
+| explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
 | false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
@@ -490,7 +497,7 @@ that API is removed.
 Exit criteria:
 
 - scanner events are visibly distinguishable in JSON/debug artifacts;
-- no default constructor overstates producer or confidence;
+- no public raw compatibility constructor bypasses typed origin validation;
 - every known recovery family has a suppression regression or an explicit
   low-confidence expected failure for false-conditional leakage;
 - the bounded `ExecutedSourceSlice` interface carries file, revision, span,
@@ -1485,7 +1492,8 @@ The direct implementation sequence is:
 5. characterize scanner special events, introduce the typed `EventOrigin`
    write boundary, classify all remaining compatibility constructors, guard
    production writes statically, and migrate one event family or fixture class
-   per green commit
+   per green commit; remove both raw constructors together after the inventory
+   reaches zero incidental fixtures (`0940368`)
 6. centralize compatible location-only overlap (seven families in `decccd7`)
    and source-only insertion (four families in `694a0ee`), then audit
    bibliography/graphic identity and sequence reuse before bounded
