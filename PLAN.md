@@ -210,17 +210,24 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `70090a6`, `a3562f7`, bibliography snapshot/projection-loss origin/typed 이전은
   `9fef0b7`, `9d122b0`, `69e75ea`에 landed했다. raw `with_origin()`과 `new()`는
   wire/fixture contract를 위한 임시 호환 API다.
+- production `src/`에서는 `new()`/`with_origin()` 직접 호출을 syntax test로
+  차단하고, workspace lib/bin에서는 Clippy `disallowed-methods`로 같은 정책을
+  이중 검증한다 (`776d604`). producer/confidence/generated-by를 직접 바꾸는
+  production assignment도 syntax test가 차단한다. table raw-fallback 승격과
+  text leading-space 재조정은 sequence/source/mode를 보존한 채 typed origin으로
+  envelope를 재구성하도록 이전됐다 (`75a79d5`).
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
-- phase exit는 열려 있다. 명시적 생성 경로는 생겼지만 기본
-  `RenderEventEnvelope::new()`가 대부분의 event를 아직 `Command`/high
-  confidence로 자동 분류한다. 전체 call site 분류와 production migration
-  결과 `new()`는 production 0개, test fixture/contract 100개만 남았다.
-  test fixture 정책, reconciliation metadata mutation 정리, `ExecutedSourceSlice`
-  interface, revision/dependency metadata, shared diagnostic schema와 남은
-  family leakage characterization도 완료되지 않았다.
+- phase exit는 열려 있다. 전체 call site 분류와 production migration 뒤
+  `new()`는 production 0개이며, 실제 test call은 contract 24개와 incidental
+  fixture 73개, 총 97개가 남았다. origin-sensitive semantic-text fixture 3개는
+  scanner medium/macro high typed origin으로 이전됐다 (`91a8daa`). guard
+  self-test의 source string 안에 있는 `new()` 예시 2개는 이 inventory에서
+  제외한다. 남은 fixture 정책, 위치 기반 reconciliation 공통화,
+  `ExecutedSourceSlice` interface, revision/dependency metadata, shared
+  diagnostic schema와 남은 family leakage characterization도 완료되지 않았다.
 
 2026-08-11 Pro review 결정:
 - 새 write 경로는 opaque `EventOrigin`으로 제한하되 기존 wire field/tag와
@@ -709,11 +716,12 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 3. scanner RawFallback/Diagnostic characterization과 opaque `EventOrigin` write
    boundary 도입 — `f06bcdf` landed
 4. 기존 migrated family를 typed origin으로 이전하고, `new()` call site를
-   실제 producer/consumer별로 분류 — 현재 production 0개/test 100개
+   실제 producer/consumer별로 분류 — 현재 production 0개/test call 97개
    inventory 완료
-5. production family typed migration은 완료. 24개 constructor contract test
-   allowlist와 76개 incidental fixture 정책을 정한 뒤 production static guard를
-   추가; serialized `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
+5. production family typed migration과 layered static guard는 완료
+   (`776d604`, `75a79d5`). 24개 constructor contract test는 호환 API가 있는
+   동안 유지하고 73개 incidental fixture를 origin별로 이전; serialized
+   `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
 6. location-only reconciliation을 공통화하고 origin metadata를 matching
    identity에서 분리한 뒤 bounded `ExecutedSourceSlice`를 도입
 7. control-sequence behavior characterization — 기존 grouping/global/
