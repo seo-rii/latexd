@@ -134,13 +134,13 @@ incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
 
-### Current State Matrix (2026-08-10)
+### Current State Matrix (2026-08-11)
 
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | the default envelope still assigns `Command`/high confidence broadly; the producer taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation for migrated families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | 112 default-envelope call sites still assign `Command`/high confidence broadly; their producer classification, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -291,25 +291,33 @@ pub enum EventProducer {
 ```
 
 `RenderEventEnvelope::new()` must not silently assign high confidence to
-events whose origin is unknown. Use explicit constructors or a required
-`EventMeta`:
+events whose origin is unknown. New production writes use the opaque
+`EventOrigin` policy boundary and a private-field `EventBuildContext`:
 
 ```rust
-RenderEventEnvelope::from_primitive(...)
-RenderEventEnvelope::from_macro(...)
-RenderEventEnvelope::from_compat_command(...)
-RenderEventEnvelope::from_scanner_recovery(...)
-RenderEventEnvelope::fallback(...)
+RenderEventEnvelope::try_from_origin(
+    event,
+    EventBuildContext::new(sequence, source),
+    EventOrigin::primitive(),
+)?
 ```
 
-The incremental migration bridge is
+This boundary landed in `f06bcdf` and rejects event-kind/origin mismatches.
+`EventOrigin` constructors own the valid producer/confidence projections;
+callers do not assemble an unrestricted raw pair. Scanner `RawFallback` and
+`Diagnostic` behavior is characterized and preserved by focused model tests.
+
+The older incremental migration bridge is
 `RenderEventEnvelope::with_origin(sequence, event, source, producer,
 confidence)`. It landed in `525607a`, and executed list-item emission moved to
 it in `43ba5de`; executed environment begin/end emission followed in `e6bb5a3`.
 Executed inline citation, reference, label, and link emission followed in
-`51aef83`; loss-aware caption emission followed in `7229c69`. The broad
-`new()` compatibility path remains until each producer family declares its
-origin at the emission boundary, so this contract is only partial.
+`51aef83`; loss-aware caption emission followed in `7229c69`. Those migrated
+families now use the typed boundary: list/environment in `e8840b2`, inline in
+`a9ae789`, caption in `e4a5cdb`, and heading in `943e580`. Raw `with_origin()`
+and the broad `new()` path remain compatibility APIs until every producer
+family declares its origin at the emission boundary, so this contract is only
+partial.
 
 Policy:
 
@@ -317,8 +325,15 @@ Policy:
 - compatibility command with defined semantics: high or medium, declared by
   the adapter;
 - scanner recovery: medium or low;
-- lossy fallback: fallback confidence;
+- lossy fallback: the current serialized `Fallback`/low projection remains
+  compatible until a separate consumer and reconciliation audit approves a
+  semantic change;
 - a no-op shim emits a diagnostic and is not counted as supported behavior.
+
+The serialized producer variant remains `Command` for now. Renaming it to
+`CompatCommand`, assigning `Shim`/`BblParser`, tightening legacy
+deserialization, and normalizing lossy or diagnostic taxonomy are separate
+schema/semantic migrations after the remaining call sites are classified.
 
 ### Recovery Scope
 
@@ -384,15 +399,15 @@ cannot be defined correctly until V4 supplies file-aware token origins and
 interned expansion records. Footnote or node identity must stop depending on
 the next event sequence before replay reuse is enabled.
 
-### V2 Evidence Matrix (2026-08-10)
+### V2 Evidence Matrix (2026-08-11)
 
 | Contract | Current evidence | State | Remaining gate |
 | --- | --- | --- | --- |
 | build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
-| scanner producer/confidence | `from_scanner_recovery()` assigns `ScannerRecovery`/medium and has a focused model test | green | preserve this on every bounded recovery path |
-| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro`; executed list, environment, inline, and caption events now pass that origin into construction | partial | migrate every remaining emission family and remove the broad default constructor path |
-| explicit constructor contract | `with_origin()` requires producer/confidence and has a focused model test; executed list, environment, inline, and caption paths use it, while `new()` remains a broad compatibility default | partial | migrate all production call sites, then remove or restrict the compatibility constructor |
-| producer taxonomy | implementation has `Command`; the target contract names `CompatCommand`, while `Shim` and `BblParser` lack audited production assignments | red | settle names and audit all production assignment sites |
+| scanner producer/confidence | typed scanner construction preserves ordinary `ScannerRecovery`/medium, `RawFallback` fallback origin, and current diagnostic `Unknown`/low behavior in focused model tests | green | preserve these semantics on every bounded recovery path; any diagnostic retag is a separate change |
+| primitive/macro origin | migrated VM families promote executed events to `Primitive` or `Macro`; executed list, environment, inline, caption, and heading events pass an opaque typed origin into construction | partial | classify and migrate every remaining emission family before restricting compatibility APIs |
+| explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; raw `with_origin()` and 112 `new()` call sites remain compatibility paths | partial | classify all 112 call sites, migrate production writes by family, then add static guards and restrict compatibility APIs |
+| producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
 | false-conditional isolation | lexical and runtime-false table recovery are suppressed; other families have uneven characterization | partial | enumerate every recovery family as green or expected-failing |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
@@ -1395,19 +1410,24 @@ The direct implementation sequence is:
 2. `fix(checkpoint): reject reuse when continuation state is not proven safe`
 3. `refactor(tex-vm): split engine modules without behavior changes`
 4. `refactor(events): quarantine scanner recovery and expose event sequence`
-5. `feat(diagnostics): add phase-aware diagnostics and recovery metadata`
-6. `feat(tex-vm): introduce Eqtb and SaveStack for definitions and counts`
-7. migrate dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
+5. characterize scanner special events, introduce the typed `EventOrigin`
+   write boundary, classify all remaining compatibility constructors, and
+   migrate one event family per green commit
+6. centralize location-only reconciliation, then introduce bounded
+   `ExecutedSourceSlice`
+7. `feat(diagnostics): add phase-aware diagnostics and recovery metadata`
+8. `feat(tex-vm): introduce Eqtb and SaveStack for definitions and counts`
+9. migrate dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
    green commits
-8. `feat(tex-vm): execute through a streaming mouth`
-9. `feat(tokens): preserve file, revision, and expansion token origins`
-10. `feat(tex-vm): support parameter text and command prefixes`
-11. `refactor(tex-vm): centralize execution mode and nest state`
-12. add stable event IDs from token/expansion origins, then migrate SemanticSink
+10. `feat(tex-vm): execute through a streaming mouth`
+11. `feat(tokens): preserve file, revision, and expansion token origins`
+12. `feat(tex-vm): support parameter text and command prefixes`
+13. `refactor(tex-vm): centralize execution mode and nest state`
+14. add stable event IDs from token/expansion origins, then migrate SemanticSink
    event families one vertical slice per green commit
-13. `feat(checkpoint): add transactional continuation snapshots`
-14. `refactor(ir): introduce SemanticDocumentIr metadata and frame builder`
-15. `feat(layout): introduce renderer-neutral LayoutIr`
+15. `feat(checkpoint): add transactional continuation snapshots`
+16. `refactor(ir): introduce SemanticDocumentIr metadata and frame builder`
+17. `feat(layout): introduce renderer-neutral LayoutIr`
 
 These are commit-sized batches, not review phases. If a batch is still too
 large, split it by assignment class or event family without reordering the

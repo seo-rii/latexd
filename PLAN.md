@@ -193,23 +193,41 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 상태: `in progress`
 
 현재 구현:
-- scanner event는 `ScannerRecovery`와 medium confidence를 명시한다.
+- 일반 scanner recovery event는 `ScannerRecovery`와 medium confidence를
+  명시한다. `RawFallback`은 `Fallback`/fallback, diagnostic은 현재
+  `Unknown`/low를 유지하는 characterization으로 고정했다.
 - migrated family는 primitive/macro 실행 event로 scanner 결과를
   reconciliation한다.
 - serialized `event_id`는 build-local `sequence`로 전환됐다.
-- `RenderEventEnvelope::with_origin()`이 producer/confidence를 생성 시점에
-  필수로 받는다. executed list item, environment begin/end, inline
-  citation/reference/label/link, loss-aware caption 경로가 이 API로 이전됐다
-  (`525607a`, `43ba5de`, `e6bb5a3`, `51aef83`, `7229c69`).
+- opaque `EventOrigin`과 private-field `EventBuildContext`가 새 write 경로의
+  producer/confidence 조합을 검증한다 (`f06bcdf`). scanner helper와 executed
+  list item/environment begin-end (`e8840b2`), inline citation/reference/label/link
+  (`a9ae789`), loss-aware caption (`e4a5cdb`), heading (`943e580`)이
+  `try_from_origin()`으로 이전됐다. raw `with_origin()`과 `new()`는 분류가
+  끝나지 않은 생산자와 호환 API를 위한 임시 경로다.
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
   table 전체를 제거하지 않는다.
 - phase exit는 열려 있다. 명시적 생성 경로는 생겼지만 기본
   `RenderEventEnvelope::new()`가 대부분의 event를 아직 `Command`/high
-  confidence로 자동 분류한다. 남은 family 이전, `ExecutedSourceSlice`
+  confidence로 자동 분류한다. 남은 112개 call site의 생산자 분류와 family
+  이전, `ExecutedSourceSlice`
   interface, revision/dependency metadata, shared diagnostic schema와 남은
   family leakage characterization도 완료되지 않았다.
+
+2026-08-11 Pro review 결정:
+- 새 write 경로는 opaque `EventOrigin`으로 제한하되 기존 wire field/tag와
+  permissive legacy deserialization은 유지한다. typed write validation과
+  legacy read strictness는 별도 migration이다.
+- serialized `Command`를 지금 `CompatCommand`로 rename하지 않는다. `Shim`,
+  `BblParser`를 포함한 실제 생산자 분류 뒤 별도 schema migration으로 다룬다.
+- lossy executed event의 현재 `Fallback`/low projection과 diagnostic의
+  `Unknown`/low projection을 유지한다. taxonomy 정규화는 consumer와
+  reconciliation audit 뒤 별도 semantic change로 진행한다.
+- 모든 `new()` call site를 분류하기 전 raw compatibility API를 제한하거나
+  제거하지 않는다. 위치 기반 reconciliation을 공통화하고 origin metadata를
+  matching key에서 분리한 뒤 `ExecutedSourceSlice`를 도입한다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
@@ -682,24 +700,32 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 
 1. `P0.3a` closeout evidence와 truthful plan rebaseline
 2. V2 exit criterion을 path/test별 green/red/missing으로 고정
-3. control-sequence behavior characterization — 기존 grouping/global/
+3. scanner RawFallback/Diagnostic characterization과 opaque `EventOrigin` write
+   boundary 도입 — `f06bcdf` landed
+4. 기존 migrated family를 typed origin으로 이전하고, 남은 112개 `new()`
+   call site를 실제 producer/consumer별로 분류
+5. family별 typed migration과 static guard를 작은 green commit으로 진행;
+   serialized `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
+6. location-only reconciliation을 공통화하고 origin metadata를 matching
+   identity에서 분리한 뒤 bounded `ExecutedSourceSlice`를 도입
+7. control-sequence behavior characterization — 기존 grouping/global/
    `\globaldefs`/snapshot tests green
-4. 기존 layered scope representation을 semantics 변경 없이 bounded
+8. 기존 layered scope representation을 semantics 변경 없이 bounded
    `ControlSequenceScopes` module/API로 격리 — `94d277e` landed
-5. V2 gate가 green이거나 storage migration과 무관함이 증명된 뒤에만
+9. V2 gate가 green이거나 storage migration과 무관함이 증명된 뒤에만
    control-sequence definition/`\let`을 Eqtb/SaveStack 단일 owner로 이전
-6. remaining assignment class와 old split scope 제거
-7. streaming Mouth의 file/revision-aware TokenOrigin과 expansion arena
-8. macro/command boundary를 유지하며 EngineState와 execution mode/nest 통합
-9. V6 whole-source scanner retirement와 실행 기반 SemanticSink exit
-10. token/expansion 기반 stable event ID
-11. Snapshot v2와 transactional replay
-12. SemanticDocumentIr metadata/frame builder와 LayoutIr
-13. MathList/수식 layout/AMS/OpenType 순서
+10. remaining assignment class와 old split scope 제거
+11. streaming Mouth의 file/revision-aware TokenOrigin과 expansion arena
+12. macro/command boundary를 유지하며 EngineState와 execution mode/nest 통합
+13. V6 whole-source scanner retirement와 실행 기반 SemanticSink exit
+14. token/expansion 기반 stable event ID
+15. Snapshot v2와 transactional replay
+16. SemanticDocumentIr metadata/frame builder와 LayoutIr
+17. MathList/수식 layout/AMS/OpenType 순서
 
-4번은 전체 52,200줄 split 완료를 한 batch로 요구하지 않는다. 즉시 필요한
+8번은 전체 52,200줄 split 완료를 한 batch로 요구하지 않는다. 즉시 필요한
 control-sequence state family부터 기계적으로 격리하고, backing ownership을
-바꾸는 5번과 별도 work unit/rollback boundary로 유지한다. 새 V6/V7 feature
+바꾸는 9번과 별도 work unit/rollback boundary로 유지한다. 새 V6/V7 feature
 family는 이 dependency spine이 닫힐 때까지 동결하고 기존 slice는
 characterization evidence로 보존한다.
 
