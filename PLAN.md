@@ -221,8 +221,14 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   (`decccd7`). matching identity는 primary/related/expansion의 half-open file
   span만 사용하고 `generated_by`, producer/confidence, truncation은 보지 않는다.
   기존 호환 동작대로 모든 related role과 expansion definition span도 포함한다.
-  span 규칙이 다른 inline/text/footnote와 producer-coupled insertion anchor는
-  이 mechanical batch에서 제외했다.
+  span 규칙이 다른 inline/text/footnote는 이 mechanical batch에서 제외했다.
+- heading, caption, graphic, front-matter의 동일한 unmatched insertion anchor는
+  terminal expansion call, related Invocation, primary 순서를 유지하면서
+  source-only `call_invocation_primary_anchor()`로 이전됐다 (`694a0ee`). permissive
+  legacy deserialize에서 source가 같고 producer만 다른 heading도 같은 위치에
+  삽입되며 envelope metadata/payload는 보존된다. bibliography의 expansion→primary
+  anchor와 graphic candidate의 producer-dependent path equivalence는 별도 의미
+  변경이므로 유지한다.
 - lexical false branch뿐 아니라 runtime `\ifnum` false branch의 table
   scanner/fallback event도 executed suppression range로 제거한다. 판정은
   table 시작 anchor에 한정해 cell 내부 phantom/spacing suppression이 visible
@@ -232,8 +238,8 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   fixture 73개, 총 97개가 남았다. origin-sensitive semantic-text fixture 3개는
   scanner medium/macro high typed origin으로 이전됐다 (`91a8daa`). guard
   self-test의 source string 안에 있는 `new()` 예시 2개는 이 inventory에서
-  제외한다. 남은 fixture 정책, producer-coupled reconciliation anchor와
-  sequence/source reuse audit, `ExecutedSourceSlice` interface,
+  제외한다. 남은 fixture 정책, bibliography/graphic의 producer-coupled
+  reconciliation identity와 sequence/source reuse audit, `ExecutedSourceSlice` interface,
   revision/dependency metadata, shared diagnostic schema와 남은 family leakage
   characterization도 완료되지 않았다. definition span만 공유하는 반복 macro
   invocation의 교차 matching 가능성은 기존 `ARCH-007`의 coarse byte-overlap
@@ -251,6 +257,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - 모든 `new()` call site를 분류하기 전 raw compatibility API를 제한하거나
   제거하지 않는다. 위치 기반 reconciliation을 공통화하고 origin metadata를
   matching key에서 분리한 뒤 `ExecutedSourceSlice`를 도입한다.
+- 후속 Pro review는 네 개의 동일 insertion anchor만 source-only로 바꾸고,
+  bibliography anchor, graphic equivalence, sequence/source reuse는 각각 별도
+  RED로 남기도록 결정했다. file/revision/expansion identity가 없는 임시 타입을
+  `ExecutedSourceSlice`로 명명하거나 snapshot/wire에 넣지 않는다.
 
 - `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
   `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
@@ -732,9 +742,9 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
    (`776d604`, `75a79d5`). 24개 constructor contract test는 호환 API가 있는
    동안 유지하고 73개 incidental fixture를 origin별로 이전; serialized
    `Command`, lossy `Fallback`/low 의미는 별도 audit 전 유지
-6. 7개 family의 location-only overlap 공통화와 origin metadata 분리는
-   `decccd7`에 landed. producer-coupled anchor/sequence reuse를 audit한 뒤
-   bounded `ExecutedSourceSlice`를 도입
+6. 7개 family의 location-only overlap 공통화와 네 family insertion anchor의
+   origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography/graphic
+   identity와 sequence reuse를 별도 audit한 뒤 bounded `ExecutedSourceSlice`를 도입
 7. control-sequence behavior characterization — 기존 grouping/global/
    `\globaldefs`/snapshot tests green
 8. 기존 layered scope representation을 semantics 변경 없이 bounded
