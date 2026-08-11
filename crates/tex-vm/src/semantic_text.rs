@@ -1593,14 +1593,18 @@ mod tests {
             },
             preserve_leading_space: false,
         }];
-        let mut trailing_space = RenderEventEnvelope::new(
-            2,
+        let trailing_space = RenderEventEnvelope::try_from_origin(
             RenderEvent::Space(SpaceEvent {
                 kind: SpaceKind::Interword,
             }),
-            SourceProvenance::file(path.clone(), 4, 4),
+            EventBuildContext::new(2, SourceProvenance::file(path.clone(), 4, 4)),
+            EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+        )
+        .expect("scanner-space fixture must use a valid event origin");
+        assert_eq!(
+            trailing_space.meta.confidence,
+            tex_render_model::SemanticConfidence::Medium
         );
-        trailing_space.meta.producer = EventProducer::ScannerRecovery;
         let sources = HashMap::from([(path, "word".to_string())]);
 
         attach_trailing_scanner_spaces_to_eof_slots(&mut slots, &[trailing_space], &sources);
@@ -1612,26 +1616,30 @@ mod tests {
     fn unmatched_macro_events_only_fill_scanner_semantic_gaps() {
         let path = Utf8PathBuf::from("main.tex");
         let scanner_event = |sequence, start_utf8, end_utf8, text: &str| {
-            let mut event = RenderEventEnvelope::new(
-                sequence,
+            RenderEventEnvelope::try_from_origin(
                 RenderEvent::Text(TextEvent {
                     text: text.to_string(),
                 }),
-                SourceProvenance::file(path.clone(), start_utf8, end_utf8),
-            );
-            event.meta.producer = EventProducer::ScannerRecovery;
-            event
+                EventBuildContext::new(
+                    sequence,
+                    SourceProvenance::file(path.clone(), start_utf8, end_utf8),
+                ),
+                EventOrigin::scanner_recovery(RecoveryConfidence::Medium),
+            )
+            .expect("scanner-text fixture must use a valid event origin")
         };
         let macro_event = |sequence, start_utf8, end_utf8, text: &str| {
-            let mut event = RenderEventEnvelope::new(
-                sequence,
+            RenderEventEnvelope::try_from_origin(
                 RenderEvent::Text(TextEvent {
                     text: text.to_string(),
                 }),
-                SourceProvenance::file(path.clone(), start_utf8, end_utf8),
-            );
-            event.meta.producer = EventProducer::Macro;
-            event
+                EventBuildContext::new(
+                    sequence,
+                    SourceProvenance::file(path.clone(), start_utf8, end_utf8),
+                ),
+                EventOrigin::macro_expansion(),
+            )
+            .expect("macro-text fixture must use a valid event origin")
         };
         let anchor = VmExecutionAnchor {
             path: path.clone(),
@@ -1646,6 +1654,14 @@ mod tests {
             macro_event(3, 6, 9, "gap"),
             macro_event(4, 12, 14, "overlap"),
         ];
+        assert!(events.iter().all(|event| {
+            event.meta.producer == EventProducer::ScannerRecovery
+                && event.meta.confidence == tex_render_model::SemanticConfidence::Medium
+        }));
+        assert!(unmatched.iter().all(|event| {
+            event.meta.producer == EventProducer::Macro
+                && event.meta.confidence == tex_render_model::SemanticConfidence::High
+        }));
         let executed_event_anchors = HashMap::from([(3, anchor.clone()), (4, anchor)]);
 
         insert_unmatched_execution_events(&mut events, unmatched, &[], &executed_event_anchors);
