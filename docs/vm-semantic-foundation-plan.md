@@ -426,7 +426,13 @@ no longer mutates a class payload in place; reconciliation reapplies the
 NeurIPS `10pt` projection only from a surviving scanner layout that follows a
 surviving class. The runtime-false regression verifies no layout event, no
 class-option mutation, default Document IR layout, and visible body retention
-(`f37fd97`, resolved `BUG-025`).
+(`f37fd97`, resolved `BUG-025`). Scanner `\twocolumn` and `\onecolumn` commands
+also emit source-scoped layout intents instead of mutating the class eagerly.
+Their event IDs are snapshot-aware and survive recovery refresh/remap, while
+only unsuppressed events project the corresponding column option into the
+surviving class. Focused false/visible regressions and an input-exit continuation
+round-trip cover the event, class option, and Document IR column count
+(`a3a39a0`).
 
 ### Event Sequence
 
@@ -496,7 +502,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, and package-derived layout/class-option projections are suppressed with visible/actual regressions | partial | enumerate diagnostics and non-table raw fallback as green or expected-failing; audit scanner-side package option state separately |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, and column-command layout/class-option projections are suppressed with visible/actual/replay regressions | partial | enumerate diagnostics and non-table raw fallback as green or expected-failing; audit scanner-side package option state separately |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |

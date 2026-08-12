@@ -247,6 +247,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   통과한 scanner NeurIPS layout만 앞선 surviving class에 `10pt`로 투영하므로
   runtime-false package는 event, class options, Document IR layout을 오염시키지
   않는다 (`f37fd97`, resolved `BUG-025`).
+- scanner의 `\twocolumn` / `\onecolumn`도 class options를 즉시 바꾸는 대신
+  source-scoped `SetDocumentLayout`을 만든다. Column-command event ID는 semantic
+  environment snapshot, recovery refresh, event-ID remap에 함께 보존하고,
+  reconciliation을 통과한 event만 앞선 surviving class의 column option으로
+  투영한다. 따라서 runtime-false command는 class/IR layout을 바꾸지 않으며
+  visible command와 continuation replay는 동일한 column count를 유지한다
+  (`a3a39a0`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
