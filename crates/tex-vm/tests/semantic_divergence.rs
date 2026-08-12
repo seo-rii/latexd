@@ -1,4 +1,4 @@
-use tex_render_model::{EventProducer, RenderEvent, SemanticConfidence};
+use tex_render_model::{EventProducer, RenderEvent, SemanticConfidence, SpaceKind};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::Vm;
 
@@ -513,6 +513,51 @@ fn runtime_false_deeply_nested_nohyper_url_does_not_leak_scanner_text() {
         "{:#?}",
         outcome.render_events
     );
+}
+
+#[test]
+fn runtime_false_deep_inline_writers_do_not_leak_scanner_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\emph{\unknownwrapper{\nolinkurl{wrong.example}\textbf{Wrong}\%\ }}
+\fi
+\emph{\unknownwrapper{\nolinkurl{right.example}\textbf{Right}\%\ }}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let explicit_spaces = outcome
+        .render_events
+        .iter()
+        .filter(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Space(space) if space.kind == SpaceKind::Explicit
+            )
+        })
+        .count();
+
+    assert!(
+        text.iter()
+            .all(|text| *text != "wrong.example" && *text != "Wrong"),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        text.iter().filter(|text| **text == "right.example").count(),
+        1
+    );
+    assert_eq!(text.iter().filter(|text| **text == "Right").count(), 1);
+    assert_eq!(text.iter().filter(|text| **text == "%").count(), 1);
+    assert_eq!(explicit_spaces, 1, "{:#?}", outcome.render_events);
 }
 
 #[test]

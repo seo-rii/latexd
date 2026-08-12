@@ -9349,12 +9349,14 @@ impl<'i> Vm<'i> {
                                                             )) = argument
                                                                 && command_after <= text_end
                                                             {
-                                                                self.emit_render_event(
-                                                                    RenderEvent::Text(TextEvent {
-                                                                        text: text
-                                                                            .trim()
-                                                                            .to_string(),
-                                                                    }),
+                                                                self.emit_owned_scanner_text_event(
+                                                                    ScannerOwnedTextEvent::Text(
+                                                                        TextEvent {
+                                                                            text: text
+                                                                                .trim()
+                                                                                .to_string(),
+                                                                        },
+                                                                    ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
                                                                         text_start as u32,
@@ -9375,6 +9377,9 @@ impl<'i> Vm<'i> {
                                                                             },
                                                                         ),
                                                                     ),
+                                                                    source_path,
+                                                                    argument_command_start as u32,
+                                                                    command_after as u32,
                                                                 );
                                                                 argument_inner_index =
                                                                     command_after;
@@ -9401,12 +9406,15 @@ impl<'i> Vm<'i> {
                                                                 && !text.contains('\\')
                                                                 && !text.contains('$')
                                                             {
-                                                                self.emit_render_event(
-                                                                    RenderEvent::Text(TextEvent {
-                                                                        text: normalize_latex_text(
-                                                                            text,
-                                                                        ),
-                                                                    }),
+                                                                self.emit_owned_scanner_text_event(
+                                                                    ScannerOwnedTextEvent::Text(
+                                                                        TextEvent {
+                                                                            text:
+                                                                                normalize_latex_text(
+                                                                                    text,
+                                                                                ),
+                                                                        },
+                                                                    ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
                                                                         text_start as u32,
@@ -9427,34 +9435,47 @@ impl<'i> Vm<'i> {
                                                                             },
                                                                         ),
                                                                     ),
+                                                                    source_path,
+                                                                    argument_command_start as u32,
+                                                                    command_after as u32,
                                                                 );
                                                                 argument_inner_index =
                                                                     command_after;
                                                             }
                                                         }
                                                         "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
-                                                            self.emit_render_event(
-                                                                RenderEvent::Text(TextEvent {
-                                                                    text: argument_command
-                                                                        .to_string(),
-                                                                }),
+                                                            self.emit_owned_scanner_text_event(
+                                                                ScannerOwnedTextEvent::Text(
+                                                                    TextEvent {
+                                                                        text: argument_command
+                                                                            .to_string(),
+                                                                    },
+                                                                ),
                                                                 SourceProvenance::file(
                                                                     source_path.to_owned(),
                                                                     argument_command_start as u32,
                                                                     argument_inner_index as u32,
                                                                 ),
+                                                                source_path,
+                                                                argument_command_start as u32,
+                                                                argument_inner_index as u32,
                                                             );
                                                         }
                                                         " " => {
-                                                            self.emit_render_event(
-                                                                RenderEvent::Space(SpaceEvent {
-                                                                    kind: SpaceKind::Explicit,
-                                                                }),
+                                                            self.emit_owned_scanner_text_event(
+                                                                ScannerOwnedTextEvent::Space(
+                                                                    SpaceEvent {
+                                                                        kind: SpaceKind::Explicit,
+                                                                    },
+                                                                ),
                                                                 SourceProvenance::file(
                                                                     source_path.to_owned(),
                                                                     argument_command_start as u32,
                                                                     argument_inner_index as u32,
                                                                 ),
+                                                                source_path,
+                                                                argument_command_start as u32,
+                                                                argument_inner_index as u32,
                                                             );
                                                         }
                                                         "\\" | "newline" | "linebreak" => {
