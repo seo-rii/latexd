@@ -8348,36 +8348,34 @@ impl<'i> Vm<'i> {
                                                     normalize_latex_text_with_inline_placeholders(
                                                         text,
                                                     );
-                                                self.emit_render_event(
-                                                    if scan_state.no_hyper_depth > 0 {
-                                                        RenderEvent::Text(TextEvent { text })
-                                                    } else {
+                                                let provenance = Self::link_provenance(
+                                                    source_path,
+                                                    inner_command_start,
+                                                    command_after,
+                                                    text_start,
+                                                    text_end,
+                                                    Some((target_start, target_end)),
+                                                );
+                                                if scan_state.no_hyper_depth > 0 {
+                                                    self.emit_owned_scanner_text_event(
+                                                        ScannerOwnedTextEvent::Text(TextEvent {
+                                                            text,
+                                                        }),
+                                                        provenance,
+                                                        source_path,
+                                                        inner_command_start as u32,
+                                                        command_after as u32,
+                                                    );
+                                                } else {
+                                                    self.emit_render_event(
                                                         RenderEvent::InlineLink(InlineLinkEvent {
                                                             target: target.trim().to_string(),
                                                             text,
                                                             command: inner_command.to_string(),
-                                                        })
-                                                    },
-                                                    if scan_state.no_hyper_depth > 0 {
-                                                        Self::link_provenance(
-                                                            source_path,
-                                                            inner_command_start,
-                                                            command_after,
-                                                            text_start,
-                                                            text_end,
-                                                            Some((target_start, target_end)),
-                                                        )
-                                                    } else {
-                                                        Self::link_provenance(
-                                                            source_path,
-                                                            inner_command_start,
-                                                            command_after,
-                                                            text_start,
-                                                            text_end,
-                                                            Some((target_start, target_end)),
-                                                        )
-                                                    },
-                                                );
+                                                        }),
+                                                        provenance,
+                                                    );
+                                                }
                                                 inner_index = command_after;
                                             }
                                         }
