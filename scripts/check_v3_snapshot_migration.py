@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
+import gzip
 import json
 import os
 import subprocess
@@ -31,14 +33,53 @@ EXPECTED_PRE_READER_RESULTS = {
     "raw_versioned_document": {
         "accepted": False,
     },
+    "candidate_legacy_bundle_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": True,
+        "versioned_field_present": False,
+        "muskip_field_present": False,
+    },
+    "candidate_envelope_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": True,
+        "output": "R",
+        "versioned_field_present": False,
+        "muskip_field_present": False,
+    },
+    "pre_reader_envelope_to_candidate": {
+        "accepted": True,
+        "replay_safe": True,
+        "output": "R",
+    },
+    "candidate_versioned_envelope": {
+        "reuse": "hit",
+        "replay_safe": True,
+        "output": "R",
+    },
+    "candidate_dual_lane_envelope": {"reuse": "miss", "reason": "unreadable"},
+    "candidate_unsupported_capability_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
+    "candidate_malformed_document_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
 }
 
-HARNESS_SOURCE = r'''use std::{env, fs, path::Path};
+HARNESS_SOURCE = r'''use std::{env, fs, io::Write, path::Path};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use camino::Utf8Path;
+use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
 use tex_checkpoint::{
     build_checkpoint_bundle, checkpoint_is_replay_safe, load_checkpoint_bundle,
+    save_checkpoint_bundle,
+};
+#[cfg(feature = "candidate")]
+use tex_checkpoint::{
+    CheckpointBundleReuse, CheckpointCacheMissReason, load_checkpoint_bundle_for_reuse,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{Vm, VmSnapshot};
@@ -86,6 +127,16 @@ fn produce_bundle(path: &Path) {
     .expect("write legacy bundle");
 }
 
+fn produce_envelope(path: &Path) {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.run_plain(r"\def\vthreemigrationprobe{R}");
+    let bundle = build_checkpoint_bundle(1, &vm.snapshot(), "baseline", &[])
+        .expect("build checkpoint bundle");
+    save_checkpoint_bundle(Utf8Path::from_path(path).expect("UTF-8 envelope path"), &bundle)
+        .expect("save production envelope");
+}
+
 fn consume_bundle(path: &Path) {
     let utf8_path = Utf8Path::from_path(path).expect("UTF-8 bundle path");
     let result = match load_checkpoint_bundle(utf8_path) {
@@ -101,16 +152,111 @@ fn consume_bundle(path: &Path) {
     println!("{}", serde_json::to_string(&result).expect("serialize bundle result"));
 }
 
+fn replay_output(snapshot: &VmSnapshot) -> String {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::restore(&mut interner, snapshot);
+    vm.run_plain(r"\vthreemigrationprobe").output
+}
+
+#[cfg(not(feature = "candidate"))]
+fn consume_envelope(path: &Path) {
+    let utf8_path = Utf8Path::from_path(path).expect("UTF-8 envelope path");
+    let result = match load_checkpoint_bundle(utf8_path) {
+        Ok(bundle) => {
+            let checkpoint = bundle.checkpoints.first().expect("checkpoint");
+            json!({
+                "accepted": true,
+                "replay_safe": checkpoint_is_replay_safe(checkpoint),
+                "output": checkpoint.snapshot.as_ref().map(replay_output),
+            })
+        }
+        Err(_) => json!({ "accepted": false }),
+    };
+    println!("{}", serde_json::to_string(&result).expect("serialize envelope result"));
+}
+
+#[cfg(feature = "candidate")]
+fn consume_envelope(path: &Path) {
+    let utf8_path = Utf8Path::from_path(path).expect("UTF-8 envelope path");
+    let result = match load_checkpoint_bundle(utf8_path) {
+        Ok(bundle) => {
+            let checkpoint = bundle.checkpoints.first().expect("checkpoint");
+            json!({
+                "accepted": true,
+                "replay_safe": checkpoint_is_replay_safe(checkpoint),
+                "output": checkpoint
+                    .snapshot_for_restore()
+                    .map(|restore| replay_output(restore.state())),
+            })
+        }
+        Err(_) => json!({ "accepted": false }),
+    };
+    println!("{}", serde_json::to_string(&result).expect("serialize envelope result"));
+}
+
+#[cfg(feature = "candidate")]
+fn consume_reuse(path: &Path) {
+    let utf8_path = Utf8Path::from_path(path).expect("UTF-8 envelope path");
+    let result = match load_checkpoint_bundle_for_reuse(utf8_path) {
+        CheckpointBundleReuse::Hit(bundle) => {
+            let checkpoint = bundle.checkpoints.first().expect("checkpoint");
+            json!({
+                "reuse": "hit",
+                "replay_safe": checkpoint_is_replay_safe(checkpoint),
+                "output": checkpoint
+                    .snapshot_for_restore()
+                    .map(|restore| replay_output(restore.state())),
+            })
+        }
+        CheckpointBundleReuse::Miss(reason) => json!({
+            "reuse": "miss",
+            "reason": match reason {
+                CheckpointCacheMissReason::NotFound => "not_found",
+                CheckpointCacheMissReason::Unreadable => "unreadable",
+            },
+        }),
+    };
+    println!("{}", serde_json::to_string(&result).expect("serialize reuse result"));
+}
+
+fn wrap_raw_payload(raw_path: &Path, envelope_path: &Path) {
+    let payload = fs::read(raw_path).expect("read raw checkpoint payload");
+    let mut compressor = GzEncoder::new(Vec::new(), Compression::fast());
+    compressor.write_all(&payload).expect("compress checkpoint payload");
+    let compressed = compressor.finish().expect("finish checkpoint compression");
+    let envelope = json!({
+        "schema_version": 2,
+        "encoding": "gzip+base64",
+        "payload": BASE64_STANDARD.encode(compressed),
+        "uncompressed_len": payload.len(),
+        "uncompressed_blake3": blake3::hash(&payload).to_hex().to_string(),
+    });
+    fs::write(
+        envelope_path,
+        serde_json::to_vec(&envelope).expect("serialize checkpoint envelope"),
+    )
+    .expect("write checkpoint envelope");
+}
+
 fn main() {
     let mut arguments = env::args_os().skip(1);
     let mode = arguments.next().expect("mode");
     let path = arguments.next().expect("path");
+    let second_path = arguments.next();
     assert!(arguments.next().is_none(), "unexpected argument");
     match mode.to_str().expect("UTF-8 mode") {
         "produce-raw" => produce_raw(Path::new(&path)),
         "consume-raw" => consume_raw(Path::new(&path)),
         "produce-bundle" => produce_bundle(Path::new(&path)),
         "consume-bundle" => consume_bundle(Path::new(&path)),
+        "produce-envelope" => produce_envelope(Path::new(&path)),
+        "consume-envelope" => consume_envelope(Path::new(&path)),
+        #[cfg(feature = "candidate")]
+        "consume-reuse" => consume_reuse(Path::new(&path)),
+        "wrap-raw" => wrap_raw_payload(
+            Path::new(&path),
+            Path::new(&second_path.expect("envelope output path")),
+        ),
         other => panic!("unsupported mode: {other}"),
     }
 }
@@ -157,20 +303,26 @@ def _resolve_revision(repo: Path, revision: str) -> str:
     return completed.stdout.strip()
 
 
-def _write_harness(root: Path, source_root: Path) -> Path:
-    harness = root / "v3-snapshot-migration-baseline"
+def _write_harness(root: Path, source_root: Path, package_name: str) -> Path:
+    harness = root / package_name
     (harness / "src").mkdir(parents=True)
     manifest = f'''[package]
-name = "v3-snapshot-migration-baseline"
+name = "{package_name}"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22"
+blake3 = "1"
 camino = "1"
+flate2 = "1"
 serde_json = "1"
 tex-checkpoint = {{ path = "{source_root / 'crates/tex-checkpoint'}" }}
 tex-tokens = {{ path = "{source_root / 'crates/tex-tokens'}" }}
 tex-vm = {{ path = "{source_root / 'crates/tex-vm'}" }}
+
+[features]
+candidate = []
 
 [profile.dev]
 debug = 0
@@ -190,6 +342,26 @@ def _read_result(binary: Path, mode: str, path: Path, cwd: Path) -> dict[str, An
     return json.loads(completed.stdout)
 
 
+def _read_envelope_payload(path: Path) -> dict[str, Any]:
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    compressed = base64.b64decode(envelope["payload"], validate=True)
+    return json.loads(gzip.decompress(compressed))
+
+
+def _write_wrapped_payload(
+    binary: Path,
+    payload: dict[str, Any],
+    raw_path: Path,
+    envelope_path: Path,
+    cwd: Path,
+) -> None:
+    raw_path.write_text(json.dumps(payload), encoding="utf-8")
+    _run(
+        [str(binary), "wrap-raw", str(raw_path), str(envelope_path)],
+        cwd=cwd,
+    )
+
+
 def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
     baseline_commit = _resolve_revision(repo, baseline)
     with tempfile.TemporaryDirectory(prefix="latexd-v3-snapshot-migration-") as temp:
@@ -202,23 +374,51 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 cwd=repo,
             )
             added_worktree = True
-            manifest = _write_harness(temp_root, baseline_root)
-            target_dir = temp_root / "target"
-            cargo_env = os.environ.copy()
-            cargo_env.update(
+            baseline_package = "v3-snapshot-migration-baseline"
+            manifest = _write_harness(temp_root, baseline_root, baseline_package)
+            baseline_target_dir = temp_root / "baseline-target"
+            baseline_cargo_env = os.environ.copy()
+            baseline_cargo_env.update(
                 {
                     "CARGO_INCREMENTAL": "0",
                     "CARGO_PROFILE_DEV_DEBUG": "0",
-                    "CARGO_TARGET_DIR": str(target_dir),
+                    "CARGO_TARGET_DIR": str(baseline_target_dir),
                     "RUSTFLAGS": "-C debuginfo=0",
                 }
             )
             _run(
                 ["cargo", "build", "--quiet", "--manifest-path", str(manifest)],
                 cwd=repo,
-                env=cargo_env,
+                env=baseline_cargo_env,
             )
-            binary = target_dir / "debug" / "v3-snapshot-migration-baseline"
+            binary = baseline_target_dir / "debug" / baseline_package
+
+            candidate_package = "v3-snapshot-migration-candidate"
+            candidate_manifest = _write_harness(temp_root, repo, candidate_package)
+            candidate_target_dir = temp_root / "candidate-target"
+            candidate_cargo_env = os.environ.copy()
+            candidate_cargo_env.update(
+                {
+                    "CARGO_INCREMENTAL": "0",
+                    "CARGO_PROFILE_DEV_DEBUG": "0",
+                    "CARGO_TARGET_DIR": str(candidate_target_dir),
+                    "RUSTFLAGS": "-C debuginfo=0",
+                }
+            )
+            _run(
+                [
+                    "cargo",
+                    "build",
+                    "--quiet",
+                    "--manifest-path",
+                    str(candidate_manifest),
+                    "--features",
+                    "candidate",
+                ],
+                cwd=repo,
+                env=candidate_cargo_env,
+            )
+            candidate_binary = candidate_target_dir / "debug" / candidate_package
 
             raw_path = temp_root / "raw.json"
             _run([str(binary), "produce-raw", str(raw_path)], cwd=repo)
@@ -246,7 +446,6 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
             legacy_snapshot = bundle["checkpoints"][0]["snapshot"]
             versioned_slot = {
-                "state_hash": "characterization-only",
                 "document": versioned_document,
             }
 
@@ -264,6 +463,113 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
             dual_lane_path = temp_root / "checkpoint-dual-lane.json"
             dual_lane_path.write_text(json.dumps(dual_lane), encoding="utf-8")
 
+            candidate_bundle_path = temp_root / "candidate-bundle.json"
+            _run(
+                [str(candidate_binary), "produce-bundle", str(candidate_bundle_path)],
+                cwd=repo,
+            )
+            candidate_bundle = json.loads(
+                candidate_bundle_path.read_text(encoding="utf-8")
+            )
+            candidate_checkpoint = candidate_bundle["checkpoints"][0]
+            candidate_old_result = _read_result(
+                binary, "consume-bundle", candidate_bundle_path, repo
+            )
+
+            candidate_envelope_path = temp_root / "candidate-envelope.json"
+            _run(
+                [
+                    str(candidate_binary),
+                    "produce-envelope",
+                    str(candidate_envelope_path),
+                ],
+                cwd=repo,
+            )
+            candidate_envelope_bundle = _read_envelope_payload(candidate_envelope_path)
+            candidate_envelope_checkpoint = candidate_envelope_bundle["checkpoints"][0]
+            candidate_envelope_old_result = _read_result(
+                binary, "consume-envelope", candidate_envelope_path, repo
+            )
+
+            baseline_envelope_path = temp_root / "baseline-envelope.json"
+            _run(
+                [str(binary), "produce-envelope", str(baseline_envelope_path)],
+                cwd=repo,
+            )
+            baseline_envelope_candidate_result = _read_result(
+                candidate_binary, "consume-envelope", baseline_envelope_path, repo
+            )
+
+            candidate_legacy_snapshot = candidate_checkpoint["snapshot"]
+            candidate_document = {
+                "format": "latexd.vm-snapshot",
+                "schema_version": 1,
+                "required_capabilities": [],
+                "state": candidate_legacy_snapshot,
+            }
+            candidate_slot = {"document": candidate_document}
+
+            candidate_versioned_bundle = copy.deepcopy(candidate_bundle)
+            candidate_versioned_bundle["checkpoints"][0]["snapshot"] = None
+            candidate_versioned_bundle["checkpoints"][0][
+                "versioned_snapshot"
+            ] = candidate_slot
+            candidate_versioned_envelope = temp_root / "candidate-versioned-envelope.json"
+            _write_wrapped_payload(
+                candidate_binary,
+                candidate_versioned_bundle,
+                temp_root / "candidate-versioned-payload.json",
+                candidate_versioned_envelope,
+                repo,
+            )
+
+            candidate_dual_bundle = copy.deepcopy(candidate_bundle)
+            candidate_dual_bundle["checkpoints"][0]["versioned_snapshot"] = candidate_slot
+            candidate_dual_envelope = temp_root / "candidate-dual-envelope.json"
+            _write_wrapped_payload(
+                candidate_binary,
+                candidate_dual_bundle,
+                temp_root / "candidate-dual-payload.json",
+                candidate_dual_envelope,
+                repo,
+            )
+
+            unsupported_bundle = copy.deepcopy(candidate_versioned_bundle)
+            unsupported_bundle["checkpoints"][0]["versioned_snapshot"] = {
+                "document": {
+                    "format": "latexd.vm-snapshot",
+                    "schema_version": 1,
+                    "required_capabilities": ["eqtb.muskip.scalar-v1"],
+                    "state": "must not be decoded",
+                }
+            }
+            unsupported_envelope = temp_root / "candidate-unsupported-envelope.json"
+            _write_wrapped_payload(
+                candidate_binary,
+                unsupported_bundle,
+                temp_root / "candidate-unsupported-payload.json",
+                unsupported_envelope,
+                repo,
+            )
+
+            malformed_bundle = copy.deepcopy(candidate_versioned_bundle)
+            malformed_bundle["checkpoints"][0]["versioned_snapshot"] = {
+                "document": {
+                    "format": "latexd.vm-snapshot",
+                    "schema_version": 1,
+                    "required_capabilities": [],
+                    "state": "not a VM snapshot",
+                }
+            }
+            malformed_envelope = temp_root / "candidate-malformed-envelope.json"
+            _write_wrapped_payload(
+                candidate_binary,
+                malformed_bundle,
+                temp_root / "candidate-malformed-payload.json",
+                malformed_envelope,
+                repo,
+            )
+
             return {
                 "raw_field_only": _read_result(
                     binary, "consume-raw", field_only_path, repo
@@ -276,6 +582,37 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 ),
                 "raw_versioned_document": _read_result(
                     binary, "consume-raw", versioned_document_path, repo
+                ),
+                "candidate_legacy_bundle_to_pre_reader": {
+                    **candidate_old_result,
+                    "versioned_field_present": "versioned_snapshot"
+                    in candidate_checkpoint,
+                    "muskip_field_present": any(
+                        field in candidate_checkpoint["snapshot"]
+                        for field in ("muskip_registers", "next_muskip_register")
+                    ),
+                },
+                "candidate_envelope_to_pre_reader": {
+                    **candidate_envelope_old_result,
+                    "versioned_field_present": "versioned_snapshot"
+                    in candidate_envelope_checkpoint,
+                    "muskip_field_present": any(
+                        field in candidate_envelope_checkpoint["snapshot"]
+                        for field in ("muskip_registers", "next_muskip_register")
+                    ),
+                },
+                "pre_reader_envelope_to_candidate": baseline_envelope_candidate_result,
+                "candidate_versioned_envelope": _read_result(
+                    candidate_binary, "consume-reuse", candidate_versioned_envelope, repo
+                ),
+                "candidate_dual_lane_envelope": _read_result(
+                    candidate_binary, "consume-reuse", candidate_dual_envelope, repo
+                ),
+                "candidate_unsupported_capability_envelope": _read_result(
+                    candidate_binary, "consume-reuse", unsupported_envelope, repo
+                ),
+                "candidate_malformed_document_envelope": _read_result(
+                    candidate_binary, "consume-reuse", malformed_envelope, repo
                 ),
             }
         finally:

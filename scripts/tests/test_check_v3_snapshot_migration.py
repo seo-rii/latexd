@@ -20,6 +20,38 @@ EXPECTED_RESULTS = {
     "raw_versioned_document": {
         "accepted": False,
     },
+    "candidate_legacy_bundle_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": True,
+        "versioned_field_present": False,
+        "muskip_field_present": False,
+    },
+    "candidate_envelope_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": True,
+        "output": "R",
+        "versioned_field_present": False,
+        "muskip_field_present": False,
+    },
+    "pre_reader_envelope_to_candidate": {
+        "accepted": True,
+        "replay_safe": True,
+        "output": "R",
+    },
+    "candidate_versioned_envelope": {
+        "reuse": "hit",
+        "replay_safe": True,
+        "output": "R",
+    },
+    "candidate_dual_lane_envelope": {"reuse": "miss", "reason": "unreadable"},
+    "candidate_unsupported_capability_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
+    "candidate_malformed_document_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
 }
 
 
@@ -58,6 +90,38 @@ class V3SnapshotMigrationBaselineTests(unittest.TestCase):
         violations = validate_pre_reader_results(results)
 
         self.assertTrue(any("raw_versioned_document" in item for item in violations))
+
+    def test_rejects_candidate_bundle_that_exposes_the_versioned_lane(self) -> None:
+        results = {name: result.copy() for name, result in EXPECTED_RESULTS.items()}
+        results["candidate_legacy_bundle_to_pre_reader"][
+            "versioned_field_present"
+        ] = True
+
+        violations = validate_pre_reader_results(results)
+
+        self.assertTrue(
+            any("candidate_legacy_bundle_to_pre_reader" in item for item in violations)
+        )
+
+    def test_rejects_candidate_production_envelope_that_old_reader_cannot_replay(
+        self,
+    ) -> None:
+        results = {name: result.copy() for name, result in EXPECTED_RESULTS.items()}
+        results["candidate_envelope_to_pre_reader"]["replay_safe"] = False
+
+        violations = validate_pre_reader_results(results)
+
+        self.assertTrue(any("candidate_envelope_to_pre_reader" in item for item in violations))
+
+    def test_rejects_invalid_envelope_that_escapes_as_a_load_error(self) -> None:
+        results = {name: result.copy() for name, result in EXPECTED_RESULTS.items()}
+        results["candidate_unsupported_capability_envelope"] = {"reuse": "error"}
+
+        violations = validate_pre_reader_results(results)
+
+        self.assertTrue(
+            any("candidate_unsupported_capability_envelope" in item for item in violations)
+        )
 
 
 if __name__ == "__main__":

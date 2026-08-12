@@ -1417,37 +1417,36 @@ impl CompilerDriver {
                     .as_ref()
                     .and_then(|previous| previous.semantic_aux.clone())
                     .unwrap_or_default();
-                let semantic_seed_checkpoint =
-                    reusable_preamble
-                        .as_ref()
-                        .map(|reused_checkpoint| {
-                            let snapshot = reused_checkpoint.snapshot.clone().ok_or_else(|| {
-                                CompileFailure {
-                                    diagnostics: vec![Diagnostic {
-                                        level: DiagnosticLevel::Error,
-                                        file: Some(request.toplevel.to_string()),
-                                        line: None,
-                                        message:
-                                            "reusable preamble checkpoint does not carry a snapshot"
-                                                .to_string(),
-                                    }],
+                let semantic_seed_checkpoint = reusable_preamble
+                    .as_ref()
+                    .map(|reused_checkpoint| {
+                        let snapshot = reused_checkpoint
+                            .snapshot_for_restore()
+                            .map(|restore| restore.state().clone())
+                            .ok_or_else(|| CompileFailure {
+                                diagnostics: vec![Diagnostic {
+                                    level: DiagnosticLevel::Error,
+                                    file: Some(request.toplevel.to_string()),
+                                    line: None,
                                     message:
                                         "reusable preamble checkpoint does not carry a snapshot"
                                             .to_string(),
-                                }
+                                }],
+                                message: "reusable preamble checkpoint does not carry a snapshot"
+                                    .to_string(),
                             })?;
-                            Ok::<_, CompileFailure>((
-                                ProjectReplayCheckpoint {
-                                    snapshot,
-                                    resume_path: request.toplevel.clone(),
-                                    source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
-                                    continuation_stack: Vec::new(),
-                                    render_event_prefix: Vec::new(),
-                                },
-                                reused_checkpoint.meta.checkpoint_id.clone(),
-                            ))
-                        })
-                        .transpose()?;
+                        Ok::<_, CompileFailure>((
+                            ProjectReplayCheckpoint {
+                                snapshot,
+                                resume_path: request.toplevel.clone(),
+                                source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
+                                continuation_stack: Vec::new(),
+                                render_event_prefix: Vec::new(),
+                            },
+                            reused_checkpoint.meta.checkpoint_id.clone(),
+                        ))
+                    })
+                    .transpose()?;
                 let mut final_build = None;
                 let mut final_preamble_checkpoint = None;
                 let mut final_reused_checkpoint_id = semantic_seed_checkpoint
@@ -1699,21 +1698,20 @@ impl CompilerDriver {
                     final_reused_checkpoint_id,
                 )
             } else if let Some(reused_checkpoint) = reusable_preamble.as_ref() {
-                let preamble_snapshot =
-                    reused_checkpoint
-                        .snapshot
-                        .clone()
-                        .ok_or_else(|| CompileFailure {
-                            diagnostics: vec![Diagnostic {
-                                level: DiagnosticLevel::Error,
-                                file: Some(request.toplevel.to_string()),
-                                line: None,
-                                message: "reusable preamble checkpoint does not carry a snapshot"
-                                    .to_string(),
-                            }],
+                let preamble_snapshot = reused_checkpoint
+                    .snapshot_for_restore()
+                    .map(|restore| restore.state().clone())
+                    .ok_or_else(|| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
                             message: "reusable preamble checkpoint does not carry a snapshot"
                                 .to_string(),
-                        })?;
+                        }],
+                        message: "reusable preamble checkpoint does not carry a snapshot"
+                            .to_string(),
+                    })?;
                 let preamble_checkpoint = ProjectReplayCheckpoint {
                     snapshot: preamble_snapshot,
                     resume_path: request.toplevel.clone(),
@@ -3459,10 +3457,9 @@ fn replay_checkpoint_from_stored(
         return None;
     }
     checkpoint
-        .snapshot
-        .as_ref()
-        .map(|snapshot| ProjectReplayCheckpoint {
-            snapshot: snapshot.clone(),
+        .snapshot_for_restore()
+        .map(|restore| ProjectReplayCheckpoint {
+            snapshot: restore.state().clone(),
             resume_path: checkpoint
                 .meta
                 .resume_path

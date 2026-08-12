@@ -24,7 +24,7 @@ fn quiescent_snapshot_can_be_selected_for_preamble_replay() {
     assert!(snapshot.continuation_safety.is_safe());
     assert!(bundle.checkpoints[0].meta.continuation_safety.is_safe());
     assert!(bundle.checkpoints[0].meta.snapshot_attached);
-    assert!(bundle.checkpoints[0].snapshot.is_some());
+    assert!(bundle.checkpoints[0].snapshot_for_restore().is_some());
     assert!(
         select_reusable_preamble(&bundle, &[Utf8PathBuf::from("main.tex")], &preamble_key)
             .is_some()
@@ -43,7 +43,7 @@ fn open_group_snapshot_is_not_attached_or_selected_for_replay() {
         vec![VmContinuationBlocker::OpenGroup]
     );
     assert!(!bundle.checkpoints[0].meta.snapshot_attached);
-    assert!(bundle.checkpoints[0].snapshot.is_none());
+    assert!(bundle.checkpoints[0].snapshot_for_restore().is_none());
     let diagnostic =
         checkpoint_reuse_diagnostic(&bundle.checkpoints[0]).expect("rejection diagnostic");
     assert_eq!(diagnostic.code, CHECKPOINT_UNSAFE_STATE);

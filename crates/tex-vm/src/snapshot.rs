@@ -1657,6 +1657,12 @@ pub struct VmSnapshot {
     pub text_script_wrapper_depth: usize,
 }
 
+impl VmSnapshot {
+    pub fn required_capabilities(&self) -> BTreeSet<SnapshotCapability> {
+        BTreeSet::new()
+    }
+}
+
 fn default_hidden_environments() -> Vec<String> {
     vec!["comment".to_string()]
 }

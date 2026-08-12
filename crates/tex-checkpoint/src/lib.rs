@@ -9,9 +9,11 @@ use camino::{Utf8Path, Utf8PathBuf};
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpointKind, VmReplayFrame, VmSnapshot,
+    SnapshotCapability, Vm, VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpointKind,
+    VmReplayFrame, VmSnapshot, VmSnapshotDocument, decode_vm_snapshot_document,
 };
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
@@ -164,17 +166,249 @@ pub struct CheckpointMeta {
     pub output_start_utf8: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StoredCheckpoint {
-    pub meta: CheckpointMeta,
-    pub snapshot: Option<VmSnapshot>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionedSnapshotSlot {
+    document: VmSnapshotDocument,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl VersionedSnapshotSlot {
+    pub fn document(&self) -> &VmSnapshotDocument {
+        &self.document
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VersionedSnapshotSlotWire {
+    document: serde_json::Value,
+}
+
+impl<'de> Deserialize<'de> for VersionedSnapshotSlot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = VersionedSnapshotSlotWire::deserialize(deserializer)?;
+        let encoded = serde_json::to_vec(&wire.document).map_err(serde::de::Error::custom)?;
+        let document = decode_vm_snapshot_document(&encoded).map_err(serde::de::Error::custom)?;
+        Ok(Self { document })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotAttachment<'a> {
+    None,
+    Legacy(&'a VmSnapshot),
+    Versioned(&'a VmSnapshotDocument),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotForRestore<'a> {
+    Legacy(&'a VmSnapshot),
+    Versioned(&'a VmSnapshotDocument),
+}
+
+impl<'a> SnapshotForRestore<'a> {
+    pub fn state(self) -> &'a VmSnapshot {
+        match self {
+            Self::Legacy(snapshot) => snapshot,
+            Self::Versioned(document) => &document.state,
+        }
+    }
+
+    pub fn is_versioned(self) -> bool {
+        matches!(self, Self::Versioned(_))
+    }
+
+    pub fn required_capabilities(self) -> impl Iterator<Item = &'a SnapshotCapability> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Versioned(document) => Some(&document.required_capabilities),
+        }
+        .into_iter()
+        .flatten()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotWritePolicy {
+    LegacyOnly,
+}
+
+const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StoredSnapshotAttachment {
+    None,
+    Legacy(VmSnapshot),
+    Versioned(VersionedSnapshotSlot),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LegacySnapshotForWrite(VmSnapshot);
+
+impl TryFrom<VmSnapshot> for LegacySnapshotForWrite {
+    type Error = anyhow::Error;
+
+    fn try_from(snapshot: VmSnapshot) -> Result<Self> {
+        let required_capabilities = snapshot.required_capabilities();
+        if !required_capabilities.is_empty() {
+            anyhow::bail!(
+                "legacy snapshot writer cannot encode required capabilities: {}",
+                required_capabilities
+                    .iter()
+                    .map(SnapshotCapability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(Self(snapshot))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredCheckpoint {
+    pub meta: CheckpointMeta,
+    attachment: StoredSnapshotAttachment,
+}
+
+#[derive(Serialize)]
+struct StoredCheckpointWriteWire<'a> {
+    meta: &'a CheckpointMeta,
+    snapshot: Option<&'a VmSnapshot>,
+}
+
+impl Serialize for StoredCheckpoint {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let snapshot = match &self.attachment {
+            StoredSnapshotAttachment::None => None,
+            StoredSnapshotAttachment::Legacy(snapshot) => Some(snapshot),
+            StoredSnapshotAttachment::Versioned(_) => {
+                return Err(serde::ser::Error::custom(
+                    "versioned snapshot writer is disabled",
+                ));
+            }
+        };
+        StoredCheckpointWriteWire {
+            meta: &self.meta,
+            snapshot,
+        }
+        .serialize(serializer)
+    }
+}
+
+#[derive(Deserialize)]
+struct StoredCheckpointWire {
+    meta: CheckpointMeta,
+    snapshot: Option<VmSnapshot>,
+    #[serde(default)]
+    versioned_snapshot: Option<serde_json::Value>,
+}
+
+impl<'de> Deserialize<'de> for StoredCheckpoint {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = StoredCheckpointWire::deserialize(deserializer)?;
+        let attachment = match (wire.snapshot, wire.versioned_snapshot) {
+            (None, None) => StoredSnapshotAttachment::None,
+            (Some(snapshot), None) => StoredSnapshotAttachment::Legacy(snapshot),
+            (None, Some(slot)) => StoredSnapshotAttachment::Versioned(
+                serde_json::from_value(slot).map_err(serde::de::Error::custom)?,
+            ),
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "checkpoint contains both snapshot lanes",
+                ));
+            }
+        };
+        Ok(Self {
+            meta: wire.meta,
+            attachment,
+        })
+    }
+}
+
+impl StoredCheckpoint {
+    fn with_legacy_snapshot(meta: CheckpointMeta, snapshot: Option<VmSnapshot>) -> Result<Self> {
+        let attachment = match snapshot {
+            Some(snapshot) => {
+                StoredSnapshotAttachment::Legacy(LegacySnapshotForWrite::try_from(snapshot)?.0)
+            }
+            None => StoredSnapshotAttachment::None,
+        };
+        Ok(Self { meta, attachment })
+    }
+
+    pub fn snapshot_attachment(&self) -> SnapshotAttachment<'_> {
+        match &self.attachment {
+            StoredSnapshotAttachment::None => SnapshotAttachment::None,
+            StoredSnapshotAttachment::Legacy(snapshot) => SnapshotAttachment::Legacy(snapshot),
+            StoredSnapshotAttachment::Versioned(slot) => {
+                SnapshotAttachment::Versioned(slot.document())
+            }
+        }
+    }
+
+    pub fn snapshot_for_restore(&self) -> Option<SnapshotForRestore<'_>> {
+        match self.snapshot_attachment() {
+            SnapshotAttachment::None => None,
+            SnapshotAttachment::Legacy(snapshot) => Some(SnapshotForRestore::Legacy(snapshot)),
+            SnapshotAttachment::Versioned(document) => {
+                Some(SnapshotForRestore::Versioned(document))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CheckpointBundle {
     pub checkpoints: Vec<StoredCheckpoint>,
     #[serde(default)]
     pub pages: Vec<CheckpointPage>,
+}
+
+#[derive(Serialize)]
+struct CheckpointBundleWriteWire<'a> {
+    checkpoints: &'a [StoredCheckpoint],
+    pages: &'a [CheckpointPage],
+}
+
+impl CheckpointBundle {
+    fn ensure_legacy_writable(&self) -> Result<()> {
+        match SNAPSHOT_WRITE_POLICY {
+            SnapshotWritePolicy::LegacyOnly => {
+                if self.checkpoints.iter().any(|checkpoint| {
+                    matches!(
+                        checkpoint.snapshot_attachment(),
+                        SnapshotAttachment::Versioned(_)
+                    )
+                }) {
+                    anyhow::bail!("versioned snapshot writer is disabled");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for CheckpointBundle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.ensure_legacy_writable()
+            .map_err(serde::ser::Error::custom)?;
+        CheckpointBundleWriteWire {
+            checkpoints: &self.checkpoints,
+            pages: &self.pages,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,8 +529,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
     let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
     let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
     let preamble_snapshot_attached = preamble_continuation_safety.is_safe();
-    let mut checkpoints = vec![StoredCheckpoint {
-        meta: CheckpointMeta {
+    let mut checkpoints = vec![StoredCheckpoint::with_legacy_snapshot(
+        CheckpointMeta {
             checkpoint_id: checkpoint_id(
                 CheckpointKind::Preamble,
                 rev,
@@ -318,8 +552,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
             input_boundary_kind: None,
             output_start_utf8: 0,
         },
-        snapshot: preamble_snapshot_attached.then(|| preamble_snapshot.clone()),
-    }];
+        preamble_snapshot_attached.then(|| preamble_snapshot.clone()),
+    )?];
 
     for (index, page) in pages.iter().enumerate() {
         let boundary_hash = page_boundary_hash(page);
@@ -337,8 +571,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
             .map(|checkpoint| checkpoint.snapshot.continuation_safety.clone())
             .unwrap_or_default();
         let snapshot_attached = shipout_checkpoint.is_some() && continuation_safety.is_safe();
-        checkpoints.push(StoredCheckpoint {
-            meta: CheckpointMeta {
+        checkpoints.push(StoredCheckpoint::with_legacy_snapshot(
+            CheckpointMeta {
                 checkpoint_id: checkpoint_id(
                     CheckpointKind::Shipout,
                     rev,
@@ -363,13 +597,13 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 input_boundary_kind: None,
                 output_start_utf8: page.text_start_utf8,
             },
-            snapshot: snapshot_attached.then(|| {
+            snapshot_attached.then(|| {
                 shipout_checkpoint
                     .expect("attached shipout snapshot")
                     .snapshot
                     .clone()
             }),
-        });
+        )?);
     }
 
     for boundary in input_boundaries {
@@ -400,8 +634,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
         )
         .to_hex()
         .to_string();
-        checkpoints.push(StoredCheckpoint {
-            meta: CheckpointMeta {
+        checkpoints.push(StoredCheckpoint::with_legacy_snapshot(
+            CheckpointMeta {
                 checkpoint_id: checkpoint_id(
                     CheckpointKind::InputBoundary,
                     rev,
@@ -423,8 +657,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 input_boundary_kind: Some(boundary.kind),
                 output_start_utf8: boundary.output_start_utf8,
             },
-            snapshot: snapshot_attached.then(|| boundary.snapshot.clone()),
-        });
+            snapshot_attached.then(|| boundary.snapshot.clone()),
+        )?);
     }
 
     Ok(CheckpointBundle {
@@ -434,6 +668,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
 }
 
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {
+    bundle.ensure_legacy_writable()?;
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))?;
@@ -591,13 +826,16 @@ pub fn select_reusable_preamble(
 pub fn checkpoint_is_replay_safe(checkpoint: &StoredCheckpoint) -> bool {
     checkpoint.meta.snapshot_attached
         && checkpoint.meta.continuation_safety.is_safe()
-        && checkpoint.snapshot.as_ref().is_some_and(|snapshot| {
+        && checkpoint.snapshot_for_restore().is_some_and(|restore| {
+            let snapshot = restore.state();
+            let mut interner = ControlSequenceInterner::new();
             snapshot.continuation_safety.is_safe()
                 && (checkpoint.meta.kind != CheckpointKind::InputBoundary
                     || snapshot
                         .input_continuation
                         .as_ref()
                         .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable))
+                && Vm::try_restore(&mut interner, snapshot).is_ok()
         })
 }
 
@@ -609,9 +847,8 @@ pub fn checkpoint_reuse_diagnostic(
     }
     let blockers = if checkpoint.meta.continuation_safety.blockers.is_empty() {
         checkpoint
-            .snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.continuation_safety.blockers.clone())
+            .snapshot_for_restore()
+            .map(|restore| restore.state().continuation_safety.blockers.clone())
             .unwrap_or_else(|| vec![VmContinuationBlocker::UnverifiedSnapshot])
     } else {
         checkpoint.meta.continuation_safety.blockers.clone()
@@ -773,9 +1010,9 @@ mod tests {
         assert_eq!(bundle.checkpoints.len(), 2);
         assert_eq!(bundle.pages.len(), 1);
         assert_eq!(bundle.checkpoints[0].meta.kind, CheckpointKind::Preamble);
-        assert!(bundle.checkpoints[0].snapshot.is_some());
+        assert!(bundle.checkpoints[0].snapshot_for_restore().is_some());
         assert_eq!(bundle.checkpoints[1].meta.kind, CheckpointKind::Shipout);
-        assert!(bundle.checkpoints[1].snapshot.is_none());
+        assert!(bundle.checkpoints[1].snapshot_for_restore().is_none());
     }
 
     #[test]
@@ -1037,11 +1274,13 @@ mod tests {
         .expect("bundle");
 
         assert_eq!(bundle.checkpoints[0].meta.source_offset_utf8, 19);
-        assert!(bundle.checkpoints[0].snapshot.is_some());
+        assert!(bundle.checkpoints[0].snapshot_for_restore().is_some());
         assert!(bundle.checkpoints[1].meta.snapshot_attached);
         assert_eq!(bundle.checkpoints[1].meta.source_offset_utf8, 47);
         assert_eq!(
-            bundle.checkpoints[1].snapshot.as_ref(),
+            bundle.checkpoints[1]
+                .snapshot_for_restore()
+                .map(|restore| restore.state()),
             Some(&shipout_snapshot)
         );
     }
@@ -1150,7 +1389,12 @@ mod tests {
         );
         assert_eq!(input_checkpoint.meta.source_offset_utf8, 14);
         assert_eq!(input_checkpoint.meta.output_start_utf8, 12);
-        assert_eq!(input_checkpoint.snapshot.as_ref(), Some(&input_snapshot));
+        assert_eq!(
+            input_checkpoint
+                .snapshot_for_restore()
+                .map(|restore| restore.state()),
+            Some(&input_snapshot)
+        );
     }
 
     #[test]
@@ -1175,7 +1419,7 @@ mod tests {
             select_reusable_preamble(&bundle, &[Utf8PathBuf::from("main.tex")], &preamble_key)
                 .expect("selected checkpoint");
         assert_eq!(selected.meta.kind, CheckpointKind::Preamble);
-        assert!(selected.snapshot.is_some());
+        assert!(selected.snapshot_for_restore().is_some());
     }
 
     #[test]

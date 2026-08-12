@@ -67,7 +67,7 @@ toplevel:
     assert!(
         first_checkpoints.checkpoints[1..]
             .iter()
-            .all(|checkpoint| checkpoint.snapshot.is_some())
+            .all(|checkpoint| checkpoint.snapshot_for_restore().is_some())
     );
     assert!(
         first_checkpoints.checkpoints[1..]
