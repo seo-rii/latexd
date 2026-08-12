@@ -402,6 +402,27 @@ fn runtime_false_nested_inline_symbol_and_space_do_not_leak_scanner_events() {
 }
 
 #[test]
+fn runtime_false_nested_unknown_command_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\emph{\unknownwrapper{Wrong}}\fi
+\emph{\unknownwrapper{Right}}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(text, ["Right"], "{:#?}", outcome.render_events);
+}
+
+#[test]
 fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0
