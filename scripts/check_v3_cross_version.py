@@ -20,6 +20,13 @@ EXPECTED_MEANING_KINDS = {
     "vthreeroot": "macro",
     "vthreetoken": "token",
 }
+EXPECTED_LAYERED_OUTPUT = "LGZLGALGARGA"
+EXPECTED_LAYERED_KEYS = [
+    {"vthreex", "vthreey"},
+    {"vthreex"},
+    set(),
+    {"vthreex", "vthreez"},
+]
 
 HARNESS_SOURCE = r'''use std::{collections::BTreeMap, env, fs, path::Path};
 
@@ -27,12 +34,22 @@ use serde_json::json;
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{SnapshotMeaning, Vm, VmSnapshot};
 
-fn produce(path: &Path) {
+fn produce(path: &Path, scenario: &str) {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
-    vm.run_plain(
-        r"\def\vthreeroot{R}\let\vthreealias=\vthreeroot\let\vthreeprimitive=\def\let\vthreetoken=Z{\def\vthreeroot{L}",
-    );
+    match scenario {
+        "basic" => {
+            vm.run_plain(
+                r"\def\vthreeroot{R}\let\vthreealias=\vthreeroot\let\vthreeprimitive=\def\let\vthreetoken=Z{\def\vthreeroot{L}",
+            );
+        }
+        "layered" => {
+            vm.run_plain(
+                r"\def\vthreex{R}\def\vthreey{R}{\def\vthreex{L}\def\vthreey{A}{{\def\vthreex{L}\def\vthreez{Z}\def\vthreey{B}\global\def\vthreey{G}",
+            );
+        }
+        other => panic!("unsupported scenario: {other}"),
+    }
     fs::write(
         path,
         serde_json::to_vec(&vm.snapshot()).expect("serialize snapshot"),
@@ -40,17 +57,23 @@ fn produce(path: &Path) {
     .expect("write snapshot");
 }
 
-fn consume(path: &Path) {
+fn consume(path: &Path, scenario: &str) {
     let snapshot = serde_json::from_slice::<VmSnapshot>(&fs::read(path).expect("read snapshot"))
         .expect("deserialize snapshot");
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::restore(&mut interner, &snapshot);
-    let outcome = vm.run_plain(
-        r"\vthreeroot}\vthreeroot\vthreealias\vthreeprimitive\vthreemade{M}\vthreemade\vthreetoken",
-    );
-    let scopes = vm
-        .snapshot()
-        .scopes
+    let projected_before_continuation = (scenario == "layered").then(|| vm.snapshot().scopes);
+    let outcome = match scenario {
+        "basic" => vm.run_plain(
+            r"\vthreeroot}\vthreeroot\vthreealias\vthreeprimitive\vthreemade{M}\vthreemade\vthreetoken",
+        ),
+        "layered" => vm.run_plain(
+            r"\vthreex\vthreey\vthreez}\vthreex\vthreey\ifdefined\vthreez BAD\else A\fi}\vthreex\vthreey\ifdefined\vthreez BAD\else A\fi}\vthreex\vthreey\ifdefined\vthreez BAD\else A\fi",
+        ),
+        other => panic!("unsupported scenario: {other}"),
+    };
+    let scopes = projected_before_continuation
+        .unwrap_or_else(|| vm.snapshot().scopes)
         .into_iter()
         .map(|scope| {
             scope
@@ -73,11 +96,12 @@ fn consume(path: &Path) {
 fn main() {
     let mut arguments = env::args_os().skip(1);
     let mode = arguments.next().expect("mode");
+    let scenario = arguments.next().expect("scenario");
     let path = arguments.next().expect("snapshot path");
     assert!(arguments.next().is_none(), "unexpected argument");
     match mode.to_str().expect("UTF-8 mode") {
-        "produce" => produce(Path::new(&path)),
-        "consume" => consume(Path::new(&path)),
+        "produce" => produce(Path::new(&path), scenario.to_str().expect("UTF-8 scenario")),
+        "consume" => consume(Path::new(&path), scenario.to_str().expect("UTF-8 scenario")),
         other => panic!("unsupported mode: {other}"),
     }
 }
@@ -117,6 +141,45 @@ def validate_matrix(
                 )
     if old_to_new != new_to_old:
         violations.append("old-to-new and new-to-old directions differ")
+    return violations
+
+
+def validate_layered_matrix(
+    old_to_new: dict[str, Any], new_to_old: dict[str, Any]
+) -> list[str]:
+    violations: list[str] = []
+    for direction, result in (
+        ("old-to-new layered", old_to_new),
+        ("new-to-old layered", new_to_old),
+    ):
+        if result.get("output") != EXPECTED_LAYERED_OUTPUT:
+            violations.append(
+                f"{direction} output mismatch: {result.get('output')!r}"
+            )
+        if result.get("diagnostic_count") != 0:
+            violations.append(
+                f"{direction} diagnostic count: {result.get('diagnostic_count')!r}"
+            )
+        scopes = result.get("scopes")
+        if not isinstance(scopes, list) or len(scopes) != len(EXPECTED_LAYERED_KEYS):
+            violations.append(f"{direction} scope depth mismatch: {scopes!r}")
+            continue
+        for index, (scope, expected_keys) in enumerate(
+            zip(scopes, EXPECTED_LAYERED_KEYS, strict=True)
+        ):
+            if not isinstance(scope, dict) or set(scope) != expected_keys:
+                violations.append(
+                    f"{direction} scope {index} keys mismatch: {scope!r}"
+                )
+                continue
+            for name, meaning in scope.items():
+                actual_kind = meaning.get("kind") if isinstance(meaning, dict) else None
+                if actual_kind != "macro":
+                    violations.append(
+                        f"{direction} scope {index} meaning mismatch for {name}: {actual_kind!r}"
+                    )
+    if old_to_new != new_to_old:
+        violations.append("old-to-new and new-to-old layered directions differ")
     return violations
 
 
@@ -211,9 +274,16 @@ def _build_harness(
     return target_dir / "debug" / package_name
 
 
-def _consume(binary: Path, snapshot: Path, cwd: Path) -> dict[str, Any]:
+def _run_fixture(
+    producer: Path,
+    consumer: Path,
+    scenario: str,
+    snapshot: Path,
+    cwd: Path,
+) -> dict[str, Any]:
+    _run([str(producer), "produce", scenario, str(snapshot)], cwd=cwd)
     completed = _run(
-        [str(binary), "consume", str(snapshot)],
+        [str(consumer), "consume", scenario, str(snapshot)],
         cwd=cwd,
         capture_output=True,
     )
@@ -241,17 +311,27 @@ def run_matrix(repo: Path, baseline: str, candidate: str) -> list[str]:
                 repo, temp_root, "candidate", candidate_root, target_dir
             )
 
-            old_snapshot = temp_root / "old-snapshot.json"
-            new_snapshot = temp_root / "new-snapshot.json"
-            _run(
-                [str(baseline_binary), "produce", str(old_snapshot)], cwd=repo
-            )
-            old_to_new = _consume(candidate_binary, old_snapshot, repo)
-            _run(
-                [str(candidate_binary), "produce", str(new_snapshot)], cwd=repo
-            )
-            new_to_old = _consume(baseline_binary, new_snapshot, repo)
-            return validate_matrix(old_to_new, new_to_old)
+            violations: list[str] = []
+            for scenario, validator in (
+                ("basic", validate_matrix),
+                ("layered", validate_layered_matrix),
+            ):
+                old_to_new = _run_fixture(
+                    baseline_binary,
+                    candidate_binary,
+                    scenario,
+                    temp_root / f"old-{scenario}-snapshot.json",
+                    repo,
+                )
+                new_to_old = _run_fixture(
+                    candidate_binary,
+                    baseline_binary,
+                    scenario,
+                    temp_root / f"new-{scenario}-snapshot.json",
+                    repo,
+                )
+                violations.extend(validator(old_to_new, new_to_old))
+            return violations
         finally:
             for worktree in reversed(added_worktrees):
                 _remove_worktree(repo, worktree)
