@@ -15,7 +15,7 @@
 ## Status Snapshot
 
 - 기준 시점: `2026-08-12`
-- 기준 commit: `775cc22` (`refactor(tex-vm): move control sequences into eqtb`)
+- 기준 commit: `99a55ae` (`fix(tex-vm): reject rootless control sequence snapshots`)
 - `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
   verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
   예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
@@ -415,7 +415,7 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - `Count`, `Dimen`, `Skip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
   SaveStack assignment/restore 경로를 사용한다.
 - control-sequence definition, `\let`, lookup, group unwind는
-  `EqKey::ControlSequence(String)`/`EqValue::ControlSequence(Meaning)`과
+  `EqKey::ControlSequence(String)`/`EqValue::ControlSequence(Box<Meaning>)`과
   SaveStack을 공통 owner로 사용한다 (`c640efb`, `775cc22`). Borrowed-name hot
   path를 위해 Eqtb 내부 map은 분리하되 assignment/restore 의미는 하나이며,
   interner-local `ControlSequenceId` lifetime은 바꾸지 않았다.
@@ -439,12 +439,35 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - `775cc22`는 snapshot schema/version을 바꾸지 않고 Eqtb+SaveStack에서 기존
   `VmSnapshot.scopes`를 투영한다. Macro/primitive/token, fresh interner,
   open-group restore, input-exit replay, module base precedence, `aftergroup`,
-  direct-global helper, front-matter 임시 protected 복원 계약이 green이다.
+  direct-global helper 계약이 green이다. `f9f23ef`는 restore chain을 모의
+  unwind해 root/current/previous level 불변식을 fail-closed로 검증한다.
+- Pro 리뷰 후 `5ca539e`, `b4c2695`는 두 이름과 begin/end/local/global 동작을
+  depth 3, 길이 7까지 전수 생성해 매 단계의 exact layer와 visible lookup을
+  독립 layered oracle과 비교한다. 같은 meaning을 여러 중첩 layer에 다시
+  쓰는 경로도 실제 생성됐음을 assertion으로 고정했다. 현재 `Meaning`과
+  `SnapshotMeaning`에는 `Undefined` variant가 없으므로 absence는 restore의
+  `Option<EqEntry>::None`으로만 표현되고, 지원하지 않는 `undefined` wire
+  meaning은 decode에서 거부된다.
+- `824b51c`는 control-sequence meaning만 box해 register-only `EqValue`와 같은
+  24-byte enum 크기를 유지한다. 전용 `BTreeMap<String, EqEntry>`의 borrowed
+  lookup은 hot path에서 `String`을 새로 만들지 않는다.
+- `b4d1500`은 author front-matter의 `and`/`thanks`를 Eqtb에서 임시 교체하지
+  않고 full-expansion 호출에 lexical protection 목록을 전달한다. 이 목록은
+  중첩 `\expanded`와 `\expandafter`에도 전파되며 canonical meaning과
+  SaveStack history를 변경하지 않는다.
 - legacy open-group snapshot에는 register restore history가 없다는 기존
   한계를 유지한다. Restore가 `scopes`로 재구성한 group frame은
   control-sequence restore만 기록하므로, restore 뒤 그 열린 group에서 새로
   할당한 register/catcode가 group 종료 시 snapshot 값으로 되돌아가는 새
-  동작을 만들지 않는다.
+  동작을 만들지 않는다 (`340ea72`). Group-end에서 이 Eqtb restore 다음에
+  실행되는 source catcode-overlay cleanup은 frame map의 `retain`만 수행하고
+  lookup/event/diagnostic/callback이 없어 합쳐진 control-sequence restore의
+  순서 변경은 관찰 불가능하다고 audit했다.
+- `99a55ae`는 root가 없는 `scopes=[]`를 restore mutation 전에 명시적으로
+  거부한다. Root-only/nested empty layer와 runtime 한계 1000, 기존 restore가
+  허용하던 1001-depth empty layer는 exact round-trip해 새 depth policy를
+  만들지 않는다. 실제 pre-migration binary를 함께 실행하는 old/new matrix는
+  고정 JSON/fresh-interner fixture보다 강한 후속 rollout evidence로 남아 있다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -460,7 +483,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - 첫 batch는 production owner를 옮기지 않고 위 differential fixture와
   changed-path/added-symbol guard를 추가했다 (`2289907`, `fe6b4df`,
   `d9cdf02`). 다음 batch가 same-name global semantics를 바로잡고 공통 storage를
-  추가한 뒤 owner를 이전했다 (`f66cdbf`, `c640efb`, `775cc22`). persisted field,
+  추가한 뒤 owner를 이전했다 (`f66cdbf`, `c640efb`, `775cc22`). 이후 Pro
+  리뷰 remediation은 projection validation, legacy open-group compatibility,
+  boxed value layout, lexical front-matter policy, exhaustive oracle, malformed
+  snapshot boundary를 각각 독립 rollback 단위로 닫았다. Persisted field,
   command-ID lifetime, provenance, event/replay output은 변경하지 않았다.
 
 이전 순서:

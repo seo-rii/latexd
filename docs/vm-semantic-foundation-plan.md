@@ -701,13 +701,44 @@ The entry gate and the first production-owner migration are green:
 - `f66cdbf` fixes the prerequisite TeX rule that a same-name global control-
   sequence assignment cancels pending local restores at every open group.
 - `c640efb` adds the common Eqtb key/value, SaveStack restoration, borrowed-name
-  lookup, legacy-layer projection, and raw temporary-value replacement APIs.
+  lookup, and legacy-layer projection APIs.
 - `775cc22` removes the parallel `ControlSequenceScopes` production owner.
   Control-sequence definitions, `\let`, direct-global kernel helpers, group
   unwind, depth checks, and lookup now use Eqtb/SaveStack. The existing
   `VmSnapshot.scopes` field is reconstructed without a new persisted field or
   version change, and fixtures cover macro, primitive, token, fresh-interner,
   checkpoint replay, and unsafe open-group restoration.
+
+The post-migration Pro review is remediated in bounded commits:
+
+- `5ca539e` and `b4c2695` compare exact layers and visible lookup against an
+  independent layered model for every valid two-name sequence through length
+  seven and depth three. The generator proves that repeated equal meanings at
+  distinct levels are exercised;
+- `f9f23ef` projects legacy layers by simulated unwind and rejects restore
+  records whose current/root/previous levels violate the representation
+  invariant;
+- `824b51c` boxes only control-sequence meanings, keeping `EqValue` at the same
+  24-byte size as a register-only comparison enum while the dedicated string
+  map retains allocation-free borrowed lookup;
+- `b4d1500` replaces canonical author-separator mutation with a lexical
+  full-expansion protection list that propagates through nested `\expanded`
+  and `\expandafter` processing;
+- `340ea72` reconstructs legacy open groups as control-sequence-only restore
+  frames, preserving the wire format's historical lack of register restore
+  history;
+- `99a55ae` rejects a rootless `scopes = []` before restore construction,
+  preserves valid empty layers exactly at depths 1, 4, 1000, and 1001, and pins
+  unsupported meaning rejection at decode time. `Meaning`/`SnapshotMeaning`
+  have no explicit `Undefined` variant, so absence remains the distinct
+  `Option<EqEntry>::None` state rather than a value that projection could erase.
+
+Group-end ordering was also audited. Source catcode-overlay cleanup after
+`Eqtb::end_group` is a pure `retain` over source-frame maps and performs no
+lookup, event emission, diagnostic, or callback, so restoring control sequences
+inside the common Eqtb unwind is not observably reordered. An actual runnable
+pre-migration/new-binary producer-consumer matrix remains stronger rollout
+evidence than the fixed JSON and fresh-interner fixtures and is still open.
 
 The replay RED also exposed that semantic expansion markers split register
 aliases such as `\globaldefs → \count251` from following assignment syntax when
@@ -717,7 +748,7 @@ is a prerequisite correctness fix, not a control-sequence ownership move.
 
 ```rust
 pub enum EqKey {
-    ControlSequence(ControlSequenceId),
+    ControlSequence(String),
     Count(u16),
     Dimen(u16),
     Skip(u16),
@@ -782,9 +813,9 @@ Migration order:
 7. mathcodes and delcodes;
 8. fonts, boxes, and remaining parameters.
 
-Current migration evidence at `775cc22`:
+Current migration evidence through `99a55ae`:
 
-- `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Meaning)` use
+- `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
   the common SaveStack save-once/global-cancellation path. Eqtb keeps a
   dedicated `BTreeMap<String, EqEntry>` so borrowed `&str` lookup does not
   allocate and interner-local command IDs do not become durable identifiers;
@@ -795,8 +826,9 @@ Current migration evidence at `775cc22`:
   behavior is unchanged;
 - builtin primitives remain a lookup fallback rather than seeded Eqtb entries,
   while `@cons` and `g@addto@macro` preserve their unconditional-global rule;
-- author metadata temporarily replaces visible `and`/`thanks` macro values
-  without adding SaveStack entries, then restores their exact flags;
+- author metadata applies lexical protection to visible macro meanings for
+  `and`/`thanks` during full expansion, including nested expansion primitives,
+  without mutating Eqtb or SaveStack;
 - the serialized `VmSnapshot.scopes` shape and versions are unchanged. Eqtb
   state plus SaveStack restore groups project legacy layers, and restore
   rebuilds those groups root-to-leaf;
@@ -805,6 +837,9 @@ Current migration evidence at `775cc22`:
   chain, so post-restore register/catcode assignments in those already-open
   groups continue to survive group exit instead of acquiring new rollback
   behavior;
+- legacy-layer projection validates the complete simulated unwind, and rootless
+  snapshots are rejected before restore construction while valid empty and
+  over-runtime-limit legacy layers retain their exact accepted depth;
 - migration step 1 is complete. The V3 exit remains open for the assignment
   classes and persistent state-root work listed below.
 
