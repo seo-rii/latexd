@@ -1,17 +1,21 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    mem,
+};
 
 use tex_lexer::CatCodeTable;
 use tex_tokens::{CatCode, Token};
 
-use crate::save_stack::SaveStack;
+use crate::{command::Meaning, save_stack::SaveStack};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EqKey {
     Count(u32),
     Dimen(u32),
     Skip(u32),
     Toks(u32),
     CatCode(char),
+    ControlSequence(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +25,7 @@ pub(crate) enum EqValue {
     Glue(i32),
     TokenList(Vec<Token>),
     CatCode(CatCode),
+    ControlSequence(Meaning),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +43,7 @@ pub(crate) enum AssignmentScope {
 #[derive(Debug)]
 pub(crate) struct Eqtb {
     entries: BTreeMap<EqKey, EqEntry>,
+    control_sequences: BTreeMap<String, EqEntry>,
     base_catcodes: CatCodeTable,
     catcodes: CatCodeTable,
 }
@@ -47,6 +53,7 @@ impl Default for Eqtb {
         let base_catcodes = CatCodeTable::plain_tex();
         Self {
             entries: BTreeMap::new(),
+            control_sequences: BTreeMap::new(),
             catcodes: base_catcodes.clone(),
             base_catcodes,
         }
@@ -119,7 +126,8 @@ impl Eqtb {
                 EqValue::Dimension(_)
                 | EqValue::Glue(_)
                 | EqValue::TokenList(_)
-                | EqValue::CatCode(_) => {
+                | EqValue::CatCode(_)
+                | EqValue::ControlSequence(_) => {
                     unreachable!("count entry must contain an integer")
                 }
             })
@@ -133,7 +141,8 @@ impl Eqtb {
                 EqValue::Integer(_)
                 | EqValue::Glue(_)
                 | EqValue::TokenList(_)
-                | EqValue::CatCode(_) => {
+                | EqValue::CatCode(_)
+                | EqValue::ControlSequence(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
             })
@@ -147,7 +156,8 @@ impl Eqtb {
                 EqValue::Integer(_)
                 | EqValue::Dimension(_)
                 | EqValue::TokenList(_)
-                | EqValue::CatCode(_) => {
+                | EqValue::CatCode(_)
+                | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
                 }
             })
@@ -161,7 +171,8 @@ impl Eqtb {
                 EqValue::Integer(_)
                 | EqValue::Dimension(_)
                 | EqValue::Glue(_)
-                | EqValue::CatCode(_) => {
+                | EqValue::CatCode(_)
+                | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
             })
@@ -301,6 +312,72 @@ impl Eqtb {
         self.catcodes.set(ch, value);
     }
 
+    pub(crate) fn assign_control_sequence(
+        &mut self,
+        name: String,
+        meaning: Meaning,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::ControlSequence(name),
+            EqValue::ControlSequence(meaning),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
+    pub(crate) fn control_sequence(&self, name: &str) -> Option<&Meaning> {
+        self.control_sequences
+            .get(name)
+            .map(control_sequence_meaning)
+    }
+
+    pub(crate) fn replace_control_sequence_meaning(
+        &mut self,
+        name: &str,
+        meaning: Meaning,
+    ) -> Option<Meaning> {
+        let entry = self.control_sequences.get_mut(name)?;
+        let EqValue::ControlSequence(current) = &mut entry.value else {
+            unreachable!("control-sequence entry must contain a meaning")
+        };
+        Some(mem::replace(current, meaning))
+    }
+
+    pub(crate) fn control_sequence_layers(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Vec<HashMap<String, Meaning>> {
+        let mut working = self.control_sequences.clone();
+        let mut layers = vec![HashMap::new(); save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let layer = &mut layers[group_index + 1];
+            for (key, previous) in restores {
+                let EqKey::ControlSequence(name) = key else {
+                    continue;
+                };
+                if let Some(entry) = working.get(name) {
+                    layer.insert(name.clone(), control_sequence_meaning(entry).clone());
+                }
+                if let Some(previous) = previous {
+                    working.insert(name.clone(), previous.clone());
+                } else {
+                    working.remove(name);
+                }
+            }
+        }
+
+        layers[0] = working
+            .into_iter()
+            .map(|(name, entry)| (name, control_sequence_meaning(&entry).clone()))
+            .collect();
+        layers
+    }
+
     fn assign(
         &mut self,
         key: EqKey,
@@ -310,13 +387,14 @@ impl Eqtb {
         save_stack: &mut SaveStack,
     ) {
         if scope == AssignmentScope::Global || group_level == 0 {
-            save_stack.cancel_restore(key);
-            self.entries.insert(key, EqEntry { value, level: 0 });
+            save_stack.cancel_restore(&key);
+            self.insert_entry(key, EqEntry { value, level: 0 });
             return;
         }
 
-        save_stack.save_if_absent(key, self.entries.get(&key).cloned());
-        self.entries.insert(
+        let previous = self.entry(&key).cloned();
+        save_stack.save_if_absent(key.clone(), previous);
+        self.insert_entry(
             key,
             EqEntry {
                 value,
@@ -330,16 +408,17 @@ impl Eqtb {
             return;
         };
         for (key, previous) in restores {
-            let restored_catcode = matches!(key, EqKey::CatCode(_));
+            let restored_catcode = match &key {
+                EqKey::CatCode(ch) => Some(*ch),
+                _ => None,
+            };
             if let Some(previous) = previous {
-                self.entries.insert(key, previous);
+                self.insert_entry(key, previous);
             } else {
-                self.entries.remove(&key);
+                self.remove_entry(&key);
             }
-            if restored_catcode {
-                let EqKey::CatCode(ch) = key else {
-                    unreachable!()
-                };
+            if let Some(ch) = restored_catcode {
+                let key = EqKey::CatCode(ch);
                 let value = self
                     .entries
                     .get(&key)
@@ -349,6 +428,35 @@ impl Eqtb {
                     })
                     .unwrap_or_else(|| self.base_catcodes.catcode(ch));
                 self.catcodes.set(ch, value);
+            }
+        }
+    }
+
+    fn entry(&self, key: &EqKey) -> Option<&EqEntry> {
+        match key {
+            EqKey::ControlSequence(name) => self.control_sequences.get(name),
+            _ => self.entries.get(key),
+        }
+    }
+
+    fn insert_entry(&mut self, key: EqKey, entry: EqEntry) {
+        match key {
+            EqKey::ControlSequence(name) => {
+                self.control_sequences.insert(name, entry);
+            }
+            key => {
+                self.entries.insert(key, entry);
+            }
+        }
+    }
+
+    fn remove_entry(&mut self, key: &EqKey) {
+        match key {
+            EqKey::ControlSequence(name) => {
+                self.control_sequences.remove(name);
+            }
+            _ => {
+                self.entries.remove(key);
             }
         }
     }
@@ -404,10 +512,20 @@ impl Eqtb {
     }
 }
 
+fn control_sequence_meaning(entry: &EqEntry) -> &Meaning {
+    let EqValue::ControlSequence(meaning) = &entry.value else {
+        unreachable!("control-sequence entry must contain a meaning")
+    };
+    meaning
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AssignmentScope, Eqtb};
-    use crate::save_stack::SaveStack;
+    use crate::{
+        command::{Meaning, Primitive},
+        save_stack::SaveStack,
+    };
     use tex_tokens::{CatCode, Token};
 
     #[test]
@@ -509,5 +627,109 @@ mod tests {
         eqtb.end_group(&mut save_stack);
 
         assert_eq!(eqtb.catcodes().catcode('@'), CatCode::Other);
+    }
+
+    #[test]
+    fn control_sequence_assignments_share_restore_and_snapshot_projection() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_control_sequence(
+            "state".to_string(),
+            Meaning::Primitive(Primitive::Relax),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_control_sequence(
+            "state".to_string(),
+            Meaning::Primitive(Primitive::Par),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_control_sequence(
+            "state".to_string(),
+            Meaning::Primitive(Primitive::Def),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+
+        assert_eq!(
+            eqtb.control_sequence("state"),
+            Some(&Meaning::Primitive(Primitive::Def))
+        );
+        assert_eq!(
+            eqtb.control_sequence_layers(&save_stack),
+            vec![
+                [("state".to_string(), Meaning::Primitive(Primitive::Relax))].into(),
+                [("state".to_string(), Meaning::Primitive(Primitive::Par))].into(),
+                [("state".to_string(), Meaning::Primitive(Primitive::Def))].into(),
+            ]
+        );
+
+        eqtb.assign_control_sequence(
+            "state".to_string(),
+            Meaning::Primitive(Primitive::Let),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+
+        assert_eq!(
+            eqtb.control_sequence_layers(&save_stack),
+            vec![
+                [("state".to_string(), Meaning::Primitive(Primitive::Let))].into(),
+                Default::default(),
+                Default::default(),
+            ]
+        );
+        eqtb.end_group(&mut save_stack);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(
+            eqtb.control_sequence("state"),
+            Some(&Meaning::Primitive(Primitive::Let))
+        );
+    }
+
+    #[test]
+    fn temporary_control_sequence_replacement_preserves_saved_scope_state() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_control_sequence(
+            "author-separator".to_string(),
+            Meaning::Primitive(Primitive::Relax),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_control_sequence(
+            "author-separator".to_string(),
+            Meaning::Primitive(Primitive::Par),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+
+        let original = eqtb
+            .replace_control_sequence_meaning(
+                "author-separator",
+                Meaning::Primitive(Primitive::Def),
+            )
+            .expect("visible local meaning");
+        assert_eq!(original, Meaning::Primitive(Primitive::Par));
+        assert_eq!(
+            eqtb.replace_control_sequence_meaning("author-separator", original),
+            Some(Meaning::Primitive(Primitive::Def))
+        );
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(
+            eqtb.control_sequence("author-separator"),
+            Some(&Meaning::Primitive(Primitive::Relax))
+        );
     }
 }

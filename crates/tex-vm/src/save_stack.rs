@@ -23,10 +23,25 @@ impl SaveStack {
         }
     }
 
-    pub(crate) fn cancel_restore(&mut self, key: EqKey) {
+    pub(crate) fn cancel_restore(&mut self, key: &EqKey) {
         for group in &mut self.groups {
-            group.restores.remove(&key);
+            group.restores.remove(key);
         }
+    }
+
+    pub(crate) fn group_level(&self) -> usize {
+        self.groups.len()
+    }
+
+    pub(crate) fn scope_depth(&self) -> usize {
+        self.group_level() + 1
+    }
+
+    pub(crate) fn restore_groups(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &BTreeMap<EqKey, Option<EqEntry>>> + ExactSizeIterator
+    {
+        self.groups.iter().map(|group| &group.restores)
     }
 
     pub(crate) fn end_group(&mut self) -> Option<BTreeMap<EqKey, Option<EqEntry>>> {
