@@ -73,6 +73,52 @@ fn false_conditional_does_not_emit_graphic_events() {
 }
 
 #[test]
+fn mixed_macro_keeps_visible_graphic_after_runtime_false_prefix() {
+    let outcome = capture(
+        r"\def\mixedgraphic#1{\ifnum\count0>0 Hidden.\fi#1}
+\count0=0
+\begin{document}
+\ifnum\count0>0\mixedgraphic{\includegraphics{hidden.pdf}}\fi
+\mixedgraphic{\includegraphics{visible.pdf}}
+\end{document}",
+    );
+    let graphics = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) => Some((graphic.path.as_str(), event.meta.producer)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        graphics,
+        [("visible.pdf", EventProducer::Macro)],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn discarded_macro_argument_does_not_emit_graphic_events() {
+    let outcome = capture(
+        r"\def\discard#1{}
+\begin{document}
+\discard{\includegraphics{unexecuted.pdf}}
+\end{document}",
+    );
+
+    assert!(
+        outcome
+            .render_events
+            .iter()
+            .all(|event| !matches!(event.event, RenderEvent::GraphicRef(_))),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn runtime_false_graphic_package_options_do_not_reach_visible_graphics() {
     let outcome = capture(
         r"\count0=0

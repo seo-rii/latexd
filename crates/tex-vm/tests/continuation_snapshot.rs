@@ -1573,6 +1573,29 @@ fn input_exit_snapshot_preserves_graphics_around_boundary() {
 }
 
 #[test]
+fn input_exit_snapshot_preserves_visible_mixed_macro_graphic() {
+    let (expected, actual) = replay_render_events_after_input_exit(
+        r"\def\mixedgraphic#1{\ifnum\count0>0 Hidden.\fi#1}
+\count0=0
+\begin{document}
+\ifnum\count0>0\mixedgraphic{\includegraphics{hidden.png}}\fi
+\input{barrier}
+\mixedgraphic{\includegraphics{visible.png}}
+\end{document}",
+    );
+    let graphics = expected
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) => Some(graphic.path.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(graphics, ["visible.png"], "{expected:#?}");
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn input_exit_snapshot_preserves_open_list() {
     let (expected, actual) = replay_render_events_after_input_exit(
         r"\begin{document}\begin{itemize}\item Before\input{barrier}\item After\end{itemize}\end{document}",

@@ -147,17 +147,21 @@ impl Vm<'_> {
         command_name: &str,
         start_utf8: u32,
         end_utf8: u32,
+        expansion_is_empty: bool,
     ) {
         if !self.render_event_capture
             || !self.execution_in_document
-            || !matches!(
-                command_name,
-                "includegraphics" | "includepdf" | "epsfig" | "psfig" | "epsfbox" | "epsffile"
-            )
             || end_utf8 <= start_utf8
+            || (!expansion_is_empty
+                && !matches!(
+                    command_name,
+                    "includegraphics" | "includepdf" | "epsfig" | "psfig" | "epsfbox" | "epsffile"
+                ))
         {
             return;
         }
+        // An empty replacement consumes its arguments without executing them.
+        // Scanner graphics inside that invocation are therefore recovery-only.
         self.semantic_graphic
             .overridden_invocations
             .push(GraphicInvocationRange {
@@ -673,7 +677,8 @@ impl Vm<'_> {
             }
         }
 
-        executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
+        // Executed graphics already passed VM control flow. Source suppression is
+        // only authoritative for scanner recovery and is coarse across macro calls.
         insert_unmatched_graphic_events(&mut reconciled, executed);
         self.render_events.replace_events(reconciled);
     }

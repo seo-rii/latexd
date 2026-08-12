@@ -618,6 +618,26 @@ fn false_conditionals_do_not_emit_bibliography_items() {
 }
 
 #[test]
+fn mixed_macro_keeps_visible_bibliography_item_after_runtime_false_prefix() {
+    let outcome = capture(
+        r"\def\mixeditem#1{\ifnum\count0>0 Hidden.\fi#1}
+\count0=0
+\begin{document}
+\begin{thebibliography}{1}
+\ifnum\count0>0\mixeditem{\bibitem{hidden} Hidden entry.}\fi
+\mixeditem{\bibitem{visible} Visible entry.}
+\end{thebibliography}
+\end{document}",
+    );
+    let items = bibliography_items(&outcome);
+
+    assert_eq!(items.len(), 1, "{:#?}", outcome.render_events);
+    assert_eq!(items[0].0.key, "visible");
+    assert_eq!(items[0].0.text, "Visible entry.");
+    assert_eq!(items[0].1, EventProducer::Macro);
+}
+
+#[test]
 fn macro_generated_bibliography_items_track_expansion_provenance() {
     let outcome = capture(
         r"\def\paperitem#1#2{\bibitem{#1} #2}

@@ -17335,6 +17335,7 @@ impl<'i> Vm<'i> {
                             &control_sequence,
                             token_span.start,
                             invocation_end_utf8,
+                            expanded.is_empty(),
                         );
                         self.record_overridden_label_invocation(
                             &control_sequence,
@@ -17375,6 +17376,7 @@ impl<'i> Vm<'i> {
                             &control_sequence,
                             token_span.start,
                             token_span.end,
+                            false,
                         );
                         self.record_overridden_label_invocation(
                             &control_sequence,
