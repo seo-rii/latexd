@@ -263,6 +263,15 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   runtime-false contribution만 brace-aware option sequence에서 제거하고 visible
   default, 동일 값의 별도 contribution, local wrapper option을 유지하며 input-exit
   replay와 recovery refresh의 event-ID remap도 보존한다 (`d5714b7`).
+- Pro review 뒤 graphic path/extension/package state를 위한 generic scanner mutation
+  log는 만들지 않기로 했다. Loaded `overpic`의 실제 `\begin` 실행 경계가 local
+  option과 backing path를 소비하고 현재 VM graphic path/extension/default state로
+  primitive event를 만든다. 따라서 runtime-false extension과 arbitrary package
+  default는 보이는 `overpic`에 도달하지 않고, visible state는 유지되며 package
+  shim 없이 같은 이름을 쓴 환경 본문도 소비하지 않는다 (`533d7ee`). 새 scanner
+  state family가 event 존재 여부, package loading, pending-option routing 또는
+  cross-command deferred semantics를 재현해야 하면 contribution ledger를 늘리지
+  않고 bounded `ExecutedSourceSlice`로 wrapper boundary를 이전한다.
 - missing input/package/class와 cyclic input에서 만들어지는 scanner
   `RenderDiagnostic`도 같은 suppression-aware family에 등록했다. Runtime-false
   missing input은 diagnostic event를 남기지 않고, visible missing input은 기존

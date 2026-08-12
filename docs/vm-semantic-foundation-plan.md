@@ -451,6 +451,18 @@ fallback output. Table fallbacks deliberately stay on their table-start anchor
 path because child phantom/spacing suppression ranges must not discard a visible
 table (`01b3634`).
 
+A subsequent Pro design review rejected a generic scanner graphic-state
+mutation log: package loading, pending-option routing, and other deferred state
+would turn recovery into a second TeX engine. The loaded `overpic` shim now uses
+the executed `\begin` boundary to consume its local options and backing target,
+then resolves a primitive graphic from current VM path, extension, and default
+state. Runtime-false extension and arbitrary package defaults therefore cannot
+contaminate the visible wrapper, visible controls remain authoritative, and an
+unloaded same-named environment keeps its body intact (`533d7ee`). If another
+scanner state family can change event existence or requires package/deferred
+semantics, the stop condition is to migrate that wrapper through a bounded
+`ExecutedSourceSlice`, not add another generic mutation-log variant.
+
 ### Event Sequence
 
 At this stage, rename the current meaning honestly:
