@@ -713,7 +713,8 @@ mod tests {
     #[test]
     fn control_sequence_restore_chain_matches_layered_scope_model_exhaustively() {
         const ACTION_COUNT: usize = 6;
-        const MAX_SEQUENCE_LENGTH: u32 = 6;
+        const MAX_SEQUENCE_LENGTH: u32 = 7;
+        let mut observed_repeated_same_value = false;
 
         for sequence_length in 0..=MAX_SEQUENCE_LENGTH {
             for encoded_sequence in 0..ACTION_COUNT.pow(sequence_length) {
@@ -745,10 +746,10 @@ mod tests {
                                 AssignmentScope::Global
                             };
                             let meaning = Meaning::Token(Token::character(
-                                char::from(b'A' + step as u8),
+                                char::from(b'A' + action as u8),
                                 CatCode::Letter,
-                                step as usize,
-                                step as usize + 1,
+                                action,
+                                action + 1,
                             ));
                             eqtb.assign_control_sequence(
                                 name.to_string(),
@@ -781,6 +782,14 @@ mod tests {
                         "sequence={encoded_sequence} length={sequence_length} step={step}"
                     );
                     for name in ["alpha", "beta"] {
+                        let expected_values = expected_layers
+                            .iter()
+                            .filter_map(|layer| layer.get(name))
+                            .collect::<Vec<_>>();
+                        observed_repeated_same_value |= expected_values
+                            .iter()
+                            .enumerate()
+                            .any(|(index, meaning)| expected_values[..index].contains(meaning));
                         let expected = expected_layers
                             .iter()
                             .rev()
@@ -794,6 +803,11 @@ mod tests {
                 }
             }
         }
+
+        assert!(
+            observed_repeated_same_value,
+            "the generated action space must cover equal meanings saved at multiple levels"
+        );
     }
 
     #[test]
