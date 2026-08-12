@@ -584,18 +584,53 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   `EqValue::MuGlue(MuGlueScalarV1)`는 기존 `Skip/Glue`와 타입이 분리되고 모든
   local/global unwind는 공통 `Eqtb::assign`/SaveStack을 사용한다. 독립 muskip
   cursor는 skip cursor와 별도로 256에서 시작하며, muskip field가 없는 legacy
-  snapshot restore는 changed skip cursor와 무관하게 이 초기값을 복원한다. 아직
-  snapshot field, capability, alias, allocator primitive, arithmetic은 없다.
+  snapshot restore는 changed skip cursor와 무관하게 이 초기값을 복원한다.
+- `f899127`은 runtime owner의 complete in-memory snapshot barrier를 닫았다.
+  `VmSnapshot`은 exact legacy DTO인 `LegacyVmSnapshotV1`과 독립
+  `muskip_registers`/`next_muskip_register`를 함께 소유하고, legacy decode는 빈
+  muskip map과 cursor 256을 복원한다. Map이 비어 있지 않거나 cursor가 256이
+  아니면 state-derived `eqtb.muskip.scalar-v1` capability가 생기며, raw legacy
+  serializer와 checkpoint parent preflight가 capability-bearing state의 byte 생성을
+  모두 거부한다. Preamble, shipout, input-boundary capture는 attachment를
+  suppression하고 source rebuild로 귀결하며, laundering normalization과 cursor-only
+  state도 같은 gate를 통과한다.
+- Legacy-compatible state hash는 기존 byte 계약을 유지한다. Non-legacy state의
+  complete fingerprint는 legacy projection, capability, muskip map, cursor를
+  length-delimited/domain-separated 입력으로 포함해 suppression된 재캡처도 상태
+  변화를 구분한다. 이 fingerprint는 cache metadata이며 향후 versioned wire
+  표현으로 간주하지 않는다.
+- Exact `f899127` detached worktree에서 tex-vm 전체, tex-checkpoint 전체,
+  workspace test-target check, canonical Clippy/fmt, Python guard, 실제
+  `00c8ee3` old/new binary migration matrix가 green이다. Candidate legacy
+  bundle/envelope와 baseline envelope는 output `R`을 안전 재생하고,
+  versioned-only는 hit, dual/unsupported/malformed는 unreadable miss다.
+- Complete-snapshot Pro review
+  `6a7ca2a2-afa4-83e8-aad8-f7381d3e7695`는 이 범위를
+  `PROCEED`(confidence 0.82)로 판정했다. 후속 `f02a4cd`는 legacy DTO의 unknown
+  field를 fail-closed로 거부해 예약 muskip field가 legacy lane에서 유실되는 것을
+  막고, cursor 256 미만을 interner mutation 전에 거부한다. Cursor-only suppression과
+  기존 legacy attachment를 suppression 재캡처가 실제 파일에서 제거하는 회귀도
+  production loader/save 경계에 고정했다.
+- Public `LegacyVmSnapshotV1`로의 명시적 projection은 의도적으로 lossy할 수 있다.
+  Production persistence는 `VmSnapshot` 정책 경계만 사용하므로 현재 repository
+  safety blocker는 아니지만, public API 안정화나 versioned capability 지원 전에는
+  projection을 제한하거나 손실 계약을 명시해야 한다. 현재 이름이 넓은
+  `normalize_legacy_vm_snapshot`도 그때 versioned normalization과 분리한다.
 
-승인된 다음 순서는 (1) cursor의 complete snapshot/restore differential과 실제
-capability-bearing snapshot의 write/suppression/laundering 경계를 RED test로 고정,
-(2) state-derived capability와 suppression 회귀를 원자적으로 포함한 완전한
-in-memory snapshot/restore, (3) allocator/alias primitives와 arithmetic,
-(4) muskip capability reader, (5) 명시적으로 disabled인 versioned writer 구현,
-(6) old/new real-binary gate와
-reader 선배포 뒤 별도 writer 활성화다. 어느 단계에서도 capability-bearing state를
-legacy lane에 쓰지 않으며, non-legacy state는 save 오류가 아니라 attachment
-suppression과 정상 source rebuild로 귀결한다.
+승인된 다음 순서는 (1) source-level allocator와 alias 의미를 RED test로 고정하되
+cursor overflow를 checked/fail-closed로 처리하고 alias-only state도 구조적으로
+capability를 요구하게 만들기, (2) fixed/dynamic alias assignment, `\the`,
+local/global unwind와 snapshot/restore differential 구현, (3) 소스에서 실제 도달한
+capability-bearing state의 preamble/shipout/input-boundary suppression 및 fresh source
+rebuild 검증, (4) arithmetic, (5) muskip capability reader, (6) 명시적으로 disabled인
+versioned writer 구현, (7) old/new real-binary gate와 reader 선배포 뒤 별도 writer
+활성화다. 열린 group은 현재 `VmContinuationBlocker::OpenGroup`으로 capture가
+차단되지만, alias/SaveStack 표현이 추가될 때 capability 판정이 visible scope뿐 아니라
+직렬화 가능한 모든 alias/history 구조를 빠짐없이 덮는지 구조 테스트로 고정한다.
+Durable checkpoint root마다 capability-bearing state가 legacy attachment bytes를
+0개 생성한다는 inventory도 source primitive rollout 전에 완료한다. 어느 단계에서도
+capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가
+아니라 attachment suppression과 정상 source rebuild로 귀결한다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -624,9 +659,10 @@ suppression과 정상 source rebuild로 귀결한다.
 2. count와 arithmetic
 3. dimen
 4. skip — 완료; muskip — readers-first document와 dual checkpoint reader 완료,
-   legacy eligibility/suppression seam과 typed runtime owner 완료, complete
-   snapshot/capability 진행 예정 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
-   `a2466c7`, `b809c30`)
+   legacy eligibility/suppression seam, typed runtime owner, complete in-memory
+   snapshot/capability와 strict legacy boundary 완료. Source allocator/alias와
+   arithmetic 진행 예정 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`, `a2466c7`,
+   `b809c30`, `f899127`, `f02a4cd`)
 5. toks
 6. catcode
 7. mathcode/delcode
