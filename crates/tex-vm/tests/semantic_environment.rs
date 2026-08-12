@@ -384,3 +384,37 @@ fn migrated_list_is_authoritative_while_dynamic_theorem_uses_scanner_recovery() 
             && *confidence == SemanticConfidence::Medium
     }));
 }
+
+#[test]
+fn runtime_false_theorem_does_not_leak_optional_title_text() {
+    let outcome = capture(
+        r"\newtheorem{claim}{Claim}
+\count0=0
+\begin{document}
+\ifnum\count0>0
+\begin{claim}[Hidden title]Hidden body.\end{claim}
+\fi
+\begin{claim}[Visible title]Visible body.\end{claim}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !text.contains(&"Hidden title"),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert!(!text.contains(&"Hidden"), "{:#?}", outcome.render_events);
+    assert_eq!(
+        text.iter().filter(|text| **text == "Visible title").count(),
+        1
+    );
+    assert_eq!(text.iter().filter(|text| **text == "Visible").count(), 1);
+}

@@ -4027,6 +4027,8 @@ impl<'i> Vm<'i> {
                                         let title =
                                             normalize_latex_text_with_inline_placeholders(title);
                                         if !title.is_empty() {
+                                            let first_event_id =
+                                                self.render_events.next_event_sequence();
                                             self.emit_render_event(
                                                 RenderEvent::Text(TextEvent { text: title }),
                                                 SourceProvenance::file(
@@ -4044,6 +4046,12 @@ impl<'i> Vm<'i> {
                                                     title_end as u32,
                                                     after_title as u32,
                                                 ),
+                                            );
+                                            self.record_scanner_text_slot(
+                                                source_path,
+                                                title_index as u32,
+                                                after_title as u32,
+                                                first_event_id,
                                             );
                                         }
                                         index = after_title;
