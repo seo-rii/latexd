@@ -25,7 +25,7 @@ pub(crate) enum EqValue {
     Glue(i32),
     TokenList(Vec<Token>),
     CatCode(CatCode),
-    ControlSequence(Meaning),
+    ControlSequence(Box<Meaning>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,7 +322,7 @@ impl Eqtb {
     ) {
         self.assign(
             EqKey::ControlSequence(name),
-            EqValue::ControlSequence(meaning),
+            EqValue::ControlSequence(Box::new(meaning)),
             scope,
             group_level,
             save_stack,
@@ -344,7 +344,7 @@ impl Eqtb {
         let EqValue::ControlSequence(current) = &mut entry.value else {
             unreachable!("control-sequence entry must contain a meaning")
         };
-        Some(mem::replace(current, meaning))
+        Some(*mem::replace(current, Box::new(meaning)))
     }
 
     pub(crate) fn control_sequence_layers(
@@ -516,17 +516,33 @@ fn control_sequence_meaning(entry: &EqEntry) -> &Meaning {
     let EqValue::ControlSequence(meaning) = &entry.value else {
         unreachable!("control-sequence entry must contain a meaning")
     };
-    meaning
+    meaning.as_ref()
 }
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use super::{AssignmentScope, Eqtb};
     use crate::{
         command::{Meaning, Primitive},
         save_stack::SaveStack,
     };
     use tex_tokens::{CatCode, Token};
+
+    #[allow(dead_code)]
+    enum RegisterEqValue {
+        Integer(i32),
+        Dimension(i32),
+        Glue(i32),
+        TokenList(Vec<Token>),
+        CatCode(CatCode),
+    }
+
+    #[test]
+    fn control_sequence_values_do_not_inflate_register_entries() {
+        assert_eq!(size_of::<super::EqValue>(), size_of::<RegisterEqValue>());
+    }
 
     #[test]
     fn local_count_assignment_restores_the_first_value_at_group_end() {
