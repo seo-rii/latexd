@@ -4588,8 +4588,8 @@ impl<'i> Vm<'i> {
                                                     &source[body_index..body_command_start],
                                                 );
                                             if !visible_text.is_empty() {
-                                                self.emit_render_event(
-                                                    RenderEvent::Text(TextEvent {
+                                                self.emit_owned_scanner_text_event(
+                                                    ScannerOwnedTextEvent::Text(TextEvent {
                                                         text: visible_text,
                                                     }),
                                                     SourceProvenance::file(
@@ -4597,6 +4597,9 @@ impl<'i> Vm<'i> {
                                                         body_index as u32,
                                                         body_command_start as u32,
                                                     ),
+                                                    source_path,
+                                                    body_index as u32,
+                                                    body_command_start as u32,
                                                 );
                                             }
                                         }
