@@ -2559,6 +2559,21 @@ impl CompilerDriver {
                     tracked_inputs.push(request.toplevel.clone());
                     tracked_inputs
                 });
+            tracked_inputs.extend(
+                render_ir_capture
+                    .events
+                    .events
+                    .iter()
+                    .filter_map(|envelope| {
+                        let graphic = match &envelope.event {
+                            RenderEvent::GraphicRef(graphic) | RenderEvent::IncludePdf(graphic) => {
+                                graphic
+                            }
+                            _ => return None,
+                        };
+                        normalize_relative_path(Utf8Path::new(&graphic.path)).ok()
+                    }),
+            );
             tracked_inputs.sort();
             tracked_inputs.dedup();
             let source_texts_path = rev_dir.join("sources.json");
@@ -6144,7 +6159,7 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
             root.join("main.tex"),
-            r"\begin{document}\includegraphics{figures/missing.png}\includegraphics{figures/missing.png}\end{document}",
+            r"\begin{document}\iffalse\includegraphics{figures/hidden.png}\fi\includegraphics{figures/missing.png}\includegraphics{figures/missing.png}\end{document}",
         )
         .expect("main tex");
 
@@ -6171,6 +6186,20 @@ mod tests {
         assert_eq!(diagnostics[0].level, DiagnosticLevel::Warning);
         assert_eq!(diagnostics[0].file.as_deref(), Some("main.tex"));
         assert_eq!(diagnostics[0].line, None);
+        assert!(
+            outcome
+                .dep_trace
+                .inputs
+                .contains(&Utf8PathBuf::from("figures/missing.png")),
+            "missing graphic path must remain tracked so creating the asset invalidates the build"
+        );
+        assert!(
+            !outcome
+                .dep_trace
+                .inputs
+                .contains(&Utf8PathBuf::from("figures/hidden.png")),
+            "unexecuted graphic paths must not become build dependencies"
+        );
     }
 
     #[tokio::test]
