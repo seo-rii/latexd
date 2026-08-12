@@ -935,18 +935,25 @@ The migration evidence and current boundary are:
   attachment suppression must precede snapshot-visible or source-reachable
   muskip state. The currently empty `required_capabilities()` is an enforcement
   seam, not a mechanically fail-closed guarantee.
+- `a2466c7` applies the `LegacyOnly` decision both to the hard serialization
+  backstop and to preamble, shipout, and input-boundary attachment capture.
+  Required-capability snapshots are suppressed before production save can turn
+  them into compile failures. All current snapshots are still legacy-compatible,
+  so this batch pins the synthetic policy and all-category source boundary; the
+  real muskip-bearing zero-byte, zero-filesystem, suppression, and provenance-
+  laundering tests must land atomically with the first capability-bearing state.
 
-The exact remaining order is: RED-test legacy write eligibility, production
-attachment suppression, and the cursor's old-checkpoint restore/reuse contract;
-implement state-derived eligibility and a non-error suppression outcome; add
-distinct `MuSkip`/`MuGlue`/scalar-newtype Eqtb state and its independent cursor;
-make the in-memory snapshot complete in the same gate that marks the state
-non-legacy; add primitives and arithmetic; land the muskip capability reader;
-implement the versioned writer behind an explicit disabled policy; then activate
-only after old/new real-binary gates and reader deployment. A capability-bearing
-state must never be written through the legacy lane, a checkpoint with both
-lanes is invalid, and production save rejection remains defense in depth rather
-than routine suppression control flow.
+The exact remaining order is: RED-test the cursor's old-checkpoint restore/reuse
+contract and a real capability-bearing snapshot's write, suppression, and
+laundering boundaries; add distinct `MuSkip`/`MuGlue`/scalar-newtype Eqtb state
+and its independent cursor; make the in-memory snapshot complete in the same
+gate that derives the capability and exercises capture suppression; add
+primitives and arithmetic; land the muskip capability reader; implement the
+versioned writer behind an explicit disabled policy; then activate only after
+old/new real-binary gates and reader deployment. A capability-bearing state must
+never be written through the legacy lane, a checkpoint with both lanes is
+invalid, and production save rejection remains defense in depth rather than
+routine suppression control flow.
 
 The asserting production-restore follow-up is already closed by `00c8ee3`,
 which makes `Vm::try_restore` the guarded production boundary.
@@ -1020,8 +1027,8 @@ Migration order:
 3. dimen registers — landed;
 4. skip registers — landed; muskip readers-first migration has completed the
    old-binary fixture, cache-miss normalization, reader-only document, and dual
-   checkpoint reader phases; legacy eligibility, attachment suppression, and
-   cursor restoration contracts are next;
+   checkpoint reader phases; the legacy eligibility/attachment suppression seam
+   is installed, and cursor restoration plus real-state regressions are next;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;

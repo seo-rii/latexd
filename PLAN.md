@@ -573,13 +573,20 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   runtime-only가 곧 replay-neutral이라는 전제를 두지 않는다. 현재
   `required_capabilities()`의 empty 구현은 자동 fail-closed 보장이 아니라 다음
   state-derived gate를 넣을 enforcement seam이다.
+- `a2466c7`은 `LegacyOnly` 정책을 hard serializer backstop과
+  preamble/shipout/input-boundary capture 결정에 함께 적용한다. Required
+  capability가 있는 snapshot은 production save 오류로 넘기기 전에 attachment가
+  suppression된다. 현재 snapshot은 모두 legacy-compatible이므로 synthetic
+  capability policy RED/GREEN과 세 category source guard를 먼저 고정했으며, 실제
+  muskip-bearing snapshot의 zero-byte/zero-filesystem/laundering 회귀는 첫
+  capability-bearing state와 원자적으로 추가한다.
 
-승인된 다음 순서는 (1) legacy write eligibility, attachment suppression, cursor의
-old-checkpoint 복원/비재사용 계약을 RED test로 고정, (2) state-derived eligibility와
-production suppression 구현, (3) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립
-cursor의 runtime owner, (4) eligibility/suppression과 원자적으로 완전한 in-memory
-snapshot/restore, (5) primitives/arithmetic, (6) muskip capability reader,
-(7) 명시적으로 disabled인 versioned writer 구현, (8) old/new real-binary gate와
+승인된 다음 순서는 (1) cursor의 old-checkpoint 복원/비재사용 계약과 실제
+capability-bearing snapshot의 write/suppression/laundering 경계를 RED test로 고정,
+(2) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립 cursor의 runtime owner,
+(3) state-derived capability와 suppression 회귀를 원자적으로 포함한 완전한
+in-memory snapshot/restore, (4) primitives/arithmetic, (5) muskip capability reader,
+(6) 명시적으로 disabled인 versioned writer 구현, (7) old/new real-binary gate와
 reader 선배포 뒤 별도 writer 활성화다. 어느 단계에서도 capability-bearing state를
 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가 아니라 attachment
 suppression과 정상 source rebuild로 귀결한다.
@@ -611,8 +618,8 @@ suppression과 정상 source rebuild로 귀결한다.
 2. count와 arithmetic
 3. dimen
 4. skip — 완료; muskip — readers-first document와 dual checkpoint reader 완료,
-   legacy eligibility/suppression gate 진행 예정 (`e3bec73`, `dcbee7c`,
-   `1d29aaa`, `8d91fd3`)
+   legacy eligibility/suppression seam 완료, cursor contract 진행 예정
+   (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`, `a2466c7`)
 5. toks
 6. catcode
 7. mathcode/delcode
