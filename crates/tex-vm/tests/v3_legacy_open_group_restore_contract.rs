@@ -14,9 +14,7 @@ fn restored_legacy_open_group_does_not_invent_register_restore_history() {
 
     let mut restored_interner = ControlSequenceInterner::new();
     let mut restored = Vm::restore(&mut restored_interner, &snapshot);
-    let outcome = restored.run_plain(
-        r"\count0=2}\number\count0\ifdefined\local BAD\else GOOD\fi",
-    );
+    let outcome = restored.run_plain(r"\count0=2}\number\count0\ifdefined\local BAD\else GOOD\fi");
 
     assert_eq!(outcome.output, "2GOOD");
     assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
