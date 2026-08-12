@@ -2054,10 +2054,25 @@ impl<'i> Vm<'i> {
                     && suffix_end == index
                     && !suffix.is_empty()
                 {
-                    self.emit_render_event(
-                        RenderEvent::Text(TextEvent { text: suffix }),
-                        suffix_source,
-                    );
+                    let invocation_span = match &suffix_source.primary {
+                        ProvenanceSpan::File(span) => Some(span.clone()),
+                        ProvenanceSpan::Generated(_) => None,
+                    };
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::Text(TextEvent { text: suffix }),
+                            suffix_source,
+                        )
+                        .meta
+                        .sequence;
+                    if let Some(span) = invocation_span {
+                        self.record_scanner_boundary_event(
+                            &span.path,
+                            span.start_utf8,
+                            span.end_utf8,
+                            event_id,
+                        );
+                    }
                 }
                 index += 1;
                 text_start = index;
@@ -10413,6 +10428,7 @@ impl<'i> Vm<'i> {
                     if let Some((argument, content_start, content_end, after)) =
                         read_braced_source_argument(source, argument_index)
                     {
+                        let first_event_id = self.render_events.next_event_sequence();
                         let invocation = ProvenanceSpan::File(SourceSpan {
                             path: source_path.to_owned(),
                             start_utf8: command_start as u32,
@@ -10440,6 +10456,12 @@ impl<'i> Vm<'i> {
                                 .with_related(SourceSpanRole::Invocation, invocation),
                             );
                         }
+                        self.record_scanner_text_slot(
+                            source_path,
+                            command_start as u32,
+                            after as u32,
+                            first_event_id,
+                        );
                         index = after;
                     }
                 }
@@ -10476,11 +10498,20 @@ impl<'i> Vm<'i> {
                             invocation_source.clone(),
                         );
                         if !prefix.is_empty() {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent {
-                                    text: prefix.to_string(),
-                                }),
-                                invocation_source.clone(),
+                            let event_id = self
+                                .emit_render_event(
+                                    RenderEvent::Text(TextEvent {
+                                        text: prefix.to_string(),
+                                    }),
+                                    invocation_source.clone(),
+                                )
+                                .meta
+                                .sequence;
+                            self.record_scanner_boundary_event(
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                                event_id,
                             );
                         }
                         transparent_bracket_end = Some(content_end);
@@ -10528,11 +10559,20 @@ impl<'i> Vm<'i> {
                         }),
                         source.clone(),
                     );
-                    self.emit_render_event(
-                        RenderEvent::Text(TextEvent {
-                            text: text.to_string(),
-                        }),
-                        source,
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::Text(TextEvent {
+                                text: text.to_string(),
+                            }),
+                            source,
+                        )
+                        .meta
+                        .sequence;
+                    self.record_scanner_boundary_event(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        event_id,
                     );
                 }
                 "Function" | "FUNCTION" | "Procedure" | "PROCEDURE" if in_document => {
