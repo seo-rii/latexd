@@ -303,6 +303,9 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   scanner transaction으로 등록했다. Runtime-false theorem의 title/body/block은
   모두 사라지고 visible theorem의 title/body/block은 한 번씩 유지된다
   (`7c8f2ab`).
+- siunitx `\SI`/`\qty`/`\num`/`\si`/range/angle scanner text를 command invocation
+  slot에 등록했다. Runtime-false quantity/unit text는 제거되고 visible control은
+  한 번 유지된다 (`6ac0dde`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
