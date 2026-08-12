@@ -350,8 +350,16 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - M13.2 phase exit는 전체 recovery family의 suppression regression 또는 명시적
   low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. Manual
   `Text`/`Space`, include EOF, repeated label/caption occurrence와 대표 replay는
-  닫혔다. 남은 blocker는 diagnostic subtype characterization과 `ARCH-007`의
-  skipped-prefix 뒤 visible lossy graphic/bibliography/fallback mixed-macro 회귀다. 구체
+  닫혔고 diagnostic subtype characterization도 완료됐다. `ARCH-007`의
+  skipped-prefix 뒤 visible graphic은 authoritative executed lane의 coarse
+  suppression을 제거하고, empty-replacement macro가 소비한 비실행 graphic
+  인수는 scanner invocation range로 억제해 닫았다. bibliography는 기존
+  execution-anchor reconciliation이 같은 mixed-macro 회귀를 이미 만족한다
+  (`9812429`). 남은 blocker는 macro-generated `RawFallback`의 exact isolation이다.
+  Pro review는 executed begin에서 source end를 미리 찾아 완성 이벤트를 만드는
+  방식을 거부했다. executed end commitment, occurrence identity, dynamic
+  environment classification, all-family child ownership, open-capture snapshot
+  state가 갖춰질 때까지 `ARCH-007`로 유지한다. 구체
   `ExecutedSourceSlice`, file/revision/expansion identity, public event
   revision/dependency schema, shared diagnostic schema는 더 이상 M13.2 exit
   blocker로 세지 않는다. 각각 M13.4/M13.6 또는 별도 readers-first architecture
