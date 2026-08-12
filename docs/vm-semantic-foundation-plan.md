@@ -736,9 +736,13 @@ The post-migration Pro review is remediated in bounded commits:
 Group-end ordering was also audited. Source catcode-overlay cleanup after
 `Eqtb::end_group` is a pure `retain` over source-frame maps and performs no
 lookup, event emission, diagnostic, or callback, so restoring control sequences
-inside the common Eqtb unwind is not observably reordered. An actual runnable
-pre-migration/new-binary producer-consumer matrix remains stronger rollout
-evidence than the fixed JSON and fresh-interner fixtures and is still open.
+inside the common Eqtb unwind is not observably reordered.
+`scripts/check_v3_cross_version.py` now supplies the stronger runnable rollout
+matrix: it builds detached `f66cdbf` and candidate worktrees, exchanges the same
+open-group macro/alias/primitive/token snapshot in both producer-consumer
+directions, and validates output, diagnostics, exact selected scopes, and
+directional equality. The `f66cdbf ↔ dbddf0f` run is green; this remains a
+manual release gate rather than doubling the normal CI build.
 
 The replay RED also exposed that semantic expansion markers split register
 aliases such as `\globaldefs → \count251` from following assignment syntax when

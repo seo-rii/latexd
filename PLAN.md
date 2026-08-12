@@ -466,8 +466,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - `99a55ae`는 root가 없는 `scopes=[]`를 restore mutation 전에 명시적으로
   거부한다. Root-only/nested empty layer와 runtime 한계 1000, 기존 restore가
   허용하던 1001-depth empty layer는 exact round-trip해 새 depth policy를
-  만들지 않는다. 실제 pre-migration binary를 함께 실행하는 old/new matrix는
-  고정 JSON/fresh-interner fixture보다 강한 후속 rollout evidence로 남아 있다.
+  만들지 않는다. `scripts/check_v3_cross_version.py`는 owner 이전 직전
+  `f66cdbf`와 지정 candidate를 별도 detached worktree에서 실제 빌드해 같은
+  open-group macro/alias/primitive/token snapshot을 양방향으로 교환한다.
+  `f66cdbf ↔ dbddf0f` 실행은 `LRRMZ`, 진단 0, 동일 root scope projection으로
+  green이며 고정 JSON/fresh-interner fixture보다 강한 rollout evidence를
+  재현할 수 있다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
