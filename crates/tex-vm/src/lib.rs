@@ -1597,6 +1597,9 @@ impl<'i> Vm<'i> {
         environment
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
+        environment
+            .scanner_column_layout_event_ids
+            .retain(|event_id| !removed_event_ids.contains(event_id));
         self.restore_semantic_environment_snapshot(&environment);
         let mut table = original_table.clone();
         table
@@ -1765,6 +1768,7 @@ impl<'i> Vm<'i> {
 
             let mut environment = self.semantic_environment_snapshot();
             remap_event_ids(&mut environment.scanner_event_ids);
+            remap_event_ids(&mut environment.scanner_column_layout_event_ids);
             self.restore_semantic_environment_snapshot(&environment);
 
             let mut table = self.semantic_table_snapshot();
@@ -6868,22 +6872,24 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "twocolumn" | "onecolumn" if include_depth == 0 => {
-                    if let Some(document_class) =
-                        self.render_events
-                            .iter_mut()
-                            .find_map(|event| match &mut event.event {
-                                RenderEvent::DocumentClass(document_class) => Some(document_class),
-                                _ => None,
-                            })
-                    {
-                        document_class.options.retain(|option| {
-                            !matches!(
-                                option.trim().to_ascii_lowercase().as_str(),
-                                "onecolumn" | "twocolumn"
-                            )
-                        });
-                        document_class.options.push(command.to_string());
-                    }
+                    let column_count = if command == "twocolumn" { 2 } else { 1 };
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::SetDocumentLayout(DocumentLayoutIntent {
+                                column_count: Some(column_count),
+                                ..DocumentLayoutIntent::default()
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .sequence;
+                    self.semantic_environment
+                        .scanner_column_layout_event_ids
+                        .insert(event_id);
                     if command == "twocolumn" {
                         let argument_index = skip_ascii_whitespace(source, index);
                         if let Some((_, content_start, content_end, _)) =
@@ -51399,6 +51405,30 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_discards_runtime_false_column_layout() {
+        let source = r"\documentclass{article}\count0=0\ifnum\count0>0\twocolumn\fi\begin{document}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let document_class = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DocumentClass(document_class) => Some(document_class),
+                _ => None,
+            })
+            .expect("document class event");
+
+        assert!(document_class.options.is_empty(), "{document_class:#?}");
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("Visible.")
+        )));
+    }
+
+    #[test]
     fn render_event_capture_records_document_class_layout_intent() {
         let source = "%\\documentclass{ignored}\n\\documentclass[10pt, twocolumn]{article}\\begin{document}Body.\\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -51447,8 +51477,17 @@ Fallback text.
                 _ => None,
             })
             .expect("document class event");
+        let layout = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::SetDocumentLayout(layout) => Some(layout),
+                _ => None,
+            })
+            .expect("column layout event");
 
         assert_eq!(document_class.options, vec!["twocolumn".to_string()]);
+        assert_eq!(layout.column_count, Some(2));
     }
 
     #[test]

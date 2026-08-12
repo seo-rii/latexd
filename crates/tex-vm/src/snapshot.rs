@@ -1270,6 +1270,8 @@ pub struct VmSemanticEnvironmentSnapshot {
     #[serde(default)]
     pub scanner_event_ids: Vec<EventSequence>,
     #[serde(default)]
+    pub scanner_column_layout_event_ids: Vec<EventSequence>,
+    #[serde(default)]
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub included_authorities: Vec<VmIncludedEnvironmentAuthoritySnapshot>,
@@ -1283,6 +1285,11 @@ impl VmSemanticEnvironmentSnapshot {
             .map(|event| event.meta.sequence)
             .collect::<Vec<_>>();
         values_are_unique_nonzero(&self.scanner_event_ids)
+            && values_are_unique_nonzero(&self.scanner_column_layout_event_ids)
+            && self
+                .scanner_column_layout_event_ids
+                .iter()
+                .all(|event_id| self.scanner_event_ids.contains(event_id))
             && values_are_unique_nonzero(&executed_event_ids)
             && self
                 .included_authorities

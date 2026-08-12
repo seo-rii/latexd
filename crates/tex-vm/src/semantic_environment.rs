@@ -24,6 +24,7 @@ use crate::{
 #[derive(Debug, Default)]
 pub(super) struct SemanticEnvironmentState {
     scanner_event_ids: HashSet<EventSequence>,
+    pub(super) scanner_column_layout_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
     included_authorities: Vec<IncludedEnvironmentAuthority>,
 }
@@ -45,8 +46,16 @@ impl Vm<'_> {
             .copied()
             .collect::<Vec<_>>();
         scanner_event_ids.sort_unstable();
+        let mut scanner_column_layout_event_ids = self
+            .semantic_environment
+            .scanner_column_layout_event_ids
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scanner_column_layout_event_ids.sort_unstable();
         VmSemanticEnvironmentSnapshot {
             scanner_event_ids,
+            scanner_column_layout_event_ids,
             executed_events: self.semantic_environment.executed_events.clone(),
             included_authorities: self
                 .semantic_environment
@@ -68,6 +77,11 @@ impl Vm<'_> {
     ) {
         self.semantic_environment.scanner_event_ids =
             snapshot.scanner_event_ids.iter().copied().collect();
+        self.semantic_environment.scanner_column_layout_event_ids = snapshot
+            .scanner_column_layout_event_ids
+            .iter()
+            .copied()
+            .collect();
         self.semantic_environment.executed_events = snapshot.executed_events.clone();
         self.semantic_environment.included_authorities = snapshot
             .included_authorities
@@ -226,6 +240,8 @@ impl Vm<'_> {
 
     pub(super) fn reconcile_executed_environment_events(&mut self) {
         let scanner_ids = mem::take(&mut self.semantic_environment.scanner_event_ids);
+        let scanner_column_layout_ids =
+            mem::take(&mut self.semantic_environment.scanner_column_layout_event_ids);
         let mut executed = mem::take(&mut self.semantic_environment.executed_events);
         if scanner_ids.is_empty() && executed.is_empty() {
             return;
@@ -266,9 +282,30 @@ impl Vm<'_> {
                     document_class_index = Some(event_index);
                 }
                 RenderEvent::SetDocumentLayout(layout)
-                    if scanner_ids.contains(&reconciled[event_index].meta.sequence)
-                        && layout.profile.as_deref() == Some("neurips_2019") =>
+                    if scanner_ids.contains(&reconciled[event_index].meta.sequence) =>
                 {
+                    #[derive(Clone, Copy)]
+                    enum Projection {
+                        FontSize(&'static str),
+                        Columns(&'static str),
+                    }
+
+                    let projection = if layout.profile.as_deref() == Some("neurips_2019") {
+                        Some(Projection::FontSize("10pt"))
+                    } else if scanner_column_layout_ids
+                        .contains(&reconciled[event_index].meta.sequence)
+                    {
+                        match layout.column_count {
+                            Some(1) => Some(Projection::Columns("onecolumn")),
+                            Some(2) => Some(Projection::Columns("twocolumn")),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let Some(projection) = projection else {
+                        continue;
+                    };
                     let Some(document_class_index) = document_class_index else {
                         continue;
                     };
@@ -277,13 +314,24 @@ impl Vm<'_> {
                     else {
                         unreachable!("the recorded event is a document class");
                     };
-                    document_class.options.retain(|option| {
-                        !matches!(
-                            option.trim().to_ascii_lowercase().as_str(),
-                            "10pt" | "11pt" | "12pt"
-                        )
-                    });
-                    document_class.options.push("10pt".to_string());
+                    match projection {
+                        Projection::FontSize(_) => document_class.options.retain(|option| {
+                            !matches!(
+                                option.trim().to_ascii_lowercase().as_str(),
+                                "10pt" | "11pt" | "12pt"
+                            )
+                        }),
+                        Projection::Columns(_) => document_class.options.retain(|option| {
+                            !matches!(
+                                option.trim().to_ascii_lowercase().as_str(),
+                                "onecolumn" | "twocolumn"
+                            )
+                        }),
+                    }
+                    let option = match projection {
+                        Projection::FontSize(option) | Projection::Columns(option) => option,
+                    };
+                    document_class.options.push(option.to_string());
                 }
                 _ => {}
             }
