@@ -261,11 +261,38 @@ pub enum SemanticConfidence {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Serialized semantic-authority label carried by render-event schema v5.
+///
+/// Current runtime events derive this value from an opaque [`EventOrigin`]
+/// through [`RenderEventEnvelope::try_from_origin`] or
+/// [`RenderEventEnvelope::from_scanner_recovery`]. Those sanctioned writers
+/// emit only [`Self::Primitive`], [`Self::Macro`], [`Self::ScannerRecovery`],
+/// [`Self::Fallback`], and [`Self::Unknown`].
+///
+/// [`Self::Command`], [`Self::Shim`], and [`Self::BblParser`] remain accepted
+/// and re-serializable so existing or externally produced v5 payloads can be
+/// decoded without relabeling. Their presence does not mean that a current
+/// production path or semantic consumer supports them.
+///
+/// This authority dimension is distinct from [`GeneratedBy`], which describes
+/// how source provenance was generated.
 pub enum EventProducer {
     Primitive,
     Macro,
+    /// Schema-v5 compatibility tag `"command"`.
+    ///
+    /// No current sanctioned [`EventOrigin`] maps to this value. It is not a
+    /// synonym for [`GeneratedBy::Command`], scanner recovery, or lossy output.
     Command,
+    /// Schema-v5 compatibility tag `"shim"`.
+    ///
+    /// Executing shim-generated source does not transfer semantic authority;
+    /// current events retain the primitive or macro authority that executed it.
     Shim,
+    /// Schema-v5 compatibility tag `"bbl_parser"`.
+    ///
+    /// VM-executed `.bbl` input retains primitive or macro authority, while
+    /// recovery events retain scanner-recovery authority.
     BblParser,
     ScannerRecovery,
     Fallback,
@@ -942,9 +969,10 @@ pub struct RenderDiagnosticEvent {
 
 #[cfg(test)]
 mod tests {
+    use super::EventOriginKind;
     use crate::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
-        EndBlockEvent, EventBuildContext, EventMeta, EventOrigin, EventProducer, FallbackReason,
+        EndBlockEvent, EventBuildContext, EventOrigin, EventProducer, FallbackReason,
         FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, GraphicRefEvent, HeadingEvent,
         InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
         LineBreakEvent, LineBreakReason, ListItemEvent, MathSourceEvent, MetadataField, ModeHint,
@@ -995,25 +1023,51 @@ mod tests {
     fn stream_schema_version_is_top_level() {
         let stream = RenderEventStream::new(
             Some("case".to_string()),
-            vec![RenderEventEnvelope {
-                event: RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+            vec![synthetic_envelope(
+                1,
+                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
                     field: MetadataField::Title,
                     value: "A Paper".to_string(),
                 }),
-                meta: EventMeta {
-                    sequence: 1,
-                    source: SourceProvenance::file("main.tex", 0, 10),
-                    mode_hint: ModeHint::Preamble,
-                    confidence: SemanticConfidence::High,
-                    producer: EventProducer::Command,
-                },
-            }],
+                SourceProvenance::file("main.tex", 0, 10),
+            )],
         );
         let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
 
         assert!(encoded.contains(&format!("\"schema_version\": {}", stream.schema_version)));
         assert!(encoded.contains("\"sequence\": 1"));
         assert!(!encoded.contains("\"event_id\""));
+    }
+
+    #[test]
+    fn v5_compatibility_producer_tags_round_trip_without_relabeling() {
+        for (tag, producer) in [
+            ("command", EventProducer::Command),
+            ("shim", EventProducer::Shim),
+            ("bbl_parser", EventProducer::BblParser),
+        ] {
+            let mut encoded = serde_json::to_value(RenderEventStream::new(
+                Some("v5 compatibility".to_string()),
+                vec![synthetic_envelope(
+                    1,
+                    RenderEvent::Text(TextEvent {
+                        text: "Preserved".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 0, 9),
+                )],
+            ))
+            .expect("encode stream fixture");
+            encoded["events"][0]["meta"]["producer"] = serde_json::json!(tag);
+
+            let decoded: RenderEventStream =
+                serde_json::from_value(encoded.clone()).expect("decode v5 producer tag");
+            assert_eq!(decoded.schema_version, 5);
+            assert_eq!(decoded.events[0].meta.producer, producer);
+
+            let reencoded = serde_json::to_value(decoded).expect("re-encode v5 producer tag");
+            assert_eq!(reencoded, encoded);
+            assert_ne!(reencoded["events"][0]["meta"]["producer"], "compat_command");
+        }
     }
 
     #[test]
@@ -1346,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_origin_constructor_enforces_event_kind_policy() {
+    fn sanctioned_event_origins_never_project_to_v5_compatibility_only_producers() {
         let cases = [
             (
                 EventOrigin::primitive(),
@@ -1390,6 +1444,20 @@ mod tests {
             ),
         ];
         for (origin, producer, confidence) in cases {
+            match origin.0 {
+                EventOriginKind::Primitive
+                | EventOriginKind::Macro
+                | EventOriginKind::PrimitiveProjectionLoss
+                | EventOriginKind::MacroProjectionLoss
+                | EventOriginKind::ScannerRecovery(_)
+                | EventOriginKind::Lossy
+                | EventOriginKind::UnknownLow => {}
+                EventOriginKind::RawFallback
+                | EventOriginKind::DiagnosticUnknown
+                | EventOriginKind::DiagnosticScannerRecovery => {
+                    unreachable!("ordinary-event cases exclude specialized origins")
+                }
+            }
             let envelope = RenderEventEnvelope::try_from_origin(
                 RenderEvent::Text(TextEvent {
                     text: "Visible".to_string(),
@@ -1402,6 +1470,14 @@ mod tests {
             assert_eq!(envelope.meta.producer, producer);
             assert_eq!(envelope.meta.confidence, confidence);
             assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
+            assert!(matches!(
+                envelope.meta.producer,
+                EventProducer::Primitive
+                    | EventProducer::Macro
+                    | EventProducer::ScannerRecovery
+                    | EventProducer::Fallback
+                    | EventProducer::Unknown
+            ));
         }
 
         let raw_fallback = RenderEventEnvelope::try_from_origin(

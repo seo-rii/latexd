@@ -4,7 +4,8 @@ use std::{
 };
 
 use syn::{
-    Expr, ExprAssign, ExprCall, ExprField, ImplItemFn, ItemFn, ItemImpl, ItemMod, Member,
+    Expr, ExprAssign, ExprCall, ExprField, ExprPath, GenericArgument, ImplItemFn, ItemFn, ItemImpl,
+    ItemMod, Member, Pat, PathArguments, Type,
     visit::{self, Visit},
 };
 
@@ -13,8 +14,11 @@ struct LegacyConstructorVisitor {
     calls: Vec<String>,
     assignments: Vec<String>,
     constructor_surface_violations: Vec<String>,
+    compatibility_producer_constructions: Vec<String>,
+    provenance_authority_conversion_violations: Vec<String>,
     in_render_event_envelope_impl: bool,
     current_impl_function: Option<String>,
+    pattern_depth: usize,
 }
 
 impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
@@ -32,6 +36,29 @@ impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
 
     fn visit_item_impl(&mut self, item: &'ast ItemImpl) {
         if !is_cfg_test(&item.attrs) {
+            let converts_generated_by_to_event_producer =
+                matches!(item.self_ty.as_ref(),
+                    Type::Path(path) if path.path.segments.last().is_some_and(|segment| {
+                        segment.ident == "EventProducer"
+                    })
+                ) && item.trait_.as_ref().is_some_and(|(_, path, _)| {
+                    path.segments.last().is_some_and(|segment| {
+                        segment.ident == "From"
+                            && matches!(&segment.arguments,
+                                PathArguments::AngleBracketed(arguments)
+                                    if arguments.args.iter().any(|argument| matches!(argument,
+                                        GenericArgument::Type(Type::Path(path))
+                                            if path.path.segments.last().is_some_and(|segment| {
+                                                segment.ident == "GeneratedBy"
+                                            })
+                                    ))
+                            )
+                    })
+                });
+            if converts_generated_by_to_event_producer {
+                self.provenance_authority_conversion_violations
+                    .push("From<GeneratedBy> for EventProducer".to_string());
+            }
             let previous = self.in_render_event_envelope_impl;
             self.in_render_event_envelope_impl = matches!(
                 item.self_ty.as_ref(),
@@ -109,6 +136,28 @@ impl<'ast> Visit<'ast> for LegacyConstructorVisitor {
         }
         visit::visit_expr_assign(self, assignment);
     }
+
+    fn visit_expr_path(&mut self, path: &'ast ExprPath) {
+        let mut segments = path.path.segments.iter().rev();
+        let producer = segments.next().map(|segment| segment.ident.to_string());
+        let owner = segments.next().map(|segment| segment.ident.to_string());
+        if self.pattern_depth == 0
+            && owner.as_deref() == Some("EventProducer")
+            && matches!(producer.as_deref(), Some("Command" | "Shim" | "BblParser"))
+        {
+            self.compatibility_producer_constructions.push(format!(
+                "EventProducer::{}",
+                producer.as_deref().expect("matched producer")
+            ));
+        }
+        visit::visit_expr_path(self, path);
+    }
+
+    fn visit_pat(&mut self, pattern: &'ast Pat) {
+        self.pattern_depth += 1;
+        visit::visit_pat(self, pattern);
+        self.pattern_depth -= 1;
+    }
 }
 
 fn collect_field_chain(expression: &Expr, fields: &mut Vec<String>) {
@@ -131,24 +180,30 @@ fn is_cfg_test(attributes: &[syn::Attribute]) -> bool {
 }
 
 fn legacy_constructor_calls(source: &str) -> Vec<String> {
-    let syntax = syn::parse_file(source).expect("test input must be valid Rust syntax");
-    let mut visitor = LegacyConstructorVisitor::default();
-    visitor.visit_file(&syntax);
-    visitor.calls
+    event_origin_policy(source).calls
 }
 
 fn direct_origin_metadata_assignments(source: &str) -> Vec<String> {
-    let syntax = syn::parse_file(source).expect("test input must be valid Rust syntax");
-    let mut visitor = LegacyConstructorVisitor::default();
-    visitor.visit_file(&syntax);
-    visitor.assignments
+    event_origin_policy(source).assignments
 }
 
 fn envelope_constructor_surface_violations(source: &str) -> Vec<String> {
+    event_origin_policy(source).constructor_surface_violations
+}
+
+fn compatibility_producer_constructions(source: &str) -> Vec<String> {
+    event_origin_policy(source).compatibility_producer_constructions
+}
+
+fn provenance_authority_conversion_violations(source: &str) -> Vec<String> {
+    event_origin_policy(source).provenance_authority_conversion_violations
+}
+
+fn event_origin_policy(source: &str) -> LegacyConstructorVisitor {
     let syntax = syn::parse_file(source).expect("test input must be valid Rust syntax");
     let mut visitor = LegacyConstructorVisitor::default();
     visitor.visit_file(&syntax);
-    visitor.constructor_surface_violations
+    visitor
 }
 
 fn collect_rust_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
@@ -169,6 +224,12 @@ fn collect_rust_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
 fn origin_policy_finds_production_calls_and_ignores_test_modules() {
     let source = r#"
 struct RenderEventEnvelope;
+
+impl From<GeneratedBy> for EventProducer {
+    fn from(_: GeneratedBy) -> Self {
+        Self::Shim
+    }
+}
 
 impl RenderEventEnvelope {
     pub fn try_from_origin() {}
@@ -199,12 +260,23 @@ fn emit() {
     event.meta.producer = producer;
     event.meta.confidence = confidence;
     event.meta.source.generated_by = generated_by;
+    let _command = EventProducer::Command;
+    let _shim = EventProducer::Shim;
+    let _bbl_parser = EventProducer::BblParser;
+}
+
+fn reject_decoded_compatibility_producer(producer: EventProducer) {
+    match producer {
+        EventProducer::Command | EventProducer::Shim | EventProducer::BblParser => {}
+        _ => {}
+    }
 }
 
 #[cfg(test)]
 mod tests {
     fn fixture() {
         RenderEventEnvelope::new(sequence, event, source);
+        let _allowed_test_fixture = EventProducer::Command;
     }
 }
 "#;
@@ -231,6 +303,18 @@ mod tests {
             "public RenderEventEnvelope associated function from_raw".to_string(),
         ]
     );
+    assert_eq!(
+        compatibility_producer_constructions(source),
+        vec![
+            "EventProducer::Command".to_string(),
+            "EventProducer::Shim".to_string(),
+            "EventProducer::BblParser".to_string(),
+        ]
+    );
+    assert_eq!(
+        provenance_authority_conversion_violations(source),
+        vec!["From<GeneratedBy> for EventProducer".to_string()]
+    );
 }
 
 #[test]
@@ -251,23 +335,38 @@ fn production_sources_use_typed_event_origin_constructors() {
     let mut violations = Vec::new();
     for path in sources {
         let source = fs::read_to_string(&path).expect("read Rust source");
-        for constructor in legacy_constructor_calls(&source) {
+        let policy = event_origin_policy(&source);
+        for constructor in policy.calls {
             let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
             violations.push(format!(
                 "{}: RenderEventEnvelope::{constructor}",
                 relative.display()
             ));
         }
-        for assignment in direct_origin_metadata_assignments(&source) {
+        for assignment in policy.assignments {
             let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
             violations.push(format!(
                 "{}: direct {assignment} assignment",
                 relative.display()
             ));
         }
-        for violation in envelope_constructor_surface_violations(&source) {
+        for violation in policy.constructor_surface_violations {
             let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
             violations.push(format!("{}: {violation}", relative.display()));
+        }
+        for producer in policy.compatibility_producer_constructions {
+            let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
+            violations.push(format!(
+                "{}: direct {producer} construction",
+                relative.display()
+            ));
+        }
+        for conversion in policy.provenance_authority_conversion_violations {
+            let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
+            violations.push(format!(
+                "{}: direct {conversion} conversion",
+                relative.display()
+            ));
         }
     }
 

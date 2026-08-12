@@ -1584,7 +1584,7 @@ fn input_exit_snapshot_preserves_active_caption_capture() {
 }
 
 #[test]
-fn semantic_snapshot_rejects_unsupported_active_capture_producers() {
+fn semantic_snapshot_rejects_v5_compatibility_only_active_capture_producers() {
     let capture_at_input_exit = |source: &str| {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
@@ -1603,67 +1603,73 @@ fn semantic_snapshot_rejects_unsupported_active_capture_producers() {
             .expect("semantic capture at the input exit")
     };
 
-    let mut heading = capture_at_input_exit(
-        r"\begin{document}\section{Before \input{barrier} After}\end{document}",
-    );
-    heading.heading.active_heading_actions[0].producer = EventProducer::Command;
-    assert!(!heading.is_restorable());
+    for producer in [
+        EventProducer::Command,
+        EventProducer::Shim,
+        EventProducer::BblParser,
+    ] {
+        let mut heading = capture_at_input_exit(
+            r"\begin{document}\section{Before \input{barrier} After}\end{document}",
+        );
+        heading.heading.active_heading_actions[0].producer = producer;
+        assert!(!heading.is_restorable(), "{producer:?}");
 
-    let mut caption = capture_at_input_exit(
-        r"\begin{document}\caption{Before \input{barrier} After}\end{document}",
-    );
-    caption.caption.active_caption_actions[0].producer = EventProducer::Command;
-    assert!(!caption.is_restorable());
+        let mut caption = capture_at_input_exit(
+            r"\begin{document}\caption{Before \input{barrier} After}\end{document}",
+        );
+        caption.caption.active_caption_actions[0].producer = producer;
+        assert!(!caption.is_restorable(), "{producer:?}");
 
-    let mut footnote = capture_at_input_exit(
-        r"\begin{document}\footnote{Before \input{barrier} After}\end{document}",
-    );
-    footnote.footnote.active_actions[0]
-        .begin_event
-        .meta
-        .producer = EventProducer::Command;
-    assert!(!footnote.is_restorable());
+        let mut footnote = capture_at_input_exit(
+            r"\begin{document}\footnote{Before \input{barrier} After}\end{document}",
+        );
+        footnote.footnote.active_actions[0]
+            .begin_event
+            .meta
+            .producer = producer;
+        assert!(!footnote.is_restorable(), "{producer:?}");
 
-    let mut text =
-        capture_at_input_exit(r"\begin{document}Before \input{barrier} After\end{document}");
-    text.text
-        .active_capture
-        .as_mut()
-        .expect("active text capture")
-        .producer = EventProducer::Command;
-    assert!(!text.is_restorable());
+        let mut text =
+            capture_at_input_exit(r"\begin{document}Before \input{barrier} After\end{document}");
+        text.text
+            .active_capture
+            .as_mut()
+            .expect("active text capture")
+            .producer = producer;
+        assert!(!text.is_restorable(), "{producer:?}");
 
-    let mut interner = ControlSequenceInterner::new();
-    let mut vm = Vm::new(&mut interner);
-    vm.enable_render_event_capture();
-    vm.enable_structured_table_events();
-    vm.set_entry_source_path("main.tex");
-    vm.mount_file("barrier.tex", "Child.");
-    let outcome = vm.run_plain(
-        r"\begin{document}\begin{tabular}{c}Before \input{barrier} After\end{tabular}\end{document}",
-    );
-    let mut table = outcome
-        .module_checkpoints
-        .iter()
-        .find(|checkpoint| {
-            checkpoint.kind == VmModuleCheckpointKind::Exit
-                && checkpoint.module_path.as_str() == "barrier.tex"
-        })
-        .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
-        .expect("semantic capture with an open table");
-    table.table.open_tables[0].producer = EventProducer::Command;
-    assert!(!table.is_restorable());
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.enable_render_event_capture();
+        vm.enable_structured_table_events();
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("barrier.tex", "Child.");
+        let outcome = vm.run_plain(
+            r"\begin{document}\begin{tabular}{c}Before \input{barrier} After\end{tabular}\end{document}",
+        );
+        let mut table = outcome
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == VmModuleCheckpointKind::Exit
+                    && checkpoint.module_path.as_str() == "barrier.tex"
+            })
+            .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.clone())
+            .expect("semantic capture with an open table");
+        table.table.open_tables[0].producer = producer;
+        assert!(!table.is_restorable(), "{producer:?}");
 
-    let mut bibliography = capture_at_input_exit(
-        r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{barrier} After\end{thebibliography}\end{document}",
-    );
-    bibliography
-        .bibliography
-        .active_item
-        .as_mut()
-        .expect("active bibliography item")
-        .producer = EventProducer::Command;
-    assert!(!bibliography.is_restorable());
+        let mut bibliography = capture_at_input_exit(
+            r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{barrier} After\end{thebibliography}\end{document}",
+        );
+        bibliography
+            .bibliography
+            .active_item
+            .as_mut()
+            .expect("active bibliography item")
+            .producer = producer;
+        assert!(!bibliography.is_restorable(), "{producer:?}");
+    }
 }
 
 #[test]
