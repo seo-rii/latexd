@@ -289,6 +289,35 @@ fn included_environment_authority_does_not_replace_later_fallbacks() {
 }
 
 #[test]
+fn runtime_false_unknown_environment_does_not_emit_raw_fallback() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.set_entry_source_path("main.tex");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\begin{unknownenv}Wrong fallback text.\end{unknownenv}
+\fi
+Visible text.
+\end{document}",
+    );
+
+    assert!(visible_text(&outcome).contains("Visible text."));
+    assert!(
+        !outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("unknownenv")
+        )),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn macro_generated_included_environment_uses_the_call_site_range() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

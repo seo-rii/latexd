@@ -15832,6 +15832,13 @@ impl<'i> Vm<'i> {
                 | RenderEvent::EndBlock(_)
                 | RenderEvent::BeginLayoutContainer(_)
                 | RenderEvent::EndLayoutContainer(_)
+        ) || matches!(
+            &event,
+            RenderEvent::RawFallback(fallback)
+                if fallback
+                    .environment
+                    .as_deref()
+                    .is_none_or(|environment| !semantic_table::is_table_environment(environment))
         );
         let scanner_table = matches!(
             &event,
