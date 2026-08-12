@@ -292,10 +292,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   model serialization fixture 6개도 unknown/low로 이전됐다 (`80ca0e2`). guard
   self-test의 parsed source string 안에 있는 legacy call 예시는 이 inventory에서
   제외한다. 고정 Macro/Medium JSON fixture는 permissive legacy read가 생성자
-  제거 뒤에도 유지됨을 검증한다. bibliography/graphic의 producer-coupled
-  reconciliation identity와 sequence/source reuse audit, `ExecutedSourceSlice` interface,
-  revision/dependency metadata, shared diagnostic schema와 남은 family leakage
-  characterization도 완료되지 않았다. definition span만 공유하는 반복 macro
+  제거 뒤에도 유지됨을 검증한다. bibliography unmatched insertion은
+  expansion→primary source geometry로 producer와 분리됐다 (`4c24516`). graphic의
+  producer-coupled equivalence와 sequence/source reuse audit,
+  `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostic
+  schema와 남은 family leakage characterization은 완료되지 않았다. definition
+  span만 공유하는 반복 macro
   invocation의 교차 matching 가능성은 기존 `ARCH-007`의 coarse byte-overlap
   risk에 속하며 execution identity 도입 전에는 의미를 바꾸지 않는다.
 
@@ -317,7 +319,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - 후속 Pro review는 네 개의 동일 insertion anchor만 source-only로 바꾸고,
   bibliography anchor, graphic equivalence, sequence/source reuse는 각각 별도
   RED로 남기도록 결정했다. file/revision/expansion identity가 없는 임시 타입을
-  `ExecutedSourceSlice`로 명명하거나 snapshot/wire에 넣지 않는다.
+  `ExecutedSourceSlice`로 명명하거나 snapshot/wire에 넣지 않는다. 후속 독립
+  RED는 bibliography의 valid Macro/lossy origin이 동일 provenance에서 같은
+  삽입 순서를 갖도록 고정했고, bibliography 전용 expansion→primary anchor로
+  닫혔다 (`4c24516`). graphic equivalence는 현재 scanner provenance에서
+  안전한 변경 근거가 없어 execution identity 뒤로 보류한다.
 
 2026-08-12 Pro review 결정:
 - schema v5와 현재 Rust variant/wire tag를 유지하고, 먼저 sanctioned
@@ -817,8 +823,9 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
    보강했다 (`247a647`, `80ca0e2`, `0940368`); serialized `Command`, lossy
    `Fallback`/low 의미는 별도 audit 전 유지
 6. 7개 family의 location-only overlap 공통화와 네 family insertion anchor의
-   origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography/graphic
-   identity와 sequence reuse를 별도 audit한 뒤 bounded `ExecutedSourceSlice`를 도입
+   origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography anchor도
+   source geometry로 분리됐다 (`4c24516`). graphic identity와 sequence reuse를
+   별도 audit한 뒤 bounded `ExecutedSourceSlice`를 도입
 7. control-sequence behavior characterization — 기존 grouping/global/
    `\globaldefs`/snapshot tests green
 8. 기존 layered scope representation을 semantics 변경 없이 bounded
