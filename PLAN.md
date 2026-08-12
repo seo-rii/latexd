@@ -258,7 +258,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   payload에 남을 수 있었다. Direct primitive reconciliation은 scanner에만 붙은
   `draft`/`final`/`demo` 등 package-mode prefix만 execution-owned payload에서
   제거하고, resize/scale 같은 scanner wrapper option은 계속 보존한다
-  (`126f383`). 일반 runtime-false `Gin` key/default state는 별도 감사 범위다.
+  (`126f383`). Scanner-only graphic에 적용되는 `Gin` default도 source-scoped
+  contribution과 execution occurrence를 snapshot에 보존한다. Reconciliation은
+  runtime-false contribution만 brace-aware option sequence에서 제거하고 visible
+  default, 동일 값의 별도 contribution, local wrapper option을 유지하며 input-exit
+  replay와 recovery refresh의 event-ID remap도 보존한다 (`d5714b7`).
 - missing input/package/class와 cyclic input에서 만들어지는 scanner
   `RenderDiagnostic`도 같은 suppression-aware family에 등록했다. Runtime-false
   missing input은 diagnostic event를 남기지 않고, visible missing input은 기존

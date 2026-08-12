@@ -435,9 +435,13 @@ round-trip cover the event, class option, and Document IR column count
 (`a3a39a0`). Direct primitive graphic reconciliation also rejects scanner-only
 `graphicx` package-mode prefixes such as `draft` when their package invocation
 was runtime-false. The bounded rule preserves scanner-owned resize/scale wrapper
-suffixes and visible package defaults; general runtime-false `Gin` key/default
-state remains a separate audit (`126f383`). Scanner recovery diagnostics for
-missing input/package/class and cyclic input now join the same
+suffixes and visible package defaults (`126f383`). Scanner-side `Gin` defaults
+now carry source and execution-occurrence contributions through snapshots.
+Graphic reconciliation removes only runtime-false contributions with
+brace-aware option matching, preserving visible and duplicate-equal defaults,
+local wrapper options, recovery refresh, event-ID remapping, and input-exit
+continuation replay (`d5714b7`). Scanner recovery diagnostics for missing
+input/package/class and cyclic input now join the same
 suppression-aware family. A runtime-false missing input leaves no diagnostic
 event, while the visible `Unknown`/low event remains covered and input-exit
 continuation replay preserves the filtered result (`2348ff5`).
