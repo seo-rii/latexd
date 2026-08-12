@@ -259,6 +259,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `draft`/`final`/`demo` 등 package-mode prefix만 execution-owned payload에서
   제거하고, resize/scale 같은 scanner wrapper option은 계속 보존한다
   (`126f383`). 일반 runtime-false `Gin` key/default state는 별도 감사 범위다.
+- missing input/package/class와 cyclic input에서 만들어지는 scanner
+  `RenderDiagnostic`도 같은 suppression-aware family에 등록했다. Runtime-false
+  missing input은 diagnostic event를 남기지 않고, visible missing input은 기존
+  `Unknown`/low event를 유지하며 input-exit continuation도 같은 결과를 replay한다
+  (`2348ff5`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
