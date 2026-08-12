@@ -294,6 +294,32 @@ fn runtime_false_inline_formatting_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\SI{10}{m}\fi
+\SI{20}{s}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        text.iter().all(|text| !text.contains("10")),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(text.iter().filter(|text| text.contains("20")).count(), 1);
+}
+
+#[test]
 fn segmented_capture_preserves_document_mode_for_plain_body_text() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

@@ -7220,13 +7220,22 @@ impl<'i> Vm<'i> {
                     if let Some((visible_text, content_start, content_end, after)) =
                         read_siunitx_visible_text(source, command, index, source.len())
                     {
-                        self.emit_render_event(
-                            RenderEvent::Text(TextEvent { text: visible_text }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            ),
+                        let event_id = self
+                            .emit_render_event(
+                                RenderEvent::Text(TextEvent { text: visible_text }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                ),
+                            )
+                            .meta
+                            .sequence;
+                        self.record_scanner_boundary_event(
+                            source_path,
+                            command_start as u32,
+                            after as u32,
+                            event_id,
                         );
                         index = after;
                     }
