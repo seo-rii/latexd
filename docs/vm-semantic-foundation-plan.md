@@ -139,9 +139,9 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
-| V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
+| V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
 | V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, table suppression for lexical/runtime false conditionals, and sequence-independent current semantic IDs exist | open | finish the explicit all-family suppression/expected-failure closeout; graphic equivalence is audited and deferred, while execution identity, public event identity, and shared diagnostics belong to later or separate streams |
-| V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
+| V3 | Count/Dimen/Skip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; legacy `scopes` snapshots are projected from that state | open | muskip/mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
@@ -672,7 +672,7 @@ That work must then be coordinated with V4 or a separately reviewed snapshot
 migration. V3 and V4 edits to `snapshot.rs` are serialized operationally even
 when the gate proves their architecture independent.
 
-The entry gate is green without moving the production owner:
+The entry gate and the first production-owner migration are green:
 
 - `2289907` adds a self-tested CI diff guard. A commit that touches a V3 owner
   file may change only the bounded VM production surface plus tests/plans, and
@@ -685,6 +685,16 @@ The entry gate is green without moving the production owner:
   `\globaldefs`, group unwind, scopes, output, events, diagnostics, transcript,
   registers, visible graphic recovery, and false missing-input suppression
   across a clean run and an input-exit JSON checkpoint replay.
+- `f66cdbf` fixes the prerequisite TeX rule that a same-name global control-
+  sequence assignment cancels pending local restores at every open group.
+- `c640efb` adds the common Eqtb key/value, SaveStack restoration, borrowed-name
+  lookup, legacy-layer projection, and raw temporary-value replacement APIs.
+- `775cc22` removes the parallel `ControlSequenceScopes` production owner.
+  Control-sequence definitions, `\let`, direct-global kernel helpers, group
+  unwind, depth checks, and lookup now use Eqtb/SaveStack. The existing
+  `VmSnapshot.scopes` field is reconstructed without a new persisted field or
+  version change, and fixtures cover macro, primitive, token, fresh-interner,
+  checkpoint replay, and unsafe open-group restoration.
 
 The replay RED also exposed that semantic expansion markers split register
 aliases such as `\globaldefs → \count251` from following assignment syntax when
@@ -732,7 +742,7 @@ pub enum SaveEntry {
 }
 ```
 
-All assignment commands pass through one API:
+All assignment commands ultimately pass through one state-write API:
 
 ```rust
 pub fn assign(
@@ -743,31 +753,42 @@ pub fn assign(
 ) -> Result<(), Diagnostic>;
 ```
 
-The API resolves `\global` and `\globaldefs`, saves the prior local value once
-per group level, and applies TeX-compatible global restore suppression.
+The command-family adapter resolves `\global`, `\globaldefs`, and any
+family-specific policy before calling the API. The API saves the prior local
+value once per group level and applies TeX-compatible global restore
+suppression.
 
 Migration order:
 
-1. control-sequence definitions and `\let`;
-2. count registers and arithmetic;
-3. dimen registers;
-4. skip and muskip registers;
-5. token registers;
-6. catcodes;
+1. control-sequence definitions and `\let` — landed in `775cc22`;
+2. count registers and arithmetic — landed;
+3. dimen registers — landed;
+4. skip registers — landed; muskip remains;
+5. token registers — landed;
+6. catcodes — landed;
 7. mathcodes and delcodes;
 8. fonts, boxes, and remaining parameters.
 
-Current migration evidence at `94d277e`:
+Current migration evidence at `775cc22`:
 
-- the former raw `Vm.scopes` field is isolated behind
-  `control_sequence_scopes.rs`;
-- root/current insertion, visible lookup, group transitions, depth, and
-  snapshot layer conversion use the bounded owner API;
-- the serialized `VmSnapshot.scopes` shape and layered-map semantics are
-  unchanged;
-- this is a mechanical ownership boundary only. Control-sequence definitions
-  and `\let` have not entered the common Eqtb/SaveStack assignment path, so
-  migration step 1 and the V3 exit remain open.
+- `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Meaning)` use
+  the common SaveStack save-once/global-cancellation path. Eqtb keeps a
+  dedicated `BTreeMap<String, EqEntry>` so borrowed `&str` lookup does not
+  allocate and interner-local command IDs do not become durable identifiers;
+- SaveStack is the single group-depth and restore authority. The deleted
+  `control_sequence_scopes.rs` no longer owns production state;
+- package/class base-scope promotion remains control-sequence-only, including
+  nested input inheritance and negative `\globaldefs`; register/catcode scope
+  behavior is unchanged;
+- builtin primitives remain a lookup fallback rather than seeded Eqtb entries,
+  while `@cons` and `g@addto@macro` preserve their unconditional-global rule;
+- author metadata temporarily replaces visible `and`/`thanks` macro values
+  without adding SaveStack entries, then restores their exact flags;
+- the serialized `VmSnapshot.scopes` shape and versions are unchanged. Eqtb
+  state plus SaveStack restore groups project legacy layers, and restore
+  rebuilds those groups root-to-leaf;
+- migration step 1 is complete. The V3 exit remains open for the assignment
+  classes and persistent state-root work listed below.
 
 Every migrated class gets:
 

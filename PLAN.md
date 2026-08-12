@@ -14,8 +14,8 @@
 
 ## Status Snapshot
 
-- 기준 시점: `2026-08-10`
-- 기준 commit: `94d277e` (`refactor(vm): isolate control sequence scopes`)
+- 기준 시점: `2026-08-12`
+- 기준 commit: `775cc22` (`refactor(tex-vm): move control sequences into eqtb`)
 - `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
   verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
   예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
@@ -170,9 +170,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 현재 구현:
 - command, input, Eqtb, SaveStack, snapshot, semantic family가 독립 module로
   이동했다.
-- `ControlSequenceScopes`가 root/current definition, visible lookup, group
-  depth/push/pop과 snapshot layer 변환을 소유한다. 기존 layered-map 의미와
-  serialized `scopes` schema는 유지한다.
+- control-sequence root/current definition, visible lookup, group depth와
+  snapshot layer 변환은 Eqtb/SaveStack이 소유한다. 기존
+  `ControlSequenceScopes` module은 제거됐고 serialized `scopes` schema는
+  Eqtb+restore history 투영으로 유지한다 (`775cc22`).
 - `lib.rs`는 기준 working tree에서 약 52,200줄이며 source recovery,
   compatibility surface와 주요 execution/state path가 크게 남아 있다.
   따라서 module 파일의 존재를 mechanical facade exit로 보지 않는다.
@@ -403,12 +404,14 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 현재 구현:
 - `Count`, `Dimen`, `Skip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
   SaveStack assignment/restore 경로를 사용한다.
-- control-sequence definition과 `\let`의 기존 layered-map storage는
-  `ControlSequenceScopes` module/API 뒤로 격리됐지만 아직 Eqtb/SaveStack
-  assignment owner로 이전되지 않았다. mathcode/delcode, font/box/parameter,
-  old scope 제거, persistent root/state hash도 남아 있다.
-- 따라서 control-sequence까지 공통 Eqtb/SaveStack을 사용한다는 이전
-  status 주장은 철회하며 phase exit는 열려 있다.
+- control-sequence definition, `\let`, lookup, group unwind는
+  `EqKey::ControlSequence(String)`/`EqValue::ControlSequence(Meaning)`과
+  SaveStack을 공통 owner로 사용한다 (`c640efb`, `775cc22`). Borrowed-name hot
+  path를 위해 Eqtb 내부 map은 분리하되 assignment/restore 의미는 하나이며,
+  interner-local `ControlSequenceId` lifetime은 바꾸지 않았다.
+- 기존 `ControlSequenceScopes` production owner는 제거됐다. 다만
+  muskip/mathcode/delcode, font/box/remaining parameter, persistent root/state
+  hash가 남아 있어 phase exit는 계속 열려 있다.
 - production owner 이전용 독립성 gate는 green이다. CI diff guard가 V3 owner
   file 변경을 감지하면 허용 경로 밖 production diff와 신규
   identity/provenance/persistence symbol을 거부한다 (`2289907`). VM continuation
@@ -420,8 +423,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - 이 differential은 event capture expansion marker가
   `\globaldefs → \count251` 같은 register alias와 뒤따르는 assignment syntax
   사이를 끊는 버그도 드러냈다. Count/dimen/skip/toks register alias expansion은
-  markerless로 실행해 assignment 의미를 보존한다 (`d9cdf02`). Control-sequence
-  Eqtb/SaveStack production owner 자체는 아직 이전하지 않았다.
+  markerless로 실행해 assignment 의미를 보존한다 (`d9cdf02`). 같은 이름의
+  global control-sequence assignment가 모든 pending local restore를 취소하도록
+  TeX 호환 전제 동작도 먼저 고정했다 (`f66cdbf`).
+- `775cc22`는 snapshot schema/version을 바꾸지 않고 Eqtb+SaveStack에서 기존
+  `VmSnapshot.scopes`를 투영한다. Macro/primitive/token, fresh interner,
+  open-group restore, input-exit replay, module base precedence, `aftergroup`,
+  direct-global helper, front-matter 임시 protected 복원 계약이 green이다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -435,13 +443,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   events, diagnostics, recovery-visible behavior가 현재 `d9cdf02` baseline과
   같다.
 - 첫 batch는 production owner를 옮기지 않고 위 differential fixture와
-  changed-path/added-symbol guard를 추가해 완료했다 (`2289907`, `fe6b4df`,
-  `d9cdf02`). 후속 owner migration이 persisted field,
-  command-ID lifetime, provenance, replay output 변경을 요구하면 M13.4 또는
-  별도 snapshot migration과 다시 조정한다.
+  changed-path/added-symbol guard를 추가했다 (`2289907`, `fe6b4df`,
+  `d9cdf02`). 다음 batch가 same-name global semantics를 바로잡고 공통 storage를
+  추가한 뒤 owner를 이전했다 (`f66cdbf`, `c640efb`, `775cc22`). persisted field,
+  command-ID lifetime, provenance, event/replay output은 변경하지 않았다.
 
 이전 순서:
-1. control sequence definition과 `\let`
+1. control sequence definition과 `\let` — 완료 (`775cc22`)
 2. count와 arithmetic
 3. dimen
 4. skip/muskip
@@ -450,9 +458,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 7. mathcode/delcode
 8. font/box/parameter
 
-모든 assignment는 공통 `assign()` API를 통과하고, local assignment는
-SaveStack에 이전 값을 한 번 저장하며, `\global`/`\globaldefs`/global
-arithmetic는 같은 scope resolver를 사용한다.
+이전된 assignment는 공통 Eqtb `assign()` 경로에서 local 이전 값을
+SaveStack에 한 번 저장하고 global assignment 시 pending restore를 취소한다.
+Control-sequence module-base 암묵적 global 규칙은 CS scope resolver에만
+남기며 register/catcode에는 적용하지 않는다.
 
 완료 조건:
 - 모든 assignment class의 local/global/nested/restore test green
@@ -892,9 +901,10 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
    `ControlSequenceScopes` module/API로 격리 — `94d277e` landed
 9. production owner 이전 전 M13.3 independence differential/compatibility/
    changed-path/added-symbol guard 추가 — `2289907`, `fe6b4df`, `d9cdf02` landed
-10. gate가 green이면 control-sequence definition/`\let` 한 owner를 기존
-    serialized snapshot shape와 behavior 변경 없이 Eqtb/SaveStack으로 이전
-11. remaining assignment class와 old split scope 제거
+10. control-sequence definition/`\let` 한 owner를 기존 serialized snapshot
+    shape와 replay behavior를 유지해 Eqtb/SaveStack으로 이전 — `f66cdbf`,
+    `c640efb`, `775cc22` landed
+11. remaining assignment class를 이전하고 persistent root/state hash 구현
 12. M13.4 identity ADR 승인 뒤 source registry shadow mode, lexical origin,
     expansion/scoped command identity, readers-first snapshot capability,
     validated internal `ExecutedSourceSlice` 순서로 구현
