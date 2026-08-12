@@ -16478,7 +16478,7 @@ impl<'i> Vm<'i> {
         vm.save_stack = SaveStack::default();
         for (group_level, layer) in control_sequence_layers.into_iter().enumerate() {
             if group_level > 0 {
-                vm.save_stack.begin_group();
+                vm.save_stack.begin_legacy_control_sequence_group();
             }
             let scope = if group_level == 0 {
                 AssignmentScope::Global

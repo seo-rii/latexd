@@ -10,6 +10,7 @@ pub(crate) struct SaveStack {
 #[derive(Debug, Default)]
 struct SaveGroup {
     restores: BTreeMap<EqKey, Option<EqEntry>>,
+    control_sequences_only: bool,
 }
 
 impl SaveStack {
@@ -17,8 +18,18 @@ impl SaveStack {
         self.groups.push(SaveGroup::default());
     }
 
+    pub(crate) fn begin_legacy_control_sequence_group(&mut self) {
+        self.groups.push(SaveGroup {
+            control_sequences_only: true,
+            ..SaveGroup::default()
+        });
+    }
+
     pub(crate) fn save_if_absent(&mut self, key: EqKey, previous: Option<EqEntry>) {
         if let Some(group) = self.groups.last_mut() {
+            if group.control_sequences_only && !matches!(key, EqKey::ControlSequence(_)) {
+                return;
+            }
             group.restores.entry(key).or_insert(previous);
         }
     }
