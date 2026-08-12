@@ -1,4 +1,4 @@
-use tex_render_model::RenderEvent;
+use tex_render_model::{MetadataField, RenderEvent};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{SnapshotMeaning, Vm, VmModuleCheckpointKind, VmSnapshot};
 
@@ -141,6 +141,32 @@ fn author_expansion_preserves_the_exact_nested_local_meaning_level() {
             ..
         })
     ));
+}
+
+#[test]
+fn author_lexical_protection_propagates_through_nested_full_expansion() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\def\and{+}\author{Ada \expanded{\and} Grace}\begin{document}\maketitle\end{document}",
+    );
+    let authors = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Author =>
+            {
+                Some(metadata.value.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(authors, vec!["Ada", "Grace"]);
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
 }
 
 fn assert_control_sequence_scope_replay_matches_clean_execution() {

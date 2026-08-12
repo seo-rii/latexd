@@ -23177,6 +23177,15 @@ impl<'i> Vm<'i> {
     }
 
     fn expand_once(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
+        self.expand_once_with_protected_macros(token, queue, &[])
+    }
+
+    fn expand_once_with_protected_macros(
+        &mut self,
+        token: Token,
+        queue: &mut VecDeque<QueueItem>,
+        additional_protected_macros: &[&str],
+    ) -> Vec<Token> {
         match token.kind {
             TokenKind::ControlSequence { name } => {
                 let name = self.interner.resolve(name).unwrap_or("").to_string();
@@ -23223,7 +23232,10 @@ impl<'i> Vm<'i> {
                     }
                     Some(Meaning::Primitive(Primitive::ExpandedTokens)) => {
                         let tokens = self.read_balanced_group(queue).unwrap_or_default();
-                        self.fully_expand_tokens(tokens)
+                        self.fully_expand_tokens_with_protected_macros(
+                            tokens,
+                            additional_protected_macros,
+                        )
                     }
                     Some(Meaning::Primitive(Primitive::Unexpanded)) => {
                         self.read_balanced_group(queue).unwrap_or_default()
@@ -23544,6 +23556,14 @@ impl<'i> Vm<'i> {
     }
 
     fn fully_expand_tokens(&mut self, tokens: Vec<Token>) -> Vec<Token> {
+        self.fully_expand_tokens_with_protected_macros(tokens, &[])
+    }
+
+    fn fully_expand_tokens_with_protected_macros(
+        &mut self,
+        tokens: Vec<Token>,
+        additional_protected_macros: &[&str],
+    ) -> Vec<Token> {
         let mut queue = VecDeque::new();
         for token in tokens {
             queue.push_back(QueueItem::Token(token));
@@ -23566,7 +23586,7 @@ impl<'i> Vm<'i> {
             }
             if let TokenKind::ControlSequence { name } = token.kind.clone() {
                 let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
-                if self.macro_is_protected(&control_sequence) {
+                if self.macro_is_protected(&control_sequence, additional_protected_macros) {
                     expanded_tokens.push(token);
                     continue;
                 }
@@ -23579,7 +23599,11 @@ impl<'i> Vm<'i> {
                             expanded_tokens.push(first);
                             continue;
                         };
-                        let expanded = self.expand_once_for_full_expansion(second, &mut queue);
+                        let expanded = self.expand_once_for_full_expansion(
+                            second,
+                            &mut queue,
+                            additional_protected_macros,
+                        );
                         for token in expanded.into_iter().rev() {
                             self.push_token_front(&mut queue, token);
                         }
@@ -23605,7 +23629,11 @@ impl<'i> Vm<'i> {
                     _ => {}
                 }
             }
-            let expanded = self.expand_once(token.clone(), &mut queue);
+            let expanded = self.expand_once_with_protected_macros(
+                token.clone(),
+                &mut queue,
+                additional_protected_macros,
+            );
             if expanded.len() == 1 && expanded[0] == token {
                 expanded_tokens.push(token);
                 continue;
@@ -23617,31 +23645,26 @@ impl<'i> Vm<'i> {
         expanded_tokens
     }
 
-    fn macro_is_protected(&self, name: &str) -> bool {
-        matches!(
-            self.lookup_meaning(name),
-            Some(Meaning::Macro(MacroDefinition {
-                flags: MacroFlags {
-                    protected: true,
-                    ..
-                },
-                ..
-            }))
-        )
+    fn macro_is_protected(&self, name: &str, additional_protected_macros: &[&str]) -> bool {
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return false;
+        };
+        definition.flags.protected || additional_protected_macros.contains(&name)
     }
 
     fn expand_once_for_full_expansion(
         &mut self,
         token: Token,
         queue: &mut VecDeque<QueueItem>,
+        additional_protected_macros: &[&str],
     ) -> Vec<Token> {
         if let TokenKind::ControlSequence { name } = &token.kind {
             let name = self.interner.resolve(*name).unwrap_or("").to_string();
-            if self.macro_is_protected(&name) {
+            if self.macro_is_protected(&name, additional_protected_macros) {
                 return vec![token];
             }
         }
-        self.expand_once(token, queue)
+        self.expand_once_with_protected_macros(token, queue, additional_protected_macros)
     }
 
     fn read_csname_name(&mut self, queue: &mut VecDeque<QueueItem>) -> String {

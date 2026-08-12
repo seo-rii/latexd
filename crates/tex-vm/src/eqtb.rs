@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    mem,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use tex_lexer::CatCodeTable;
 use tex_tokens::{CatCode, Token};
@@ -333,18 +330,6 @@ impl Eqtb {
         self.control_sequences
             .get(name)
             .map(control_sequence_meaning)
-    }
-
-    pub(crate) fn replace_control_sequence_meaning(
-        &mut self,
-        name: &str,
-        meaning: Meaning,
-    ) -> Option<Meaning> {
-        let entry = self.control_sequences.get_mut(name)?;
-        let EqValue::ControlSequence(current) = &mut entry.value else {
-            unreachable!("control-sequence entry must contain a meaning")
-        };
-        Some(*mem::replace(current, Box::new(meaning)))
     }
 
     pub(crate) fn control_sequence_layers(
@@ -722,45 +707,6 @@ mod tests {
         assert_eq!(
             eqtb.control_sequence("state"),
             Some(&Meaning::Primitive(Primitive::Let))
-        );
-    }
-
-    #[test]
-    fn temporary_control_sequence_replacement_preserves_saved_scope_state() {
-        let mut eqtb = Eqtb::default();
-        let mut save_stack = SaveStack::default();
-        eqtb.assign_control_sequence(
-            "author-separator".to_string(),
-            Meaning::Primitive(Primitive::Relax),
-            AssignmentScope::Global,
-            0,
-            &mut save_stack,
-        );
-        save_stack.begin_group();
-        eqtb.assign_control_sequence(
-            "author-separator".to_string(),
-            Meaning::Primitive(Primitive::Par),
-            AssignmentScope::Local,
-            1,
-            &mut save_stack,
-        );
-
-        let original = eqtb
-            .replace_control_sequence_meaning(
-                "author-separator",
-                Meaning::Primitive(Primitive::Def),
-            )
-            .expect("visible local meaning");
-        assert_eq!(original, Meaning::Primitive(Primitive::Par));
-        assert_eq!(
-            eqtb.replace_control_sequence_meaning("author-separator", original),
-            Some(Meaning::Primitive(Primitive::Def))
-        );
-
-        eqtb.end_group(&mut save_stack);
-        assert_eq!(
-            eqtb.control_sequence("author-separator"),
-            Some(&Meaning::Primitive(Primitive::Relax))
         );
     }
 

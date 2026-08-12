@@ -8,9 +8,8 @@ use tex_render_model::{
 use tex_tokens::Token;
 
 use crate::{
-    Vm, author_metadata_ranges,
-    command::Meaning,
-    normalize_author_metadata, normalize_latex_text_with_inline_placeholders,
+    Vm, author_metadata_ranges, normalize_author_metadata,
+    normalize_latex_text_with_inline_placeholders,
     semantic_reconciliation::{call_invocation_primary_anchor, source_locations_overlap},
     semantic_text::event_origin_for_executed_producer,
     snapshot::VmSemanticFrontMatterSnapshot,
@@ -157,33 +156,11 @@ impl Vm<'_> {
             let segment_end_utf8 = segment_tokens
                 .last()
                 .map_or(segment_start_utf8, |token| token.span.end);
-            let mut protected_definitions = Vec::new();
-            if field == MetadataField::Author {
-                for command_name in ["and", "thanks"] {
-                    let Some(Meaning::Macro(mut definition)) =
-                        self.eqtb.control_sequence(command_name).cloned()
-                    else {
-                        continue;
-                    };
-                    if definition.flags.protected {
-                        continue;
-                    }
-                    definition.flags.protected = true;
-                    let Some(original) = self
-                        .eqtb
-                        .replace_control_sequence_meaning(command_name, Meaning::Macro(definition))
-                    else {
-                        continue;
-                    };
-                    protected_definitions.push((command_name, original));
-                }
-            }
-            let expanded = self.fully_expand_tokens(segment_tokens);
-            for (command_name, meaning) in protected_definitions {
-                self.eqtb
-                    .replace_control_sequence_meaning(command_name, meaning)
-                    .expect("temporarily protected control sequence must remain defined");
-            }
+            let expanded = if field == MetadataField::Author {
+                self.fully_expand_tokens_with_protected_macros(segment_tokens, &["and", "thanks"])
+            } else {
+                self.fully_expand_tokens(segment_tokens)
+            };
             let (expanded_source, _) = tokens_to_source(&expanded, self.interner);
             let expanded_ranges = if field == MetadataField::Author {
                 author_metadata_ranges(&expanded_source)
