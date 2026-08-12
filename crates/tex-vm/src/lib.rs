@@ -8421,38 +8421,34 @@ impl<'i> Vm<'i> {
                                             && command_after <= content_end
                                         {
                                             let target = target.trim().to_string();
-                                            self.emit_render_event(
-                                                if scan_state.no_hyper_depth > 0 {
-                                                    RenderEvent::Text(TextEvent {
+                                            let provenance = Self::link_provenance(
+                                                source_path,
+                                                inner_command_start,
+                                                command_after,
+                                                target_start,
+                                                target_end,
+                                                None,
+                                            );
+                                            if scan_state.no_hyper_depth > 0 {
+                                                self.emit_owned_scanner_text_event(
+                                                    ScannerOwnedTextEvent::Text(TextEvent {
                                                         text: target.clone(),
-                                                    })
-                                                } else {
+                                                    }),
+                                                    provenance,
+                                                    source_path,
+                                                    inner_command_start as u32,
+                                                    command_after as u32,
+                                                );
+                                            } else {
+                                                self.emit_render_event(
                                                     RenderEvent::InlineLink(InlineLinkEvent {
                                                         target: target.clone(),
                                                         text: target,
                                                         command: inner_command.to_string(),
-                                                    })
-                                                },
-                                                if scan_state.no_hyper_depth > 0 {
-                                                    Self::link_provenance(
-                                                        source_path,
-                                                        inner_command_start,
-                                                        command_after,
-                                                        target_start,
-                                                        target_end,
-                                                        None,
-                                                    )
-                                                } else {
-                                                    Self::link_provenance(
-                                                        source_path,
-                                                        inner_command_start,
-                                                        command_after,
-                                                        target_start,
-                                                        target_end,
-                                                        None,
-                                                    )
-                                                },
-                                            );
+                                                    }),
+                                                    provenance,
+                                                );
+                                            }
                                             inner_index = command_after;
                                         }
                                     }
