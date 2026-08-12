@@ -134,13 +134,13 @@ incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
 
-### Current State Matrix (2026-08-11)
+### Current State Matrix (2026-08-12)
 
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for production writes, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, source-only insertion anchors for four families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | raw constructor removal is complete, but bibliography/graphic producer coupling and sequence/source reuse, the final taxonomy, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, source-only insertion anchors for four families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | bibliography/graphic producer coupling and sequence/source reuse, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete; future producer semantics are explicitly deferred until a real producer/consumer contract exists |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
