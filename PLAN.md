@@ -409,19 +409,34 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   old scope 제거, persistent root/state hash도 남아 있다.
 - 따라서 control-sequence까지 공통 Eqtb/SaveStack을 사용한다는 이전
   status 주장은 철회하며 phase exit는 열려 있다.
+- production owner 이전용 독립성 gate는 green이다. CI diff guard가 V3 owner
+  file 변경을 감지하면 허용 경로 밖 production diff와 신규
+  identity/provenance/persistence symbol을 거부한다 (`2289907`). VM continuation
+  safety 2, semantic capture 22와 기존 `scopes` JSON shape는 decode-equivalent
+  golden/restore fixture로 고정됐다 (`fe6b4df`). Nested local/global shadow,
+  `\globaldefs`, group unwind, input-exit JSON checkpoint replay는 output, scope,
+  events, diagnostics, transcript, registers와 visible/suppressed recovery가 clean
+  run과 같음을 검증한다 (`d9cdf02`).
+- 이 differential은 event capture expansion marker가
+  `\globaldefs → \count251` 같은 register alias와 뒤따르는 assignment syntax
+  사이를 끊는 버그도 드러냈다. Count/dimen/skip/toks register alias expansion은
+  markerless로 실행해 assignment 의미를 보존한다 (`d9cdf02`). Control-sequence
+  Eqtb/SaveStack production owner 자체는 아직 이전하지 않았다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
   `ExecutedSourceSlice`, source path/span, compiler build revision을 참조하지
   않고 event `sequence`를 identity로 해석하지 않는다.
-- 기존 interner-local `ControlSequenceId` lifetime과 schema-v5/HMR/WASM wire,
-  checkpoint format version을 유지한다.
+- 기존 interner-local `ControlSequenceId` lifetime과 현재 event schema v6의
+  v5 reader compatibility, HMR/WASM wire, checkpoint format version을 유지한다.
 - snapshot representation은 deterministic byte equality 또는 동일 version의
   decode equality를 유지하고, nested local/global assignment, `\globaldefs`,
   group unwind, snapshot/restore, continuation/replay의 Eqtb/SaveStack state,
-  events, diagnostics, recovery-visible behavior가 `ba9424d` baseline과 같다.
+  events, diagnostics, recovery-visible behavior가 현재 `d9cdf02` baseline과
+  같다.
 - 첫 batch는 production owner를 옮기지 않고 위 differential fixture와
-  changed-path/added-symbol guard만 추가한다. 이 gate가 persisted field,
+  changed-path/added-symbol guard를 추가해 완료했다 (`2289907`, `fe6b4df`,
+  `d9cdf02`). 후속 owner migration이 persisted field,
   command-ID lifetime, provenance, replay output 변경을 요구하면 M13.4 또는
   별도 snapshot migration과 다시 조정한다.
 
@@ -876,7 +891,7 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
 8. 기존 layered scope representation을 semantics 변경 없이 bounded
    `ControlSequenceScopes` module/API로 격리 — `94d277e` landed
 9. production owner 이전 전 M13.3 independence differential/compatibility/
-   changed-path/added-symbol guard를 별도 test commit으로 추가
+   changed-path/added-symbol guard 추가 — `2289907`, `fe6b4df`, `d9cdf02` landed
 10. gate가 green이면 control-sequence definition/`\let` 한 owner를 기존
     serialized snapshot shape와 behavior 변경 없이 Eqtb/SaveStack으로 이전
 11. remaining assignment class와 old split scope 제거
