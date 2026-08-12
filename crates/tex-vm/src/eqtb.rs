@@ -355,25 +355,40 @@ impl Eqtb {
         let mut layers = vec![HashMap::new(); save_stack.scope_depth()];
 
         for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
             let layer = &mut layers[group_index + 1];
             for (key, previous) in restores {
                 let EqKey::ControlSequence(name) = key else {
                     continue;
                 };
-                if let Some(entry) = working.get(name) {
-                    layer.insert(name.clone(), control_sequence_meaning(entry).clone());
-                }
+                let current = working
+                    .remove(name)
+                    .expect("restore record must have a current control-sequence entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current control-sequence entry must match its restore group level"
+                );
+                layer.insert(name.clone(), control_sequence_meaning(&current).clone());
                 if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous control-sequence entry must precede its restore group level"
+                    );
+                    control_sequence_meaning(previous);
                     working.insert(name.clone(), previous.clone());
-                } else {
-                    working.remove(name);
                 }
             }
         }
 
         layers[0] = working
             .into_iter()
-            .map(|(name, entry)| (name, control_sequence_meaning(&entry).clone()))
+            .map(|(name, entry)| {
+                assert_eq!(
+                    entry.level, 0,
+                    "root control-sequence entry must have level zero"
+                );
+                (name, control_sequence_meaning(&entry).clone())
+            })
             .collect();
         layers
     }
@@ -833,5 +848,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "restore record must have a current control-sequence entry")]
+    fn control_sequence_projection_rejects_a_restore_record_without_current_state() {
+        let eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        save_stack.begin_group();
+        save_stack.save_if_absent(super::EqKey::ControlSequence("missing".to_string()), None);
+
+        eqtb.control_sequence_layers(&save_stack);
+    }
+
+    #[test]
+    #[should_panic(expected = "root control-sequence entry must have level zero")]
+    fn control_sequence_projection_rejects_a_nonzero_root_entry_level() {
+        let mut eqtb = Eqtb::default();
+        eqtb.control_sequences.insert(
+            "bad-root".to_string(),
+            super::EqEntry {
+                value: super::EqValue::ControlSequence(Box::new(Meaning::Primitive(
+                    Primitive::Relax,
+                ))),
+                level: 1,
+            },
+        );
+
+        eqtb.control_sequence_layers(&SaveStack::default());
     }
 }
