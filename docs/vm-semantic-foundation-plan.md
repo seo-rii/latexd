@@ -854,6 +854,48 @@ commit provenance. The verdict is scoped to this slice; resource admission,
 generated public-wire properties, and the remaining V3 assignment classes are
 still open.
 
+The first absent assignment class, muskip, crosses a different boundary from
+the closed control-sequence slice: the legacy `VmSnapshot` has neither muskip
+state nor an allocation cursor. The targeted schema review
+`6a7c6961-a170-83ee-be0f-746c526eb3ac` therefore returned **PROCEED** with 0.87
+confidence only for a hybrid reader-first/runtime-only rollout. Durable muskip
+checkpoint writing remains disabled.
+
+The migration evidence and current boundary are:
+
+- `e3bec73` builds the exact pre-reader `00c8ee3` binary. It proves that an
+  additive field-only snapshot is accepted with muskip silently discarded; a
+  nested versioned raw document is rejected; a versioned-only checkpoint is
+  accepted but not replayed; and a dual-lane checkpoint replays only its legacy
+  lane.
+- `dcbee7c` centralizes prior-checkpoint reuse loads as typed missing/unreadable
+  cache misses. The compiler skips incompatible earlier revisions or rebuilds
+  from source, and a policy test forbids bypassing that boundary with the
+  low-level loader.
+- `1d29aaa` adds a reader-only semantic document with format
+  `latexd.vm-snapshot`, independent schema version 1, typed open-ended
+  capability names, legacy-flat normalization, and a two-stage decoder. It
+  validates format, schema, and capabilities before strict state decoding, then
+  offers decode plus fallible restore as one mutation-free error boundary.
+  Unknown fields in the known document/state schema fail closed.
+- The supported capability set is intentionally empty in this phase, so
+  `eqtb.muskip.scalar-v1` is rejected before state decode. There is no document
+  serializer, versioned checkpoint slot, or production writer yet. Legacy raw
+  snapshots, checkpoint envelope schema 2, and production checkpoint bytes
+  remain unchanged.
+
+The exact remaining order is: add the dual checkpoint lane and a single-lane
+internal attachment reader while keeping the writer `LegacyOnly`; add distinct
+`MuSkip`/`MuGlue`/scalar-newtype Eqtb state and its independent cursor; make the
+in-memory snapshot complete; add primitives and arithmetic; suppress attachment
+for muskip-tainted state while the writer is disabled; implement the versioned
+writer behind an explicit disabled policy; then activate only after old/new
+real-binary gates and reader deployment. A capability-bearing state must never
+be written through the legacy lane, and a checkpoint with both lanes is invalid.
+
+The asserting production-restore follow-up is already closed by `00c8ee3`,
+which makes `Vm::try_restore` the guarded production boundary.
+
 The replay RED also exposed that semantic expansion markers split register
 aliases such as `\globaldefs → \count251` from following assignment syntax when
 event capture was enabled. `d9cdf02` makes count/dimen/skip/toks register-alias
@@ -921,7 +963,8 @@ Migration order:
 1. control-sequence definitions and `\let` — landed in `775cc22`;
 2. count registers and arithmetic — landed;
 3. dimen registers — landed;
-4. skip registers — landed; muskip remains;
+4. skip registers — landed; muskip readers-first migration has completed the
+   old-binary fixture, cache-miss normalization, and reader-only document phases;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;

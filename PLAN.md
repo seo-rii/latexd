@@ -517,6 +517,40 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   (`6a7c6421-1a38-83ee-af57-7dee503ceced`)는 이 bounded control-sequence
   ownership slice를 `PROCEED`(confidence 0.92)로 판정했다. 이 판정은 이후의
   unrelated semantic-suppression commit이나 M13.3 전체 완료로 확장하지 않는다.
+- closeout hardening 중 production crate의 asserting `Vm::restore` 재사용을
+  막는 Clippy/CI source guard는 `00c8ee3`에 landed했다. Persisted restore는
+  `Vm::try_restore` 경계를 유지한다.
+
+첫 미이전 assignment class인 muskip은 기존 snapshot에 상태와 allocation
+cursor가 전혀 없어, 단순 owner 이전이 아니라 별도 readers-first migration으로
+진행한다. Pro schema review `6a7c6961-a170-83ee-be0f-746c526eb3ac`는
+hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
+판정했으며 durable muskip writer 활성화는 승인하지 않았다.
+
+- `e3bec73`의 exact `00c8ee3` binary fixture는 field-only muskip을 old raw
+  reader가 성공으로 읽고 상태를 버림을 증명한다. 같은 old binary는 nested
+  versioned raw document를 거부하고, versioned-only checkpoint는 읽되 replay
+  하지 않으며, dual-lane checkpoint는 legacy lane으로만 안전 재생한다.
+- `dcbee7c`는 missing/unreadable prior checkpoint를 typed cache miss로
+  정규화하고 compiler가 low-level loader를 직접 호출하지 못하게 policy test를
+  추가했다. 호환되지 않는 cache는 사용자 실패가 아니라 이전 revision 탐색이나
+  source rebuild로 귀결된다.
+- `1d29aaa`는 writer가 없는 semantic document reader를 추가했다. 문서 format은
+  `latexd.vm-snapshot`, 독립 semantic schema는 1이며 typed capability 문자열을
+  header에서 state보다 먼저 검증한다. 알려진 schema의 unknown document/state
+  field를 거부하고, legacy flat snapshot normalizer와 decode→fallible restore의
+  mutation-free error boundary를 제공한다. 현재 supported capability 집합은 비어
+  있어 `eqtb.muskip.scalar-v1` 문서는 명시적으로 거부된다.
+- checkpoint envelope schema 2, legacy flat `VmSnapshot`, production checkpoint
+  output은 그대로다. Versioned checkpoint lane과 serializer는 아직 없으며 모든
+  production write는 legacy-only다.
+
+승인된 다음 순서는 (1) writer가 꺼진 dual checkpoint lane/single-attachment
+reader, (2) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립 cursor의 runtime
+owner, (3) 완전한 in-memory snapshot/restore, (4) primitives/arithmetic,
+(5) muskip-tainted checkpoint attachment suppression, (6) 명시적으로 disabled인
+versioned writer 구현, (7) old/new real-binary gate와 reader 선배포 뒤 별도 writer
+활성화다. 어느 단계에서도 capability-bearing state를 legacy lane에 쓰지 않는다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -544,17 +578,18 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 1. control sequence definition과 `\let` — 완료 (`775cc22`)
 2. count와 arithmetic
 3. dimen
-4. skip/muskip
+4. skip — 완료; muskip — readers-first migration 진행 중 (`e3bec73`,
+   `dcbee7c`, `1d29aaa`)
 5. toks
 6. catcode
 7. mathcode/delcode
 8. font/box/parameter
 
-Control-sequence slice closeout 뒤의 non-blocking follow-up은 production crate의
-`Vm::restore` 재사용을 막는 정적 guard, malformed restore의 non-empty interner와
-deep-layer atomicity test, generated public JSON project/restore/project property,
-restore time/RSS 측정 뒤 별도 versioned resource-limit 결정이다. 이 항목들은
-M13.3의 다음 assignment-class migration과 독립적으로 수행할 수 있다.
+Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
+restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
+project/restore/project property, restore time/RSS 측정 뒤 별도 versioned
+resource-limit 결정이다. Production `Vm::restore` 정적 guard는 완료됐다. 남은
+항목들은 M13.3의 다음 assignment-class migration과 독립적으로 수행할 수 있다.
 
 이전된 assignment는 공통 Eqtb `assign()` 경로에서 local 이전 값을
 SaveStack에 한 번 저장하고 global assignment 시 pending restore를 취소한다.
