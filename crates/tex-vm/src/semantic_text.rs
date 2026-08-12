@@ -925,6 +925,16 @@ impl Vm<'_> {
         let mut executed = mem::take(&mut self.semantic_text.executed_events);
         let executed_event_anchors = mem::take(&mut self.semantic_text.executed_event_anchors);
         self.replace_dirty_scanner_text_transactions(&mut slots, &mut executed);
+        let retained_scanner_event_ids = self
+            .render_events
+            .iter()
+            .map(|event| event.meta.sequence)
+            .collect::<HashSet<_>>();
+        for slot in &mut slots {
+            slot.event_ids
+                .retain(|event_id| retained_scanner_event_ids.contains(event_id));
+        }
+        slots.retain(|slot| !slot.event_ids.is_empty());
         attach_trailing_scanner_spaces_to_eof_slots(
             &mut slots,
             &self.render_events,
@@ -1049,6 +1059,9 @@ impl Vm<'_> {
                     RenderEvent::Space(SpaceEvent {
                         kind: SpaceKind::Interword,
                     })
+                ) && matches!(
+                    &event.meta.source.primary,
+                    ProvenanceSpan::File(span) if span.path == slot.path
                 )
             });
             let trailing_eof_space = originals.last().filter(|event| {
@@ -1171,6 +1184,25 @@ impl Vm<'_> {
         slots: &mut Vec<ScannerTextSlot>,
         executed: &mut Vec<RenderEventEnvelope>,
     ) {
+        let scanner_event_primary_paths = self
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.meta.source.primary {
+                ProvenanceSpan::File(span) => Some((event.meta.sequence, span.path.clone())),
+                ProvenanceSpan::Generated(_) => None,
+            })
+            .collect::<HashMap<_, _>>();
+        let cross_source_owned_event_ids = slots
+            .iter()
+            .flat_map(|slot| {
+                slot.event_ids.iter().filter_map(|event_id| {
+                    scanner_event_primary_paths
+                        .get(event_id)
+                        .is_some_and(|primary_path| primary_path != &slot.path)
+                        .then_some(*event_id)
+                })
+            })
+            .collect::<HashSet<_>>();
         for path in self
             .semantic_recovery_dirty_paths
             .iter()
@@ -1181,6 +1213,7 @@ impl Vm<'_> {
                 .iter()
                 .filter(|slot| slot.path == path)
                 .flat_map(|slot| slot.event_ids.iter().copied())
+                .filter(|event_id| !cross_source_owned_event_ids.contains(event_id))
                 .collect::<BTreeSet<_>>();
             removed_event_ids.extend(self.render_events.iter().filter_map(|event| {
                 let is_dirty_scanner_text = event.meta.producer == EventProducer::ScannerRecovery
@@ -1188,7 +1221,8 @@ impl Vm<'_> {
                     && matches!(
                         &event.meta.source.primary,
                         ProvenanceSpan::File(span) if span.path == path
-                    );
+                    )
+                    && !cross_source_owned_event_ids.contains(&event.meta.sequence);
                 is_dirty_scanner_text.then_some(event.meta.sequence)
             }));
             if removed_event_ids.is_empty() {

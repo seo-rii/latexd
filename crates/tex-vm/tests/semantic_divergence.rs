@@ -740,6 +740,48 @@ fn runtime_false_scanner_whitespace_after_footnote_is_removed() {
 }
 
 #[test]
+fn runtime_false_mounted_input_does_not_leak_scanner_eof_space() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("hidden.tex", r"\label{visible}");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{hidden}\fi
+Before\input{hidden}After
+\end{document}",
+    );
+    let input_eof_spaces = outcome
+        .render_events
+        .iter()
+        .filter(|envelope| {
+            matches!(&envelope.event, RenderEvent::Space(_))
+                && matches!(
+                    &envelope.meta.source.primary,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == "hidden.tex"
+                            && span.start_utf8 == 15
+                            && span.end_utf8 == 15
+                )
+        })
+        .count();
+
+    assert_eq!(input_eof_spaces, 1, "{:#?}", outcome.render_events);
+    let trace = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            RenderEvent::Space(_) => Some(" "),
+            _ => None,
+        })
+        .collect::<String>();
+    assert!(trace.contains("Before After"), "{trace:?}");
+}
+
+#[test]
 fn runtime_false_direct_nohyper_links_do_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0

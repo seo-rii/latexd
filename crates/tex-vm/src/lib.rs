@@ -1732,6 +1732,7 @@ impl<'i> Vm<'i> {
             include_depth,
             &mut scan_state,
             return_to_parent,
+            None,
         );
         if refreshing_bibliography_input {
             let refreshed_event_ids = self
@@ -1964,6 +1965,7 @@ impl<'i> Vm<'i> {
                 0,
                 &mut scan_state,
                 None,
+                None,
             );
         } else {
             self.render_event_sources
@@ -2010,6 +2012,7 @@ impl<'i> Vm<'i> {
                 path: source_path.to_owned(),
                 source_offset_utf8: invocation_end_utf8,
             }),
+            Some(invocation_start_utf8),
         );
         let invocation_span = ProvenanceSpan::File(SourceSpan {
             path: source_path.to_owned(),
@@ -2046,7 +2049,9 @@ impl<'i> Vm<'i> {
         include_depth: usize,
         scan_state: &mut RenderEventScanState,
         return_to_parent: Option<VmReplayFrame>,
+        parent_invocation_start_utf8: Option<u32>,
     ) {
+        let first_event_sequence = self.render_events.next_event_sequence();
         let execution_anchor =
             self.scanner_execution_anchor_for_source(source_path, return_to_parent.as_ref());
         self.scanner_execution_anchors.push(execution_anchor);
@@ -2060,6 +2065,43 @@ impl<'i> Vm<'i> {
         self.scanner_execution_anchors
             .pop()
             .expect("scanner execution anchor must match source recursion");
+        if let (Some(return_to_parent), Some(invocation_start_utf8)) =
+            (return_to_parent, parent_invocation_start_utf8)
+        {
+            let source_end_utf8 = source.len() as u32;
+            let eof_space_event_ids = self
+                .render_events
+                .iter()
+                .filter_map(|event| {
+                    (event.meta.sequence >= first_event_sequence
+                        && matches!(
+                            event.event,
+                            RenderEvent::Space(SpaceEvent {
+                                kind: SpaceKind::Interword,
+                            })
+                        )
+                        && matches!(
+                            &event.meta.source.primary,
+                            ProvenanceSpan::File(SourceSpan {
+                                path,
+                                start_utf8,
+                                end_utf8,
+                            }) if path == source_path
+                                && *start_utf8 == source_end_utf8
+                                && *end_utf8 == source_end_utf8
+                        ))
+                    .then_some(event.meta.sequence)
+                })
+                .collect::<Vec<_>>();
+            for event_id in eof_space_event_ids {
+                self.record_scanner_boundary_event(
+                    &return_to_parent.path,
+                    invocation_start_utf8,
+                    return_to_parent.source_offset_utf8,
+                    event_id,
+                );
+            }
+        }
     }
 
     fn scanner_execution_anchor_for_source(
@@ -6809,6 +6851,7 @@ impl<'i> Vm<'i> {
                                                 path: source_path.to_owned(),
                                                 source_offset_utf8: after_packages as u32,
                                             }),
+                                            Some(command_start as u32),
                                         );
                                     }
                                 }
@@ -6990,6 +7033,7 @@ impl<'i> Vm<'i> {
                                             path: source_path.to_owned(),
                                             source_offset_utf8: after_class as u32,
                                         }),
+                                        Some(command_start as u32),
                                     );
                                 }
                             }
@@ -7134,6 +7178,7 @@ impl<'i> Vm<'i> {
                                             path: source_path.to_owned(),
                                             source_offset_utf8: after_else as u32,
                                         }),
+                                        Some(command_start as u32),
                                     );
                                 }
                             }
@@ -7145,6 +7190,7 @@ impl<'i> Vm<'i> {
                             in_document,
                             include_depth,
                             scan_state,
+                            None,
                             None,
                         );
                         index = after_else;
@@ -7229,6 +7275,7 @@ impl<'i> Vm<'i> {
                                             path: source_path.to_owned(),
                                             source_offset_utf8: after_path as u32,
                                         }),
+                                        Some(command_start as u32),
                                     );
                                 }
                             }
