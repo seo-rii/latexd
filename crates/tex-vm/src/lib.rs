@@ -9903,6 +9903,15 @@ impl<'i> Vm<'i> {
                                                                                     {
                                                                                         let text =
                                                                                             normalize_latex_text_with_inline_placeholders(text);
+                                                                                        let provenance =
+                                                                                            Self::link_provenance(
+                                                                                                source_path,
+                                                                                                nested_command_start,
+                                                                                                after_link,
+                                                                                                link_text_start,
+                                                                                                link_text_end,
+                                                                                                Some((target_start, target_end)),
+                                                                                            );
                                                                                         self.capture_text_events(
                                                                                             source_path,
                                                                                             source,
@@ -9910,38 +9919,26 @@ impl<'i> Vm<'i> {
                                                                                             nested_command_start,
                                                                                             true,
                                                                                         );
-                                                                                        self.emit_render_event(
-                                                                                            if scan_state.no_hyper_depth > 0 {
-                                                                                                RenderEvent::Text(TextEvent { text })
-                                                                                            } else {
+                                                                                        if scan_state.no_hyper_depth > 0 {
+                                                                                            self.emit_owned_scanner_text_event(
+                                                                                                ScannerOwnedTextEvent::Text(TextEvent { text }),
+                                                                                                provenance,
+                                                                                                source_path,
+                                                                                                nested_command_start as u32,
+                                                                                                after_link as u32,
+                                                                                            );
+                                                                                        } else {
+                                                                                            self.emit_render_event(
                                                                                                 RenderEvent::InlineLink(
                                                                                                     InlineLinkEvent {
                                                                                                         target: target.trim().to_string(),
                                                                                                         text,
                                                                                                         command: nested_command.to_string(),
                                                                                                     },
-                                                                                                )
-                                                                                            },
-                                                                                            if scan_state.no_hyper_depth > 0 {
-                                                                                                Self::link_provenance(
-                                                                                                    source_path,
-                                                                                                    nested_command_start,
-                                                                                                    after_link,
-                                                                                                    link_text_start,
-                                                                                                    link_text_end,
-                                                                                                    Some((target_start, target_end)),
-                                                                                                )
-                                                                                            } else {
-                                                                                                Self::link_provenance(
-                                                                                                    source_path,
-                                                                                                    nested_command_start,
-                                                                                                    after_link,
-                                                                                                    link_text_start,
-                                                                                                    link_text_end,
-                                                                                                    Some((target_start, target_end)),
-                                                                                                )
-                                                                                            },
-                                                                                        );
+                                                                                                ),
+                                                                                                provenance,
+                                                                                            );
+                                                                                        }
                                                                                         nested_index = after_link;
                                                                                         nested_text_start = nested_index;
                                                                                         emitted_inline = true;
@@ -9966,6 +9963,15 @@ impl<'i> Vm<'i> {
                                                                                 {
                                                                                     let target =
                                                                                         target.trim().to_string();
+                                                                                    let provenance =
+                                                                                        Self::link_provenance(
+                                                                                            source_path,
+                                                                                            nested_command_start,
+                                                                                            after_url,
+                                                                                            target_start,
+                                                                                            target_end,
+                                                                                            None,
+                                                                                        );
                                                                                     self.capture_text_events(
                                                                                         source_path,
                                                                                         source,
@@ -9973,42 +9979,30 @@ impl<'i> Vm<'i> {
                                                                                         nested_command_start,
                                                                                         true,
                                                                                     );
-                                                                                    self.emit_render_event(
-                                                                                        if scan_state.no_hyper_depth > 0 {
-                                                                                            RenderEvent::Text(
+                                                                                    if scan_state.no_hyper_depth > 0 {
+                                                                                        self.emit_owned_scanner_text_event(
+                                                                                            ScannerOwnedTextEvent::Text(
                                                                                                 TextEvent {
                                                                                                     text: target.clone(),
                                                                                                 },
-                                                                                            )
-                                                                                        } else {
+                                                                                            ),
+                                                                                            provenance,
+                                                                                            source_path,
+                                                                                            nested_command_start as u32,
+                                                                                            after_url as u32,
+                                                                                        );
+                                                                                    } else {
+                                                                                        self.emit_render_event(
                                                                                             RenderEvent::InlineLink(
                                                                                                 InlineLinkEvent {
                                                                                                     target: target.clone(),
                                                                                                     text: target,
                                                                                                     command: nested_command.to_string(),
                                                                                                 },
-                                                                                            )
-                                                                                        },
-                                                                                        if scan_state.no_hyper_depth > 0 {
-                                                                                            Self::link_provenance(
-                                                                                                source_path,
-                                                                                                nested_command_start,
-                                                                                                after_url,
-                                                                                                target_start,
-                                                                                                target_end,
-                                                                                                None,
-                                                                                            )
-                                                                                        } else {
-                                                                                            Self::link_provenance(
-                                                                                                source_path,
-                                                                                                nested_command_start,
-                                                                                                after_url,
-                                                                                                target_start,
-                                                                                                target_end,
-                                                                                                None,
-                                                                                            )
-                                                                                        },
-                                                                                    );
+                                                                                            ),
+                                                                                            provenance,
+                                                                                        );
+                                                                                    }
                                                                                     nested_index = after_url;
                                                                                     nested_text_start = nested_index;
                                                                                     emitted_inline = true;
@@ -10051,8 +10045,8 @@ impl<'i> Vm<'i> {
                                                                                         nested_command_start,
                                                                                         true,
                                                                                     );
-                                                                                    self.emit_render_event(
-                                                                                        RenderEvent::Text(
+                                                                                    self.emit_owned_scanner_text_event(
+                                                                                        ScannerOwnedTextEvent::Text(
                                                                                             TextEvent {
                                                                                                 text: text
                                                                                                     .trim()
@@ -10074,6 +10068,9 @@ impl<'i> Vm<'i> {
                                                                                                 },
                                                                                             ),
                                                                                         ),
+                                                                                        source_path,
+                                                                                        nested_command_start as u32,
+                                                                                        after_text as u32,
                                                                                     );
                                                                                     nested_index = after_text;
                                                                                     nested_text_start = nested_index;

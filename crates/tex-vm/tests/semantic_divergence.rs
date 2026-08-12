@@ -561,6 +561,44 @@ fn runtime_false_deep_inline_writers_do_not_leak_scanner_events() {
 }
 
 #[test]
+fn runtime_false_deeper_link_writers_do_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\begin{NoHyper}
+\ifnum\count0>0
+\emph{\outer{\inner{\href{wrong}{Wrong}\url{wrong.example}\nolinkurl{wrong.raw}}}}
+\fi
+\emph{\outer{\inner{\href{right}{Right}\url{right.example}\nolinkurl{right.raw}}}}
+\end{NoHyper}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        text,
+        ["Right", "right.example", "right.raw"],
+        "{:#?}",
+        outcome.render_events
+    );
+    assert!(
+        outcome
+            .render_events
+            .iter()
+            .all(|envelope| !matches!(&envelope.event, RenderEvent::InlineLink(_))),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn runtime_false_direct_nohyper_links_do_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0
