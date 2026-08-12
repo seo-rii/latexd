@@ -510,7 +510,7 @@ sites, and are excluded from the inventory. Serde reads bypass constructors,
 so legacy Macro/Medium wire input remains accepted and is covered by a fixed
 JSON fixture even though Rust callers can no longer use the raw APIs.
 
-### V2 Evidence Matrix (2026-08-11)
+### V2 Evidence Matrix (2026-08-12)
 
 | Contract | Current evidence | State | Remaining gate |
 | --- | --- | --- | --- |
@@ -519,7 +519,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, and scanner recovery diagnostics are suppressed with visible/actual/replay regressions | partial | enumerate non-table raw fallback as green or expected-failing; audit general scanner-side `Gin` key/default state separately |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, source-scoped `Gin` defaults, scanner recovery diagnostics, and non-table raw fallbacks are suppressed with visible/actual/replay regressions | green | require a family-specific false/visible regression and continuation coverage when a new scanner recovery path can outlive execution filtering |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
