@@ -8,11 +8,12 @@ license.workspace = true
 blake3.workspace = true
 camino.workspace = true
 serde.workspace = true
+serde_ignored.workspace = true
+serde_json.workspace = true
 tex-render-model = { path = "../tex-render-model" }
 tex-lexer = { path = "../tex-lexer" }
 tex-tokens = { path = "../tex-tokens" }
 tex-world = { path = "../tex-world" }
 
 [dev-dependencies]
-serde_json.workspace = true
 tex-layout = { path = "../tex-layout" }

@@ -1,6 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fmt,
+};
 
 use camino::Utf8PathBuf;
+use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
@@ -14,6 +18,140 @@ use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
 pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
+pub const VM_SNAPSHOT_DOCUMENT_FORMAT: &str = "latexd.vm-snapshot";
+pub const VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION: u32 = 1;
+pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[];
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SnapshotCapability(String);
+
+impl SnapshotCapability {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SnapshotCapability {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmSnapshotDocument {
+    pub format: String,
+    pub schema_version: u32,
+    pub required_capabilities: BTreeSet<SnapshotCapability>,
+    pub state: VmSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VmSnapshotDocumentError {
+    MalformedDocument(String),
+    UnsupportedFormat(String),
+    UnsupportedSchemaVersion(u32),
+    UnsupportedCapability(String),
+    InvalidState(String),
+}
+
+impl fmt::Display for VmSnapshotDocumentError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MalformedDocument(error) => {
+                write!(formatter, "malformed VM snapshot document: {error}")
+            }
+            Self::UnsupportedFormat(format) => {
+                write!(
+                    formatter,
+                    "unsupported VM snapshot document format: {format}"
+                )
+            }
+            Self::UnsupportedSchemaVersion(version) => write!(
+                formatter,
+                "unsupported VM snapshot document schema version: {version}"
+            ),
+            Self::UnsupportedCapability(capability) => {
+                write!(
+                    formatter,
+                    "unsupported VM snapshot capability: {capability}"
+                )
+            }
+            Self::InvalidState(error) => {
+                write!(formatter, "invalid VM snapshot document state: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for VmSnapshotDocumentError {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawVmSnapshotDocument {
+    format: String,
+    schema_version: u32,
+    required_capabilities: BTreeSet<String>,
+    state: serde_json::Value,
+}
+
+pub fn decode_vm_snapshot_document(
+    document: &[u8],
+) -> Result<VmSnapshotDocument, VmSnapshotDocumentError> {
+    let document = serde_json::from_slice::<RawVmSnapshotDocument>(document)
+        .map_err(|error| VmSnapshotDocumentError::MalformedDocument(error.to_string()))?;
+    if document.format != VM_SNAPSHOT_DOCUMENT_FORMAT {
+        return Err(VmSnapshotDocumentError::UnsupportedFormat(document.format));
+    }
+    if document.schema_version != VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION {
+        return Err(VmSnapshotDocumentError::UnsupportedSchemaVersion(
+            document.schema_version,
+        ));
+    }
+    if let Some(capability) = document.required_capabilities.iter().find(|capability| {
+        !VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES.contains(&capability.as_str())
+    }) {
+        return Err(VmSnapshotDocumentError::UnsupportedCapability(
+            capability.clone(),
+        ));
+    }
+
+    let mut ignored_fields = Vec::new();
+    let state = serde_ignored::deserialize(document.state.into_deserializer(), |path| {
+        ignored_fields.push(path.to_string());
+    })
+    .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    if !ignored_fields.is_empty() {
+        return Err(VmSnapshotDocumentError::InvalidState(format!(
+            "unknown fields for schema {}: {}",
+            document.schema_version,
+            ignored_fields.join(", ")
+        )));
+    }
+
+    Ok(VmSnapshotDocument {
+        format: document.format,
+        schema_version: document.schema_version,
+        required_capabilities: document
+            .required_capabilities
+            .into_iter()
+            .map(SnapshotCapability::new)
+            .collect(),
+        state,
+    })
+}
+
+pub fn normalize_legacy_vm_snapshot(snapshot: VmSnapshot) -> VmSnapshotDocument {
+    VmSnapshotDocument {
+        format: VM_SNAPSHOT_DOCUMENT_FORMAT.to_string(),
+        schema_version: VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+        required_capabilities: BTreeSet::new(),
+        state: snapshot,
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct VmReplayFrame {

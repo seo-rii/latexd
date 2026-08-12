@@ -75,8 +75,10 @@ use semantic_sink::SemanticEventBuffer;
 use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
-    SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
-    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VmActiveBibliographyCaptureSnapshot,
+    SnapshotCapability, SnapshotMeaning, SnapshotToken, SnapshotTokenKind,
+    VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VmActiveBibliographyCaptureSnapshot,
     VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
     VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
     VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
@@ -94,7 +96,8 @@ pub use snapshot::{
     VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
     VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
     VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
-    VmSuppressedSourceRangeSnapshot,
+    VmSnapshotDocument, VmSnapshotDocumentError, VmSuppressedSourceRangeSnapshot,
+    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_read_stream,
@@ -128,6 +131,30 @@ impl std::fmt::Display for VmRestoreError {
 }
 
 impl std::error::Error for VmRestoreError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VmSnapshotDocumentRestoreError {
+    Document(VmSnapshotDocumentError),
+    Restore(VmRestoreError),
+}
+
+impl std::fmt::Display for VmSnapshotDocumentRestoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Document(error) => error.fmt(formatter),
+            Self::Restore(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for VmSnapshotDocumentRestoreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Document(error) => Some(error),
+            Self::Restore(error) => Some(error),
+        }
+    }
+}
 
 fn is_icml_package_name(file_name: &str) -> bool {
     let normalized = file_name.to_ascii_lowercase();
@@ -16633,6 +16660,16 @@ impl<'i> Vm<'i> {
 
     pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
         Self::try_restore(interner, snapshot).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    pub fn try_restore_document(
+        interner: &'i mut ControlSequenceInterner,
+        document: &[u8],
+    ) -> Result<Self, VmSnapshotDocumentRestoreError> {
+        let document = decode_vm_snapshot_document(document)
+            .map_err(VmSnapshotDocumentRestoreError::Document)?;
+        Self::try_restore(interner, &document.state)
+            .map_err(VmSnapshotDocumentRestoreError::Restore)
     }
 
     pub fn try_restore(
