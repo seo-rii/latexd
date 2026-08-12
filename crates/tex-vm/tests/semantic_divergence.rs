@@ -358,6 +358,50 @@ fn runtime_false_nested_inline_formatting_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_nested_inline_symbol_and_space_do_not_leak_scanner_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\emph{\%\ }\fi
+\emph{\%\ }
+\end{document}",
+    );
+    let symbols = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) if text.text == "%" => {
+                Some((envelope.meta.producer, envelope.meta.confidence))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let spaces = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Space(space) if space.kind == tex_render_model::SpaceKind::Explicit => {
+                Some((envelope.meta.producer, envelope.meta.confidence))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        symbols,
+        [(EventProducer::ScannerRecovery, SemanticConfidence::Medium,)],
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        spaces,
+        [(EventProducer::ScannerRecovery, SemanticConfidence::Medium,)],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0

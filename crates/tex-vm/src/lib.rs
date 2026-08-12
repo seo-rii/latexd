@@ -1128,6 +1128,11 @@ enum MacroArgumentError {
     Paragraph,
 }
 
+enum ScannerOwnedTextEvent {
+    Text(TextEvent),
+    Space(SpaceEvent),
+}
+
 #[derive(Debug)]
 pub struct Vm<'i> {
     interner: &'i mut ControlSequenceInterner,
@@ -8437,10 +8442,10 @@ impl<'i> Vm<'i> {
                                             argument
                                             && command_after <= content_end
                                         {
-                                            self.emit_owned_scanner_text(
-                                                TextEvent {
+                                            self.emit_owned_scanner_text_event(
+                                                ScannerOwnedTextEvent::Text(TextEvent {
                                                     text: text.trim().to_string(),
-                                                },
+                                                }),
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     text_start as u32,
@@ -8472,10 +8477,10 @@ impl<'i> Vm<'i> {
                                             && !text.contains('\\')
                                             && !text.contains('$')
                                         {
-                                            self.emit_owned_scanner_text(
-                                                TextEvent {
+                                            self.emit_owned_scanner_text_event(
+                                                ScannerOwnedTextEvent::Text(TextEvent {
                                                     text: normalize_latex_text(text),
-                                                },
+                                                }),
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     text_start as u32,
@@ -8497,8 +8502,8 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
-                                        self.emit_render_event(
-                                            RenderEvent::Text(TextEvent {
+                                        self.emit_owned_scanner_text_event(
+                                            ScannerOwnedTextEvent::Text(TextEvent {
                                                 text: inner_command.to_string(),
                                             }),
                                             SourceProvenance::file(
@@ -8506,11 +8511,14 @@ impl<'i> Vm<'i> {
                                                 inner_command_start as u32,
                                                 inner_index as u32,
                                             ),
+                                            source_path,
+                                            inner_command_start as u32,
+                                            inner_index as u32,
                                         );
                                     }
                                     " " => {
-                                        self.emit_render_event(
-                                            RenderEvent::Space(SpaceEvent {
+                                        self.emit_owned_scanner_text_event(
+                                            ScannerOwnedTextEvent::Space(SpaceEvent {
                                                 kind: SpaceKind::Explicit,
                                             }),
                                             SourceProvenance::file(
@@ -8518,6 +8526,9 @@ impl<'i> Vm<'i> {
                                                 inner_command_start as u32,
                                                 inner_index as u32,
                                             ),
+                                            source_path,
+                                            inner_command_start as u32,
+                                            inner_index as u32,
                                         );
                                     }
                                     "\\" | "newline" | "linebreak" => {
@@ -15105,8 +15116,8 @@ impl<'i> Vm<'i> {
                         );
                         let overlay_text = normalize_latex_text_with_inline_placeholders(overlay);
                         if !overlay_text.is_empty() {
-                            self.emit_owned_scanner_text(
-                                TextEvent { text: overlay_text },
+                            self.emit_owned_scanner_text_event(
+                                ScannerOwnedTextEvent::Text(TextEvent { text: overlay_text }),
                                 SourceProvenance::file(
                                     source_path.to_owned(),
                                     overlay_start as u32,
@@ -16116,18 +16127,19 @@ impl<'i> Vm<'i> {
             .expect("just pushed render event")
     }
 
-    fn emit_owned_scanner_text(
+    fn emit_owned_scanner_text_event(
         &mut self,
-        event: TextEvent,
+        event: ScannerOwnedTextEvent,
         source: SourceProvenance,
         ownership_path: &Utf8Path,
         ownership_start_utf8: u32,
         ownership_end_utf8: u32,
     ) -> EventSequence {
-        let event_id = self
-            .emit_render_event(RenderEvent::Text(event), source)
-            .meta
-            .sequence;
+        let event = match event {
+            ScannerOwnedTextEvent::Text(text) => RenderEvent::Text(text),
+            ScannerOwnedTextEvent::Space(space) => RenderEvent::Space(space),
+        };
+        let event_id = self.emit_render_event(event, source).meta.sequence;
         self.record_scanner_boundary_event(
             ownership_path,
             ownership_start_utf8,
