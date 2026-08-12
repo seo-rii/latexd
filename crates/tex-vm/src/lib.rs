@@ -7482,36 +7482,32 @@ impl<'i> Vm<'i> {
                             read_braced_source_argument(source, after_target)
                         {
                             let text = normalize_latex_text_with_inline_placeholders(text);
-                            self.emit_render_event(
-                                if scan_state.no_hyper_depth > 0 {
-                                    RenderEvent::Text(TextEvent { text })
-                                } else {
+                            let provenance = Self::link_provenance(
+                                source_path,
+                                command_start,
+                                after,
+                                content_start,
+                                content_end,
+                                Some((target_start, target_end)),
+                            );
+                            if scan_state.no_hyper_depth > 0 {
+                                self.emit_owned_scanner_text_event(
+                                    ScannerOwnedTextEvent::Text(TextEvent { text }),
+                                    provenance,
+                                    source_path,
+                                    command_start as u32,
+                                    after as u32,
+                                );
+                            } else {
+                                self.emit_render_event(
                                     RenderEvent::InlineLink(InlineLinkEvent {
                                         target: target.trim().to_string(),
                                         text,
                                         command: command.to_string(),
-                                    })
-                                },
-                                if scan_state.no_hyper_depth > 0 {
-                                    Self::link_provenance(
-                                        source_path,
-                                        command_start,
-                                        after,
-                                        content_start,
-                                        content_end,
-                                        Some((target_start, target_end)),
-                                    )
-                                } else {
-                                    Self::link_provenance(
-                                        source_path,
-                                        command_start,
-                                        after,
-                                        content_start,
-                                        content_end,
-                                        Some((target_start, target_end)),
-                                    )
-                                },
-                            );
+                                    }),
+                                    provenance,
+                                );
+                            }
                             index = after;
                         }
                     }
@@ -7592,38 +7588,34 @@ impl<'i> Vm<'i> {
                         read_url_like_source_argument(source, index)
                     {
                         let target = target.trim().to_string();
-                        self.emit_render_event(
-                            if scan_state.no_hyper_depth > 0 {
-                                RenderEvent::Text(TextEvent {
+                        let provenance = Self::link_provenance(
+                            source_path,
+                            command_start,
+                            after,
+                            content_start,
+                            content_end,
+                            None,
+                        );
+                        if scan_state.no_hyper_depth > 0 {
+                            self.emit_owned_scanner_text_event(
+                                ScannerOwnedTextEvent::Text(TextEvent {
                                     text: target.clone(),
-                                })
-                            } else {
+                                }),
+                                provenance,
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                            );
+                        } else {
+                            self.emit_render_event(
                                 RenderEvent::InlineLink(InlineLinkEvent {
                                     target: target.clone(),
                                     text: target,
                                     command: command.to_string(),
-                                })
-                            },
-                            if scan_state.no_hyper_depth > 0 {
-                                Self::link_provenance(
-                                    source_path,
-                                    command_start,
-                                    after,
-                                    content_start,
-                                    content_end,
-                                    None,
-                                )
-                            } else {
-                                Self::link_provenance(
-                                    source_path,
-                                    command_start,
-                                    after,
-                                    content_start,
-                                    content_end,
-                                    None,
-                                )
-                            },
-                        );
+                                }),
+                                provenance,
+                            );
+                        }
                         index = after;
                     }
                 }
