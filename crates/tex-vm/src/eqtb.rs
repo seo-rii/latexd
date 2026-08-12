@@ -732,4 +732,90 @@ mod tests {
             Some(&Meaning::Primitive(Primitive::Relax))
         );
     }
+
+    #[test]
+    fn control_sequence_restore_chain_matches_layered_scope_model_exhaustively() {
+        const ACTION_COUNT: usize = 6;
+        const MAX_SEQUENCE_LENGTH: u32 = 6;
+
+        for sequence_length in 0..=MAX_SEQUENCE_LENGTH {
+            for encoded_sequence in 0..ACTION_COUNT.pow(sequence_length) {
+                let mut eqtb = Eqtb::default();
+                let mut save_stack = SaveStack::default();
+                let mut expected_layers = vec![std::collections::HashMap::new()];
+                let mut actions = encoded_sequence;
+                let mut valid = true;
+
+                for step in 0..sequence_length {
+                    let action = actions % ACTION_COUNT;
+                    actions /= ACTION_COUNT;
+                    match action {
+                        0 if save_stack.group_level() < 3 => {
+                            save_stack.begin_group();
+                            expected_layers.push(Default::default());
+                        }
+                        0 => valid = false,
+                        1 if save_stack.group_level() > 0 => {
+                            eqtb.end_group(&mut save_stack);
+                            expected_layers.pop();
+                        }
+                        1 => valid = false,
+                        2..=5 => {
+                            let name = if action % 2 == 0 { "alpha" } else { "beta" };
+                            let scope = if action < 4 {
+                                AssignmentScope::Local
+                            } else {
+                                AssignmentScope::Global
+                            };
+                            let meaning = Meaning::Token(Token::character(
+                                char::from(b'A' + step as u8),
+                                CatCode::Letter,
+                                step as usize,
+                                step as usize + 1,
+                            ));
+                            eqtb.assign_control_sequence(
+                                name.to_string(),
+                                meaning.clone(),
+                                scope,
+                                save_stack.group_level(),
+                                &mut save_stack,
+                            );
+                            if scope == AssignmentScope::Global || expected_layers.len() == 1 {
+                                for layer in expected_layers.iter_mut().skip(1) {
+                                    layer.remove(name);
+                                }
+                                expected_layers[0].insert(name.to_string(), meaning);
+                            } else {
+                                expected_layers
+                                    .last_mut()
+                                    .expect("root scope")
+                                    .insert(name.to_string(), meaning);
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                    if !valid {
+                        break;
+                    }
+
+                    assert_eq!(
+                        eqtb.control_sequence_layers(&save_stack),
+                        expected_layers,
+                        "sequence={encoded_sequence} length={sequence_length} step={step}"
+                    );
+                    for name in ["alpha", "beta"] {
+                        let expected = expected_layers
+                            .iter()
+                            .rev()
+                            .find_map(|layer| layer.get(name));
+                        assert_eq!(
+                            eqtb.control_sequence(name),
+                            expected,
+                            "name={name} sequence={encoded_sequence} length={sequence_length} step={step}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
