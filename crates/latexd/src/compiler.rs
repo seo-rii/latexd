@@ -670,9 +670,8 @@ fn annotate_display_list_image_diagnostics(
         .iter()
         .filter_map(|envelope| match &envelope.event {
             RenderEvent::Diagnostic(diagnostic) => diagnostic
-                .message
-                .strip_prefix("missing graphic asset ")
-                .map(|path| (path.to_string(), diagnostic.message.clone())),
+                .missing_graphic_asset_ref()
+                .map(|asset_ref| (asset_ref.to_string(), diagnostic.message.clone())),
             _ => None,
         })
         .collect::<BTreeMap<_, _>>();
@@ -721,6 +720,22 @@ fn annotate_display_list_image_diagnostics(
             *occurrence += 1;
         }
     }
+}
+
+fn map_missing_graphic_render_diagnostic(envelope: &RenderEventEnvelope) -> Option<Diagnostic> {
+    let RenderEvent::Diagnostic(render_diagnostic) = &envelope.event else {
+        return None;
+    };
+    render_diagnostic.missing_graphic_asset_ref()?;
+    Some(Diagnostic {
+        level: DiagnosticLevel::Warning,
+        file: match &envelope.meta.source.primary {
+            ProvenanceSpan::File(span) => Some(span.path.to_string()),
+            ProvenanceSpan::Generated(_) => None,
+        },
+        line: None,
+        message: render_diagnostic.message.clone(),
+    })
 }
 
 fn read_graphic_asset(root: &Utf8Path, asset_ref: &str) -> Option<Vec<u8>> {
@@ -1839,25 +1854,9 @@ impl CompilerDriver {
                 message: format!("failed to build render IR artifacts: {error}"),
             })?;
             for envelope in &render_ir_capture.events.events {
-                let RenderEvent::Diagnostic(render_diagnostic) = &envelope.event else {
-                    continue;
-                };
-                if !render_diagnostic
-                    .message
-                    .starts_with("missing graphic asset ")
+                if let Some(diagnostic) = map_missing_graphic_render_diagnostic(envelope)
+                    && !internal_diagnostics.contains(&diagnostic)
                 {
-                    continue;
-                }
-                let diagnostic = Diagnostic {
-                    level: DiagnosticLevel::Warning,
-                    file: match &envelope.meta.source.primary {
-                        ProvenanceSpan::File(span) => Some(span.path.to_string()),
-                        ProvenanceSpan::Generated(_) => None,
-                    },
-                    line: None,
-                    message: render_diagnostic.message.clone(),
-                };
-                if !internal_diagnostics.contains(&diagnostic) {
                     internal_diagnostics.push(diagnostic);
                 }
             }
@@ -4544,8 +4543,8 @@ mod tests {
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
         has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
         load_latest_previous_internal_build, map_internal_diagnostics,
-        materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
-        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        map_missing_graphic_render_diagnostic, materialize_display_list_asset, parse_depfile,
+        parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_source_texts, select_shipout_replay_plan,
@@ -5158,7 +5157,7 @@ mod tests {
             vec![
                 RenderEventEnvelope::try_from_origin(
                     RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_graphic_asset(
-                        "missing graphic asset figures/missing.png",
+                        "Asset is unavailable",
                         "figures/missing.png",
                     )),
                     EventBuildContext::new(1, source.clone()),
@@ -5186,6 +5185,42 @@ mod tests {
 
         annotate_display_list_image_diagnostics(&events, &mut original);
         annotate_display_list_image_diagnostics(&events, &mut shifted);
+
+        for page in original.iter().chain(&shifted) {
+            for image in page.ops.iter().filter_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/missing.png" => Some(image),
+                _ => None,
+            }) {
+                assert_eq!(image.diagnostic.as_deref(), Some("Asset is unavailable"));
+            }
+        }
+
+        let misleading_diagnostic: RenderDiagnosticEvent =
+            serde_json::from_value(serde_json::json!({
+                "message": "missing graphic asset figures/missing.png",
+                "code": "missing_input",
+                "asset_ref": "figures/missing.png"
+            }))
+            .expect("decode mismatched diagnostic fixture");
+        let misleading_events = RenderEventStream::new(
+            Some("misleading-diagnostic".to_string()),
+            vec![
+                RenderEventEnvelope::try_from_origin(
+                    RenderEvent::Diagnostic(misleading_diagnostic),
+                    EventBuildContext::new(1, source.clone()),
+                    EventOrigin::diagnostic_unknown(),
+                )
+                .expect("misleading diagnostic fixture must use a valid origin"),
+            ],
+        );
+        let mut ignored = vec![image_page("ignored", "ignored-hash", "figures/missing.png")];
+        annotate_display_list_image_diagnostics(&misleading_events, &mut ignored);
+        let DrawOp::Image(ignored_image) = &ignored[0].ops[0] else {
+            unreachable!("fixture image changed variant");
+        };
+        assert_eq!(ignored_image.diagnostic, None);
+        assert_eq!(ignored[0].content_hash, "ignored-hash");
+        assert_eq!(ignored[0].page_id, "ignored");
 
         let original_tail = original
             .iter()
@@ -5238,6 +5273,45 @@ mod tests {
         assert_eq!(
             original_duplicates[1].page_id,
             shifted_duplicates[1].page_id
+        );
+    }
+
+    #[test]
+    fn missing_graphic_hmr_adapter_uses_typed_identity_and_keeps_display_message() {
+        let source = SourceProvenance::file("sections/body.tex", 4, 20);
+        let envelope = RenderEventEnvelope::try_from_origin(
+            RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_graphic_asset(
+                "Asset is unavailable",
+                "figures/missing.png",
+            )),
+            EventBuildContext::new(1, source.clone()),
+            EventOrigin::diagnostic_unknown(),
+        )
+        .expect("typed diagnostic fixture must use a valid origin");
+
+        let mapped = map_missing_graphic_render_diagnostic(&envelope)
+            .expect("typed missing graphic must project to HMR");
+        assert_eq!(mapped.level, DiagnosticLevel::Warning);
+        assert_eq!(mapped.file.as_deref(), Some("sections/body.tex"));
+        assert_eq!(mapped.line, None);
+        assert_eq!(mapped.message, "Asset is unavailable");
+
+        let misleading_diagnostic: RenderDiagnosticEvent =
+            serde_json::from_value(serde_json::json!({
+                "message": "missing graphic asset figures/missing.png",
+                "code": "missing_input",
+                "asset_ref": "figures/missing.png"
+            }))
+            .expect("decode mismatched diagnostic fixture");
+        let misleading_envelope = RenderEventEnvelope::try_from_origin(
+            RenderEvent::Diagnostic(misleading_diagnostic),
+            EventBuildContext::new(2, source),
+            EventOrigin::diagnostic_unknown(),
+        )
+        .expect("misleading diagnostic fixture must use a valid origin");
+        assert_eq!(
+            map_missing_graphic_render_diagnostic(&misleading_envelope),
+            None
         );
     }
 
