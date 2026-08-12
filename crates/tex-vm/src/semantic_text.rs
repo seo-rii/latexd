@@ -903,19 +903,37 @@ impl Vm<'_> {
         source: &SourceProvenance,
         execution_anchor: Option<&VmExecutionAnchor>,
     ) -> bool {
-        provenance_spans(source).any(|span| {
-            self.semantic_text.suppressed_ranges.iter().any(|range| {
-                execution_anchor.is_none_or(|anchor| anchor == &range.execution_anchor)
-                    && !self.bibliography_suppression_range_is_executed(
-                        source,
-                        &range.path,
-                        range.start_utf8,
-                        range.end_utf8,
-                    )
-                    && span.path == range.path
-                    && span.start_utf8 < range.end_utf8
-                    && range.start_utf8 < span.end_utf8
-            })
+        self.semantic_text.suppressed_ranges.iter().any(|range| {
+            if self.bibliography_suppression_range_is_executed(
+                source,
+                &range.path,
+                range.start_utf8,
+                range.end_utf8,
+            ) {
+                return false;
+            }
+            let source_overlaps = execution_anchor
+                .is_none_or(|anchor| anchor == &range.execution_anchor)
+                && provenance_spans(source).any(|span| {
+                    span.path == range.path
+                        && span.start_utf8 < range.end_utf8
+                        && range.start_utf8 < span.end_utf8
+                });
+            let nested_invocation_is_suppressed = execution_anchor.is_some_and(|anchor| {
+                anchor
+                    .continuation_stack
+                    .iter()
+                    .enumerate()
+                    .any(|(index, frame)| {
+                        frame.path == range.path
+                            && range.execution_anchor.path == frame.path
+                            && range.execution_anchor.continuation_stack.as_slice()
+                                == &anchor.continuation_stack[index + 1..]
+                            && range.start_utf8 < frame.source_offset_utf8
+                            && frame.source_offset_utf8 <= range.end_utf8
+                    })
+            });
+            source_overlaps || nested_invocation_is_suppressed
         })
     }
 

@@ -305,6 +305,7 @@ impl Vm<'_> {
     }
 
     pub(super) fn rollback_executed_inline_events(&mut self, mark: ExecutedInlineEventMark) {
+        self.discard_executed_inline_event_anchors_after(mark);
         self.semantic_inline
             .executed_citations
             .truncate(mark.citations);
@@ -316,6 +317,32 @@ impl Vm<'_> {
         self.semantic_inline
             .caption_placeholders
             .truncate(mark.caption_placeholders);
+    }
+
+    fn discard_executed_inline_event_anchors_after(&mut self, mark: ExecutedInlineEventMark) {
+        let removed_event_ids = self
+            .semantic_inline
+            .executed_citations
+            .iter()
+            .skip(mark.citations)
+            .chain(
+                self.semantic_inline
+                    .executed_references
+                    .iter()
+                    .skip(mark.references),
+            )
+            .chain(self.semantic_inline.executed_links.iter().skip(mark.links))
+            .chain(
+                self.semantic_inline
+                    .executed_labels
+                    .iter()
+                    .skip(mark.labels),
+            )
+            .map(|event| event.meta.sequence)
+            .collect::<Vec<_>>();
+        for event_id in removed_event_ids {
+            self.scanner_event_anchors.remove(&event_id);
+        }
     }
 
     pub(super) fn take_executed_inline_events_since(
@@ -369,6 +396,8 @@ impl Vm<'_> {
             event_origin_for_executed_producer(producer),
         )
         .expect("executed citations use an origin valid for ordinary events");
+        self.scanner_event_anchors
+            .insert(event_id, self.current_execution_anchor());
         self.semantic_inline.executed_citations.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -395,6 +424,8 @@ impl Vm<'_> {
             event_origin_for_executed_producer(producer),
         )
         .expect("executed references use an origin valid for ordinary events");
+        self.scanner_event_anchors
+            .insert(event_id, self.current_execution_anchor());
         self.semantic_inline.executed_references.push(envelope);
         self.semantic_inline
             .caption_placeholders
@@ -455,6 +486,8 @@ impl Vm<'_> {
             event_origin_for_executed_producer(producer),
         )
         .expect("executed labels use an origin valid for ordinary events");
+        self.scanner_event_anchors
+            .insert(event_id, self.current_execution_anchor());
         self.semantic_inline.executed_labels.push(envelope);
     }
 
@@ -567,6 +600,13 @@ impl Vm<'_> {
         let mut text = capture.text_prefix;
         text.push_str(self.output.get(capture.output_start..).unwrap_or_default());
         self.rollback_executed_text_events(capture.text_event_mark);
+        self.discard_executed_inline_event_anchors_after(ExecutedInlineEventMark {
+            citations: capture.citation_event_mark,
+            references: capture.reference_event_mark,
+            links: capture.link_event_mark,
+            labels: self.semantic_inline.executed_labels.len(),
+            caption_placeholders: self.semantic_inline.caption_placeholders.len(),
+        });
         self.semantic_inline
             .executed_citations
             .truncate(capture.citation_event_mark);
@@ -589,6 +629,8 @@ impl Vm<'_> {
             event_origin_for_executed_producer(capture.producer),
         )
         .expect("executed links use an origin valid for ordinary events");
+        self.scanner_event_anchors
+            .insert(event_id, self.current_execution_anchor());
         self.semantic_inline.executed_links.push(envelope);
         self.mark_executed_inline_content();
         true
@@ -632,8 +674,27 @@ impl Vm<'_> {
                 reconciled.push(scanner_event);
                 continue;
             }
+            let scanner_execution_anchor =
+                self.scanner_event_anchors.get(&scanner_event.meta.sequence);
+            let scanner_is_suppressed = self.semantic_source_is_suppressed_in_execution(
+                &scanner_event.meta.source,
+                scanner_execution_anchor,
+            );
             let matching = executed.iter().position(|candidate| {
-                inline_payload_matches(candidate, &scanner_event)
+                let executed_execution_anchor =
+                    self.scanner_event_anchors.get(&candidate.meta.sequence);
+                let execution_anchor_matches =
+                    match (scanner_execution_anchor, executed_execution_anchor) {
+                        (Some(scanner), Some(executed)) => {
+                            scanner == executed
+                                || (!scanner_is_suppressed
+                                    && scanner.path == executed.path
+                                    && executed.continuation_stack.is_empty())
+                        }
+                        (Some(_), None) | (None, Some(_)) | (None, None) => true,
+                    };
+                execution_anchor_matches
+                    && inline_payload_matches(candidate, &scanner_event)
                     && provenance_overlaps(&candidate.meta.source, &scanner_event.meta.source)
             });
             if let Some(index) = matching {
@@ -676,7 +737,7 @@ impl Vm<'_> {
                 }
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
-            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source)
+            } else if !scanner_is_suppressed
                 && !provenance_overlaps_label_invocation(
                     &scanner_event.meta.source,
                     overridden_label_invocations,

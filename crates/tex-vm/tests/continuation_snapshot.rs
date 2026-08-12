@@ -169,6 +169,114 @@ fn input_enter_snapshot_replaces_each_changed_child_occurrence() {
 }
 
 #[test]
+fn input_enter_snapshot_replays_only_the_visible_conditional_input_eof_space() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{child}\fi
+Before\input{child}After
+\end{document}",
+        r"\relax",
+        r"\relax\relax",
+    );
+
+    assert_eq!(replayed, expected, "{replayed:#?}");
+    assert_eq!(
+        replayed
+            .iter()
+            .filter(|event| {
+                matches!(event.event, RenderEvent::Space(_))
+                    && matches!(
+                        &event.meta.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == "child.tex"
+                                && span.start_utf8 == 12
+                                && span.end_utf8 == 12
+                    )
+            })
+            .count(),
+        1,
+        "{replayed:#?}"
+    );
+}
+
+#[test]
+fn input_enter_snapshot_reconciles_the_visible_conditional_input_label_by_occurrence() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{child}\fi
+Before\input{child}After
+\end{document}",
+        r"\label{old}",
+        r"\label{visible}",
+    );
+
+    assert_eq!(replayed, expected, "{replayed:#?}");
+    assert_eq!(
+        replayed
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::LabelDefinition(label) if label.key == "visible"
+                )
+            })
+            .count(),
+        1,
+        "{replayed:#?}"
+    );
+}
+
+#[test]
+fn completed_link_does_not_snapshot_folded_nested_inline_event_anchors() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "");
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\href{https://example.test}{Before \cite{k} and \ref{x}}
+\input{barrier}
+After.
+\end{document}",
+    );
+    let snapshot = &outcome
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier checkpoint")
+        .snapshot;
+    let semantic = snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("barrier semantic capture");
+    let valid_event_ids = snapshot
+        .semantic_sink
+        .as_ref()
+        .expect("semantic sink")
+        .events
+        .iter()
+        .chain(&semantic.inline.executed_citations)
+        .chain(&semantic.inline.executed_references)
+        .chain(&semantic.inline.executed_links)
+        .chain(&semantic.inline.executed_labels)
+        .map(|event| event.meta.sequence)
+        .collect::<Vec<_>>();
+    let dangling_anchors = semantic
+        .scanner_event_anchors
+        .iter()
+        .filter(|anchor| !valid_event_ids.contains(&anchor.event_sequence))
+        .collect::<Vec<_>>();
+
+    assert!(dangling_anchors.is_empty(), "{dangling_anchors:#?}");
+}
+
+#[test]
 fn repeated_dynamic_input_checkpoints_distinguish_execution_occurrences() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

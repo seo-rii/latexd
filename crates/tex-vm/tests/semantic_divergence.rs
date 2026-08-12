@@ -769,6 +769,21 @@ Before\input{hidden}After
         .count();
 
     assert_eq!(input_eof_spaces, 1, "{:#?}", outcome.render_events);
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::LabelDefinition(label) if label.key == "visible"
+                )
+            })
+            .count(),
+        1,
+        "{:#?}",
+        outcome.render_events
+    );
     let trace = outcome
         .render_events
         .iter()
@@ -779,6 +794,39 @@ Before\input{hidden}After
         })
         .collect::<String>();
     assert!(trace.contains("Before After"), "{trace:?}");
+}
+
+#[test]
+fn repeated_visible_input_labels_keep_each_execution_occurrence() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("labels.tex", r"\label{visible}");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\begin{document}
+Before\input{labels}Between\input{labels}After
+\end{document}",
+    );
+    let labels = outcome
+        .render_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "visible"
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(labels.len(), 2, "{:#?}", outcome.render_events);
+    assert!(
+        labels.iter().all(|event| {
+            event.meta.producer == EventProducer::Primitive
+                && event.meta.confidence == SemanticConfidence::High
+        }),
+        "{labels:#?}"
+    );
 }
 
 #[test]
