@@ -282,6 +282,13 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   runtime-false unknown environment의 scanner recovery가 남지 않게 했다. Table
   fallback은 cell 내부 phantom/spacing suppression이 visible table 전체를 지우지
   않도록 기존 table-start anchor 전용 경로를 유지한다 (`01b3634`).
+- algorithmic `\If`/`\Else`/`\Comment`가 직접 만드는 scanner `Text`/`Space`도
+  invocation-aware scanner slot에 등록했다. 따라서 runtime-false 명령의 prefix,
+  suffix, note text, explicit space는 제거되고 뒤의 visible 명령은 한 번만 남는다
+  (`cba90eb`). 이 수정 뒤의 전체 producer 감사에서는 theorem optional title,
+  inline formatting/link/unit helpers, escaped space/symbol, `\xspace`, overpic overlay
+  등 다른 수동 `Text`/`Space` emit 경로가 같은 ownership 등록을 아직 빠뜨린 것이
+  확인됐다. 이들은 all-family closeout의 열린 목록이며 green으로 간주하지 않는다.
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
@@ -303,7 +310,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   보류한다. definition span만 공유하는 반복 macro invocation의 교차 matching
   가능성도 기존 `ARCH-007`의 coarse byte-overlap risk에 속한다.
 - M13.2 phase exit는 전체 recovery family의 suppression regression 또는 명시적
-  low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. 구체
+  low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. 특히 모든
+  command-specific manual `Text`/`Space` producer에 execution-anchor-aware scanner
+  transaction ownership이 필요하고, `ARCH-007`의 skipped-prefix 뒤 visible lossy
+  caption/graphic/bibliography/fallback mixed-macro 회귀가 남아 있다. 구체
   `ExecutedSourceSlice`, file/revision/expansion identity, public event
   revision/dependency schema, shared diagnostic schema는 더 이상 M13.2 exit
   blocker로 세지 않는다. 각각 M13.4/M13.6 또는 별도 readers-first architecture

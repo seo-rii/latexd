@@ -506,6 +506,17 @@ fallback output. Table fallbacks deliberately stay on their table-start anchor
 path because child phantom/spacing suppression ranges must not discard a visible
 table (`01b3634`).
 
+Algorithmic `\If`/`\Else`/`\Comment` adapters now register their manually
+emitted scanner `Text`/`Space` with invocation-aware scanner slots. Their
+runtime-false prefix, suffix, note, and explicit space are removed while the
+following visible commands remain once (`cba90eb`). The ensuing producer audit
+found that this is not yet an all-family result: theorem optional titles,
+inline formatting/link/unit helpers, escaped space/symbol commands, `\xspace`,
+and overpic overlay text still have manual scanner `Text`/`Space` writers that
+bypass scanner transaction ownership. V2 therefore keeps these paths explicit
+and open rather than treating the structurally registered event families as
+proof for their nested text children.
+
 A subsequent Pro design review rejected a generic scanner graphic-state
 mutation log: package loading, pending-option routing, and other deferred state
 would turn recovery into a second TeX engine. The loaded `overpic` shim now uses
@@ -611,7 +622,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | sanctioned production-write taxonomy | exhaustive typed-origin tests map every current writer to `Primitive`, `Macro`, `ScannerRecovery`, `Fallback`, or `Unknown`; the AST policy rejects direct compatibility-only construction and provenance-to-authority conversion in production source | green | preserve this closed first-party writer image until a concrete new authority is designed |
 | schema-v5 producer compatibility | full-stream fixtures deserialize and reserialize `command`, `shim`, and `bbl_parser` without relabeling or changing schema 5; active semantic captures reject all three | green | keep decode/round-trip compatibility separate from consumer and snapshot-state validity |
 | future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, source-scoped `Gin` defaults, scanner recovery diagnostics, and non-table raw fallbacks are suppressed with visible/actual/replay regressions | green | require a family-specific false/visible regression and continuation coverage when a new scanner recovery path can outlive execution filtering |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, layout/class-option projections, graphic package/default state, diagnostics, non-table raw fallbacks, and algorithmic manual text have bounded regressions | partial/open | give every command-specific manual `Text`/`Space` writer execution-anchor-aware transaction ownership; characterize replay, all diagnostic subtypes, and `ARCH-007` mixed macros whose visible lossy child follows a skipped prefix |
 | reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; producer-invariance regressions cover both shapes | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until execution identity exists; keep narrower inline/text/footnote rules separate |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract; a Pro review rejected placeholder identities and compiler-side decoration | moved to V4/V6 | V4 constructs the validated internal handle after identity-complete snapshot support; V6 migrates consumers family by family |
 | path-based build dependencies | the compiler tracks loaded sources plus final reconciled `GraphicRef`/`IncludePdf` paths; a visible missing asset is tracked while a runtime-false asset is excluded (`9ed7a09`) | independent/partial | continue build read-set coverage independently; never derive semantic `DependencyId` from path order or claim this satisfies event identity |
@@ -626,6 +637,8 @@ Exit criteria:
 - no public raw compatibility constructor bypasses typed origin validation;
 - every known recovery family has a suppression regression or an explicit
   low-confidence expected failure for false-conditional leakage;
+- every manual scanner `Text`/`Space` producer is owned by an execution-aware
+  scanner transaction, including continuation replay and mixed macro cases;
 - the current `event_id` contract is migrated/versioned as build-local
   `sequence`;
 - no code treats sequence as revision-stable or semantic identity;
