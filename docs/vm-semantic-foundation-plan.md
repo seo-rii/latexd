@@ -787,6 +787,11 @@ Current migration evidence at `775cc22`:
 - the serialized `VmSnapshot.scopes` shape and versions are unchanged. Eqtb
   state plus SaveStack restore groups project legacy layers, and restore
   rebuilds those groups root-to-leaf;
+- restored legacy open-group frames accept only control-sequence restore
+  records. The existing wire format carries no historical register restore
+  chain, so post-restore register/catcode assignments in those already-open
+  groups continue to survive group exit instead of acquiring new rollback
+  behavior;
 - migration step 1 is complete. The V3 exit remains open for the assignment
   classes and persistent state-root work listed below.
 

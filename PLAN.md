@@ -430,6 +430,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `VmSnapshot.scopes`를 투영한다. Macro/primitive/token, fresh interner,
   open-group restore, input-exit replay, module base precedence, `aftergroup`,
   direct-global helper, front-matter 임시 protected 복원 계약이 green이다.
+- legacy open-group snapshot에는 register restore history가 없다는 기존
+  한계를 유지한다. Restore가 `scopes`로 재구성한 group frame은
+  control-sequence restore만 기록하므로, restore 뒤 그 열린 group에서 새로
+  할당한 register/catcode가 group 종료 시 snapshot 값으로 되돌아가는 새
+  동작을 만들지 않는다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
