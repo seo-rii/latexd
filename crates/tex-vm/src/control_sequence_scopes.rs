@@ -33,6 +33,9 @@ impl<M> ControlSequenceScopes<M> {
     }
 
     pub(super) fn insert_root(&mut self, name: String, meaning: M) {
+        for layer in self.layers.iter_mut().skip(1) {
+            layer.remove(&name);
+        }
         if let Some(root) = self.layers.first_mut() {
             root.insert(name, meaning);
         }

@@ -35,6 +35,24 @@ fn render_event_capture_preserves_register_alias_assignment_syntax() {
     assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
 }
 
+#[test]
+fn global_control_sequence_assignments_cancel_pending_local_restores() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+
+    let outcome = vm.run_plain(
+        r"\def\foo{O}{\def\foo{L}{\def\foo{N}\global\def\foo{G}\foo}\foo}\foo
+\def\left{A}\def\right{B}\let\slot\left{\let\slot\right{\let\slot\left\global\let\slot\right\slot}\slot}\slot
+\def\mode{O}{\def\mode{L}\globaldefs=1\def\mode{G}\mode}\mode",
+    );
+
+    assert_eq!(
+        outcome.output.split_whitespace().collect::<String>(),
+        "GGGBBBGG"
+    );
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
 fn assert_control_sequence_scope_replay_matches_clean_execution() {
     let source = r"\def\kept{R}{\def\kept{L}{\def\kept{N}\global\let\alias\kept}}{\globaldefs=1\def\persist{P}\let\persistalias\persist}{\globaldefs=-1\global\def\discarded{D}\global\let\discardedalias\persist}\count0=0\ifnum\count0>0\input{missing}\fi\input{barrier}\begin{document}[\kept][\alias][\persist][\persistalias]\ifdefined\discarded BAD\else GOOD\fi\begin{overpic}[width=4cm]{right.pdf}\end{overpic}\undefinedafter\end{document}";
 
