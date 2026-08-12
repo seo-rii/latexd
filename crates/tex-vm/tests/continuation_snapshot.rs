@@ -770,6 +770,27 @@ x^2
 }
 
 #[test]
+fn input_exit_snapshot_replays_neurips_layout_and_class_projection() {
+    let source = r"\documentclass[12pt]{article}
+\usepackage{neurips_2019}
+\begin{document}
+\input{barrier}
+Visible.
+\end{document}";
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let stream = RenderEventStream::new(Some("full".to_string()), actual);
+    let document_ir = build_document_ir(&stream, &());
+    let document_class = document_ir.document_class.expect("document class");
+    let layout = document_ir.layout.expect("NeurIPS layout");
+
+    assert_eq!(document_class.name, "article");
+    assert_eq!(document_class.options, ["10pt"]);
+    assert_eq!(layout.profile.as_deref(), Some("neurips_2019"));
+}
+
+#[test]
 fn input_exit_snapshot_replays_icml_profile_metadata() {
     let source = r"\usepackage{icml2020}
 \begin{document}
