@@ -88,3 +88,48 @@ fn open_group_snapshot_reconstructs_control_sequence_restore_history() {
     assert_eq!(outcome.output, "LR");
     assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
 }
+
+#[test]
+#[should_panic(expected = "VM snapshot must contain a root control-sequence scope")]
+fn empty_control_sequence_scope_list_is_rejected_before_restore() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.scopes.clear();
+    drop(vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let _ = Vm::restore(&mut restored_interner, &snapshot);
+}
+
+#[test]
+fn empty_control_sequence_layers_preserve_legacy_restore_depth() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let base_snapshot = vm.snapshot();
+    drop(vm);
+
+    for scope_depth in [1, 4, 1_000, 1_001] {
+        let mut snapshot = base_snapshot.clone();
+        snapshot.scopes = vec![Default::default(); scope_depth];
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let restored = Vm::restore(&mut restored_interner, &snapshot);
+
+        assert_eq!(
+            restored.snapshot().scopes,
+            snapshot.scopes,
+            "scope_depth={scope_depth}"
+        );
+    }
+}
+
+#[test]
+fn unsupported_control_sequence_meaning_is_rejected_during_decode() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut value = serde_json::to_value(vm.snapshot()).expect("serialize VM snapshot");
+    value["scopes"][0]["vthreeunsupported"] = json!({ "kind": "undefined" });
+
+    assert!(serde_json::from_value::<VmSnapshot>(value).is_err());
+}

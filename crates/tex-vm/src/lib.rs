@@ -16483,6 +16483,10 @@ impl<'i> Vm<'i> {
     }
 
     pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
+        assert!(
+            !snapshot.scopes.is_empty(),
+            "VM snapshot must contain a root control-sequence scope"
+        );
         let mut vm = Self::new(interner);
         vm.jobname_source_path = snapshot.jobname_source_path.clone();
         let control_sequence_layers = snapshot
