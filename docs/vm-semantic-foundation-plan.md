@@ -778,17 +778,49 @@ The post-migration Pro review is remediated in bounded commits:
   unsupported meaning rejection at decode time. `Meaning`/`SnapshotMeaning`
   have no explicit `Undefined` variant, so absence remains the distinct
   `Option<EqEntry>::None` state rather than a value that projection could erase.
+- `d58f4e0` makes an untrackable register save in a reconstructed legacy
+  control-sequence-only frame explicit as `SaveDisposition::UntrackedLegacyFrame`.
+  `Eqtb::assign` stores that persistent write at effective level zero, and the
+  regression verifies both legacy unwind and a later ordinary local restore.
+- `90a7628` adds `Vm::try_restore` and typed missing-root/unknown-primitive
+  errors. Validation completes before VM construction or interner mutation, and
+  all four production restore boundaries in `tex-bootstrap` propagate the
+  fallible result. The asserting `Vm::restore` remains only as a trusted
+  compatibility wrapper.
 
 Group-end ordering was also audited. Source catcode-overlay cleanup after
 `Eqtb::end_group` is a pure `retain` over source-frame maps and performs no
 lookup, event emission, diagnostic, or callback, so restoring control sequences
 inside the common Eqtb unwind is not observably reordered.
 `scripts/check_v3_cross_version.py` now supplies the stronger runnable rollout
-matrix: it builds detached `f66cdbf` and candidate worktrees, exchanges the same
-open-group macro/alias/primitive/token snapshot in both producer-consumer
-directions, and validates output, diagnostics, exact selected scopes, and
-directional equality. The `f66cdbf ↔ dbddf0f` run is green; this remains a
-manual release gate rather than doubling the normal CI build.
+matrix: it builds detached `f66cdbf` and candidate worktrees and exchanges two
+real snapshots in both producer-consumer directions. The second fixture added
+in `e5a630e` projects `{x=R,y=G} / {x=L} / {} / {x=L,z=Z}`, combining an
+equal-value repeated layer, an empty intervening layer, an absent predecessor,
+and globally cancelled history. Consumers reproject before continuation; the
+validator checks depth, exact selected keys/kinds, complete directional result
+equality, zero diagnostics, and the discriminating unwind output
+`LGZLGALGARGA`. This is a manual release gate rather than doubling the normal CI
+build.
+
+The bounded slice was validated in a clean detached worktree at exact commit
+`cd64df66bc1b5bccea85b284ffaff7dfc080c1a5`: tex-vm library 660, the six
+relevant integration targets 102, tex-bootstrap library 64, and Python
+independence/matrix tests 11 all passed; the real-binary two-fixture
+`f66cdbf <-> cd64df6` matrix, canonical workspace Clippy, and formatting check
+also passed. The matrix script hash was
+`9ad0c5ec00a80859e4c9529ba416ac567d8ab5c015b2442a8e700b804cac83fe`.
+`cd64df6` additionally pins author-local lexical protection through a focused
+`expandafter` regression without changing the canonical `and` meaning.
+
+The final targeted Pro review
+`6a7c6421-1a38-83ee-af57-7dee503ceced` returned **PROCEED** with 0.92
+confidence for the control-sequence ownership slice. It accepted the explicit
+legacy-frame disposition, exact layered mixed-version intersection, fallible
+production restore boundary, lexical `expandafter` evidence, and exact clean
+commit provenance. The verdict is scoped to this slice; resource admission,
+generated public-wire properties, and the remaining V3 assignment classes are
+still open.
 
 The replay RED also exposed that semantic expansion markers split register
 aliases such as `\globaldefs → \count251` from following assignment syntax when
@@ -863,7 +895,7 @@ Migration order:
 7. mathcodes and delcodes;
 8. fonts, boxes, and remaining parameters.
 
-Current migration evidence through `99a55ae`:
+Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
   the common SaveStack save-once/global-cancellation path. Eqtb keeps a
@@ -888,10 +920,28 @@ Current migration evidence through `99a55ae`:
   groups continue to survive group exit instead of acquiring new rollback
   behavior;
 - legacy-layer projection validates the complete simulated unwind, and rootless
-  snapshots are rejected before restore construction while valid empty and
-  over-runtime-limit legacy layers retain their exact accepted depth;
+  snapshots and unknown primitives return typed errors before construction or
+  interner mutation while valid empty and over-runtime-limit legacy layers
+  retain their exact accepted depth;
+- unsupported register writes in reconstructed legacy CS-only frames become
+  canonical level-zero state, rather than persistent values carrying a stale
+  group level;
+- the exact four-layer real-binary matrix is green in both old/new directions,
+  including repeated equal values, empty layers, absence, and global
+  cancellation;
 - migration step 1 is complete. The V3 exit remains open for the assignment
   classes and persistent state-root work listed below.
+
+Non-blocking follow-up hardening for this closed slice:
+
+- prevent future production-crate calls to the asserting `Vm::restore` wrapper
+  with a compiler-assisted or CI source guard;
+- extend malformed-restore atomicity coverage to a non-empty sentinel interner
+  and an unknown primitive in a deep layer;
+- route generated owner states through public serialization, restore, and
+  projection, shrinking any mismatch into a deterministic fixture;
+- measure restore duration and peak RSS by input bytes, scope depth, and binding
+  count before proposing any versioned resource-admission limits.
 
 Every migrated class gets:
 

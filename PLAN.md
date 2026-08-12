@@ -15,7 +15,7 @@
 ## Status Snapshot
 
 - 기준 시점: `2026-08-12`
-- 기준 commit: `99a55ae` (`fix(tex-vm): reject rootless control sequence snapshots`)
+- 기준 commit: `c0c6c9e` (`docs: record overpic overlay suppression evidence`)
 - `P0.3a` positioned Type1 outline sub-slice는 `2c2b2db`에 구현됐고 focused
   verification은 green이다. `8cbea9d`는 build-time raw/gzip/Brotli 크기
   예산과 SHA-256 identity, 별도 fresh-process Node compile 표본을 재현하는
@@ -494,14 +494,29 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   lookup/event/diagnostic/callback이 없어 합쳐진 control-sequence restore의
   순서 변경은 관찰 불가능하다고 audit했다.
 - `99a55ae`는 root가 없는 `scopes=[]`를 restore mutation 전에 명시적으로
-  거부한다. Root-only/nested empty layer와 runtime 한계 1000, 기존 restore가
-  허용하던 1001-depth empty layer는 exact round-trip해 새 depth policy를
-  만들지 않는다. `scripts/check_v3_cross_version.py`는 owner 이전 직전
-  `f66cdbf`와 지정 candidate를 별도 detached worktree에서 실제 빌드해 같은
-  open-group macro/alias/primitive/token snapshot을 양방향으로 교환한다.
-  `f66cdbf ↔ dbddf0f` 실행은 `LRRMZ`, 진단 0, 동일 root scope projection으로
-  green이며 고정 JSON/fresh-interner fixture보다 강한 rollout evidence를
-  재현할 수 있다.
+  거부한다. `90a7628`은 이를 `Vm::try_restore`의 typed error로 바꾸고 모든
+  primitive reference도 VM/interner mutation 전에 검증한다. Persisted
+  checkpoint를 받는 `tex-bootstrap`의 production restore 네 곳은 이 fallible
+  API를 사용하며, `Vm::restore`는 trusted compatibility wrapper로만 남는다.
+  Root-only/nested empty layer와 runtime 한계 1000, 기존 restore가 허용하던
+  1001-depth empty layer는 exact round-trip해 새 depth policy를 만들지 않는다.
+- `d58f4e0`은 restored legacy CS-only frame이 register predecessor를 기록할 수
+  없는 경우를 `SaveDisposition::UntrackedLegacyFrame`으로 드러내고, 그 write를
+  effective level 0으로 canonicalize한다. Legacy unwind 뒤 값/level이 유지되고
+  이후 normal group이 같은 root predecessor를 정확히 복원한다.
+- `scripts/check_v3_cross_version.py`는 owner 이전 직전 `f66cdbf`와 지정
+  candidate를 별도 detached worktree에서 실제 빌드한다. `e5a630e`가 추가한
+  두 번째 fixture는 `{x=R,y=G} / {x=L} / {} / {x=L,z=Z}` 네 layer에
+  equal-value repeat, empty layer, absent predecessor, global cancellation을 한
+  snapshot에 결합한다. 두 방향의 pre-continuation selected scope object 전체가
+  같고 key/kind golden, output `LGZLGALGARGA`, 진단 0을 만족해야 한다.
+- 정확한 `cd64df6` detached clean worktree에서 tex-vm lib 660, 관련 integration
+  102, tex-bootstrap lib 64, Python guard/matrix 11, 양방향 두-fixture matrix,
+  canonical workspace Clippy와 fmt가 모두 green이다. `cd64df6`은 author 전용
+  `\expandafter` regression도 고정한다. 최종 Pro 재검토
+  (`6a7c6421-1a38-83ee-af57-7dee503ceced`)는 이 bounded control-sequence
+  ownership slice를 `PROCEED`(confidence 0.92)로 판정했다. 이 판정은 이후의
+  unrelated semantic-suppression commit이나 M13.3 전체 완료로 확장하지 않는다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -520,8 +535,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   추가한 뒤 owner를 이전했다 (`f66cdbf`, `c640efb`, `775cc22`). 이후 Pro
   리뷰 remediation은 projection validation, legacy open-group compatibility,
   boxed value layout, lexical front-matter policy, exhaustive oracle, malformed
-  snapshot boundary를 각각 독립 rollback 단위로 닫았다. Persisted field,
-  command-ID lifetime, provenance, event/replay output은 변경하지 않았다.
+  snapshot boundary와 fallible production restore를 각각 독립 rollback 단위로
+  닫았다. Exact layered mixed-version matrix와 clean-commit 재검증 뒤 Pro closure
+  gate도 green이다. Persisted field, command-ID lifetime, provenance,
+  event/replay output은 변경하지 않았다.
 
 이전 순서:
 1. control sequence definition과 `\let` — 완료 (`775cc22`)
@@ -532,6 +549,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 6. catcode
 7. mathcode/delcode
 8. font/box/parameter
+
+Control-sequence slice closeout 뒤의 non-blocking follow-up은 production crate의
+`Vm::restore` 재사용을 막는 정적 guard, malformed restore의 non-empty interner와
+deep-layer atomicity test, generated public JSON project/restore/project property,
+restore time/RSS 측정 뒤 별도 versioned resource-limit 결정이다. 이 항목들은
+M13.3의 다음 assignment-class migration과 독립적으로 수행할 수 있다.
 
 이전된 assignment는 공통 Eqtb `assign()` 경로에서 local 이전 값을
 SaveStack에 한 번 저장하고 global assignment 시 pending restore를 취소한다.
