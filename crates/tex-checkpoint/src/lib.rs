@@ -235,6 +235,17 @@ pub enum SnapshotWritePolicy {
     LegacyOnly,
 }
 
+impl SnapshotWritePolicy {
+    fn allows(
+        self,
+        required_capabilities: &std::collections::BTreeSet<SnapshotCapability>,
+    ) -> bool {
+        match self {
+            Self::LegacyOnly => required_capabilities.is_empty(),
+        }
+    }
+}
+
 const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,7 +263,7 @@ impl TryFrom<VmSnapshot> for LegacySnapshotForWrite {
 
     fn try_from(snapshot: VmSnapshot) -> Result<Self> {
         let required_capabilities = snapshot.required_capabilities();
-        if !required_capabilities.is_empty() {
+        if !SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
             anyhow::bail!(
                 "legacy snapshot writer cannot encode required capabilities: {}",
                 required_capabilities
@@ -528,7 +539,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
         serde_json::to_vec(preamble_snapshot).context("failed to serialize preamble snapshot")?;
     let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
     let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
-    let preamble_snapshot_attached = preamble_continuation_safety.is_safe();
+    let preamble_snapshot_attached = preamble_continuation_safety.is_safe()
+        && SNAPSHOT_WRITE_POLICY.allows(&preamble_snapshot.required_capabilities());
     let mut checkpoints = vec![StoredCheckpoint::with_legacy_snapshot(
         CheckpointMeta {
             checkpoint_id: checkpoint_id(
@@ -570,7 +582,10 @@ pub fn build_checkpoint_bundle_with_shipouts(
         let continuation_safety = shipout_checkpoint
             .map(|checkpoint| checkpoint.snapshot.continuation_safety.clone())
             .unwrap_or_default();
-        let snapshot_attached = shipout_checkpoint.is_some() && continuation_safety.is_safe();
+        let snapshot_attached = shipout_checkpoint.is_some_and(|checkpoint| {
+            continuation_safety.is_safe()
+                && SNAPSHOT_WRITE_POLICY.allows(&checkpoint.snapshot.required_capabilities())
+        });
         checkpoints.push(StoredCheckpoint::with_legacy_snapshot(
             CheckpointMeta {
                 checkpoint_id: checkpoint_id(
@@ -616,7 +631,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 .snapshot
                 .input_continuation
                 .as_ref()
-                .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable);
+                .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable)
+            && SNAPSHOT_WRITE_POLICY.allows(&boundary.snapshot.required_capabilities());
         let boundary_hash = blake3::hash(
             format!(
                 "{}:{}:{}:{}:{}:{}",
@@ -973,21 +989,35 @@ fn page_boundary_hash(page: &CheckpointPage) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::fs;
 
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
-    use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
+    use tex_vm::{
+        SnapshotCapability, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+    };
 
     use super::{
         CheckpointBundleReuse, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
-        InputBoundaryCheckpoint, ShipoutCheckpoint, build_checkpoint_bundle,
+        InputBoundaryCheckpoint, ShipoutCheckpoint, SnapshotWritePolicy, build_checkpoint_bundle,
         build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
         load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
         save_checkpoint_bundle, select_reusable_preamble,
     };
+
+    #[test]
+    fn legacy_only_write_policy_rejects_required_capabilities() {
+        let required_capabilities =
+            BTreeSet::from([SnapshotCapability::new("eqtb.muskip.scalar-v1")]);
+
+        assert!(
+            !SnapshotWritePolicy::LegacyOnly.allows(&required_capabilities),
+            "capability-bearing state must not enter the legacy lane"
+        );
+    }
 
     #[test]
     fn builds_preamble_and_shipout_checkpoints() {

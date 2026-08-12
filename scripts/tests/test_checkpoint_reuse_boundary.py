@@ -41,6 +41,20 @@ class CheckpointReuseBoundaryPolicyTests(unittest.TestCase):
             "stored checkpoint consumers must support either snapshot lane",
         )
 
+    def test_checkpoint_capture_checks_legacy_write_eligibility(self) -> None:
+        source = (REPOSITORY_ROOT / "crates/tex-checkpoint/src/lib.rs").read_text(
+            encoding="utf-8"
+        )
+        builder = source.split(
+            "pub fn build_checkpoint_bundle_with_shipouts", maxsplit=1
+        )[1].split("pub fn save_checkpoint_bundle", maxsplit=1)[0]
+
+        self.assertGreaterEqual(
+            builder.count("SNAPSHOT_WRITE_POLICY.allows("),
+            3,
+            "every checkpoint category must suppress non-legacy attachments",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
