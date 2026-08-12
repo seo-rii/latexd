@@ -167,6 +167,136 @@ fn false_gin_default_removal_preserves_an_equal_visible_default() {
 }
 
 #[test]
+fn runtime_false_graphic_extensions_do_not_reach_executed_overpic() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.mount_file("right.pdf", "pdf fixture");
+    vm.mount_file("right.png", "png fixture");
+
+    let outcome = vm.run_plain(
+        r"\usepackage{overpic}
+\count0=0
+\ifnum\count0>0
+\DeclareGraphicsExtensions{.png}
+\fi
+\begin{document}
+\begin{overpic}{right}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("visible scanner graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.path, "right.pdf", "{graphic:#?}");
+    assert_eq!(graphic.meta.producer, EventProducer::Primitive);
+}
+
+#[test]
+fn runtime_false_graphic_package_defaults_do_not_reach_executed_overpic() {
+    let outcome = capture(
+        r"\count0=0
+\ifnum\count0>0
+\usepackage[angle=90]{graphicx}
+\fi
+\usepackage{overpic}
+\begin{document}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("executed overpic graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.options.as_deref(), Some("width=4cm"));
+    assert_eq!(graphic.meta.producer, EventProducer::Primitive);
+}
+
+#[test]
+fn visible_graphic_package_defaults_reach_executed_overpic() {
+    let outcome = capture(
+        r"\usepackage[angle=90]{graphicx}
+\usepackage{overpic}
+\begin{document}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("executed overpic graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.options.as_deref(), Some("angle=90,width=4cm"));
+    assert_eq!(graphic.meta.producer, EventProducer::Primitive);
+}
+
+#[test]
+fn visible_graphic_extensions_reach_overpic_execution() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.mount_file("right.pdf", "pdf fixture");
+    vm.mount_file("right.png", "png fixture");
+
+    let outcome = vm.run_plain(
+        r"\usepackage{overpic}
+\DeclareGraphicsExtensions{.png}
+\begin{document}
+\begin{overpic}{right}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("executed overpic graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.path, "right.png", "{graphic:#?}");
+    assert_eq!(graphic.meta.producer, EventProducer::Primitive);
+    assert!(!outcome.output.contains("[image]"), "{}", outcome.output);
+}
+
+#[test]
+fn overpic_execution_requires_the_package_shim() {
+    let outcome = capture(
+        r"\begin{document}
+\begin{overpic}Visible text.\end{overpic}
+\end{document}",
+    );
+
+    assert!(
+        outcome.output.contains("Visible text."),
+        "{}",
+        outcome.output
+    );
+    assert!(
+        !outcome
+            .render_events
+            .iter()
+            .any(|event| matches!(event.event, RenderEvent::GraphicRef(_))),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn macro_generated_graphic_emits_at_the_invocation() {
     let outcome = capture(
         r"\def\emitgraphic#1{\includegraphics[width=2cm]{#1}}

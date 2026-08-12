@@ -53,6 +53,7 @@ pub(super) struct ScannerGraphicDefaultOptions {
 
 struct ExecutedGraphicInput {
     include_pdf: bool,
+    emit_legacy_placeholder: bool,
     invocation_start_utf8: u32,
     invocation_end_utf8: u32,
     argument_span: Option<(u32, u32)>,
@@ -306,12 +307,49 @@ impl Vm<'_> {
         let path = normalize_latex_text(self.expanded_graphic_text(path_tokens).trim());
         self.emit_executed_graphic(ExecutedGraphicInput {
             include_pdf: command.include_pdf,
+            emit_legacy_placeholder: !command.include_pdf,
             invocation_start_utf8: source_start_utf8,
             invocation_end_utf8,
             argument_span: Some((path_start_utf8, path_end_utf8)),
             path,
             options,
         });
+    }
+
+    pub(super) fn execute_overpic_environment(
+        &mut self,
+        source_start_utf8: u32,
+        source_end_utf8: u32,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let local_options = self.read_optional_bracket_tokens(queue).and_then(|tokens| {
+            let options = self.expanded_graphic_text(tokens);
+            (!options.trim().is_empty()).then(|| options.trim().to_string())
+        });
+        let path_tokens = self.read_macro_argument(queue)?;
+        let path_start_utf8 = path_tokens
+            .first()
+            .map_or(source_end_utf8, |token| token.span.start);
+        let path_end_utf8 = path_tokens
+            .last()
+            .map_or(path_start_utf8, |token| token.span.end);
+        let invocation_end_utf8 = self.last_token_end_utf8.max(source_end_utf8);
+        let path = normalize_latex_text(self.expanded_graphic_text(path_tokens).trim());
+        let options = merge_graphic_default_options(
+            self.semantic_graphic.default_options.as_deref(),
+            local_options,
+        );
+        self.emit_executed_graphic(ExecutedGraphicInput {
+            include_pdf: false,
+            emit_legacy_placeholder: false,
+            invocation_start_utf8: source_start_utf8,
+            invocation_end_utf8,
+            argument_span: Some((path_start_utf8, path_end_utf8)),
+            path,
+            options,
+        });
+        Some(invocation_end_utf8)
     }
 
     pub(super) fn execute_legacy_graphic(
@@ -354,6 +392,7 @@ impl Vm<'_> {
         );
         self.emit_executed_graphic(ExecutedGraphicInput {
             include_pdf: false,
+            emit_legacy_placeholder: true,
             invocation_start_utf8: source_start_utf8,
             invocation_end_utf8,
             argument_span,
@@ -445,7 +484,7 @@ impl Vm<'_> {
             }
         }
 
-        if !input.include_pdf {
+        if input.emit_legacy_placeholder {
             self.output.push_str("[image]");
             self.legacy_output_last_char = Some(']');
         }
@@ -562,7 +601,26 @@ impl Vm<'_> {
             if self.semantic_source_is_suppressed(&scanner_event.meta.source) {
                 continue;
             }
-            if graphic_payloads_match(&executed_event, &scanner_event)
+            let executed_overpic = executed_event.meta.producer == EventProducer::Primitive
+                && match &executed_event.meta.source.primary {
+                    ProvenanceSpan::File(span) => self
+                        .render_event_sources
+                        .get(&span.path)
+                        .and_then(|source| {
+                            source.get(span.start_utf8 as usize..span.end_utf8 as usize)
+                        })
+                        .and_then(|invocation| invocation.strip_prefix(r"\begin"))
+                        .and_then(|invocation| {
+                            let environment_start = skip_ascii_whitespace(invocation, 0);
+                            read_braced_source_argument(invocation, environment_start)
+                        })
+                        .is_some_and(|(environment, _, _, _)| {
+                            matches!(environment.trim(), "overpic" | "overpic*")
+                        }),
+                    ProvenanceSpan::Generated(_) => false,
+                };
+            if executed_overpic
+                || graphic_payloads_match(&executed_event, &scanner_event)
                 || graphic_options_match(&executed_event, &scanner_event)
                 || graphic_executed_options_extend_scanner(&executed_event, &scanner_event)
                 || (executed_event.meta.producer == EventProducer::Primitive

@@ -18471,6 +18471,20 @@ impl<'i> Vm<'i> {
                     }
                     self.begin_executed_bibliography_environment();
                 }
+                let overpic_package_loaded = self.loaded_modules.iter().any(|path| {
+                    path.file_name()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("overpic.sty"))
+                });
+                if overpic_package_loaded
+                    && matches!(environment, "overpic" | "overpic*")
+                    && let Some(overpic_end_utf8) = self.execute_overpic_environment(
+                        source_offset_utf8,
+                        environment_boundary_end_utf8,
+                        queue,
+                    )
+                {
+                    environment_boundary_end_utf8 = overpic_end_utf8;
+                }
                 let mut math_content_start_utf8 = environment_boundary_end_utf8;
                 if matches!(environment, "alignat" | "alignat*") {
                     self.skip_optional_spaces(queue);
