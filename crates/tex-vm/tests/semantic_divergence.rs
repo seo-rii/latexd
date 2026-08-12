@@ -666,6 +666,80 @@ fn runtime_false_dynamic_nohyper_link_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_scanner_whitespace_before_inline_wrapper_is_removed() {
+    let source = r"\count0=0
+\begin{document}
+A\ifnum\count0>0\relax \emph{Wrong}\fi
+B\relax \emph{Right}
+\end{document}";
+    let outcome = capture(source);
+    let hidden_start = source.find(r"\relax \emph{Wrong}").expect("hidden gap") + r"\relax".len();
+    let visible_start = source.find(r"\relax \emph{Right}").expect("visible gap") + r"\relax".len();
+    let spaces_at = |start: usize| {
+        outcome
+            .render_events
+            .iter()
+            .filter(|envelope| {
+                matches!(&envelope.event, RenderEvent::Space(_))
+                    && matches!(
+                        &envelope.meta.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.start_utf8 == start as u32
+                                && span.end_utf8 == start as u32 + 1
+                    )
+            })
+            .count()
+    };
+
+    assert_eq!(spaces_at(hidden_start), 0, "{:#?}", outcome.render_events);
+    assert_eq!(spaces_at(visible_start), 0, "{:#?}", outcome.render_events);
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|envelope| {
+                matches!(&envelope.event, RenderEvent::Text(text) if text.text == "Right")
+            })
+            .count(),
+        1,
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn runtime_false_scanner_whitespace_after_footnote_is_removed() {
+    let source = r"\count0=0
+\begin{document}
+\ifnum\count0>0\footnote{Wrong} \emph{Hidden}\fi
+\footnote{Right} \emph{Visible}
+\end{document}";
+    let outcome = capture(source);
+    let hidden_start =
+        source.find(r"\footnote{Wrong} \emph").expect("hidden gap") + r"\footnote{Wrong}".len();
+    let visible_start =
+        source.find(r"\footnote{Right} \emph").expect("visible gap") + r"\footnote{Right}".len();
+    let spaces_at = |start: usize| {
+        outcome
+            .render_events
+            .iter()
+            .filter(|envelope| {
+                matches!(&envelope.event, RenderEvent::Space(_))
+                    && matches!(
+                        &envelope.meta.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.start_utf8 == start as u32
+                                && span.end_utf8 == start as u32 + 1
+                    )
+            })
+            .count()
+    };
+
+    assert_eq!(spaces_at(hidden_start), 0, "{:#?}", outcome.render_events);
+    assert_eq!(spaces_at(visible_start), 1, "{:#?}", outcome.render_events);
+}
+
+#[test]
 fn runtime_false_direct_nohyper_links_do_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0

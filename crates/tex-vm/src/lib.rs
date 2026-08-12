@@ -7892,8 +7892,8 @@ impl<'i> Vm<'i> {
                                 .chars()
                                 .all(|ch| ch.is_whitespace() || ch == '~')
                         {
-                            self.emit_render_event(
-                                RenderEvent::Space(SpaceEvent {
+                            self.emit_owned_scanner_text_event(
+                                ScannerOwnedTextEvent::Space(SpaceEvent {
                                     kind: if leading_segment.contains('~') {
                                         SpaceKind::Explicit
                                     } else {
@@ -7905,6 +7905,9 @@ impl<'i> Vm<'i> {
                                     text_start as u32,
                                     command_start as u32,
                                 ),
+                                source_path,
+                                text_start as u32,
+                                command_start as u32,
                             );
                         }
                         if text.contains('\\') || text.contains('$') {
@@ -10446,8 +10449,8 @@ impl<'i> Vm<'i> {
                             && after_space < source.len()
                             && matches!(source.as_bytes()[after_space], b'\\' | b'$')
                         {
-                            self.emit_render_event(
-                                RenderEvent::Space(SpaceEvent {
+                            self.emit_owned_scanner_text_event(
+                                ScannerOwnedTextEvent::Space(SpaceEvent {
                                     kind: SpaceKind::Interword,
                                 }),
                                 SourceProvenance::file(
@@ -10455,6 +10458,9 @@ impl<'i> Vm<'i> {
                                     after as u32,
                                     after_space as u32,
                                 ),
+                                source_path,
+                                after as u32,
+                                after_space as u32,
                             );
                         }
                         index = after;
