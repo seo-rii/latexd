@@ -23,9 +23,10 @@ use tex_bootstrap::{
     run_project_pdf_from_base_snapshot_with_mounts,
 };
 use tex_checkpoint::{
-    CheckpointBundle, CheckpointKind, CheckpointPage, InputBoundaryCheckpoint, ShipoutCheckpoint,
-    StoredCheckpoint, build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe,
-    find_unchanged_tail, load_checkpoint_bundle, preamble_key_for_source, save_checkpoint_bundle,
+    CheckpointBundle, CheckpointBundleReuse, CheckpointKind, CheckpointPage,
+    InputBoundaryCheckpoint, ShipoutCheckpoint, StoredCheckpoint,
+    build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe, find_unchanged_tail,
+    load_checkpoint_bundle_for_reuse, preamble_key_for_source, save_checkpoint_bundle,
     select_reusable_preamble,
 };
 use tex_pdf::{
@@ -3342,8 +3343,10 @@ fn load_latest_previous_internal_build(
         {
             continue;
         }
-        let bundle = load_checkpoint_bundle(&checkpoint_path)
-            .with_context(|| format!("failed to load {checkpoint_path}"))?;
+        let CheckpointBundleReuse::Hit(bundle) = load_checkpoint_bundle_for_reuse(&checkpoint_path)
+        else {
+            continue;
+        };
         let checkpoint_page_metadata_path = if execution_page_metadata_path.exists() {
             &execution_page_metadata_path
         } else {
@@ -7020,6 +7023,25 @@ mod tests {
             checkpoint.meta.kind == CheckpointKind::InputBoundary
                 && checkpoint.meta.module_path.as_ref() == Some(&Utf8PathBuf::from("main.tex"))
         }));
+    }
+
+    #[test]
+    fn skips_corrupt_previous_internal_build_state() {
+        let tempdir = tempdir().expect("tempdir");
+        let build_root =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("build")).expect("utf8 build root");
+        let rev_dir = build_root.join("rev-1");
+        fs::create_dir_all(rev_dir.as_std_path()).expect("rev dir");
+        fs::write(rev_dir.join("checkpoints.json"), b"{truncated")
+            .expect("write corrupt checkpoint");
+        fs::write(rev_dir.join("page-metadata.json"), b"[]").expect("write page metadata");
+        fs::write(rev_dir.join("output.txt"), b"").expect("write output");
+        fs::write(rev_dir.join("sources.json"), b"{}").expect("write sources");
+
+        let previous = load_latest_previous_internal_build(&build_root, 2)
+            .expect("corrupt cache must not fail compilation");
+
+        assert!(previous.is_none());
     }
 
     #[test]

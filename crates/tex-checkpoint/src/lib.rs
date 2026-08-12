@@ -177,6 +177,18 @@ pub struct CheckpointBundle {
     pub pages: Vec<CheckpointPage>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckpointCacheMissReason {
+    NotFound,
+    Unreadable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckpointBundleReuse {
+    Hit(CheckpointBundle),
+    Miss(CheckpointCacheMissReason),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TailRealignment {
     pub previous_rev: u64,
@@ -538,6 +550,16 @@ pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
     Ok(bundle)
 }
 
+pub fn load_checkpoint_bundle_for_reuse(path: &Utf8Path) -> CheckpointBundleReuse {
+    if !path.exists() {
+        return CheckpointBundleReuse::Miss(CheckpointCacheMissReason::NotFound);
+    }
+    match load_checkpoint_bundle(path) {
+        Ok(bundle) => CheckpointBundleReuse::Hit(bundle),
+        Err(_) => CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable),
+    }
+}
+
 pub fn can_reuse_preamble(changed_files: &[Utf8PathBuf]) -> bool {
     !changed_files.iter().any(|path| {
         path.file_name()
@@ -616,7 +638,7 @@ pub fn load_latest_reusable_preamble(
         if !path.exists() {
             continue;
         }
-        let Ok(bundle) = load_checkpoint_bundle(&path) else {
+        let CheckpointBundleReuse::Hit(bundle) = load_checkpoint_bundle_for_reuse(&path) else {
             continue;
         };
         if let Some(checkpoint) =
@@ -722,10 +744,11 @@ mod tests {
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
-        CheckpointKind, CheckpointPage, InputBoundaryCheckpoint, ShipoutCheckpoint,
-        build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
-        build_checkpoint_bundle_with_snapshots, can_reuse_preamble, find_unchanged_tail,
-        load_checkpoint_bundle, load_latest_reusable_preamble, preamble_key_for_source,
+        CheckpointBundleReuse, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
+        InputBoundaryCheckpoint, ShipoutCheckpoint, build_checkpoint_bundle,
+        build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
+        can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
+        load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
         save_checkpoint_bundle, select_reusable_preamble,
     };
 
@@ -1231,6 +1254,31 @@ mod tests {
         .expect("selected");
 
         assert_eq!(selected.meta.rev, 1);
+    }
+
+    #[test]
+    fn classifies_missing_checkpoint_bundle_as_reuse_miss() {
+        let tempdir = tempdir().expect("tempdir");
+        let missing =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("missing.json")).expect("utf8 path");
+
+        assert_eq!(
+            load_checkpoint_bundle_for_reuse(&missing),
+            CheckpointBundleReuse::Miss(CheckpointCacheMissReason::NotFound)
+        );
+    }
+
+    #[test]
+    fn classifies_corrupt_checkpoint_bundle_as_reuse_miss() {
+        let tempdir = tempdir().expect("tempdir");
+        let corrupt =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("corrupt.json")).expect("utf8 path");
+        fs::write(&corrupt, b"{truncated").expect("write corrupt checkpoint");
+
+        assert_eq!(
+            load_checkpoint_bundle_for_reuse(&corrupt),
+            CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+        );
     }
 
     #[test]
