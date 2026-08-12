@@ -702,11 +702,85 @@ fn insert_unmatched_bibliography_events(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use camino::Utf8PathBuf;
+    use tex_render_model::{
+        BibliographyItemEvent, EventBuildContext, EventOrigin, ExpansionFrame, ProvenanceSpan,
+        RenderEvent, RenderEventEnvelope, SourceProvenance, SourceSpan,
+    };
 
     use crate::snapshot::{VmExecutionAnchor, VmReplayFrame};
 
-    use super::{BibliographyInvocationRange, scanner_anchor_descends_from_invocation};
+    use super::{
+        BibliographyInvocationRange, insert_unmatched_bibliography_events,
+        scanner_anchor_descends_from_invocation,
+    };
+
+    #[test]
+    fn unmatched_bibliography_insertion_uses_source_geometry_independent_of_valid_origin() {
+        let macro_order = inserted_bibliography_keys(EventOrigin::macro_expansion());
+        let lossy_order = inserted_bibliography_keys(EventOrigin::lossy());
+
+        assert_eq!(macro_order, vec!["candidate", "neighbor"]);
+        assert_eq!(lossy_order, macro_order);
+    }
+
+    fn inserted_bibliography_keys(origin: EventOrigin) -> Vec<String> {
+        let mut events = vec![bibliography_envelope(
+            1,
+            "neighbor",
+            SourceProvenance::file("main.tex", 30, 40),
+            EventOrigin::primitive(),
+        )];
+        let candidate_source =
+            SourceProvenance::file("main.tex", 70, 80).with_expansion_frame(ExpansionFrame {
+                call_span: ProvenanceSpan::File(SourceSpan {
+                    path: "main.tex".into(),
+                    start_utf8: 10,
+                    end_utf8: 20,
+                }),
+                definition_span: None,
+                command_name: Some("bibliography-wrapper".to_string()),
+            });
+        insert_unmatched_bibliography_events(
+            &mut events,
+            vec![bibliography_envelope(
+                2,
+                "candidate",
+                candidate_source,
+                origin,
+            )],
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+
+        events
+            .into_iter()
+            .filter_map(|event| match event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn bibliography_envelope(
+        sequence: u64,
+        key: &str,
+        source: SourceProvenance,
+        origin: EventOrigin,
+    ) -> RenderEventEnvelope {
+        RenderEventEnvelope::try_from_origin(
+            RenderEvent::BibliographyItem(BibliographyItemEvent {
+                key: key.to_string(),
+                label_hint: None,
+                text: key.to_string(),
+            }),
+            EventBuildContext::new(sequence, source),
+            origin,
+        )
+        .expect("bibliography fixture must use a valid event origin")
+    }
 
     #[test]
     fn nested_input_anchor_descends_from_the_bibliography_invocation() {
@@ -750,13 +824,12 @@ mod tests {
 }
 
 fn event_anchor(event: &RenderEventEnvelope) -> Option<(Utf8PathBuf, u32, u32)> {
-    if event.meta.producer == EventProducer::Macro
-        && let Some(ProvenanceSpan::File(span)) = event
-            .meta
-            .source
-            .expansion_stack
-            .last()
-            .map(|frame| &frame.call_span)
+    if let Some(ProvenanceSpan::File(span)) = event
+        .meta
+        .source
+        .expansion_stack
+        .last()
+        .map(|frame| &frame.call_span)
     {
         return Some((span.path.clone(), span.start_utf8, span.end_utf8));
     }
