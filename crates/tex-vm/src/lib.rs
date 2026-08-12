@@ -15827,6 +15827,7 @@ impl<'i> Vm<'i> {
             &event,
             RenderEvent::DocumentClass(_)
                 | RenderEvent::SetDocumentLayout(_)
+                | RenderEvent::Diagnostic(_)
                 | RenderEvent::BeginBlock(_)
                 | RenderEvent::EndBlock(_)
                 | RenderEvent::BeginLayoutContainer(_)
@@ -51422,6 +51423,31 @@ Fallback text.
             .expect("document class event");
 
         assert!(document_class.options.is_empty(), "{document_class:#?}");
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("Visible.")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_discards_runtime_false_missing_input_diagnostic() {
+        let source =
+            r"\count0=0\ifnum\count0>0\input{missing}\fi\begin{document}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            !outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Diagnostic(diagnostic)
+                    if diagnostic.message.contains("missing input")
+            )),
+            "{:#?}",
+            outcome.render_events
+        );
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text.contains("Visible.")

@@ -812,6 +812,23 @@ Visible.
 }
 
 #[test]
+fn input_exit_snapshot_suppresses_runtime_false_scanner_diagnostic() {
+    let source = r"\count0=0
+\ifnum\count0>0\input{missing}\fi
+\begin{document}
+\input{barrier}
+Visible.
+\end{document}";
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    assert!(!actual.iter().any(|event| matches!(
+        &event.event,
+        RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("missing input")
+    )));
+}
+
+#[test]
 fn input_exit_snapshot_replays_icml_profile_metadata() {
     let source = r"\usepackage{icml2020}
 \begin{document}
