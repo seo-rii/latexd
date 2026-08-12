@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | finish diagnostic subtype characterization and the remaining explicit `ARCH-007` mixed-macro suppression/expected-failure closeout; graphic equivalence is audited and deferred, while public event identity and shared diagnostic architecture belong to later or separate streams |
+| V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | diagnostic subtype characterization and bounded graphic/bibliography mixed-macro isolation are complete; exact macro-generated raw-fallback isolation remains open under `ARCH-007`, while public event identity and shared diagnostic architecture belong to later or separate streams |
 | V3 | Count/Dimen/Skip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; legacy `scopes` snapshots are projected from that state | open | muskip/mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -522,8 +522,28 @@ lossy caption argument in the same invocation. No scanner caption exists for
 that shape, so the VM's executed `Fallback`/low caption is the only truthful
 event. Executed caption captures have already passed VM control flow and are no
 longer discarded by coarse source suppression; a companion false-branch macro
-test proves that an unexecuted caption is still absent (`4520dfd`). Graphic,
-bibliography, and raw-fallback mixed cases remain open under `ARCH-007`.
+test proves that an unexecuted caption is still absent (`4520dfd`).
+
+The corresponding graphic path is now bounded too. Every write to the executed
+graphic lane was audited: `includegraphics`/`includepdf`, legacy graphic
+primitives, and the executed `overpic` begin all converge on one append after
+argument parsing and VM dispatch. Reconciliation therefore keeps unmatched
+executed graphics even when a coarse skipped range shares their macro call.
+Scanner recovery remains suppressible, including a graphic-looking argument
+consumed by an empty-replacement macro. The exact hidden/visible count and an
+input-exit JSON replay are covered. Bibliography already used execution-anchor
+reconciliation; its matching mixed-macro characterization passes without a
+production change (`9812429`).
+
+A Pro review rejected the attempted macro-generated `RawFallback` source-slice
+bridge. It emitted a completed fallback at executed begin, matched occurrences
+by environment name, and owned only text children. That cannot prove that the
+matching end executed, distinguish repeated calls or inputs that share byte
+offsets, preserve dynamically registered environment classification, or own
+graphic/citation/label/footnote children consistently. Exact raw-fallback
+isolation therefore remains open under `ARCH-007` until an occurrence-scoped,
+snapshot-safe pending capture can commit on the executed end or conservatively
+discard itself.
 
 Simple inline wrappers now register their direct scanner text with an
 invocation-aware slot. Runtime-false `\emph{Wrong}` is discarded, while the
@@ -726,7 +746,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | sanctioned production-write taxonomy | exhaustive typed-origin tests map every current writer to `Primitive`, `Macro`, `ScannerRecovery`, `Fallback`, or `Unknown`; the AST policy rejects direct compatibility-only construction and provenance-to-authority conversion in production source | green | preserve this closed first-party writer image until a concrete new authority is designed |
 | schema-v5 producer compatibility | full-stream fixtures deserialize and reserialize `command`, `shim`, and `bbl_parser` without relabeling or changing schema 5; active semantic captures reject all three | green | keep decode/round-trip compatibility separate from consumer and snapshot-state validity |
 | future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs and float-local layout text, false `DocumentClass`, layout/class-option projections, graphic package/default state, diagnostics, non-table raw fallbacks, every audited manual `Text`/`Space` writer including recursive-input EOF, repeated-input labels, normal/lossy captions, and representative changed-child replay have bounded regressions | partial/open | characterize all diagnostic subtypes and the remaining `ARCH-007` graphic/bibliography/fallback mixed macros whose visible child follows a skipped prefix |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs and float-local layout text, false `DocumentClass`, layout/class-option projections, graphic package/default state, all current diagnostic subtypes, non-table raw fallbacks, every audited manual `Text`/`Space` writer including recursive-input EOF, repeated-input labels, normal/lossy captions, mixed-macro graphics/bibliography, and representative changed-child replay have bounded regressions | partial/open | keep macro-generated raw fallback as an explicit `ARCH-007` gap until executed-end commitment, occurrence identity, dynamic classification, all-family child ownership, and open-capture snapshot state exist |
 | reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; global execution anchors now distinguish repeated inline and caption input occurrences and survive changed-child replay without dangling folded-event anchors | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until V4 identity exists; keep narrower text/footnote rules separate |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract; a Pro review rejected placeholder identities and compiler-side decoration | moved to V4/V6 | V4 constructs the validated internal handle after identity-complete snapshot support; V6 migrates consumers family by family |
 | path-based build dependencies | the compiler tracks loaded sources plus final reconciled `GraphicRef`/`IncludePdf` paths; a visible missing asset is tracked while a runtime-false asset is excluded (`9ed7a09`) | independent/partial | continue build read-set coverage independently; never derive semantic `DependencyId` from path order or claim this satisfies event identity |
