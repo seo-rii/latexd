@@ -1071,7 +1071,10 @@ Visible.
 #[test]
 fn input_exit_snapshot_suppresses_runtime_false_scanner_diagnostic() {
     let source = r"\count0=0
+\ifnum\count0>0\documentclass{hidden-class}\fi
+\ifnum\count0>0\usepackage{hidden-package}\fi
 \ifnum\count0>0\input{missing}\fi
+\ifnum\count0>0\input{cycle}\fi
 \begin{document}
 \input{barrier}
 Visible.
@@ -1079,10 +1082,11 @@ Visible.
     let (expected, actual) = replay_render_events_after_input_exit(source);
 
     assert_eq!(actual, expected);
-    assert!(!actual.iter().any(|event| matches!(
-        &event.event,
-        RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("missing input")
-    )));
+    assert!(
+        !actual
+            .iter()
+            .any(|event| matches!(&event.event, RenderEvent::Diagnostic(_)))
+    );
 }
 
 #[test]
@@ -2215,6 +2219,7 @@ fn replay_render_events_at_input_boundary(
     vm.enable_structured_table_events();
     vm.set_entry_source_path("main.tex");
     vm.mount_file("barrier.tex", "c");
+    vm.mount_file("cycle.tex", r"\input{cycle}");
 
     let full = vm.run_plain(source);
     let checkpoint = full

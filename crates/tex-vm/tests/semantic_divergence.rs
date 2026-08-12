@@ -1,4 +1,6 @@
-use tex_render_model::{EventProducer, RenderEvent, SemanticConfidence, SpaceKind};
+use tex_render_model::{
+    EventProducer, RenderDiagnosticCode, RenderEvent, SemanticConfidence, SpaceKind,
+};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::Vm;
 
@@ -794,6 +796,93 @@ Before\input{hidden}After
         })
         .collect::<String>();
     assert!(trace.contains("Before After"), "{trace:?}");
+}
+
+#[test]
+fn runtime_false_branches_suppress_every_scanner_diagnostic_subtype() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("cycle.tex", r"\input{cycle}");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\count0=0
+\ifnum\count0>0\documentclass{hidden-class}\fi
+\ifnum\count0>0\usepackage{hidden-package}\fi
+\ifnum\count0>0\input{hidden-input}\fi
+\ifnum\count0>0\input{cycle}\fi
+\begin{document}Visible.\end{document}",
+    );
+    let diagnostics = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Diagnostic(diagnostic) => Some(diagnostic.code()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        diagnostics.is_empty(),
+        "runtime-false scanner diagnostics leaked: {diagnostics:#?}"
+    );
+    assert!(outcome.render_events.iter().any(|event| matches!(
+        &event.event,
+        RenderEvent::Text(text) if text.text.contains("Visible.")
+    )));
+}
+
+#[test]
+fn visible_render_diagnostics_keep_typed_codes_and_recovery_confidence() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("cycle.tex", r"\input{cycle}");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\documentclass{missing-class}
+\usepackage{missing-package}
+\input{missing-input}
+\input{cycle}
+\begin{document}\includegraphics{missing-graphic.pdf}\end{document}",
+    );
+    let diagnostics = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Diagnostic(diagnostic) => Some((event, diagnostic)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for expected_code in [
+        RenderDiagnosticCode::MissingClass,
+        RenderDiagnosticCode::MissingPackage,
+        RenderDiagnosticCode::MissingInput,
+        RenderDiagnosticCode::CyclicInput,
+        RenderDiagnosticCode::MissingGraphicAsset,
+    ] {
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|(_, diagnostic)| diagnostic.code() == expected_code)
+                .count(),
+            1,
+            "diagnostics for {expected_code:?}: {diagnostics:#?}"
+        );
+    }
+    assert!(diagnostics.iter().all(|(event, _)| {
+        event.meta.producer == EventProducer::Unknown
+            && event.meta.confidence == SemanticConfidence::Low
+    }));
+    let missing_graphic = diagnostics
+        .iter()
+        .find_map(|(_, diagnostic)| {
+            (diagnostic.code() == RenderDiagnosticCode::MissingGraphicAsset)
+                .then(|| diagnostic.missing_graphic_asset_ref())
+        })
+        .expect("missing graphic diagnostic");
+    assert_eq!(missing_graphic, Some("missing-graphic.pdf"));
 }
 
 #[test]

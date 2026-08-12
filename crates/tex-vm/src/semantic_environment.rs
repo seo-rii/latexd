@@ -269,7 +269,10 @@ impl Vm<'_> {
                 }
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
-            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
+            } else if !self.semantic_source_is_suppressed_in_execution(
+                &scanner_event.meta.source,
+                self.scanner_event_anchors.get(&scanner_event.meta.sequence),
+            ) {
                 reconciled.push(scanner_event);
             }
         }
