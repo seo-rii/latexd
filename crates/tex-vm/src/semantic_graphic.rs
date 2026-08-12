@@ -475,6 +475,36 @@ impl Vm<'_> {
             if graphic_payloads_match(&executed_event, &scanner_event)
                 || graphic_options_match(&executed_event, &scanner_event)
                 || graphic_executed_options_extend_scanner(&executed_event, &scanner_event)
+                || (executed_event.meta.producer == EventProducer::Primitive
+                    && match (&executed_event.event, &scanner_event.event) {
+                        (RenderEvent::GraphicRef(executed), RenderEvent::GraphicRef(scanner))
+                        | (RenderEvent::IncludePdf(executed), RenderEvent::IncludePdf(scanner)) => {
+                            let scanner_only_options =
+                                match (executed.options.as_deref(), scanner.options.as_deref()) {
+                                    (None, Some(scanner)) => Some(scanner),
+                                    (Some(executed), Some(scanner)) => scanner
+                                        .strip_suffix(executed)
+                                        .and_then(|prefix| prefix.strip_suffix(',')),
+                                    _ => None,
+                                };
+                            scanner_only_options.is_some_and(|options| {
+                                !options.trim().is_empty()
+                                    && options.split(',').map(str::trim).all(|option| {
+                                        matches!(
+                                            option,
+                                            "demo"
+                                                | "draft"
+                                                | "final"
+                                                | "hiderotate"
+                                                | "hidescale"
+                                                | "hiresbb"
+                                                | "setpagesize"
+                                        )
+                                    })
+                            })
+                        }
+                        _ => false,
+                    })
                 || (!graphic_paths_match(&executed_event, &scanner_event)
                     && executed_event.meta.producer != EventProducer::Macro)
             {
