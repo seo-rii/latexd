@@ -541,16 +541,40 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   field를 거부하고, legacy flat snapshot normalizer와 decode→fallible restore의
   mutation-free error boundary를 제공한다. 현재 supported capability 집합은 비어
   있어 `eqtb.muskip.scalar-v1` 문서는 명시적으로 거부된다.
-- checkpoint envelope schema 2, legacy flat `VmSnapshot`, production checkpoint
-  output은 그대로다. Versioned checkpoint lane과 serializer는 아직 없으며 모든
-  production write는 legacy-only다.
+- `8d91fd3`은 checkpoint envelope schema 2를 유지하면서 reader-only
+  `versioned_snapshot.document` lane을 추가했다. Internal attachment는
+  none/legacy/versioned 중 정확히 하나이고, compiler와 replay selection은 lane
+  provenance를 보존하는 `snapshot_for_restore()`만 사용한다. Dual lane은 semantic
+  decode 전에 거부되고 unsupported/malformed/restore-invalid versioned state는
+  production reuse에서 unreadable cache miss 또는 replay-unsafe로 닫힌다.
+- 두 번째 Pro review `6a7c7c89-9d74-83ee-afd4-da353328b99f`는
+  **REVISE**(high confidence)를 반환했다. 그 지적에 따라 정의되지 않은
+  `state_hash`를 제거하고, parent serializer/save의 zero-byte·zero-filesystem
+  preflight, metadata×attachment truth table, legacy write eligibility hook, 전체
+  public-field caller migration, 실제 production envelope 양방향 검증을
+  `8d91fd3`에 포함했다. Versioned serializer는 여전히 명시적으로 disabled이며
+  active production writer는 legacy flat `VmSnapshot`만 쓴다.
+- exact `8d91fd3` detached worktree에서 tex-checkpoint 72, tex-vm 668, Python
+  policy/matrix 10, latexd focused 2, workspace test-target check, canonical Clippy,
+  fmt가 green이다. `00c8ee3` old/new production envelope는 양방향 output `R`을
+  재생하고, versioned-only는 hit, dual/unsupported/malformed envelope는 모두
+  unreadable miss다.
+- closure Pro review `6a7c8fce-8c90-83ee-8648-f7bbbdd8c596`는 reader-only
+  phase를 `PROCEED`(confidence 약 0.87)로 닫되 다음 순서를 `REVISE`했다.
+  Versioned/document writer만 disabled이고 durable legacy writer는 active이므로,
+  runtime-only가 곧 replay-neutral이라는 전제를 두지 않는다. 현재
+  `required_capabilities()`의 empty 구현은 자동 fail-closed 보장이 아니라 다음
+  state-derived gate를 넣을 enforcement seam이다.
 
-승인된 다음 순서는 (1) writer가 꺼진 dual checkpoint lane/single-attachment
-reader, (2) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립 cursor의 runtime
-owner, (3) 완전한 in-memory snapshot/restore, (4) primitives/arithmetic,
-(5) muskip-tainted checkpoint attachment suppression, (6) 명시적으로 disabled인
-versioned writer 구현, (7) old/new real-binary gate와 reader 선배포 뒤 별도 writer
-활성화다. 어느 단계에서도 capability-bearing state를 legacy lane에 쓰지 않는다.
+승인된 다음 순서는 (1) legacy write eligibility, attachment suppression, cursor의
+old-checkpoint 복원/비재사용 계약을 RED test로 고정, (2) state-derived eligibility와
+production suppression 구현, (3) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립
+cursor의 runtime owner, (4) eligibility/suppression과 원자적으로 완전한 in-memory
+snapshot/restore, (5) primitives/arithmetic, (6) muskip capability reader,
+(7) 명시적으로 disabled인 versioned writer 구현, (8) old/new real-binary gate와
+reader 선배포 뒤 별도 writer 활성화다. 어느 단계에서도 capability-bearing state를
+legacy lane에 쓰지 않으며, non-legacy state는 save 오류가 아니라 attachment
+suppression과 정상 source rebuild로 귀결한다.
 
 진입 gate:
 - production diff는 file/source revision, expansion,
@@ -578,8 +602,9 @@ versioned writer 구현, (7) old/new real-binary gate와 reader 선배포 뒤 �
 1. control sequence definition과 `\let` — 완료 (`775cc22`)
 2. count와 arithmetic
 3. dimen
-4. skip — 완료; muskip — readers-first migration 진행 중 (`e3bec73`,
-   `dcbee7c`, `1d29aaa`)
+4. skip — 완료; muskip — readers-first document와 dual checkpoint reader 완료,
+   legacy eligibility/suppression gate 진행 예정 (`e3bec73`, `dcbee7c`,
+   `1d29aaa`, `8d91fd3`)
 5. toks
 6. catcode
 7. mathcode/delcode

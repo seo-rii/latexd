@@ -898,20 +898,49 @@ The migration evidence and current boundary are:
   validates format, schema, and capabilities before strict state decoding, then
   offers decode plus fallible restore as one mutation-free error boundary.
   Unknown fields in the known document/state schema fail closed.
-- The supported capability set is intentionally empty in this phase, so
-  `eqtb.muskip.scalar-v1` is rejected before state decode. There is no document
-  serializer, versioned checkpoint slot, or production writer yet. Legacy raw
-  snapshots, checkpoint envelope schema 2, and production checkpoint bytes
-  remain unchanged.
+- The supported capability set remains intentionally empty, so
+  `eqtb.muskip.scalar-v1` is rejected before state decode. `8d91fd3` adds the
+  reader-only `versioned_snapshot.document` checkpoint lane behind a private
+  none/legacy/versioned attachment and lane-tagged restore view. Cardinality is
+  decided before semantic decode, both lanes are invalid, and compiler/replay
+  consumers no longer read a public legacy field directly.
+- The follow-up Pro review `6a7c7c89-9d74-83ee-afd4-da353328b99f` returned
+  **REVISE** with high confidence. `8d91fd3` incorporates its requested
+  remediation: the undefined `state_hash` was removed; legacy write eligibility
+  is explicit; bundle serialization and production save preflight before any
+  bytes or filesystem changes; restore-invalid state cannot be replay-selected;
+  metadata/attachment combinations have an executable truth table; and all
+  workspace callers of the former public field were migrated.
+- Exact detached validation at `8d91fd3` passed 72 tex-checkpoint tests, 668
+  tex-vm tests, 10 Python policy/matrix tests, two focused latexd tests, the
+  workspace test-target check, canonical Clippy, and formatting. The expanded
+  `00c8ee3` matrix exchanges actual gzip+base64+hash production envelopes in both
+  directions and replays `R`; candidate versioned-only reuse hits, while dual,
+  unsupported-capability, and malformed documents become unreadable cache
+  misses. Legacy raw snapshots, checkpoint envelope schema 2, and emitted
+  production checkpoint wire shape remain unchanged. The versioned/document
+  serializer and writer remain explicitly disabled; the durable legacy writer
+  remains active for state proven legacy-compatible.
+- The closure Pro review `6a7c8fce-8c90-83ee-8648-f7bbbdd8c596` returned
+  **PROCEED** with about 0.87 confidence for this reader-only phase and
+  **REVISE** for the proposed next sequence. Runtime-only does not imply
+  replay-neutral: the independent cursor needs an old-checkpoint restoration or
+  reuse-rejection contract, and state-derived eligibility plus production
+  attachment suppression must precede snapshot-visible or source-reachable
+  muskip state. The currently empty `required_capabilities()` is an enforcement
+  seam, not a mechanically fail-closed guarantee.
 
-The exact remaining order is: add the dual checkpoint lane and a single-lane
-internal attachment reader while keeping the writer `LegacyOnly`; add distinct
-`MuSkip`/`MuGlue`/scalar-newtype Eqtb state and its independent cursor; make the
-in-memory snapshot complete; add primitives and arithmetic; suppress attachment
-for muskip-tainted state while the writer is disabled; implement the versioned
-writer behind an explicit disabled policy; then activate only after old/new
-real-binary gates and reader deployment. A capability-bearing state must never
-be written through the legacy lane, and a checkpoint with both lanes is invalid.
+The exact remaining order is: RED-test legacy write eligibility, production
+attachment suppression, and the cursor's old-checkpoint restore/reuse contract;
+implement state-derived eligibility and a non-error suppression outcome; add
+distinct `MuSkip`/`MuGlue`/scalar-newtype Eqtb state and its independent cursor;
+make the in-memory snapshot complete in the same gate that marks the state
+non-legacy; add primitives and arithmetic; land the muskip capability reader;
+implement the versioned writer behind an explicit disabled policy; then activate
+only after old/new real-binary gates and reader deployment. A capability-bearing
+state must never be written through the legacy lane, a checkpoint with both
+lanes is invalid, and production save rejection remains defense in depth rather
+than routine suppression control flow.
 
 The asserting production-restore follow-up is already closed by `00c8ee3`,
 which makes `Vm::try_restore` the guarded production boundary.
@@ -984,7 +1013,9 @@ Migration order:
 2. count registers and arithmetic — landed;
 3. dimen registers — landed;
 4. skip registers — landed; muskip readers-first migration has completed the
-   old-binary fixture, cache-miss normalization, and reader-only document phases;
+   old-binary fixture, cache-miss normalization, reader-only document, and dual
+   checkpoint reader phases; legacy eligibility, attachment suppression, and
+   cursor restoration contracts are next;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;
