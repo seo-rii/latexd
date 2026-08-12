@@ -6729,9 +6729,11 @@ impl<'i> Vm<'i> {
                                 && builtin_latex_module_source("package", path).is_none()
                             {
                                 self.emit_render_event(
-                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                                        message: format!("missing package {path}"),
-                                    }),
+                                    RenderEvent::Diagnostic(
+                                        RenderDiagnosticEvent::missing_package(format!(
+                                            "missing package {path}"
+                                        )),
+                                    ),
                                     SourceProvenance::file(
                                         source_path.to_owned(),
                                         command_start as u32,
@@ -6908,9 +6910,9 @@ impl<'i> Vm<'i> {
                             && builtin_latex_module_source("class", path).is_none()
                         {
                             self.emit_render_event(
-                                RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                                    message: format!("missing class {path}"),
-                                }),
+                                RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_class(
+                                    format!("missing class {path}"),
+                                )),
                                 SourceProvenance::file(
                                     source_path.to_owned(),
                                     command_start as u32,
@@ -7018,9 +7020,9 @@ impl<'i> Vm<'i> {
                         {
                             if scan_state.active_input_paths.contains(path) {
                                 self.emit_render_event(
-                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                                        message: format!("skipped cyclic input {path}"),
-                                    }),
+                                    RenderEvent::Diagnostic(RenderDiagnosticEvent::cyclic_input(
+                                        format!("skipped cyclic input {path}"),
+                                    )),
                                     SourceProvenance::file(
                                         source_path.to_owned(),
                                         command_start as u32,
@@ -7113,9 +7115,9 @@ impl<'i> Vm<'i> {
                                 // \includeonly suppresses non-selected files without rendering a placeholder.
                             } else if scan_state.active_input_paths.contains(&path) {
                                 self.emit_render_event(
-                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                                        message: format!("skipped cyclic input {path}"),
-                                    }),
+                                    RenderEvent::Diagnostic(RenderDiagnosticEvent::cyclic_input(
+                                        format!("skipped cyclic input {path}"),
+                                    )),
                                     SourceProvenance::file(
                                         source_path.to_owned(),
                                         command_start as u32,
@@ -7145,9 +7147,9 @@ impl<'i> Vm<'i> {
                             }
                         } else if let Some(path) = input_path.as_ref() {
                             self.emit_render_event(
-                                RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                                    message: format!("missing input {path}"),
-                                }),
+                                RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_input(
+                                    format!("missing input {path}"),
+                                )),
                                 SourceProvenance::file(
                                     source_path.to_owned(),
                                     command_start as u32,
@@ -15090,9 +15092,10 @@ impl<'i> Vm<'i> {
             return;
         }
         self.emit_render_event(
-            RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                message: format!("missing graphic asset {resolved_path}"),
-            }),
+            RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_graphic_asset(
+                format!("missing graphic asset {resolved_path}"),
+                resolved_path,
+            )),
             source,
         );
     }
@@ -33313,9 +33316,9 @@ mod tests {
         CitationStyleHint, EndBlockEvent, EndLayoutContainerEvent, EventProducer,
         FootnoteCommandKind, GeneratedBy, GraphicAssetDensity, GraphicAssetDensityUnit,
         GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, LayoutAlignment, ListKind,
-        MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SourceSpanRole, SpaceKind,
-        TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent,
+        MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan, RenderDiagnosticCode,
+        RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence, SourceSpanRole,
+        SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent,
         TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
@@ -47545,7 +47548,16 @@ Fallback text.
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for missing in ["missing class ghost.cls", "missing package missing.sty"] {
+        for (missing, expected_code) in [
+            (
+                "missing class ghost.cls",
+                RenderDiagnosticCode::MissingClass,
+            ),
+            (
+                "missing package missing.sty",
+                RenderDiagnosticCode::MissingPackage,
+            ),
+        ] {
             let event = outcome
                 .render_events
                 .iter()
@@ -47556,6 +47568,11 @@ Fallback text.
                     )
                 })
                 .expect("missing diagnostic event");
+            let RenderEvent::Diagnostic(diagnostic) = &event.event else {
+                unreachable!("matched diagnostic event changed variant");
+            };
+            assert_eq!(diagnostic.code(), expected_code);
+            assert_eq!(diagnostic.missing_graphic_asset_ref(), None);
             assert_eq!(event.meta.producer, EventProducer::Unknown);
             assert_eq!(event.meta.confidence, SemanticConfidence::Low);
             assert_eq!(event.meta.source.generated_by, GeneratedBy::Source);
@@ -47683,12 +47700,21 @@ Fallback text.
         let outcome = vm.run_plain(source);
 
         for missing in ["missing.tex", "missing-two.tex"] {
-            assert!(outcome.render_events.iter().any(|event| matches!(
-                &event.event,
-                RenderEvent::Diagnostic(diagnostic)
-                    if diagnostic.message.contains("missing input")
-                        && diagnostic.message.contains(missing)
-            )));
+            let diagnostic = outcome
+                .render_events
+                .iter()
+                .find_map(|event| match &event.event {
+                    RenderEvent::Diagnostic(diagnostic)
+                        if diagnostic.message.contains("missing input")
+                            && diagnostic.message.contains(missing) =>
+                    {
+                        Some(diagnostic)
+                    }
+                    _ => None,
+                })
+                .expect("missing input diagnostic");
+            assert_eq!(diagnostic.code(), RenderDiagnosticCode::MissingInput);
+            assert_eq!(diagnostic.missing_graphic_asset_ref(), None);
         }
 
         let visible_text = outcome
@@ -47738,10 +47764,18 @@ Fallback text.
         assert_eq!(visible_text.matches("Child end.").count(), 1);
         assert!(visible_text.contains("Root start."));
         assert!(visible_text.contains("Root end."));
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("cyclic")
-        )));
+        let cyclic_diagnostic = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("cyclic") => {
+                    Some(diagnostic)
+                }
+                _ => None,
+            })
+            .expect("cyclic input diagnostic");
+        assert_eq!(cyclic_diagnostic.code(), RenderDiagnosticCode::CyclicInput);
+        assert_eq!(cyclic_diagnostic.missing_graphic_asset_ref(), None);
         assert!(outcome.diagnostics.iter().any(|diagnostic| {
             diagnostic.kind == VmDiagnosticKind::ExplicitError
                 && diagnostic.detail.contains("cyclic")

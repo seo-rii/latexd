@@ -36,10 +36,10 @@ pub use events::{
     InvalidEventOrigin, LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason,
     ListItemEvent, ListKind, MathSourceEvent, MetadataField, ModeHint, PageBreakEvent,
     PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RecoveryConfidence,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellEvent, TableCellSpanEvent,
-    TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleEvent,
-    TableRulePosition, TableRuleSpan, TextEvent,
+    RenderDiagnosticCode, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SpaceEvent, SpaceKind,
+    TableCellEvent, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
+    TableRowEvent, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{

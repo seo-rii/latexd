@@ -7,7 +7,7 @@ use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 pub type EventSequence = u64;
 pub type FootnoteId = u64;
 
-pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 5;
+pub const RENDER_EVENT_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderEventStream {
@@ -962,9 +962,78 @@ pub enum FallbackReason {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderDiagnosticCode {
+    #[default]
+    Unknown,
+    MissingPackage,
+    MissingClass,
+    CyclicInput,
+    MissingInput,
+    MissingGraphicAsset,
+}
+
+impl RenderDiagnosticCode {
+    fn is_unknown(&self) -> bool {
+        *self == Self::Unknown
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderDiagnosticEvent {
     pub message: String,
+    #[serde(default, skip_serializing_if = "RenderDiagnosticCode::is_unknown")]
+    code: RenderDiagnosticCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    asset_ref: Option<String>,
+}
+
+impl RenderDiagnosticEvent {
+    pub fn missing_package(message: impl Into<String>) -> Self {
+        Self::without_asset(RenderDiagnosticCode::MissingPackage, message)
+    }
+
+    pub fn missing_class(message: impl Into<String>) -> Self {
+        Self::without_asset(RenderDiagnosticCode::MissingClass, message)
+    }
+
+    pub fn cyclic_input(message: impl Into<String>) -> Self {
+        Self::without_asset(RenderDiagnosticCode::CyclicInput, message)
+    }
+
+    pub fn missing_input(message: impl Into<String>) -> Self {
+        Self::without_asset(RenderDiagnosticCode::MissingInput, message)
+    }
+
+    pub fn missing_graphic_asset(message: impl Into<String>, asset_ref: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: RenderDiagnosticCode::MissingGraphicAsset,
+            asset_ref: Some(asset_ref.into()),
+        }
+    }
+
+    pub fn code(&self) -> RenderDiagnosticCode {
+        self.code
+    }
+
+    /// Returns the exact graphic asset join key only for a complete typed
+    /// missing-asset diagnostic. It is not a source path or provenance field.
+    pub fn missing_graphic_asset_ref(&self) -> Option<&str> {
+        match (self.code, self.asset_ref.as_deref()) {
+            (RenderDiagnosticCode::MissingGraphicAsset, Some(asset_ref)) => Some(asset_ref),
+            _ => None,
+        }
+    }
+
+    fn without_asset(code: RenderDiagnosticCode, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code,
+            asset_ref: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -977,10 +1046,10 @@ mod tests {
         InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
         LineBreakEvent, LineBreakReason, ListItemEvent, MathSourceEvent, MetadataField, ModeHint,
         PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
-        RecoveryConfidence, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
-        TableRowEvent, TableRuleSpan, TextEvent,
+        RecoveryConfidence, RenderDiagnosticCode, RenderDiagnosticEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
+        SourceProvenance, SpaceEvent, SpaceKind, TableCellEvent, TableColumnAlignment,
+        TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
     };
 
     fn raw_fallback_event() -> RenderEvent {
@@ -1001,9 +1070,9 @@ mod tests {
     }
 
     fn diagnostic_event() -> RenderEvent {
-        RenderEvent::Diagnostic(RenderDiagnosticEvent {
-            message: "missing input missing.tex".to_string(),
-        })
+        RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_input(
+            "missing input missing.tex",
+        ))
     }
 
     fn synthetic_envelope(
@@ -1034,9 +1103,123 @@ mod tests {
         );
         let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
 
+        assert_eq!(stream.schema_version, 6);
         assert!(encoded.contains(&format!("\"schema_version\": {}", stream.schema_version)));
         assert!(encoded.contains("\"sequence\": 1"));
         assert!(!encoded.contains("\"event_id\""));
+    }
+
+    #[test]
+    fn schema_v6_missing_graphic_diagnostic_round_trips_typed_asset_reference() {
+        let diagnostic = RenderDiagnosticEvent::missing_graphic_asset(
+            "Asset is unavailable",
+            "figures/missing image.png",
+        );
+        assert_eq!(diagnostic.code(), RenderDiagnosticCode::MissingGraphicAsset);
+        assert_eq!(
+            diagnostic.missing_graphic_asset_ref(),
+            Some("figures/missing image.png")
+        );
+
+        let stream = RenderEventStream::new(
+            Some("v6 diagnostic".to_string()),
+            vec![
+                RenderEventEnvelope::try_from_origin(
+                    RenderEvent::Diagnostic(diagnostic),
+                    EventBuildContext::new(1, SourceProvenance::file("main.tex", 0, 32)),
+                    EventOrigin::diagnostic_unknown(),
+                )
+                .expect("typed diagnostic fixture must use a valid origin"),
+            ],
+        );
+        let encoded = serde_json::to_value(&stream).expect("encode v6 diagnostic");
+
+        assert_eq!(encoded["schema_version"], serde_json::json!(6));
+        assert_eq!(
+            encoded["events"][0]["event"]["code"],
+            serde_json::json!("missing_graphic_asset")
+        );
+        assert_eq!(
+            encoded["events"][0]["event"]["asset_ref"],
+            serde_json::json!("figures/missing image.png")
+        );
+        let decoded: RenderEventStream =
+            serde_json::from_value(encoded).expect("decode v6 diagnostic");
+        assert_eq!(decoded, stream);
+    }
+
+    #[test]
+    fn schema_v5_diagnostic_remains_untyped_and_round_trips_without_inference() {
+        let mut encoded = serde_json::to_value(RenderEventStream::new(
+            Some("v5 diagnostic".to_string()),
+            vec![
+                RenderEventEnvelope::try_from_origin(
+                    diagnostic_event(),
+                    EventBuildContext::new(1, SourceProvenance::file("main.tex", 0, 32)),
+                    EventOrigin::diagnostic_unknown(),
+                )
+                .expect("legacy diagnostic fixture must use a valid origin"),
+            ],
+        ))
+        .expect("encode legacy diagnostic fixture");
+        encoded["schema_version"] = serde_json::json!(5);
+        let event = encoded["events"][0]["event"]
+            .as_object_mut()
+            .expect("diagnostic event object");
+        event.remove("code");
+        event.remove("asset_ref");
+        let expected = encoded.clone();
+
+        let decoded: RenderEventStream =
+            serde_json::from_value(encoded).expect("decode schema-v5 diagnostic");
+        let RenderEvent::Diagnostic(diagnostic) = &decoded.events[0].event else {
+            panic!("expected diagnostic event");
+        };
+        assert_eq!(diagnostic.code(), RenderDiagnosticCode::Unknown);
+        assert_eq!(diagnostic.missing_graphic_asset_ref(), None);
+        assert_eq!(diagnostic.message, "missing input missing.tex");
+
+        let reencoded = serde_json::to_value(decoded).expect("re-encode schema-v5 diagnostic");
+        assert_eq!(reencoded, expected);
+    }
+
+    #[test]
+    fn missing_graphic_accessor_rejects_incomplete_or_mismatched_payloads() {
+        for (payload, expected) in [
+            (
+                serde_json::json!({
+                    "message": "Asset is unavailable",
+                    "code": "missing_graphic_asset",
+                    "asset_ref": "figures/missing.png"
+                }),
+                Some("figures/missing.png"),
+            ),
+            (
+                serde_json::json!({
+                    "message": "missing graphic asset figures/missing.png",
+                    "code": "missing_graphic_asset"
+                }),
+                None,
+            ),
+            (
+                serde_json::json!({
+                    "message": "missing graphic asset figures/missing.png",
+                    "code": "missing_input",
+                    "asset_ref": "figures/missing.png"
+                }),
+                None,
+            ),
+            (
+                serde_json::json!({
+                    "message": "missing graphic asset figures/missing.png"
+                }),
+                None,
+            ),
+        ] {
+            let diagnostic: RenderDiagnosticEvent =
+                serde_json::from_value(payload).expect("decode diagnostic payload");
+            assert_eq!(diagnostic.missing_graphic_asset_ref(), expected);
+        }
     }
 
     #[test]
@@ -1057,6 +1240,7 @@ mod tests {
                 )],
             ))
             .expect("encode stream fixture");
+            encoded["schema_version"] = serde_json::json!(5);
             encoded["events"][0]["meta"]["producer"] = serde_json::json!(tag);
 
             let decoded: RenderEventStream =

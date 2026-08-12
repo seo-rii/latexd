@@ -5157,9 +5157,10 @@ mod tests {
             Some("diagnostic-page-id".to_string()),
             vec![
                 RenderEventEnvelope::try_from_origin(
-                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
-                        message: "missing graphic asset figures/missing.png".to_string(),
-                    }),
+                    RenderEvent::Diagnostic(RenderDiagnosticEvent::missing_graphic_asset(
+                        "missing graphic asset figures/missing.png",
+                        "figures/missing.png",
+                    )),
                     EventBuildContext::new(1, source.clone()),
                     EventOrigin::diagnostic_unknown(),
                 )

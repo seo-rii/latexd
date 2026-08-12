@@ -12,9 +12,9 @@ use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, GraphicBlock, ImageCrop,
     ImageRotation, ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MathAtomKind,
-    MathNode, MathScriptPlacement, MetadataField, ModeHint, PositionedTextRun, RenderEvent,
-    SemanticConfidence, SpaceKind, TableBlock, TableColumnAlignment, TextCluster, to_pretty_json,
-    to_semantic_pretty_json,
+    MathNode, MathScriptPlacement, MetadataField, ModeHint, PositionedTextRun,
+    RenderDiagnosticCode, RenderEvent, SemanticConfidence, SpaceKind, TableBlock,
+    TableColumnAlignment, TextCluster, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{
     DocumentIr, FloatBlock, FloatKind, InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole,
@@ -6459,12 +6459,28 @@ fn project_root_missing_graphic_asset_emits_render_diagnostic() {
         capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
             .expect("capture project render ir");
 
-    assert!(capture.events.events.iter().any(|event| matches!(
-        &event.event,
-        RenderEvent::Diagnostic(diagnostic)
-            if diagnostic.message.contains("missing graphic asset")
-                && diagnostic.message.contains("figures/missing.png")
-    )));
+    let diagnostic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::Diagnostic(diagnostic)
+                if diagnostic.message.contains("missing graphic asset") =>
+            {
+                Some(diagnostic)
+            }
+            _ => None,
+        })
+        .expect("missing graphic diagnostic");
+    assert_eq!(diagnostic.code(), RenderDiagnosticCode::MissingGraphicAsset);
+    assert_eq!(
+        diagnostic.missing_graphic_asset_ref(),
+        Some("figures/missing.png")
+    );
+    assert_eq!(
+        diagnostic.message,
+        "missing graphic asset figures/missing.png"
+    );
     let image = capture.page_display_lists[0]
         .ops
         .iter()
@@ -30213,7 +30229,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(
         fs::read_to_string(paths.events)
             .expect("events json")
-            .contains("\"schema_version\": 5")
+            .contains("\"schema_version\": 6")
     );
     assert!(
         fs::read_to_string(paths.document_ir)
