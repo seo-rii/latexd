@@ -229,6 +229,32 @@ Before\input{child}After
 }
 
 #[test]
+fn input_enter_snapshot_reconciles_the_visible_conditional_lossy_caption_occurrence() {
+    let (expected, replayed) = replay_render_events_after_changed_child_in(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{child}\fi
+\input{child}
+\end{document}",
+        r"\caption{Old}",
+        r"\caption{Before \unsupportedcaption{Visible} after}",
+    );
+
+    assert_eq!(replayed, expected, "{replayed:#?}");
+    let captions = replayed
+        .iter()
+        .filter(|event| matches!(event.event, RenderEvent::Caption(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(captions.len(), 1, "{replayed:#?}");
+    assert!(matches!(
+        &captions[0].event,
+        RenderEvent::Caption(caption) if caption.text == "Before Visible after"
+    ));
+    assert_eq!(captions[0].meta.producer, EventProducer::ScannerRecovery);
+    assert_eq!(captions[0].meta.confidence, SemanticConfidence::Medium);
+}
+
+#[test]
 fn completed_link_does_not_snapshot_folded_nested_inline_event_anchors() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
@@ -251,27 +277,35 @@ After.
         })
         .expect("barrier checkpoint")
         .snapshot;
-    let semantic = snapshot
-        .semantic_capture
-        .as_ref()
-        .expect("barrier semantic capture");
-    let valid_event_ids = snapshot
-        .semantic_sink
-        .as_ref()
-        .expect("semantic sink")
-        .events
+    let dangling_anchors = dangling_semantic_event_anchor_ids(snapshot);
+
+    assert!(dangling_anchors.is_empty(), "{dangling_anchors:#?}");
+}
+
+#[test]
+fn completed_caption_does_not_snapshot_folded_nested_caption_event_anchors() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("barrier.tex", "");
+    let outcome = vm.run_plain(
+        r"\begin{document}
+\caption{Outer \caption{Inner} after}
+\input{barrier}
+After.
+\end{document}",
+    );
+    let snapshot = &outcome
+        .module_checkpoints
         .iter()
-        .chain(&semantic.inline.executed_citations)
-        .chain(&semantic.inline.executed_references)
-        .chain(&semantic.inline.executed_links)
-        .chain(&semantic.inline.executed_labels)
-        .map(|event| event.meta.sequence)
-        .collect::<Vec<_>>();
-    let dangling_anchors = semantic
-        .scanner_event_anchors
-        .iter()
-        .filter(|anchor| !valid_event_ids.contains(&anchor.event_sequence))
-        .collect::<Vec<_>>();
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "barrier.tex"
+        })
+        .expect("barrier checkpoint")
+        .snapshot;
+    let dangling_anchors = dangling_semantic_event_anchor_ids(snapshot);
 
     assert!(dangling_anchors.is_empty(), "{dangling_anchors:#?}");
 }
@@ -2108,6 +2142,33 @@ fn replay_render_events_after_input_exit(
     source: &str,
 ) -> (Vec<RenderEventEnvelope>, Vec<RenderEventEnvelope>) {
     replay_render_events_at_input_boundary(source, VmModuleCheckpointKind::Exit)
+}
+
+fn dangling_semantic_event_anchor_ids(snapshot: &VmSnapshot) -> Vec<u64> {
+    let semantic = snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture");
+    let valid_event_ids = snapshot
+        .semantic_sink
+        .as_ref()
+        .expect("semantic sink")
+        .events
+        .iter()
+        .chain(&semantic.inline.executed_citations)
+        .chain(&semantic.inline.executed_references)
+        .chain(&semantic.inline.executed_links)
+        .chain(&semantic.inline.executed_labels)
+        .chain(&semantic.caption.executed_events)
+        .map(|event| event.meta.sequence)
+        .collect::<Vec<_>>();
+    semantic
+        .scanner_event_anchors
+        .iter()
+        .filter_map(|anchor| {
+            (!valid_event_ids.contains(&anchor.event_sequence)).then_some(anchor.event_sequence)
+        })
+        .collect()
 }
 
 fn child_text_execution_anchors(

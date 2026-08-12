@@ -230,6 +230,16 @@ impl Vm<'_> {
         self.rollback_executed_text_events(capture.text_event_mark);
         self.rollback_executed_inline_events(capture.inline_event_mark);
         self.rollback_executed_math_events(capture.math_event_mark);
+        let removed_caption_event_ids = self
+            .semantic_caption
+            .executed_events
+            .iter()
+            .skip(capture.caption_event_mark)
+            .map(|event| event.meta.sequence)
+            .collect::<Vec<_>>();
+        for event_id in removed_caption_event_ids {
+            self.scanner_event_anchors.remove(&event_id);
+        }
         self.semantic_caption
             .executed_events
             .truncate(capture.caption_event_mark);
@@ -253,6 +263,8 @@ impl Vm<'_> {
             origin,
         )
         .expect("executed captions use an origin valid for ordinary events");
+        self.scanner_event_anchors
+            .insert(event_id, self.current_execution_anchor());
         self.semantic_caption.executed_events.push(envelope);
         true
     }
@@ -271,10 +283,30 @@ impl Vm<'_> {
                 reconciled.push(scanner_event);
                 continue;
             }
+            let scanner_execution_anchor =
+                self.scanner_event_anchors.get(&scanner_event.meta.sequence);
+            let scanner_is_suppressed = self.semantic_source_is_suppressed_in_execution(
+                &scanner_event.meta.source,
+                scanner_execution_anchor,
+            );
+            let execution_anchor_matches = |candidate: &RenderEventEnvelope| {
+                let executed_execution_anchor =
+                    self.scanner_event_anchors.get(&candidate.meta.sequence);
+                match (scanner_execution_anchor, executed_execution_anchor) {
+                    (Some(scanner), Some(executed)) => {
+                        scanner == executed
+                            || (!scanner_is_suppressed
+                                && scanner.path == executed.path
+                                && executed.continuation_stack.is_empty())
+                    }
+                    (Some(_), None) | (None, Some(_)) | (None, None) => true,
+                }
+            };
             let matching = executed
                 .iter()
                 .position(|candidate| {
                     candidate.meta.producer != EventProducer::Fallback
+                        && execution_anchor_matches(candidate)
                         && caption_payloads_match(candidate, &scanner_event)
                         && source_locations_overlap(
                             &candidate.meta.source,
@@ -284,6 +316,7 @@ impl Vm<'_> {
                 .or_else(|| {
                     executed.iter().position(|candidate| {
                         candidate.meta.producer != EventProducer::Fallback
+                            && execution_anchor_matches(candidate)
                             && caption_shapes_match(candidate, &scanner_event)
                             && source_locations_overlap(
                                 &candidate.meta.source,
@@ -306,7 +339,7 @@ impl Vm<'_> {
                 }
                 executed_event.meta.source = source;
                 reconciled.push(executed_event);
-            } else if !self.semantic_source_is_suppressed(&scanner_event.meta.source) {
+            } else if !scanner_is_suppressed {
                 reconciled.push(scanner_event);
             }
         }

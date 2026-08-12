@@ -301,6 +301,87 @@ fn lossy_caption_execution_keeps_one_scanner_recovery_event() {
 }
 
 #[test]
+fn repeated_input_keeps_only_the_visible_lossy_caption_occurrence() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file(
+        "caption.tex",
+        r"\caption{Before \unsupportedcaption{Visible} after}",
+    );
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{caption}\fi
+\input{caption}
+\end{document}",
+    );
+    let captions = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Caption(caption) => Some((
+                caption.text.as_str(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        captions,
+        vec![(
+            "Before Visible after",
+            EventProducer::ScannerRecovery,
+            SemanticConfidence::Medium,
+        )],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn repeated_input_matches_the_visible_executed_caption_occurrence() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file("caption.tex", r"\caption{Visible}");
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\input{caption}\fi
+\input{caption}
+\end{document}",
+    );
+    let captions = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Caption(caption) => Some((
+                caption.text.as_str(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        captions,
+        vec![(
+            "Visible",
+            EventProducer::Primitive,
+            SemanticConfidence::High,
+        )],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn mixed_macro_keeps_lossy_caption_fallback_after_runtime_false_prefix() {
     let outcome = capture(
         r"\def\mixedcaption#1{\ifnum\count0>0 Hidden.\fi#1}
