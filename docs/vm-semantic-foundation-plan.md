@@ -275,7 +275,7 @@ until module boundaries prove stable.
 
 ### Producer Contract
 
-Use explicit event producers:
+The long-term versioned taxonomy target remains:
 
 ```rust
 pub enum EventProducer {
@@ -289,6 +289,12 @@ pub enum EventProducer {
     Unknown,
 }
 ```
+
+Schema v5 deliberately has a narrower sanctioned writer image. Opaque
+`EventOrigin` construction currently emits `Primitive`, `Macro`,
+`ScannerRecovery`, `Fallback`, or `Unknown`. The public serde enum additionally
+accepts and re-serializes `Command`, `Shim`, and `BblParser` for compatibility;
+those tags are not current producer implementations.
 
 Production writes use the opaque `EventOrigin` policy boundary and a
 private-field `EventBuildContext` so an origin-unknown event cannot silently
@@ -335,9 +341,13 @@ The syntax-tree policy now admits only `try_from_origin()` and
 private `from_metadata()` assembly only from `try_from_origin()`. Existing
 Clippy `disallowed-methods` remain as defense in depth (`776d604`, `0940368`).
 The policy also rejects direct assignments to producer, confidence, and
-provenance generated-by fields. This protects sanctioned write paths; it does
-not claim that every representable `RenderEventEnvelope` is valid while its
-fields and permissive serde remain public.
+provenance generated-by fields. It also rejects production expression
+construction of the three v5 compatibility-only producers and a blanket
+`From<GeneratedBy> for EventProducer` conversion, while allowing explicit
+pattern matching that rejects decoded compatibility values. This protects
+sanctioned first-party write paths; it does not claim that every representable
+`RenderEventEnvelope` is valid, nor prevent external construction while its
+fields and permissive serde remain public (`ba887bf`).
 Table raw-fallback promotion and text leading-space reconciliation now rebuild
 envelopes through typed origins while preserving sequence, source, and mode
 (`75a79d5`). List, environment, heading, caption, graphic, front-matter, and
@@ -370,10 +380,14 @@ Policy:
   semantic change;
 - a no-op shim emits a diagnostic and is not counted as supported behavior.
 
-The serialized producer variant remains `Command` for now. Renaming it to
-`CompatCommand`, assigning `Shim`/`BblParser`, tightening legacy
-deserialization, and normalizing lossy or diagnostic taxonomy are separate
-schema/semantic migrations after the remaining call sites are classified.
+The serialized producer variant remains `Command`. A repository audit found no
+sanctioned production assignment for `Command`, `Shim`, or `BblParser`; schema-v5
+full-stream fixtures preserve all three exact wire tags, and active semantic
+captures reject all three after deserialization. Renaming `Command` to
+`CompatCommand`, assigning future `Shim`/`BblParser` semantics, tightening
+legacy deserialization, and normalizing lossy or diagnostic taxonomy remain
+separate migrations. A future wire migration requires a concrete producer and
+consumer invariant plus a readers-first, rollback-safe version plan (`ba887bf`).
 
 ### Recovery Scope
 
@@ -530,7 +544,9 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | scanner producer/confidence | typed scanner construction preserves ordinary `ScannerRecovery`/medium, `RawFallback` fallback origin, and current diagnostic `Unknown`/low behavior in focused model tests | green | preserve these semantics on every bounded recovery path; any diagnostic retag is a separate change |
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
-| producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
+| sanctioned production-write taxonomy | exhaustive typed-origin tests map every current writer to `Primitive`, `Macro`, `ScannerRecovery`, `Fallback`, or `Unknown`; the AST policy rejects direct compatibility-only construction and provenance-to-authority conversion in production source | green | preserve this closed first-party writer image until a concrete new authority is designed |
+| schema-v5 producer compatibility | full-stream fixtures deserialize and reserialize `command`, `shim`, and `bbl_parser` without relabeling or changing schema 5; active semantic captures reject all three | green | keep decode/round-trip compatibility separate from consumer and snapshot-state validity |
+| future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
 | false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, source-scoped `Gin` defaults, scanner recovery diagnostics, and non-table raw fallbacks are suppressed with visible/actual/replay regressions | green | require a family-specific false/visible regression and continuation coverage when a new scanner recovery path can outlive execution filtering |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |

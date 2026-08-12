@@ -319,8 +319,24 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   RED로 남기도록 결정했다. file/revision/expansion identity가 없는 임시 타입을
   `ExecutedSourceSlice`로 명명하거나 snapshot/wire에 넣지 않는다.
 
-- `Primitive`, `Macro`, `CompatCommand`, `Shim`, `BblParser`,
-  `ScannerRecovery`, `Fallback`, `Unknown` producer를 명시한다.
+2026-08-12 Pro review 결정:
+- schema v5와 현재 Rust variant/wire tag를 유지하고, 먼저 sanctioned
+  first-party production-write taxonomy만 닫는다. opaque `EventOrigin` writer
+  image는 `Primitive`, `Macro`, `ScannerRecovery`, `Fallback`, `Unknown` 다섯
+  variant이며 production AST guard가 `Command`, `Shim`, `BblParser` 직접
+  construction과 blanket `From<GeneratedBy> for EventProducer`를 막는다
+  (`ba887bf`).
+- schema-v5 full-stream fixture는 `command`, `shim`, `bbl_parser`를 exact
+  round-trip하고, active semantic snapshot은 세 compatibility-only producer를
+  모두 거부한다. 따라서 writer closure와 legacy read/round-trip compatibility를
+  별도 완료 조건으로 유지한다.
+- `Command` rename, schema v6, 새 `Shim`/`BblParser` semantics는 실제
+  producer/consumer invariant와 readers-first, rollback-safe migration 계획이
+  함께 생길 때까지 보류한다.
+
+- 장기 versioned taxonomy target에는 `Primitive`, `Macro`, command/shim/BibTeX
+  계열 producer, `ScannerRecovery`, `Fallback`, `Unknown`을 명시하되, 현재
+  schema-v5 compatibility tag를 구현된 writer semantics로 오해하지 않는다.
 - sanctioned constructor가 raw producer/confidence 쌍 대신 검증된
   `EventOrigin`을 필수로 받게 한다.
 - 현재 `event_id`를 build-local `sequence`로 정직하게 versioning한다.

@@ -1061,10 +1061,15 @@ Example semantic golden normalization:
     "source": "<present>",
     "mode_hint": "vertical",
     "confidence": "high",
-    "producer": "command"
+    "producer": "primitive"
   }
 }
 ```
+
+Current first-party semantic writes use a sanctioned producer such as
+`primitive`. Separate schema-v5 compatibility fixtures preserve the exact
+`command`, `shim`, and `bbl_parser` wire tags; those tags do not describe current
+producer implementations.
 
 ## Source Provenance
 
