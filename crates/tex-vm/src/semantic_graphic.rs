@@ -27,6 +27,7 @@ pub(super) struct SemanticGraphicState {
     scanner_event_ids: HashSet<EventSequence>,
     executed_events: Vec<RenderEventEnvelope>,
     overridden_invocations: Vec<GraphicInvocationRange>,
+    pub(super) scanner_default_options: Vec<ScannerGraphicDefaultOptions>,
     pub(super) graphic_paths: Vec<Utf8PathBuf>,
     pub(super) graphic_extensions: Vec<String>,
     pub(super) default_options: Option<String>,
@@ -38,6 +39,16 @@ struct GraphicInvocationRange {
     path: Utf8PathBuf,
     start_utf8: u32,
     end_utf8: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ScannerGraphicDefaultOptions {
+    pub(super) options: String,
+    pub(super) path: Utf8PathBuf,
+    pub(super) start_utf8: u32,
+    pub(super) end_utf8: u32,
+    pub(super) first_event_sequence: EventSequence,
+    pub(super) execution_anchor: crate::snapshot::VmExecutionAnchor,
 }
 
 struct ExecutedGraphicInput {
@@ -71,6 +82,21 @@ impl Vm<'_> {
                     end_utf8: invocation.end_utf8,
                 })
                 .collect(),
+            scanner_default_options: self
+                .semantic_graphic
+                .scanner_default_options
+                .iter()
+                .map(
+                    |options| crate::snapshot::VmScannerGraphicDefaultOptionsSnapshot {
+                        options: options.options.clone(),
+                        path: options.path.clone(),
+                        start_utf8: options.start_utf8,
+                        end_utf8: options.end_utf8,
+                        first_event_sequence: options.first_event_sequence,
+                        execution_anchor: options.execution_anchor.clone(),
+                    },
+                )
+                .collect(),
         }
     }
 
@@ -90,12 +116,25 @@ impl Vm<'_> {
                 end_utf8: invocation.end_utf8,
             })
             .collect();
+        self.semantic_graphic.scanner_default_options = snapshot
+            .scanner_default_options
+            .iter()
+            .map(|options| ScannerGraphicDefaultOptions {
+                options: options.options.clone(),
+                path: options.path.clone(),
+                start_utf8: options.start_utf8,
+                end_utf8: options.end_utf8,
+                first_event_sequence: options.first_event_sequence,
+                execution_anchor: options.execution_anchor.clone(),
+            })
+            .collect();
     }
 
     pub(super) fn prepare_semantic_graphic_capture(&mut self) {
         self.semantic_graphic.scanner_event_ids.clear();
         self.semantic_graphic.executed_events.clear();
         self.semantic_graphic.overridden_invocations.clear();
+        self.semantic_graphic.scanner_default_options.clear();
     }
 
     pub(super) fn mark_scanner_graphic_event(&mut self, event_id: EventSequence) {
@@ -438,6 +477,7 @@ impl Vm<'_> {
 
     pub(super) fn reconcile_executed_graphic_events(&mut self) {
         let scanner_ids = mem::take(&mut self.semantic_graphic.scanner_event_ids);
+        let scanner_default_options = mem::take(&mut self.semantic_graphic.scanner_default_options);
         let mut executed = mem::take(&mut self.semantic_graphic.executed_events);
         let overridden_invocations = mem::take(&mut self.semantic_graphic.overridden_invocations);
         if scanner_ids.is_empty() && executed.is_empty() && overridden_invocations.is_empty() {
@@ -446,10 +486,60 @@ impl Vm<'_> {
 
         let scanner_events = self.render_events.take_events();
         let mut reconciled = Vec::with_capacity(scanner_events.len() + executed.len());
-        for scanner_event in scanner_events {
+        for mut scanner_event in scanner_events {
             if !scanner_ids.contains(&scanner_event.meta.sequence) {
                 reconciled.push(scanner_event);
                 continue;
+            }
+            if let RenderEvent::GraphicRef(graphic) | RenderEvent::IncludePdf(graphic) =
+                &mut scanner_event.event
+                && let Some(options) = graphic.options.as_deref()
+            {
+                let mut option_parts = graphic_option_parts(options)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let mut search_start = 0usize;
+                for contribution in scanner_default_options.iter().filter(|contribution| {
+                    contribution.first_event_sequence <= scanner_event.meta.sequence
+                }) {
+                    let contribution_parts = graphic_option_parts(&contribution.options);
+                    if contribution_parts.is_empty()
+                        || contribution_parts.len()
+                            > option_parts.len().saturating_sub(search_start)
+                    {
+                        continue;
+                    }
+                    let Some(relative_start) = option_parts[search_start..]
+                        .windows(contribution_parts.len())
+                        .position(|window| {
+                            window
+                                .iter()
+                                .map(String::as_str)
+                                .eq(contribution_parts.iter().copied())
+                        })
+                    else {
+                        continue;
+                    };
+                    let contribution_start = search_start + relative_start;
+                    let contribution_end = contribution_start + contribution_parts.len();
+                    let source = SourceProvenance::file(
+                        contribution.path.clone(),
+                        contribution.start_utf8,
+                        contribution.end_utf8,
+                    );
+                    if self.semantic_source_is_suppressed_in_execution(
+                        &source,
+                        Some(&contribution.execution_anchor),
+                    ) {
+                        option_parts.drain(contribution_start..contribution_end);
+                        search_start = contribution_start;
+                    } else {
+                        search_start = contribution_end;
+                    }
+                }
+                graphic.options = (!option_parts.is_empty()).then(|| option_parts.join(","));
+                graphic.page_selection = parse_graphic_page_selection(graphic.options.as_deref());
             }
             let matching = executed.iter().position(|candidate| {
                 graphic_shapes_match(candidate, &scanner_event)
@@ -622,60 +712,64 @@ fn legacy_graphic_path_span(tokens: &[Token]) -> Option<(u32, u32)> {
 }
 
 fn legacy_graphic_path(options: &str) -> Option<String> {
-    let mut part_start = 0usize;
-    let mut part_index = 0usize;
-    let mut brace_depth = 0usize;
-    while part_index <= options.len() {
-        let delimiter = part_index == options.len()
-            || (brace_depth == 0 && options[part_index..].starts_with(','));
-        if delimiter {
-            let part = &options[part_start..part_index];
-            let mut equals_index = None;
-            let mut part_depth = 0usize;
-            for (index, ch) in part.char_indices() {
-                match ch {
-                    '{' => part_depth += 1,
-                    '}' => part_depth = part_depth.saturating_sub(1),
-                    '=' if part_depth == 0 => {
-                        equals_index = Some(index);
-                        break;
-                    }
-                    _ => {}
+    for part in graphic_option_parts(options) {
+        let mut equals_index = None;
+        let mut part_depth = 0usize;
+        for (index, ch) in part.char_indices() {
+            match ch {
+                '{' => part_depth += 1,
+                '}' => part_depth = part_depth.saturating_sub(1),
+                '=' if part_depth == 0 => {
+                    equals_index = Some(index);
+                    break;
                 }
+                _ => {}
             }
-            if let Some(equals_index) = equals_index {
-                let key = part[..equals_index].trim();
-                if matches!(key, "file" | "figure") {
-                    let value = part[equals_index + 1..].trim();
-                    let value = if let Some((inner, _, _, after_inner)) =
-                        read_braced_source_argument(value, 0)
-                        && skip_ascii_whitespace(value, after_inner) == value.len()
-                    {
-                        inner
-                    } else {
-                        value
-                    };
-                    let path = normalize_latex_text(value);
-                    if !path.is_empty() {
-                        return Some(path);
-                    }
-                }
-            }
-            part_index += 1;
-            part_start = part_index;
-            continue;
         }
-        let Some(ch) = options[part_index..].chars().next() else {
-            break;
-        };
+        if let Some(equals_index) = equals_index {
+            let key = part[..equals_index].trim();
+            if matches!(key, "file" | "figure") {
+                let value = part[equals_index + 1..].trim();
+                let value = if let Some((inner, _, _, after_inner)) =
+                    read_braced_source_argument(value, 0)
+                    && skip_ascii_whitespace(value, after_inner) == value.len()
+                {
+                    inner
+                } else {
+                    value
+                };
+                let path = normalize_latex_text(value);
+                if !path.is_empty() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn graphic_option_parts(options: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut part_start = 0usize;
+    let mut brace_depth = 0usize;
+    for (index, ch) in options
+        .char_indices()
+        .chain(std::iter::once((options.len(), ',')))
+    {
         match ch {
             '{' => brace_depth += 1,
             '}' => brace_depth = brace_depth.saturating_sub(1),
+            ',' if brace_depth == 0 => {
+                let part = options[part_start..index].trim();
+                if !part.is_empty() {
+                    parts.push(part);
+                }
+                part_start = index + 1;
+            }
             _ => {}
         }
-        part_index += ch.len_utf8();
     }
-    None
+    parts
 }
 
 fn graphic_payloads_match(left: &RenderEventEnvelope, right: &RenderEventEnvelope) -> bool {

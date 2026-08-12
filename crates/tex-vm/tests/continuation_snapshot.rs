@@ -829,6 +829,27 @@ Visible.
 }
 
 #[test]
+fn input_exit_snapshot_suppresses_runtime_false_scanner_gin_defaults() {
+    let source = r"\count0=0
+\ifnum\count0>0\setkeys{Gin}{angle=90}\fi
+\begin{document}
+\input{barrier}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}";
+    let (expected, actual) = replay_render_events_after_input_exit(source);
+
+    assert_eq!(actual, expected);
+    let graphic = actual
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "right.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("visible scanner graphic");
+    assert_eq!(graphic.options.as_deref(), Some("width=4cm"));
+}
+
+#[test]
 fn input_exit_snapshot_replays_icml_profile_metadata() {
     let source = r"\usepackage{icml2020}
 \begin{document}

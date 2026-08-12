@@ -1212,6 +1212,8 @@ pub struct VmSemanticGraphicSnapshot {
     pub executed_events: Vec<RenderEventEnvelope>,
     #[serde(default)]
     pub overridden_invocations: Vec<VmGraphicInvocationRangeSnapshot>,
+    #[serde(default)]
+    pub scanner_default_options: Vec<VmScannerGraphicDefaultOptionsSnapshot>,
 }
 
 impl VmSemanticGraphicSnapshot {
@@ -1227,6 +1229,10 @@ impl VmSemanticGraphicSnapshot {
                 .overridden_invocations
                 .iter()
                 .all(VmGraphicInvocationRangeSnapshot::is_restorable)
+            && self
+                .scanner_default_options
+                .iter()
+                .all(VmScannerGraphicDefaultOptionsSnapshot::is_restorable)
     }
 }
 
@@ -1240,6 +1246,27 @@ pub struct VmGraphicInvocationRangeSnapshot {
 impl VmGraphicInvocationRangeSnapshot {
     fn is_restorable(&self) -> bool {
         self.start_utf8 <= self.end_utf8
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmScannerGraphicDefaultOptionsSnapshot {
+    pub options: String,
+    pub path: Utf8PathBuf,
+    pub start_utf8: u32,
+    pub end_utf8: u32,
+    pub first_event_sequence: EventSequence,
+    #[serde(default)]
+    pub execution_anchor: VmExecutionAnchor,
+}
+
+impl VmScannerGraphicDefaultOptionsSnapshot {
+    fn is_restorable(&self) -> bool {
+        !self.options.trim().is_empty()
+            && self.start_utf8 <= self.end_utf8
+            && self.first_event_sequence != 0
+            && self.path == self.execution_anchor.path
+            && self.execution_anchor.is_restorable()
     }
 }
 

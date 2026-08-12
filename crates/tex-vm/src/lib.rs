@@ -1588,6 +1588,9 @@ impl<'i> Vm<'i> {
         graphic
             .scanner_event_ids
             .retain(|event_id| !removed_event_ids.contains(event_id));
+        graphic.scanner_default_options.retain(|options| {
+            options.path != *path || options.execution_anchor != execution_anchor
+        });
         self.restore_semantic_graphic_snapshot(&graphic);
         let mut list = original_list.clone();
         list.scanner_item_event_ids
@@ -1760,6 +1763,12 @@ impl<'i> Vm<'i> {
 
             let mut graphic = self.semantic_graphic_snapshot();
             remap_event_ids(&mut graphic.scanner_event_ids);
+            for options in &mut graphic.scanner_default_options {
+                if let Some(committed_event_id) = event_id_remap.get(&options.first_event_sequence)
+                {
+                    options.first_event_sequence = *committed_event_id;
+                }
+            }
             self.restore_semantic_graphic_snapshot(&graphic);
 
             let mut list = self.semantic_list_snapshot();
@@ -6756,6 +6765,21 @@ impl<'i> Vm<'i> {
                             {
                                 let options = options.trim();
                                 if !options.is_empty() {
+                                    let scanner_default_options =
+                                        semantic_graphic::ScannerGraphicDefaultOptions {
+                                            options: options.to_string(),
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: after_options as u32,
+                                            first_event_sequence: self
+                                                .render_events
+                                                .next_event_sequence(),
+                                            execution_anchor: self
+                                                .current_scanner_execution_anchor(),
+                                        };
+                                    self.semantic_graphic
+                                        .scanner_default_options
+                                        .push(scanner_default_options);
                                     scan_state.graphic_default_options = merge_graphic_options(
                                         scan_state.graphic_default_options.clone(),
                                         Some(options),

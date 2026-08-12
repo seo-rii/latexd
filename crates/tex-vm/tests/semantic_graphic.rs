@@ -98,6 +98,75 @@ fn runtime_false_graphic_package_options_do_not_reach_visible_graphics() {
 }
 
 #[test]
+fn runtime_false_gin_defaults_do_not_reach_visible_scanner_graphics() {
+    let outcome = capture(
+        r"\count0=0
+\ifnum\count0>0
+\setkeys{Gin}{angle=90}
+\fi
+\begin{document}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("visible scanner graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.path, "right.pdf");
+    assert_eq!(graphic_event.options.as_deref(), Some("width=4cm"));
+}
+
+#[test]
+fn visible_gin_defaults_reach_visible_scanner_graphics() {
+    let outcome = capture(
+        r"\setkeys{Gin}{angle=90}
+\begin{document}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("visible scanner graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.path, "right.pdf");
+    assert_eq!(graphic_event.options.as_deref(), Some("angle=90,width=4cm"));
+}
+
+#[test]
+fn false_gin_default_removal_preserves_an_equal_visible_default() {
+    let outcome = capture(
+        r"\setkeys{Gin}{angle=90}
+\count0=0
+\ifnum\count0>0
+\setkeys{Gin}{angle=90}
+\fi
+\begin{document}
+\begin{overpic}[width=4cm]{right.pdf}\end{overpic}
+\end{document}",
+    );
+    let graphic = outcome
+        .render_events
+        .iter()
+        .find(|event| matches!(event.event, RenderEvent::GraphicRef(_)))
+        .expect("visible scanner graphic");
+    let RenderEvent::GraphicRef(graphic_event) = &graphic.event else {
+        unreachable!();
+    };
+
+    assert_eq!(graphic_event.options.as_deref(), Some("angle=90,width=4cm"));
+}
+
+#[test]
 fn macro_generated_graphic_emits_at_the_invocation() {
     let outcome = capture(
         r"\def\emitgraphic#1{\includegraphics[width=2cm]{#1}}
