@@ -294,6 +294,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `Fallback`/low caption이 유일한 증거다. Executed caption은 이미 VM control
   flow를 통과했으므로 coarse source suppression을 다시 적용하지 않고 보존하며,
   실제 false branch 안의 macro caption은 계속 생성하지 않는다 (`4520dfd`).
+- simple inline wrapper(`\emph` 계열)의 직접 scanner text도 invocation-aware slot에
+  연결했다. Runtime-false `\emph{Wrong}`은 제거되고 visible `\emph{Right}`은 한
+  번만 남으며, 기존 scanner-recovery/medium event가 실행 primitive/high event로
+  승격되는 provenance 계약도 golden으로 고정했다 (`829bb34`). 중첩 command를
+  포함한 wrapper 분기와 별도 link/unit/symbol helper는 계속 열린 목록이다.
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
