@@ -10298,8 +10298,8 @@ impl<'i> Vm<'i> {
                                                                             true,
                                                                         );
                                                                     } else {
-                                                                        self.emit_render_event(
-                                                                            RenderEvent::Text(
+                                                                        self.emit_owned_scanner_text_event(
+                                                                            ScannerOwnedTextEvent::Text(
                                                                                 TextEvent {
                                                                                     text:
                                                                                         normalize_latex_text(
@@ -10314,11 +10314,15 @@ impl<'i> Vm<'i> {
                                                                                 visible_text_end
                                                                                     as u32,
                                                                             ),
+                                                                            source_path,
+                                                                            argument_command_start
+                                                                                as u32,
+                                                                            command_after as u32,
                                                                         );
                                                                     }
                                                                 } else {
-                                                                    self.emit_render_event(
-                                                                        RenderEvent::Text(
+                                                                    self.emit_owned_scanner_text_event(
+                                                                        ScannerOwnedTextEvent::Text(
                                                                             TextEvent {
                                                                                 text: normalize_latex_text(
                                                                                     text,
@@ -10331,6 +10335,9 @@ impl<'i> Vm<'i> {
                                                                             visible_text_end
                                                                                 as u32,
                                                                         ),
+                                                                        source_path,
+                                                                        argument_command_start as u32,
+                                                                        command_after as u32,
                                                                     );
                                                                 }
                                                                 argument_inner_index =

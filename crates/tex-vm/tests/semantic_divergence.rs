@@ -599,6 +599,41 @@ fn runtime_false_deeper_link_writers_do_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_deep_fallback_text_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\emph{\outer{\inner{Wrong}}}
+\emph{\outer{\inner{\leaf{Hidden}}}}
+\fi
+\emph{\outer{\inner{Right}}}
+\emph{\outer{\inner{\leaf{Visible}}}}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        text.iter()
+            .all(|text| !text.contains("Wrong") && !text.contains("Hidden")),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(text.iter().filter(|text| text.contains("Right")).count(), 1);
+    assert_eq!(
+        text.iter().filter(|text| text.contains("Visible")).count(),
+        1
+    );
+}
+
+#[test]
 fn runtime_false_direct_nohyper_links_do_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0
