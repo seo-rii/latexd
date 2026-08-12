@@ -8437,10 +8437,10 @@ impl<'i> Vm<'i> {
                                             argument
                                             && command_after <= content_end
                                         {
-                                            self.emit_render_event(
-                                                RenderEvent::Text(TextEvent {
+                                            self.emit_owned_scanner_text(
+                                                TextEvent {
                                                     text: text.trim().to_string(),
-                                                }),
+                                                },
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     text_start as u32,
@@ -8454,6 +8454,9 @@ impl<'i> Vm<'i> {
                                                         end_utf8: command_after as u32,
                                                     }),
                                                 ),
+                                                source_path,
+                                                inner_command_start as u32,
+                                                command_after as u32,
                                             );
                                             inner_index = command_after;
                                         }
@@ -15099,30 +15102,24 @@ impl<'i> Vm<'i> {
                         );
                         let overlay_text = normalize_latex_text_with_inline_placeholders(overlay);
                         if !overlay_text.is_empty() {
-                            let event_id = self
-                                .emit_render_event(
-                                    RenderEvent::Text(TextEvent { text: overlay_text }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        overlay_start as u32,
-                                        overlay_end as u32,
-                                    )
-                                    .with_related(
-                                        SourceSpanRole::Invocation,
-                                        ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: overlay_command_start as u32,
-                                            end_utf8: after_overlay as u32,
-                                        }),
-                                    ),
+                            self.emit_owned_scanner_text(
+                                TextEvent { text: overlay_text },
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    overlay_start as u32,
+                                    overlay_end as u32,
                                 )
-                                .meta
-                                .sequence;
-                            self.record_scanner_boundary_event(
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: overlay_command_start as u32,
+                                        end_utf8: after_overlay as u32,
+                                    }),
+                                ),
                                 source_path,
                                 overlay_command_start as u32,
                                 after_overlay as u32,
-                                event_id,
                             );
                         }
                         body_index = after_overlay;
@@ -16114,6 +16111,27 @@ impl<'i> Vm<'i> {
         self.render_events
             .last_mut()
             .expect("just pushed render event")
+    }
+
+    fn emit_owned_scanner_text(
+        &mut self,
+        event: TextEvent,
+        source: SourceProvenance,
+        ownership_path: &Utf8Path,
+        ownership_start_utf8: u32,
+        ownership_end_utf8: u32,
+    ) -> EventSequence {
+        let event_id = self
+            .emit_render_event(RenderEvent::Text(event), source)
+            .meta
+            .sequence;
+        self.record_scanner_boundary_event(
+            ownership_path,
+            ownership_start_utf8,
+            ownership_end_utf8,
+            event_id,
+        );
+        event_id
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
