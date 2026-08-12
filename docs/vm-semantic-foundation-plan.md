@@ -501,6 +501,29 @@ cannot be defined correctly until V4 supplies file-aware token origins and
 interned expansion records. Footnote or node identity must stop depending on
 the next event sequence before replay reuse is enabled.
 
+Footnotes now own a separate monotonic `FootnoteId` allocator, and changed-input
+recovery no longer infers that identity from the event sequences reused by the
+sink transaction. On a successful source refresh, the live footnote namespace
+is densely rebased to the same allocation phases as a clean build: recovery
+scanner identities in final stream order, followed by the pre-refresh executed
+transaction/active/pending identities in allocator order (`ba9424d`). The
+refresh path asserts that rescanning did not create executed footnote state.
+Regressions cover an earlier non-footnote insertion, child-note insertion and
+deletion before a later parent note, and an active state-only footnote crossing
+the changed input; the later checkpoint allocator snapshot must equal a clean
+run.
+
+A Pro review correctly challenged the initial unqualified state-only suffix
+assumption. Repository tracing showed the missing lifecycle fact: recovery
+refresh runs only the scanner before loading the module, so it cannot add a
+completed transaction, active capture, or pending executed mark. The
+implementation enforces that boundary instead of introducing the review's
+broader anchor planner. `FootnoteId` remains build-epoch-local and may be
+renumbered after an earlier source edit. Current layout/IR consumers are built
+from the completed event stream and do not survive inside the VM refresh
+transaction; cross-revision stable identity remains deferred with
+`StableEventId`.
+
 ### Legacy Constructor Inventory (2026-08-11)
 
 All 112 call sites present before this migration slice were classified. After
@@ -555,7 +578,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
 | shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | missing | define and version the shared renderer outcome/schema adapters; do not infer phase/recovery from remaining message strings or duplicate raster/PDF decode policy |
-| sequence-independent semantic identity | several reconciliation paths preserve sequence; the full dependent-ID audit is incomplete | partial | remove semantic identity dependence before replay reuse |
+| sequence-independent semantic identity | footnotes use an independent allocator; changed-source replay densely rebases scanner and executed identity phases without consulting event-sequence correspondence, including active state-only and note-count-change regressions | partial | audit remaining dependent IDs and keep build-local ordering distinct from future cross-revision `StableEventId` |
 | `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
 
 Exit criteria:
