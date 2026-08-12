@@ -942,13 +942,19 @@ The migration evidence and current boundary are:
   so this batch pins the synthetic policy and all-category source boundary; the
   real muskip-bearing zero-byte, zero-filesystem, suppression, and provenance-
   laundering tests must land atomically with the first capability-bearing state.
+- `b809c30` adds the runtime-only owner. `EqKey::MuSkip` and
+  `EqValue::MuGlue(MuGlueScalarV1)` are distinct from `Skip`/`Glue` and reuse the
+  common `Eqtb::assign`/SaveStack transition for local/global unwind. The
+  independent muskip cursor starts at 256; restoring a legacy snapshot with no
+  muskip field re-establishes that initial cursor independently of restored skip
+  allocator progress. No snapshot field, capability, alias/allocation primitive,
+  or arithmetic is source-reachable yet.
 
-The exact remaining order is: RED-test the cursor's old-checkpoint restore/reuse
-contract and a real capability-bearing snapshot's write, suppression, and
-laundering boundaries; add distinct `MuSkip`/`MuGlue`/scalar-newtype Eqtb state
-and its independent cursor; make the in-memory snapshot complete in the same
-gate that derives the capability and exercises capture suppression; add
-primitives and arithmetic; land the muskip capability reader; implement the
+The exact remaining order is: RED-test the cursor's complete snapshot/restore
+differential and a real capability-bearing snapshot's write, suppression, and
+laundering boundaries; make the in-memory snapshot complete in the same gate
+that derives the capability and exercises capture suppression; add allocator,
+alias, and arithmetic primitives; land the muskip capability reader; implement the
 versioned writer behind an explicit disabled policy; then activate only after
 old/new real-binary gates and reader deployment. A capability-bearing state must
 never be written through the legacy lane, a checkpoint with both lanes is
@@ -1028,7 +1034,8 @@ Migration order:
 4. skip registers — landed; muskip readers-first migration has completed the
    old-binary fixture, cache-miss normalization, reader-only document, and dual
    checkpoint reader phases; the legacy eligibility/attachment suppression seam
-   is installed, and cursor restoration plus real-state regressions are next;
+   and typed runtime owner are installed, and complete snapshot/capability
+   regressions are next;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;

@@ -580,13 +580,19 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   capability policy RED/GREEN과 세 category source guard를 먼저 고정했으며, 실제
   muskip-bearing snapshot의 zero-byte/zero-filesystem/laundering 회귀는 첫
   capability-bearing state와 원자적으로 추가한다.
+- `b809c30`은 runtime-only owner를 추가했다. `EqKey::MuSkip`과
+  `EqValue::MuGlue(MuGlueScalarV1)`는 기존 `Skip/Glue`와 타입이 분리되고 모든
+  local/global unwind는 공통 `Eqtb::assign`/SaveStack을 사용한다. 독립 muskip
+  cursor는 skip cursor와 별도로 256에서 시작하며, muskip field가 없는 legacy
+  snapshot restore는 changed skip cursor와 무관하게 이 초기값을 복원한다. 아직
+  snapshot field, capability, alias, allocator primitive, arithmetic은 없다.
 
-승인된 다음 순서는 (1) cursor의 old-checkpoint 복원/비재사용 계약과 실제
+승인된 다음 순서는 (1) cursor의 complete snapshot/restore differential과 실제
 capability-bearing snapshot의 write/suppression/laundering 경계를 RED test로 고정,
-(2) distinct `MuSkip`/`MuGlue`/scalar newtype와 독립 cursor의 runtime owner,
-(3) state-derived capability와 suppression 회귀를 원자적으로 포함한 완전한
-in-memory snapshot/restore, (4) primitives/arithmetic, (5) muskip capability reader,
-(6) 명시적으로 disabled인 versioned writer 구현, (7) old/new real-binary gate와
+(2) state-derived capability와 suppression 회귀를 원자적으로 포함한 완전한
+in-memory snapshot/restore, (3) allocator/alias primitives와 arithmetic,
+(4) muskip capability reader, (5) 명시적으로 disabled인 versioned writer 구현,
+(6) old/new real-binary gate와
 reader 선배포 뒤 별도 writer 활성화다. 어느 단계에서도 capability-bearing state를
 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가 아니라 attachment
 suppression과 정상 source rebuild로 귀결한다.
@@ -618,8 +624,9 @@ suppression과 정상 source rebuild로 귀결한다.
 2. count와 arithmetic
 3. dimen
 4. skip — 완료; muskip — readers-first document와 dual checkpoint reader 완료,
-   legacy eligibility/suppression seam 완료, cursor contract 진행 예정
-   (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`, `a2466c7`)
+   legacy eligibility/suppression seam과 typed runtime owner 완료, complete
+   snapshot/capability 진행 예정 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
+   `a2466c7`, `b809c30`)
 5. toks
 6. catcode
 7. mathcode/delcode
