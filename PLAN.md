@@ -241,9 +241,12 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   suppression range로 제거한다 (`e69cb6d`). visible minipage의 layout pair와
   본문은 유지된다.
 - runtime-false `DocumentClass` recovery도 같은 suppression-aware structural
-  family에서 제거하며 실제 class와 본문은 유지한다 (`7e24b0a`). 반면 false
-  package의 `SetDocumentLayout`과 기존 class-option in-place mutation은 event
-  drop만으로 복구되지 않으므로 `BUG-025`로 분리했다.
+  family에서 제거하며 실제 class와 본문은 유지한다 (`7e24b0a`). Package-derived
+  `SetDocumentLayout`도 같은 suppression family에 들어가고, source scan 중의
+  class-option in-place mutation은 제거했다. Reconciliation은 suppression을
+  통과한 scanner NeurIPS layout만 앞선 surviving class에 `10pt`로 투영하므로
+  runtime-false package는 event, class options, Document IR layout을 오염시키지
+  않는다 (`f37fd97`, resolved `BUG-025`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는

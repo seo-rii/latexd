@@ -421,9 +421,12 @@ layout-container pairs are registered with environment reconciliation and
 discarded through the same suppression ranges, while visible pairs remain
 covered (`e69cb6d`). False `DocumentClass` recovery uses the same bounded
 filter and retains the actual class (`7e24b0a`). Package-derived
-`SetDocumentLayout` can also mutate an existing class payload, so its runtime
-false-branch fix remains separately tracked as `BUG-025` rather than being
-treated as a simple event drop.
+`SetDocumentLayout` now joins that suppression-aware family. The eager scanner
+no longer mutates a class payload in place; reconciliation reapplies the
+NeurIPS `10pt` projection only from a surviving scanner layout that follows a
+surviving class. The runtime-false regression verifies no layout event, no
+class-option mutation, default Document IR layout, and visible body retention
+(`f37fd97`, resolved `BUG-025`).
 
 ### Event Sequence
 
@@ -493,7 +496,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
 | producer taxonomy | implementation intentionally preserves serialized `Command`; `CompatCommand`, `Shim`, and `BblParser` assignments need a production/consumer audit | red | settle taxonomy and version any wire rename separately from typed write validation |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, and false `DocumentClass` events are suppressed with visible/actual regressions | partial | fix `BUG-025` package-derived layout/class-option contamination, then enumerate diagnostics and non-table raw fallback as green or expected-failing |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, and package-derived layout/class-option projections are suppressed with visible/actual regressions | partial | enumerate diagnostics and non-table raw fallback as green or expected-failing; audit scanner-side package option state separately |
 | reconciliation location identity | seven families share a source-only overlap contract, and heading/caption/graphic/front-matter use a source-only unmatched insertion anchor with legacy producer-invariance coverage | partial | audit bibliography anchor, graphic equivalence, and sequence/source reuse; keep narrower inline/text/footnote rules separate until execution identity exists |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
