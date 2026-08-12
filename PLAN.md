@@ -314,6 +314,8 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   `Text`/`Space`도 각 invocation slot에 등록했다. Runtime-false helper events는
   제거되고 visible `%`, explicit space, `\xspace`는 각각 한 번 유지된다
   (`17d287e`).
+- threeparttable `\tnote` marker text도 invocation slot에 등록했다. Runtime-false
+  marker는 제거되고 visible `[marker]` text는 한 번 유지된다 (`623df34`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
