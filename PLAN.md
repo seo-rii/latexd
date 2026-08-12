@@ -306,6 +306,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - siunitx `\SI`/`\qty`/`\num`/`\si`/range/angle scanner text를 command invocation
   slot에 등록했다. Runtime-false quantity/unit text는 제거되고 visible control은
   한 번 유지된다 (`6ac0dde`).
+- `\hyperref`, `\hyperlink`/`\hypertarget`, `\nolinkurl`/`\path`/`\detokenize`의
+  direct scanner text도 invocation slot에 등록했다. Runtime-false link label과
+  URL text는 제거되고 visible helper는 한 번 유지된다. 실행 가능한 braced
+  `\path`는 primitive/high로 승격되는 provenance golden도 갱신했다 (`50bd7d0`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
