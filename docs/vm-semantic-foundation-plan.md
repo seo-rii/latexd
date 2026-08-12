@@ -441,6 +441,11 @@ missing input/package/class and cyclic input now join the same
 suppression-aware family. A runtime-false missing input leaves no diagnostic
 event, while the visible `Unknown`/low event remains covered and input-exit
 continuation replay preserves the filtered result (`2348ff5`).
+Non-table `RawFallback` recovery now uses that suppression-aware environment
+family as well, so an unknown environment in a runtime-false branch cannot leak
+fallback output. Table fallbacks deliberately stay on their table-start anchor
+path because child phantom/spacing suppression ranges must not discard a visible
+table (`01b3634`).
 
 ### Event Sequence
 

@@ -264,6 +264,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   missing input은 diagnostic event를 남기지 않고, visible missing input은 기존
   `Unknown`/low event를 유지하며 input-exit continuation도 같은 결과를 replay한다
   (`2348ff5`).
+- non-table `RawFallback`도 suppression-aware environment family에 등록해
+  runtime-false unknown environment의 scanner recovery가 남지 않게 했다. Table
+  fallback은 cell 내부 phantom/spacing suppression이 visible table 전체를 지우지
+  않도록 기존 table-start anchor 전용 경로를 유지한다 (`01b3634`).
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
