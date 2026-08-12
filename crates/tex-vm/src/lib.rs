@@ -7701,8 +7701,8 @@ impl<'i> Vm<'i> {
                                     None,
                                 );
                             } else {
-                                self.emit_render_event(
-                                    RenderEvent::Text(TextEvent {
+                                self.emit_owned_scanner_text_event(
+                                    ScannerOwnedTextEvent::Text(TextEvent {
                                         text: normalize_latex_text_with_inline_placeholders(text),
                                     }),
                                     SourceProvenance::file(
@@ -7726,6 +7726,9 @@ impl<'i> Vm<'i> {
                                             end_utf8: color_end as u32,
                                         }),
                                     ),
+                                    source_path,
+                                    command_start as u32,
+                                    after as u32,
                                 );
                             }
                             index = after;
@@ -7766,8 +7769,8 @@ impl<'i> Vm<'i> {
                                         None,
                                     );
                                 } else {
-                                    self.emit_render_event(
-                                        RenderEvent::Text(TextEvent {
+                                    self.emit_owned_scanner_text_event(
+                                        ScannerOwnedTextEvent::Text(TextEvent {
                                             text: normalize_latex_text_with_inline_placeholders(
                                                 text,
                                             ),
@@ -7801,6 +7804,9 @@ impl<'i> Vm<'i> {
                                                 end_utf8: color_end as u32,
                                             }),
                                         ),
+                                        source_path,
+                                        command_start as u32,
+                                        after as u32,
                                     );
                                 }
                                 index = after;

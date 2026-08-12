@@ -516,6 +516,34 @@ fn runtime_false_deeply_nested_nohyper_url_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_color_containers_do_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\textcolor{red}{Wrong}\fcolorbox{red}{white}{Hidden}\fi
+\textcolor{blue}{Right}\fcolorbox{blue}{white}{Visible}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        text.iter()
+            .all(|text| *text != "Wrong" && *text != "Hidden"),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(text.iter().filter(|text| **text == "Right").count(), 1);
+    assert_eq!(text.iter().filter(|text| **text == "Visible").count(), 1);
+}
+
+#[test]
 fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0
