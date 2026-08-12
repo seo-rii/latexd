@@ -223,6 +223,40 @@ fn runtime_false_graphic_package_defaults_do_not_reach_executed_overpic() {
 }
 
 #[test]
+fn runtime_false_overpic_does_not_leak_overlay_text() {
+    let outcome = capture(
+        r"\usepackage{overpic}
+\count0=0
+\begin{document}
+\ifnum\count0>0
+\begin{overpic}{wrong.pdf}\put(1,1){Hidden overlay}\end{overpic}
+\fi
+\begin{overpic}{right.pdf}\put(1,1){Visible overlay}\end{overpic}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !text.contains(&"Hidden overlay"),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        text.iter()
+            .filter(|text| **text == "Visible overlay")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn visible_graphic_package_defaults_reach_executed_overpic() {
     let outcome = capture(
         r"\usepackage[angle=90]{graphicx}

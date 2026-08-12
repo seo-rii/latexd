@@ -15099,21 +15099,30 @@ impl<'i> Vm<'i> {
                         );
                         let overlay_text = normalize_latex_text_with_inline_placeholders(overlay);
                         if !overlay_text.is_empty() {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent { text: overlay_text }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    overlay_start as u32,
-                                    overlay_end as u32,
+                            let event_id = self
+                                .emit_render_event(
+                                    RenderEvent::Text(TextEvent { text: overlay_text }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        overlay_start as u32,
+                                        overlay_end as u32,
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Invocation,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: overlay_command_start as u32,
+                                            end_utf8: after_overlay as u32,
+                                        }),
+                                    ),
                                 )
-                                .with_related(
-                                    SourceSpanRole::Invocation,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: overlay_command_start as u32,
-                                        end_utf8: after_overlay as u32,
-                                    }),
-                                ),
+                                .meta
+                                .sequence;
+                            self.record_scanner_boundary_event(
+                                source_path,
+                                overlay_command_start as u32,
+                                after_overlay as u32,
+                                event_id,
                             );
                         }
                         body_index = after_overlay;
