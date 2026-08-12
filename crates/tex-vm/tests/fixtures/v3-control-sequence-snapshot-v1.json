@@ -1,0 +1,86 @@
+{
+  "scopes": [
+    {
+      "vthreealias": {
+        "kind": "macro",
+        "long": false,
+        "outer": false,
+        "protected": false,
+        "parameter_count": 0,
+        "parameter_text": [],
+        "optional_first_argument_default": null,
+        "body": [
+          {
+            "kind": {
+              "kind": "character",
+              "ch": "R",
+              "catcode": "letter"
+            },
+            "start_utf8": 16,
+            "end_utf8": 17
+          }
+        ]
+      },
+      "vthreeglobalalias": {
+        "kind": "macro",
+        "long": false,
+        "outer": false,
+        "protected": false,
+        "parameter_count": 0,
+        "parameter_text": [],
+        "optional_first_argument_default": null,
+        "body": [
+          {
+            "kind": {
+              "kind": "character",
+              "ch": "L",
+              "catcode": "letter"
+            },
+            "start_utf8": 65,
+            "end_utf8": 66
+          }
+        ]
+      },
+      "vthreepositive": {
+        "kind": "macro",
+        "long": false,
+        "outer": false,
+        "protected": false,
+        "parameter_count": 0,
+        "parameter_text": [],
+        "optional_first_argument_default": null,
+        "body": [
+          {
+            "kind": {
+              "kind": "character",
+              "ch": "P",
+              "catcode": "letter"
+            },
+            "start_utf8": 144,
+            "end_utf8": 145
+          }
+        ]
+      },
+      "vthreeroot": {
+        "kind": "macro",
+        "long": false,
+        "outer": false,
+        "protected": false,
+        "parameter_count": 0,
+        "parameter_text": [],
+        "optional_first_argument_default": null,
+        "body": [
+          {
+            "kind": {
+              "kind": "character",
+              "ch": "R",
+              "catcode": "letter"
+            },
+            "start_utf8": 16,
+            "end_utf8": 17
+          }
+        ]
+      }
+    }
+  ]
+}
