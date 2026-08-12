@@ -11743,40 +11743,44 @@ impl<'i> Vm<'i> {
                                 })
                                 .flatten();
                             let text = normalize_latex_text_with_inline_placeholders(&text);
-                            self.emit_render_event(
-                                if scan_state.no_hyper_depth > 0 {
-                                    RenderEvent::Text(TextEvent { text })
-                                } else {
+                            let provenance = Self::link_provenance_with_spans(
+                                source_path,
+                                command_start,
+                                invocation_end,
+                                text_span,
+                                target_span,
+                            )
+                            .with_expansion_frame(ExpansionFrame {
+                                call_span: ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: invocation_end as u32,
+                                }),
+                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                    path: link_macro.definition_span.path.clone(),
+                                    start_utf8: link_macro.definition_span.start_utf8 as u32,
+                                    end_utf8: link_macro.definition_span.end_utf8 as u32,
+                                })),
+                                command_name: Some(command.to_string()),
+                            });
+                            if scan_state.no_hyper_depth > 0 {
+                                self.emit_owned_scanner_text_event(
+                                    ScannerOwnedTextEvent::Text(TextEvent { text }),
+                                    provenance,
+                                    source_path,
+                                    command_start as u32,
+                                    invocation_end as u32,
+                                );
+                            } else {
+                                self.emit_render_event(
                                     RenderEvent::InlineLink(InlineLinkEvent {
                                         target: target.trim().to_string(),
                                         text,
                                         command: link_macro.command.clone(),
-                                    })
-                                },
-                                Self::link_provenance_with_spans(
-                                    source_path,
-                                    command_start,
-                                    invocation_end,
-                                    text_span,
-                                    target_span,
-                                )
-                                .with_expansion_frame(
-                                    ExpansionFrame {
-                                        call_span: ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: command_start as u32,
-                                            end_utf8: invocation_end as u32,
-                                        }),
-                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                            path: link_macro.definition_span.path.clone(),
-                                            start_utf8: link_macro.definition_span.start_utf8
-                                                as u32,
-                                            end_utf8: link_macro.definition_span.end_utf8 as u32,
-                                        })),
-                                        command_name: Some(command.to_string()),
-                                    },
-                                ),
-                            );
+                                    }),
+                                    provenance,
+                                );
+                            }
                             index = invocation_end;
                         }
                     } else if let Some(wrapper_macro) =
