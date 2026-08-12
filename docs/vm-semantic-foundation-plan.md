@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, table suppression for lexical/runtime false conditionals, and sequence-independent current semantic IDs exist | open | finish the explicit all-family suppression/expected-failure closeout; graphic equivalence is audited and deferred, while execution identity, public event identity, and shared diagnostics belong to later or separate streams |
+| V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | finish diagnostic subtype characterization and the remaining explicit `ARCH-007` mixed-macro suppression/expected-failure closeout; graphic equivalence is audited and deferred, while public event identity and shared diagnostic architecture belong to later or separate streams |
 | V3 | Count/Dimen/Skip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; legacy `scopes` snapshots are projected from that state | open | muskip/mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -563,15 +563,20 @@ Text projection while retaining structured links outside `NoHyper` (`de34822`).
 Leading wrapper whitespace and the matching post-footnote whitespace now own
 their exact source spans; runtime-false gaps disappear, visible post-footnote
 spacing remains once, and a delimiter space after `\relax` correctly remains
-absent (`96c6a5f`). The nested inline inventory is closed only for the listed
-direct writers. Non-graphic
+absent (`96c6a5f`). Non-graphic
 `\textcolor`/`\colorbox` and `\fcolorbox` text now uses the same atomic invocation
 ownership; runtime-false color text is removed while both visible containers
 remain once (`3a836b1`). Float-local minipage body text inside figure/table
 recovery now owns only its exact plain-text range; the runtime-false body is
-removed while the visible occurrence remains once (`1a0665c`). The remaining
-direct `Text`/`Space` writer audit stays open rather than treating these bounded
-families as proof for every recovery branch.
+removed while the visible occurrence remains once (`1a0665c`).
+
+The final audited manual writer, the zero-width interword Space synthesized at
+recursive-input EOF, now belongs to the parent input invocation rather than to
+the child file's zero-width source span. A skipped occurrence is discarded, a
+visible occurrence remains exactly once, and the existing `Alpha Beta` input
+endline contract remains intact (`d2e4170`). Changed-child input-enter replay is
+equal to a clean run for the same boundary, closing the representative manual-
+writer replay gate (`ffe6d19`).
 
 Theorem-like optional titles and their following interword space now form one
 scanner text transaction. A runtime-false theorem loses its title, body, and
@@ -607,13 +612,14 @@ A Pro V2 closeout review returned `REVISE`: it accepted occurrence-aware
 per-writer ownership and the rule that committed executed captions must not be
 discarded by coarse macro-call suppression, but rejected an outer-wrapper
 transaction for nested text. V2 therefore uses a typed atomic
-emit-plus-ownership helper with the narrow inner invocation, keeps structured
-child events outside text ownership, and requires repeated-input/repeated-macro
-caption identity plus executed-caption lifecycle evidence before changing the
-gate to green. The caption advice remains an audit target rather than an assumed
-snapshot-schema change; a RED repeated-occurrence test decides whether the
-existing global scanner anchor map is sufficient or caption-local anchor state
-is required.
+emit-plus-ownership helper with the narrow inner invocation and keeps structured
+child events outside text ownership. Follow-up RED tests proved that the existing
+global scanner anchor map is sufficient: repeated-input labels now suppress only
+the skipped parent occurrence, retain every visible occurrence, and replay a
+changed child exactly (`ffe6d19`). Normal and lossy captions use the same
+occurrence match, while completed nested inline/caption captures delete anchors
+for events they fold out of the stream (`99aa595`). No caption-local snapshot
+schema was added.
 
 A subsequent Pro design review rejected a generic scanner graphic-state
 mutation log: package loading, pending-option routing, and other deferred state
@@ -720,8 +726,8 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | sanctioned production-write taxonomy | exhaustive typed-origin tests map every current writer to `Primitive`, `Macro`, `ScannerRecovery`, `Fallback`, or `Unknown`; the AST policy rejects direct compatibility-only construction and provenance-to-authority conversion in production source | green | preserve this closed first-party writer image until a concrete new authority is designed |
 | schema-v5 producer compatibility | full-stream fixtures deserialize and reserialize `command`, `shim`, and `bbl_parser` without relabeling or changing schema 5; active semantic captures reject all three | green | keep decode/round-trip compatibility separate from consumer and snapshot-state validity |
 | future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
-| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs and float-local layout text, false `DocumentClass`, layout/class-option projections, graphic package/default state, diagnostics, non-table raw fallbacks, algorithmic text, simple plus direct/nested/deep/dynamic NoHyper link and URL text, nested/deep formatting/symbol-space/unknown inline-wrapper text and whitespace edges, color-container text, theorem optional titles, siunitx/link/spacing/tnote/overpic-overlay text, and mixed lossy-caption execution have bounded regressions | partial/open | characterize the audited include-EOF synthetic space; then characterize repeated-occurrence caption identity and capture lifecycle, representative replay, all diagnostic subtypes, and remaining `ARCH-007` graphic/bibliography/fallback mixed macros whose visible child follows a skipped prefix |
-| reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; producer-invariance regressions cover both shapes | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until execution identity exists; keep narrower inline/text/footnote rules separate |
+| false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs and float-local layout text, false `DocumentClass`, layout/class-option projections, graphic package/default state, diagnostics, non-table raw fallbacks, every audited manual `Text`/`Space` writer including recursive-input EOF, repeated-input labels, normal/lossy captions, and representative changed-child replay have bounded regressions | partial/open | characterize all diagnostic subtypes and the remaining `ARCH-007` graphic/bibliography/fallback mixed macros whose visible child follows a skipped prefix |
+| reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; global execution anchors now distinguish repeated inline and caption input occurrences and survive changed-child replay without dangling folded-event anchors | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until V4 identity exists; keep narrower text/footnote rules separate |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract; a Pro review rejected placeholder identities and compiler-side decoration | moved to V4/V6 | V4 constructs the validated internal handle after identity-complete snapshot support; V6 migrates consumers family by family |
 | path-based build dependencies | the compiler tracks loaded sources plus final reconciled `GraphicRef`/`IncludePdf` paths; a visible missing asset is tracked while a runtime-false asset is excluded (`9ed7a09`) | independent/partial | continue build read-set coverage independently; never derive semantic `DependencyId` from path order or claim this satisfies event identity |
 | public event revision/dependencies | current schema-v6 `EventMeta` does not carry them, and one event may span several source revisions or dependencies | separate schema stream | after V4, decide whether revision belongs on each provenance reference and model zero/one/many typed dependencies before a readers-first version migration; do not assume singular `EventMeta` fields |

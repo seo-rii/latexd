@@ -285,15 +285,23 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - algorithmic `\If`/`\Else`/`\Comment`가 직접 만드는 scanner `Text`/`Space`도
   invocation-aware scanner slot에 등록했다. 따라서 runtime-false 명령의 prefix,
   suffix, note text, explicit space는 제거되고 뒤의 visible 명령은 한 번만 남는다
-  (`cba90eb`). 이 수정 뒤의 전체 producer 감사에서는 theorem optional title,
-  inline formatting/link/unit helpers, escaped space/symbol, `\xspace`, overpic overlay
-  등 다른 수동 `Text`/`Space` emit 경로가 같은 ownership 등록을 아직 빠뜨린 것이
-  확인됐다. 이들은 all-family closeout의 열린 목록이며 green으로 간주하지 않는다.
+  (`cba90eb`). 이후 전체 producer 감사에서 찾은 theorem optional title, inline
+  formatting/link/unit helper, escaped space/symbol, `\xspace`, overpic overlay,
+  nested fallback, color/float text와 recursive-input EOF Space까지 모두 bounded
+  ownership으로 이전됐다. EOF Space는 parent input invocation이 소유해 skipped
+  occurrence만 제거하고 TeX endline spacing과 changed-child replay를 보존한다
+  (`d2e4170`, `ffe6d19`). Manual `Text`/`Space` writer inventory는 닫혔다.
 - runtime-false prefix와 visible lossy caption을 같은 macro invocation argument에
   둔 회귀도 추가했다. 이 형태에는 scanner caption이 없으므로 실행이 도달한
   `Fallback`/low caption이 유일한 증거다. Executed caption은 이미 VM control
   flow를 통과했으므로 coarse source suppression을 다시 적용하지 않고 보존하며,
   실제 false branch 안의 macro caption은 계속 생성하지 않는다 (`4520dfd`).
+- repeated input의 structured label과 normal/lossy caption은 global scanner event
+  anchor로 parent invocation occurrence를 구분한다. Skipped occurrence는 제거하고
+  visible occurrence만 execution event와 reconcile하며, 두 visible input은 두
+  label을 유지한다. Changed-child input-enter replay는 clean run과 같고, completed
+  link/caption이 nested event를 접을 때 dangling anchor도 남기지 않는다
+  (`ffe6d19`, `99aa595`). Caption-local snapshot schema는 추가하지 않았다.
 - simple inline wrapper(`\emph` 계열)의 직접 scanner text도 invocation-aware slot에
   연결했다. Runtime-false `\emph{Wrong}`은 제거되고 visible `\emph{Right}`은 한
   번만 남으며, 기존 scanner-recovery/medium event가 실행 primitive/high event로
@@ -340,10 +348,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   보류한다. definition span만 공유하는 반복 macro invocation의 교차 matching
   가능성도 기존 `ARCH-007`의 coarse byte-overlap risk에 속한다.
 - M13.2 phase exit는 전체 recovery family의 suppression regression 또는 명시적
-  low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. 특히 모든
-  command-specific manual `Text`/`Space` producer에 execution-anchor-aware scanner
-  transaction ownership이 필요하고, `ARCH-007`의 skipped-prefix 뒤 visible lossy
-  graphic/bibliography/fallback mixed-macro 회귀가 남아 있다. 구체
+  low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. Manual
+  `Text`/`Space`, include EOF, repeated label/caption occurrence와 대표 replay는
+  닫혔다. 남은 blocker는 diagnostic subtype characterization과 `ARCH-007`의
+  skipped-prefix 뒤 visible lossy graphic/bibliography/fallback mixed-macro 회귀다. 구체
   `ExecutedSourceSlice`, file/revision/expansion identity, public event
   revision/dependency schema, shared diagnostic schema는 더 이상 M13.2 exit
   blocker로 세지 않는다. 각각 M13.4/M13.6 또는 별도 readers-first architecture
