@@ -140,7 +140,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, and table suppression for lexical/runtime false conditionals exist | open | graphic producer coupling and sequence/source reuse, bounded `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete; future producer semantics are explicitly deferred until a real producer/consumer contract exists |
+| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, table suppression for lexical/runtime false conditionals, and sequence-independent current semantic IDs exist | open | graphic path equivalence, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete; bounded `ExecutedSourceSlice` construction is prerequisite-blocked on V4 file/revision/expansion identity; future producer semantics are explicitly deferred until a real producer/consumer contract exists |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
 | V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
@@ -413,11 +413,13 @@ The VM creates this slice only after reaching the construct through normal
 execution. The scanner may recover a bounded command, argument, environment,
 or math region from that slice.
 
-V2 must establish this interface; the metadata/constructor boundary is already
-green. It does not require every family to leave the whole-source recovery
-bridge in the same batch. V6 owns the family-by-family migration, removal of
-the authoritative whole-source production stream, and making
-`ExecutedSourceSlice` the sole production recovery input.
+This is the required recovery contract, but its concrete identity-bearing type
+must not be introduced with placeholder file, revision, or expansion IDs. V2
+keeps the scanner boundary and contract explicit; V4 must establish the
+file/revision/expansion identity lifecycles and then introduce this interface.
+V6 owns the family-by-family migration, removal of the authoritative
+whole-source production stream, and making `ExecutedSourceSlice` the sole
+production recovery input.
 
 During V2-V6 migration, the old whole-source scanner may temporarily remain:
 
@@ -575,10 +577,10 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
 | false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, source-scoped `Gin` defaults, scanner recovery diagnostics, and non-table raw fallbacks are suppressed with visible/actual/replay regressions | green | require a family-specific false/visible regression and continuation coverage when a new scanner recovery path can outlive execution filtering |
 | reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; producer-invariance regressions cover both shapes | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until execution identity exists; keep narrower inline/text/footnote rules separate |
-| bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan | missing | implement the file/revision/span/command/expansion interface in V2 |
+| bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan; a Pro review rejected placeholder identities | prerequisite-blocked | introduce it with the real file/revision/expansion identity lifecycles in V4, then migrate families in V6 |
 | revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
 | shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | missing | define and version the shared renderer outcome/schema adapters; do not infer phase/recovery from remaining message strings or duplicate raster/PDF decode policy |
-| sequence-independent semantic identity | footnotes use an independent allocator; changed-source replay densely rebases scanner and executed identity phases without consulting event-sequence correspondence, including active state-only and note-count-change regressions | partial | audit remaining dependent IDs and keep build-local ordering distinct from future cross-revision `StableEventId` |
+| sequence-independent semantic identity | footnotes use an independent allocator; changed-source replay densely rebases scanner and executed identity phases without consulting event-sequence correspondence, including active state-only and note-count-change regressions; a repository-wide audit found no other emitted payload/IR identity derived from `EventSequence`, while sink, snapshot, scanner, bootstrap, and compiler uses remain ordering or transaction correlation only | green | forbid new semantic IDs derived from sequence or byte offsets; keep cross-revision identity deferred to V4-backed `StableEventId` |
 | `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
 
 Exit criteria:
@@ -587,9 +589,10 @@ Exit criteria:
 - no public raw compatibility constructor bypasses typed origin validation;
 - every known recovery family has a suppression regression or an explicit
   low-confidence expected failure for false-conditional leakage;
-- the bounded `ExecutedSourceSlice` interface carries file, revision, span,
-  command, and expansion identity; whole-source production retirement remains
-  a V6 exit condition;
+- the bounded recovery contract remains explicit and no placeholder
+  `ExecutedSourceSlice` identity is introduced before V4 supplies file,
+  revision, and expansion lifecycles; whole-source production retirement
+  remains a V6 exit condition;
 - the current `event_id` contract is migrated/versioned as build-local
   `sequence`;
 - no code treats sequence as a revision-stable identity.
@@ -1322,13 +1325,13 @@ Text-script wrapper execution:
   segmentation belong to Math/LayoutIr.
 
 This does not satisfy the final V6 exit criteria. `run_plain()` still invokes
-the whole-source scanner before execution, event sequence is not yet separated
-from stable cross-revision identity, and full bibliography localization,
-package-specific multi-argument/style wrappers, full punctuation-state
-fidelity, unbridged profile commands, plus parts of math, table, and wrapper
-recovery remain. Subsequent slices must migrate those remaining families and
-narrow the scanner entry point to source regions that execution explicitly
-delegates for recovery.
+the whole-source scanner before execution, stable cross-revision identity does
+not yet exist while event sequence remains explicitly build-local, and full
+bibliography localization, package-specific multi-argument/style wrappers,
+full punctuation-state fidelity, unbridged profile commands, plus parts of
+math, table, and wrapper recovery remain. Subsequent slices must migrate those
+remaining families and narrow the scanner entry point to source regions that
+execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 
@@ -1594,8 +1597,9 @@ The direct implementation sequence is:
    reaches zero incidental fixtures (`0940368`)
 6. centralize compatible location-only overlap (seven families in `decccd7`)
    and source-only insertion (four families in `694a0ee`), then audit
-   bibliography/graphic identity and sequence reuse before bounded
-   `ExecutedSourceSlice`
+   bibliography/graphic identity and sequence reuse; defer concrete bounded
+   `ExecutedSourceSlice` construction until step 11 supplies its identity
+   lifecycles
 7. `feat(diagnostics): add phase-aware diagnostics and recovery metadata`
 8. `feat(tex-vm): introduce Eqtb and SaveStack for definitions and counts`
 9. migrate dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
