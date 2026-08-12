@@ -10254,23 +10254,32 @@ impl<'i> Vm<'i> {
                                 true,
                             );
                         } else {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent {
-                                    text: normalize_latex_text(text),
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::Invocation,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: command_start as u32,
-                                        end_utf8: after as u32,
+                            let event_id = self
+                                .emit_render_event(
+                                    RenderEvent::Text(TextEvent {
+                                        text: normalize_latex_text(text),
                                     }),
-                                ),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Invocation,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: after as u32,
+                                        }),
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.record_scanner_boundary_event(
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                                event_id,
                             );
                         }
                         if let Some(note_id) = note_id {

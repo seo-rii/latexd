@@ -264,6 +264,36 @@ right
 }
 
 #[test]
+fn runtime_false_inline_formatting_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\emph{Wrong}\fi
+\emph{Right}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some((
+                text.text.as_str(),
+                envelope.meta.producer,
+                envelope.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        text,
+        [("Right", EventProducer::Primitive, SemanticConfidence::High)],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn segmented_capture_preserves_document_mode_for_plain_body_text() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
