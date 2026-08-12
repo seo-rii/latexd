@@ -10,7 +10,7 @@ use tex_render_model::{
     ProvenanceSpan, RecoveryConfidence, RenderEvent, RenderEventEnvelope, SourceProvenance,
     SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
-use tex_tokens::{ControlSequenceId, Token};
+use tex_tokens::{ControlSequenceId, Token, TokenKind};
 
 use crate::{
     Vm,
@@ -513,7 +513,23 @@ impl Vm<'_> {
         expanded: Vec<Token>,
         queue: &mut VecDeque<QueueItem>,
     ) {
-        if !self.render_event_capture {
+        // Expansion markers must not split a register alias from assignment
+        // syntax that follows its replacement text, such as `\globaldefs=1`.
+        let expands_to_register_alias = expanded.split_first().is_some_and(|(first, rest)| {
+            let TokenKind::ControlSequence { name } = first.kind else {
+                return false;
+            };
+            matches!(
+                self.interner.resolve(name).unwrap_or(""),
+                "count" | "dimen" | "skip" | "toks"
+            ) && rest.iter().all(|token| {
+                matches!(
+                    token.kind,
+                    TokenKind::Character { ch, .. } if ch.is_ascii_digit()
+                )
+            })
+        });
+        if !self.render_event_capture || expands_to_register_alias {
             for token in expanded.into_iter().rev() {
                 self.push_token_front(queue, token);
             }
