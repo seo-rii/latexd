@@ -24,6 +24,7 @@ jobs:
         run: >-
           python3 -m unittest
           scripts.tests.test_check_v3_independence
+          scripts.tests.test_check_v3_snapshot_migration
           scripts.tests.test_vm_restore_boundary
 
       - name: Enforce bounded V3 migration scope
