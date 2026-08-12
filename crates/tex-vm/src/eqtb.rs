@@ -8,11 +8,25 @@ use crate::{
     save_stack::{SaveDisposition, SaveStack},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MuGlueScalarV1(i32);
+
+impl MuGlueScalarV1 {
+    pub(crate) const fn from_scaled(value: i32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn scaled(self) -> i32 {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EqKey {
     Count(u32),
     Dimen(u32),
     Skip(u32),
+    MuSkip(u32),
     Toks(u32),
     CatCode(char),
     ControlSequence(String),
@@ -23,6 +37,7 @@ pub(crate) enum EqValue {
     Integer(i32),
     Dimension(i32),
     Glue(i32),
+    MuGlue(MuGlueScalarV1),
     TokenList(Vec<Token>),
     CatCode(CatCode),
     ControlSequence(Box<Meaning>),
@@ -125,6 +140,7 @@ impl Eqtb {
                 EqValue::Integer(value) => *value,
                 EqValue::Dimension(_)
                 | EqValue::Glue(_)
+                | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
                 | EqValue::ControlSequence(_) => {
@@ -140,6 +156,7 @@ impl Eqtb {
                 EqValue::Dimension(value) => *value,
                 EqValue::Integer(_)
                 | EqValue::Glue(_)
+                | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
                 | EqValue::ControlSequence(_) => {
@@ -155,10 +172,27 @@ impl Eqtb {
                 EqValue::Glue(value) => *value,
                 EqValue::Integer(_)
                 | EqValue::Dimension(_)
+                | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
+                }
+            })
+    }
+
+    pub(crate) fn muskip(&self, index: u32) -> Option<MuGlueScalarV1> {
+        self.entries
+            .get(&EqKey::MuSkip(index))
+            .map(|entry| match &entry.value {
+                EqValue::MuGlue(value) => *value,
+                EqValue::Integer(_)
+                | EqValue::Dimension(_)
+                | EqValue::Glue(_)
+                | EqValue::TokenList(_)
+                | EqValue::CatCode(_)
+                | EqValue::ControlSequence(_) => {
+                    unreachable!("muskip entry must contain math glue")
                 }
             })
     }
@@ -171,6 +205,7 @@ impl Eqtb {
                 EqValue::Integer(_)
                 | EqValue::Dimension(_)
                 | EqValue::Glue(_)
+                | EqValue::MuGlue(_)
                 | EqValue::CatCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
@@ -271,6 +306,23 @@ impl Eqtb {
         self.assign(
             EqKey::Skip(index),
             EqValue::Glue(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
+    pub(crate) fn assign_muskip(
+        &mut self,
+        index: u32,
+        value: MuGlueScalarV1,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::MuSkip(index),
+            EqValue::MuGlue(value),
             scope,
             group_level,
             save_stack,
@@ -523,7 +575,7 @@ fn control_sequence_meaning(entry: &EqEntry) -> &Meaning {
 mod tests {
     use std::mem::size_of;
 
-    use super::{AssignmentScope, Eqtb};
+    use super::{AssignmentScope, Eqtb, MuGlueScalarV1};
     use crate::{
         command::{Meaning, Primitive},
         save_stack::SaveStack,
@@ -535,6 +587,7 @@ mod tests {
         Integer(i32),
         Dimension(i32),
         Glue(i32),
+        MuGlue(MuGlueScalarV1),
         TokenList(Vec<Token>),
         CatCode(CatCode),
     }
@@ -602,6 +655,34 @@ mod tests {
 
         assert_eq!(eqtb.dimen(0), Some(10));
         assert_eq!(eqtb.skip(0), Some(20));
+    }
+
+    #[test]
+    fn muskip_assignments_are_typed_and_restore_independently_from_skip() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_skip(0, 20, AssignmentScope::Global, 0, &mut save_stack);
+        eqtb.assign_muskip(
+            0,
+            MuGlueScalarV1::from_scaled(30),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+
+        eqtb.assign_skip(0, 40, AssignmentScope::Local, 1, &mut save_stack);
+        eqtb.assign_muskip(
+            0,
+            MuGlueScalarV1::from_scaled(50),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        eqtb.end_group(&mut save_stack);
+
+        assert_eq!(eqtb.skip(0), Some(20));
+        assert_eq!(eqtb.muskip(0).map(MuGlueScalarV1::scaled), Some(30));
     }
 
     #[test]

@@ -100,8 +100,9 @@ pub use snapshot::{
     decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 use snapshot::{
-    default_next_count_register, default_next_dimen_register, default_next_read_stream,
-    default_next_skip_register, default_next_toks_register, default_next_write_stream,
+    default_next_count_register, default_next_dimen_register, default_next_muskip_register,
+    default_next_read_stream, default_next_skip_register, default_next_toks_register,
+    default_next_write_stream,
 };
 
 const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
@@ -1230,6 +1231,7 @@ pub struct Vm<'i> {
     next_count_register: u32,
     next_dimen_register: u32,
     next_skip_register: u32,
+    next_muskip_register: u32,
     next_toks_register: u32,
     next_read_stream: u32,
     next_write_stream: u32,
@@ -1315,6 +1317,7 @@ impl<'i> Vm<'i> {
             next_count_register: default_next_count_register(),
             next_dimen_register: default_next_dimen_register(),
             next_skip_register: default_next_skip_register(),
+            next_muskip_register: default_next_muskip_register(),
             next_toks_register: default_next_toks_register(),
             next_read_stream: default_next_read_stream(),
             next_write_stream: default_next_write_stream(),
@@ -36986,6 +36989,24 @@ mod tests {
 
         assert_eq!(outcome.output, "[7][2]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn legacy_snapshot_restores_independent_initial_muskip_cursor() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        assert_eq!(vm.next_skip_register, 256);
+        assert_eq!(vm.next_muskip_register, 256);
+        vm.next_skip_register = 300;
+        let snapshot = vm.snapshot();
+        drop(vm);
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let restored =
+            Vm::try_restore(&mut restored_interner, &snapshot).expect("restore snapshot");
+
+        assert_eq!(restored.next_skip_register, 300);
+        assert_eq!(restored.next_muskip_register, 256);
     }
 
     #[test]

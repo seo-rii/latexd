@@ -1868,6 +1868,10 @@ pub(crate) fn default_next_skip_register() -> u32 {
     256
 }
 
+pub(crate) fn default_next_muskip_register() -> u32 {
+    256
+}
+
 pub(crate) fn default_next_toks_register() -> u32 {
     0
 }
