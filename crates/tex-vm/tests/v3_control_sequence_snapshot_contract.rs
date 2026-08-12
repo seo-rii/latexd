@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
     SnapshotMeaning, VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, Vm,
-    VmContinuationBlocker, VmSnapshot,
+    VmContinuationBlocker, VmRestoreError, VmSnapshot,
 };
 
 const CONTROL_SEQUENCE_SNAPSHOT_V1: &str =
@@ -132,4 +132,48 @@ fn unsupported_control_sequence_meaning_is_rejected_during_decode() {
     value["scopes"][0]["vthreeunsupported"] = json!({ "kind": "undefined" });
 
     assert!(serde_json::from_value::<VmSnapshot>(value).is_err());
+}
+
+#[test]
+fn fallible_restore_rejects_rootless_state_before_interner_mutation() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source_vm = Vm::new(&mut source_interner);
+    let mut snapshot = source_vm.snapshot();
+    snapshot.scopes.clear();
+    drop(source_vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let error = match Vm::try_restore(&mut restored_interner, &snapshot) {
+        Ok(_) => panic!("rootless snapshot must be rejected"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error, VmRestoreError::MissingRootControlSequenceScope);
+    assert!(restored_interner.is_empty());
+}
+
+#[test]
+fn fallible_restore_rejects_unknown_primitives_before_interner_mutation() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source_vm = Vm::new(&mut source_interner);
+    let mut snapshot = source_vm.snapshot();
+    snapshot.scopes[0].insert(
+        "vthreeunknown".to_string(),
+        SnapshotMeaning::Primitive {
+            name: "vthree-unknown-primitive".to_string(),
+        },
+    );
+    drop(source_vm);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let error = match Vm::try_restore(&mut restored_interner, &snapshot) {
+        Ok(_) => panic!("unknown primitive must be rejected"),
+        Err(error) => error,
+    };
+
+    assert_eq!(
+        error,
+        VmRestoreError::UnknownPrimitive("vthree-unknown-primitive".to_string())
+    );
+    assert!(restored_interner.is_empty());
 }

@@ -105,6 +105,30 @@ const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
 const MAX_GROUP_DEPTH: usize = 1_000;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VmRestoreError {
+    MissingRootControlSequenceScope,
+    UnknownPrimitive(String),
+}
+
+impl std::fmt::Display for VmRestoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingRootControlSequenceScope => {
+                formatter.write_str("VM snapshot must contain a root control-sequence scope")
+            }
+            Self::UnknownPrimitive(name) => {
+                write!(
+                    formatter,
+                    "VM snapshot references unknown primitive {name:?}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for VmRestoreError {}
+
 fn is_icml_package_name(file_name: &str) -> bool {
     let normalized = file_name.to_ascii_lowercase();
     let Some(year) = normalized
@@ -16536,10 +16560,25 @@ impl<'i> Vm<'i> {
     }
 
     pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
-        assert!(
-            !snapshot.scopes.is_empty(),
-            "VM snapshot must contain a root control-sequence scope"
-        );
+        Self::try_restore(interner, snapshot).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    pub fn try_restore(
+        interner: &'i mut ControlSequenceInterner,
+        snapshot: &VmSnapshot,
+    ) -> Result<Self, VmRestoreError> {
+        if snapshot.scopes.is_empty() {
+            return Err(VmRestoreError::MissingRootControlSequenceScope);
+        }
+        for scope in &snapshot.scopes {
+            for meaning in scope.values() {
+                if let SnapshotMeaning::Primitive { name } = meaning
+                    && builtin_primitive(name).is_none()
+                {
+                    return Err(VmRestoreError::UnknownPrimitive(name.clone()));
+                }
+            }
+        }
         let mut vm = Self::new(interner);
         vm.jobname_source_path = snapshot.jobname_source_path.clone();
         let control_sequence_layers = snapshot
@@ -16820,7 +16859,7 @@ impl<'i> Vm<'i> {
                         last_token_end_utf8: continuation.last_token_end_utf8,
                     })
                 });
-        vm
+        Ok(vm)
     }
 
     fn last_legacy_output_char(&self) -> Option<char> {

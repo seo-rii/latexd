@@ -742,7 +742,7 @@ pub fn capture_page_checkpoints(
     }
     let mut checkpoints = Vec::with_capacity(page_metadata.len());
     let mut interner = ControlSequenceInterner::new();
-    let mut vm = Vm::restore(&mut interner, &checkpoint.snapshot);
+    let mut vm = Vm::try_restore(&mut interner, &checkpoint.snapshot)?;
     vm.set_file_root(world.root.clone());
     vm.set_entry_source_path(
         world
@@ -954,7 +954,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
     let (toplevel, source) = read_toplevel_source(world, mounted_files)?;
     let body_start = document_body_start(&source);
     let mut interner = ControlSequenceInterner::new();
-    let mut vm = Vm::restore(&mut interner, snapshot);
+    let mut vm = Vm::try_restore(&mut interner, snapshot)?;
     vm.set_file_root(world.root.clone());
     vm.set_entry_source_path(toplevel.clone());
     vm.enable_render_event_capture();
@@ -1085,7 +1085,7 @@ pub fn run_project_from_checkpoint_with_mounts(
     let (toplevel, source) = read_toplevel_source(world, mounted_files)?;
     let body_start = document_body_start(&source);
     let mut interner = ControlSequenceInterner::new();
-    let mut vm = Vm::restore(&mut interner, &checkpoint.snapshot);
+    let mut vm = Vm::try_restore(&mut interner, &checkpoint.snapshot)?;
     vm.set_file_root(world.root.clone());
     vm.set_entry_source_path(toplevel.clone());
     vm.enable_render_event_capture();
@@ -1594,7 +1594,7 @@ pub fn run_project_with_snapshot(
 ) -> Result<ProjectRunResult> {
     let (toplevel, source) = read_toplevel_source(world, &BTreeMap::new())?;
     let mut interner = ControlSequenceInterner::new();
-    let mut vm = Vm::restore(&mut interner, snapshot);
+    let mut vm = Vm::try_restore(&mut interner, snapshot)?;
     vm.set_file_root(world.root.clone());
     vm.set_entry_source_path(toplevel.clone());
     vm.enable_render_event_capture();
@@ -1869,7 +1869,7 @@ mod tests {
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
     use tex_render_model::{EventProducer, MetadataField, RenderEvent};
-    use tex_vm::{VmDiagnosticKind, VmReplayFrame};
+    use tex_vm::{VmDiagnosticKind, VmReplayFrame, VmRestoreError};
     use tex_world::ProjectWorld;
 
     use super::{
@@ -1978,6 +1978,28 @@ mod tests {
             first
                 .source_lengths
                 .contains_key(&Utf8PathBuf::from("main.tex"))
+        );
+    }
+
+    #[test]
+    fn project_snapshot_entry_point_returns_restore_errors() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), r"\begin{document}A\end{document}").expect("main");
+        let world = ProjectWorld::load(root).expect("world");
+        let mut snapshot = compile_mini_kernel_snapshot();
+        snapshot.scopes.clear();
+
+        let error = run_project_with_snapshot(&world, &snapshot).expect_err("restore error");
+
+        assert_eq!(
+            error.downcast_ref::<VmRestoreError>(),
+            Some(&VmRestoreError::MissingRootControlSequenceScope)
         );
     }
 
