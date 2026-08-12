@@ -121,6 +121,28 @@ fn author_expansion_restores_temporarily_protected_meanings() {
     }
 }
 
+#[test]
+fn author_expansion_preserves_the_exact_nested_local_meaning_level() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\def\and{ROOT}{\def\and{LOCAL}\author{Ada \and Grace}\and}\and\begin{document}\maketitle\end{document}",
+    );
+
+    assert_eq!(outcome.output, "Ada GraceLOCALROOT");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let snapshot = vm.snapshot();
+    assert!(matches!(
+        snapshot.scopes[0].get("and"),
+        Some(SnapshotMeaning::Macro {
+            protected: false,
+            ..
+        })
+    ));
+}
+
 fn assert_control_sequence_scope_replay_matches_clean_execution() {
     let source = r"\def\kept{R}{\def\kept{L}{\def\kept{N}\global\let\alias\kept}}{\globaldefs=1\def\persist{P}\let\persistalias\persist}{\globaldefs=-1\global\def\discarded{D}\global\let\discardedalias\persist}\count0=0\ifnum\count0>0\input{missing}\fi\input{barrier}\begin{document}[\kept][\alias][\persist][\persistalias]\ifdefined\discarded BAD\else GOOD\fi\begin{overpic}[width=4cm]{right.pdf}\end{overpic}\undefinedafter\end{document}";
 
