@@ -301,6 +301,62 @@ fn lossy_caption_execution_keeps_one_scanner_recovery_event() {
 }
 
 #[test]
+fn mixed_macro_keeps_lossy_caption_fallback_after_runtime_false_prefix() {
+    let outcome = capture(
+        r"\def\mixedcaption#1{\ifnum\count0>0 Hidden.\fi#1}
+\count0=0
+\begin{document}
+\mixedcaption{\caption{Before \unsupportedcaption{Visible} after}}
+\end{document}",
+    );
+    let captions = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Caption(caption) => Some((
+                caption.text.as_str(),
+                event.meta.producer,
+                event.meta.confidence,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        captions,
+        vec![(
+            "Before after",
+            EventProducer::Fallback,
+            SemanticConfidence::Low,
+        )],
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
+fn runtime_false_macro_does_not_create_an_executed_caption() {
+    let outcome = capture(
+        r"\def\emitcaption{\caption{Wrong}}
+\count0=0
+\begin{document}
+\ifnum\count0>0\emitcaption\fi
+\caption{Right}
+\end{document}",
+    );
+    let captions = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(captions, ["Right"], "{:#?}", outcome.render_events);
+}
+
+#[test]
 fn captionof_expands_its_kind_argument() {
     let outcome = capture(
         r"\def\captionkind{figure}

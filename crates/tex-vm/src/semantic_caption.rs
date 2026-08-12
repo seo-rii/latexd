@@ -311,7 +311,8 @@ impl Vm<'_> {
             }
         }
 
-        executed.retain(|event| !self.semantic_source_is_suppressed(&event.meta.source));
+        // Executed captures already passed VM control flow. Source suppression is
+        // only authoritative for scanner recovery and is coarse across macro calls.
         executed.retain(|event| {
             event.meta.producer != EventProducer::Fallback
                 || !reconciled.iter().any(|existing| {
