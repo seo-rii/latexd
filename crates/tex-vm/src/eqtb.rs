@@ -3,7 +3,10 @@ use std::collections::{BTreeMap, HashMap};
 use tex_lexer::CatCodeTable;
 use tex_tokens::{CatCode, Token};
 
-use crate::{command::Meaning, save_stack::SaveStack};
+use crate::{
+    command::Meaning,
+    save_stack::{SaveDisposition, SaveStack},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EqKey {
@@ -393,14 +396,11 @@ impl Eqtb {
         }
 
         let previous = self.entry(&key).cloned();
-        save_stack.save_if_absent(key.clone(), previous);
-        self.insert_entry(
-            key,
-            EqEntry {
-                value,
-                level: group_level,
-            },
-        );
+        let level = match save_stack.save_if_absent(key.clone(), previous) {
+            SaveDisposition::Saved | SaveDisposition::AlreadySaved => group_level,
+            SaveDisposition::UntrackedLegacyFrame => 0,
+        };
+        self.insert_entry(key, EqEntry { value, level });
     }
 
     pub(crate) fn end_group(&mut self, save_stack: &mut SaveStack) {
@@ -623,6 +623,28 @@ mod tests {
         eqtb.end_group(&mut save_stack);
 
         assert_eq!(eqtb.tokens(0), Some(outer.as_slice()));
+    }
+
+    #[test]
+    fn unsupported_legacy_frame_assignment_persists_at_root_level() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_count(0, 1, AssignmentScope::Global, 0, &mut save_stack);
+        save_stack.begin_legacy_control_sequence_group();
+
+        eqtb.assign_count(0, 2, AssignmentScope::Local, 1, &mut save_stack);
+
+        assert_eq!(eqtb.entries[&super::EqKey::Count(0)].level, 0);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.count(0), Some(2));
+        assert_eq!(eqtb.entries[&super::EqKey::Count(0)].level, 0);
+
+        save_stack.begin_group();
+        eqtb.assign_count(0, 3, AssignmentScope::Local, 1, &mut save_stack);
+        eqtb.end_group(&mut save_stack);
+
+        assert_eq!(eqtb.count(0), Some(2));
+        assert_eq!(eqtb.entries[&super::EqKey::Count(0)].level, 0);
     }
 
     #[test]

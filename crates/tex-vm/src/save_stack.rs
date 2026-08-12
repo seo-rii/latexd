@@ -13,6 +13,13 @@ struct SaveGroup {
     control_sequences_only: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SaveDisposition {
+    Saved,
+    AlreadySaved,
+    UntrackedLegacyFrame,
+}
+
 impl SaveStack {
     pub(crate) fn begin_group(&mut self) {
         self.groups.push(SaveGroup::default());
@@ -25,12 +32,24 @@ impl SaveStack {
         });
     }
 
-    pub(crate) fn save_if_absent(&mut self, key: EqKey, previous: Option<EqEntry>) {
-        if let Some(group) = self.groups.last_mut() {
-            if group.control_sequences_only && !matches!(key, EqKey::ControlSequence(_)) {
-                return;
+    pub(crate) fn save_if_absent(
+        &mut self,
+        key: EqKey,
+        previous: Option<EqEntry>,
+    ) -> SaveDisposition {
+        let group = self
+            .groups
+            .last_mut()
+            .expect("a local assignment must have an active group");
+        if group.control_sequences_only && !matches!(key, EqKey::ControlSequence(_)) {
+            return SaveDisposition::UntrackedLegacyFrame;
+        }
+        match group.restores.entry(key) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(previous);
+                SaveDisposition::Saved
             }
-            group.restores.entry(key).or_insert(previous);
+            std::collections::btree_map::Entry::Occupied(_) => SaveDisposition::AlreadySaved,
         }
     }
 
