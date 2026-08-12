@@ -12,8 +12,9 @@ use flate2::write::GzEncoder;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    SnapshotCapability, Vm, VmContinuationBlocker, VmContinuationSafety, VmModuleCheckpointKind,
-    VmReplayFrame, VmSnapshot, VmSnapshotDocument, decode_vm_snapshot_document,
+    LegacyVmSnapshotV1, SnapshotCapability, Vm, VmContinuationBlocker, VmContinuationSafety,
+    VmModuleCheckpointKind, VmReplayFrame, VmSnapshot, VmSnapshotDocument,
+    decode_vm_snapshot_document,
 };
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
@@ -262,19 +263,24 @@ impl TryFrom<VmSnapshot> for LegacySnapshotForWrite {
     type Error = anyhow::Error;
 
     fn try_from(snapshot: VmSnapshot) -> Result<Self> {
-        let required_capabilities = snapshot.required_capabilities();
-        if !SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
-            anyhow::bail!(
-                "legacy snapshot writer cannot encode required capabilities: {}",
-                required_capabilities
-                    .iter()
-                    .map(SnapshotCapability::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
+        ensure_legacy_snapshot_writable(&snapshot)?;
         Ok(Self(snapshot))
     }
+}
+
+fn ensure_legacy_snapshot_writable(snapshot: &VmSnapshot) -> Result<()> {
+    let required_capabilities = snapshot.required_capabilities();
+    if !SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
+        anyhow::bail!(
+            "legacy snapshot writer cannot encode required capabilities: {}",
+            required_capabilities
+                .iter()
+                .map(SnapshotCapability::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,7 +302,10 @@ impl Serialize for StoredCheckpoint {
     {
         let snapshot = match &self.attachment {
             StoredSnapshotAttachment::None => None,
-            StoredSnapshotAttachment::Legacy(snapshot) => Some(snapshot),
+            StoredSnapshotAttachment::Legacy(snapshot) => {
+                ensure_legacy_snapshot_writable(snapshot).map_err(serde::ser::Error::custom)?;
+                Some(snapshot)
+            }
             StoredSnapshotAttachment::Versioned(_) => {
                 return Err(serde::ser::Error::custom(
                     "versioned snapshot writer is disabled",
@@ -400,6 +409,14 @@ impl CheckpointBundle {
                     )
                 }) {
                     anyhow::bail!("versioned snapshot writer is disabled");
+                }
+                for snapshot in self.checkpoints.iter().filter_map(|checkpoint| {
+                    match checkpoint.snapshot_attachment() {
+                        SnapshotAttachment::Legacy(snapshot) => Some(snapshot),
+                        SnapshotAttachment::None | SnapshotAttachment::Versioned(_) => None,
+                    }
+                }) {
+                    ensure_legacy_snapshot_writable(snapshot)?;
                 }
             }
         }
@@ -535,12 +552,11 @@ pub fn build_checkpoint_bundle_with_shipouts(
     if !shipout_checkpoints.is_empty() && shipout_checkpoints.len() != pages.len() {
         anyhow::bail!("shipout snapshot/page length mismatch");
     }
-    let snapshot_json =
-        serde_json::to_vec(preamble_snapshot).context("failed to serialize preamble snapshot")?;
-    let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
     let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
     let preamble_snapshot_attached = preamble_continuation_safety.is_safe()
         && SNAPSHOT_WRITE_POLICY.allows(&preamble_snapshot.required_capabilities());
+    let vm_state_hash = checkpoint_vm_state_hash(preamble_snapshot)
+        .context("failed to fingerprint preamble snapshot")?;
     let mut checkpoints = vec![StoredCheckpoint::with_legacy_snapshot(
         CheckpointMeta {
             checkpoint_id: checkpoint_id(
@@ -574,10 +590,9 @@ pub fn build_checkpoint_bundle_with_shipouts(
             .map(|checkpoint| checkpoint.source_offset_utf8)
             .unwrap_or(0);
         let vm_state_hash = shipout_checkpoint
-            .map(|checkpoint| serde_json::to_vec(&checkpoint.snapshot))
+            .map(|checkpoint| checkpoint_vm_state_hash(&checkpoint.snapshot))
             .transpose()
-            .context("failed to serialize shipout snapshot")?
-            .map(|json| blake3::hash(&json).to_hex().to_string())
+            .context("failed to fingerprint shipout snapshot")?
             .unwrap_or_else(|| vm_state_hash.clone());
         let continuation_safety = shipout_checkpoint
             .map(|checkpoint| checkpoint.snapshot.continuation_safety.clone())
@@ -622,9 +637,6 @@ pub fn build_checkpoint_bundle_with_shipouts(
     }
 
     for boundary in input_boundaries {
-        let snapshot_json = serde_json::to_vec(&boundary.snapshot)
-            .context("failed to serialize input-boundary snapshot")?;
-        let vm_state_hash = blake3::hash(&snapshot_json).to_hex().to_string();
         let continuation_safety = boundary.snapshot.continuation_safety.clone();
         let snapshot_attached = continuation_safety.is_safe()
             && boundary
@@ -633,6 +645,8 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 .as_ref()
                 .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable)
             && SNAPSHOT_WRITE_POLICY.allows(&boundary.snapshot.required_capabilities());
+        let vm_state_hash = checkpoint_vm_state_hash(&boundary.snapshot)
+            .context("failed to fingerprint input-boundary snapshot")?;
         let boundary_hash = blake3::hash(
             format!(
                 "{}:{}:{}:{}:{}:{}",
@@ -681,6 +695,42 @@ pub fn build_checkpoint_bundle_with_shipouts(
         checkpoints,
         pages: pages.to_vec(),
     })
+}
+
+fn checkpoint_vm_state_hash(snapshot: &VmSnapshot) -> Result<String> {
+    let required_capabilities = snapshot.required_capabilities();
+    if SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
+        let snapshot_json = serde_json::to_vec(snapshot)?;
+        return Ok(blake3::hash(&snapshot_json).to_hex().to_string());
+    }
+
+    let legacy: &LegacyVmSnapshotV1 = snapshot;
+    let legacy_json = serde_json::to_vec(legacy)?;
+    let muskip_json = serde_json::to_vec(&snapshot.muskip_registers)?;
+    let mut fingerprint = blake3::Hasher::new();
+    fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
+    fingerprint.update(
+        &u64::try_from(legacy_json.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    fingerprint.update(&legacy_json);
+    for capability in required_capabilities {
+        fingerprint.update(
+            &u64::try_from(capability.as_str().len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(capability.as_str().as_bytes());
+    }
+    fingerprint.update(
+        &u64::try_from(muskip_json.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    fingerprint.update(&muskip_json);
+    fingerprint.update(&snapshot.next_muskip_register.to_le_bytes());
+    Ok(fingerprint.finalize().to_hex().to_string())
 }
 
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {

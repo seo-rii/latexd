@@ -233,7 +233,7 @@ fn assert_control_sequence_scope_replay_matches_clean_execution() {
     let snapshot_json = serde_json::to_vec(&checkpoint.snapshot).expect("serialize checkpoint");
     let checkpoint_snapshot =
         serde_json::from_slice::<VmSnapshot>(&snapshot_json).expect("deserialize checkpoint");
-    let clean_scopes = vm.snapshot().scopes;
+    let clean_scopes = vm.snapshot().scopes.clone();
     drop(vm);
 
     let mut restored_interner = ControlSequenceInterner::new();
@@ -242,7 +242,7 @@ fn assert_control_sequence_scope_replay_matches_clean_execution() {
     let replayed = restored
         .resume_continuation()
         .expect("restored input continuation");
-    let replayed_scopes = restored.snapshot().scopes;
+    let replayed_scopes = restored.snapshot().scopes.clone();
 
     assert_eq!(format!("{output_prefix}{}", replayed.output), clean.output);
     assert!(

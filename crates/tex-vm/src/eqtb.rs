@@ -80,6 +80,7 @@ impl Eqtb {
         count_values: BTreeMap<u32, i32>,
         dimen_values: BTreeMap<u32, i32>,
         skip_values: BTreeMap<u32, i32>,
+        muskip_values: BTreeMap<u32, i32>,
         token_values: BTreeMap<u32, Vec<Token>>,
         catcode_values: BTreeMap<char, CatCode>,
     ) -> Self {
@@ -107,6 +108,15 @@ impl Eqtb {
                 EqKey::Skip(index),
                 EqEntry {
                     value: EqValue::Glue(value),
+                    level: 0,
+                },
+            );
+        }
+        for (index, value) in muskip_values {
+            eqtb.entries.insert(
+                EqKey::MuSkip(index),
+                EqEntry {
+                    value: EqValue::MuGlue(MuGlueScalarV1::from_scaled(value)),
                     level: 0,
                 },
             );
@@ -538,6 +548,16 @@ impl Eqtb {
             .iter()
             .filter_map(|(key, entry)| match (key, &entry.value) {
                 (EqKey::Skip(index), EqValue::Glue(value)) => Some((*index, *value)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn muskip_values(&self) -> BTreeMap<u32, i32> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| match (key, &entry.value) {
+                (EqKey::MuSkip(index), EqValue::MuGlue(value)) => Some((*index, value.scaled())),
                 _ => None,
             })
             .collect()

@@ -1,7 +1,8 @@
 use camino::Utf8PathBuf;
 use serde_json::{Value, json};
 use tex_checkpoint::{
-    CheckpointBundle, SnapshotAttachment, build_checkpoint_bundle, checkpoint_is_replay_safe,
+    CheckpointBundle, CheckpointPage, InputBoundaryCheckpoint, SnapshotAttachment,
+    build_checkpoint_bundle, build_checkpoint_bundle_with_snapshots, checkpoint_is_replay_safe,
     save_checkpoint_bundle,
 };
 use tex_tokens::ControlSequenceInterner;
@@ -27,6 +28,15 @@ fn versioned_slot(snapshot: Value) -> Value {
     })
 }
 
+fn muskip_snapshot() -> VmSnapshot {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.muskip_registers.insert(17, 123);
+    snapshot.next_muskip_register = 301;
+    snapshot
+}
+
 #[test]
 fn legacy_only_writer_keeps_the_existing_checkpoint_shape() {
     let bundle = legacy_bundle_json();
@@ -34,6 +44,73 @@ fn legacy_only_writer_keeps_the_existing_checkpoint_shape() {
 
     assert!(checkpoint["snapshot"].is_object());
     assert!(checkpoint.get("versioned_snapshot").is_none());
+}
+
+#[test]
+fn production_capture_suppresses_muskip_state_in_every_checkpoint_category() {
+    let snapshot = muskip_snapshot();
+    let pages = [CheckpointPage {
+        page_id: "page-1".to_string(),
+        index: 0,
+        content_hash: "page-hash".to_string(),
+        text_start_utf8: 0,
+        text_end_utf8: 1,
+    }];
+    let input_boundaries = [InputBoundaryCheckpoint {
+        kind: tex_vm::VmModuleCheckpointKind::Enter,
+        module_path: Utf8PathBuf::from("chapter.tex"),
+        resume_path: Some(Utf8PathBuf::from("main.tex")),
+        source_offset_utf8: 7,
+        continuation_stack: Vec::new(),
+        output_start_utf8: 0,
+        page_index_after: 1,
+        snapshot: snapshot.clone(),
+    }];
+
+    let bundle = build_checkpoint_bundle_with_snapshots(
+        1,
+        &snapshot,
+        "preamble",
+        0,
+        &pages,
+        &[snapshot.clone()],
+        &[5],
+        &input_boundaries,
+    )
+    .expect("nonlegacy attachments must be suppressed, not fail the build");
+    let wire = serde_json::to_value(&bundle).expect("serialize suppressed bundle");
+
+    assert_eq!(bundle.checkpoints.len(), 3);
+    for (checkpoint, checkpoint_wire) in bundle
+        .checkpoints
+        .iter()
+        .zip(wire["checkpoints"].as_array().expect("checkpoint array"))
+    {
+        assert!(!checkpoint.meta.snapshot_attached);
+        assert!(matches!(
+            checkpoint.snapshot_attachment(),
+            SnapshotAttachment::None
+        ));
+        assert!(checkpoint_wire["snapshot"].is_null());
+        assert!(checkpoint_wire.get("versioned_snapshot").is_none());
+    }
+}
+
+#[test]
+fn suppressed_muskip_snapshots_keep_state_sensitive_fingerprints() {
+    let first = muskip_snapshot();
+    let mut second = first.clone();
+    second.muskip_registers.insert(17, 124);
+
+    let first_bundle =
+        build_checkpoint_bundle(1, &first, "preamble", &[]).expect("build first bundle");
+    let second_bundle =
+        build_checkpoint_bundle(1, &second, "preamble", &[]).expect("build second bundle");
+
+    assert_ne!(
+        first_bundle.checkpoints[0].meta.vm_state_hash,
+        second_bundle.checkpoints[0].meta.vm_state_hash
+    );
 }
 
 #[test]

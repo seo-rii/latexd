@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
+    ops::{Deref, DerefMut},
 };
 
 use camino::Utf8PathBuf;
@@ -21,6 +22,7 @@ pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
 pub const VM_SNAPSHOT_DOCUMENT_FORMAT: &str = "latexd.vm-snapshot";
 pub const VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION: u32 = 1;
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[];
+pub const VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotCapability(String);
@@ -145,10 +147,11 @@ pub fn decode_vm_snapshot_document(
 }
 
 pub fn normalize_legacy_vm_snapshot(snapshot: VmSnapshot) -> VmSnapshotDocument {
+    let required_capabilities = snapshot.required_capabilities();
     VmSnapshotDocument {
         format: VM_SNAPSHOT_DOCUMENT_FORMAT.to_string(),
         schema_version: VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-        required_capabilities: BTreeSet::new(),
+        required_capabilities,
         state: snapshot,
     }
 }
@@ -1552,7 +1555,7 @@ pub struct VmExecutedTableSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VmSnapshot {
+pub struct LegacyVmSnapshotV1 {
     #[serde(default)]
     pub continuation_safety: VmContinuationSafety,
     #[serde(default)]
@@ -1657,9 +1660,83 @@ pub struct VmSnapshot {
     pub text_script_wrapper_depth: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmSnapshot {
+    legacy: LegacyVmSnapshotV1,
+    pub muskip_registers: BTreeMap<u32, i32>,
+    pub next_muskip_register: u32,
+}
+
 impl VmSnapshot {
+    pub(crate) fn from_parts(
+        legacy: LegacyVmSnapshotV1,
+        muskip_registers: BTreeMap<u32, i32>,
+        next_muskip_register: u32,
+    ) -> Self {
+        Self {
+            legacy,
+            muskip_registers,
+            next_muskip_register,
+        }
+    }
+
     pub fn required_capabilities(&self) -> BTreeSet<SnapshotCapability> {
-        BTreeSet::new()
+        let mut capabilities = BTreeSet::new();
+        if !self.muskip_registers.is_empty()
+            || self.next_muskip_register != default_next_muskip_register()
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
+            ));
+        }
+        capabilities
+    }
+}
+
+impl Deref for VmSnapshot {
+    type Target = LegacyVmSnapshotV1;
+
+    fn deref(&self) -> &Self::Target {
+        &self.legacy
+    }
+}
+
+impl DerefMut for VmSnapshot {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.legacy
+    }
+}
+
+impl Serialize for VmSnapshot {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let capabilities = self.required_capabilities();
+        if !capabilities.is_empty() {
+            return Err(serde::ser::Error::custom(format!(
+                "legacy VM snapshot cannot encode required capabilities: {}",
+                capabilities
+                    .iter()
+                    .map(SnapshotCapability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        self.legacy.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for VmSnapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self {
+            legacy: LegacyVmSnapshotV1::deserialize(deserializer)?,
+            muskip_registers: BTreeMap::new(),
+            next_muskip_register: default_next_muskip_register(),
+        })
     }
 }
 

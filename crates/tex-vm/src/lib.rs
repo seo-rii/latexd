@@ -75,7 +75,7 @@ use semantic_sink::SemanticEventBuffer;
 use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
-    SnapshotCapability, SnapshotMeaning, SnapshotToken, SnapshotTokenKind,
+    LegacyVmSnapshotV1, SnapshotCapability, SnapshotMeaning, SnapshotToken, SnapshotTokenKind,
     VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VmActiveBibliographyCaptureSnapshot,
@@ -16503,7 +16503,7 @@ impl<'i> Vm<'i> {
                 .collect(),
             last_token_end_utf8: self.last_token_end_utf8,
         });
-        VmSnapshot {
+        let legacy = LegacyVmSnapshotV1 {
             continuation_safety: self.continuation_safety(input_continuation.is_some()),
             input_continuation,
             jobname_source_path: self.jobname_source_path.clone(),
@@ -16717,7 +16717,8 @@ impl<'i> Vm<'i> {
                 .or(self.legacy_output_last_char),
             legacy_text_script_boundary_pending: self.legacy_text_script_boundary_pending,
             text_script_wrapper_depth: self.text_script_wrapper_depth,
-        }
+        };
+        VmSnapshot::from_parts(legacy, self.eqtb.muskip_values(), self.next_muskip_register)
     }
 
     fn continuation_safety(&self, input_continuation_captured: bool) -> VmContinuationSafety {
@@ -16799,6 +16800,7 @@ impl<'i> Vm<'i> {
             snapshot.registers.clone(),
             snapshot.dimen_registers.clone(),
             snapshot.skip_registers.clone(),
+            snapshot.muskip_registers.clone(),
             token_registers,
             snapshot.catcodes.clone(),
         );
@@ -16825,6 +16827,7 @@ impl<'i> Vm<'i> {
         vm.next_count_register = snapshot.next_count_register;
         vm.next_dimen_register = snapshot.next_dimen_register;
         vm.next_skip_register = snapshot.next_skip_register;
+        vm.next_muskip_register = snapshot.next_muskip_register;
         vm.next_toks_register = snapshot.next_toks_register;
         vm.next_read_stream = snapshot.next_read_stream;
         vm.next_write_stream = snapshot.next_write_stream;
@@ -37007,6 +37010,36 @@ mod tests {
 
         assert_eq!(restored.next_skip_register, 300);
         assert_eq!(restored.next_muskip_register, 256);
+    }
+
+    #[test]
+    fn runtime_muskip_owner_round_trips_through_complete_snapshot() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.eqtb.assign_muskip(
+            17,
+            crate::eqtb::MuGlueScalarV1::from_scaled(123),
+            crate::eqtb::AssignmentScope::Global,
+            0,
+            &mut vm.save_stack,
+        );
+        vm.next_muskip_register = 301;
+        let snapshot = vm.snapshot();
+        drop(vm);
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let restored =
+            Vm::try_restore(&mut restored_interner, &snapshot).expect("restore muskip snapshot");
+
+        assert_eq!(
+            restored
+                .eqtb
+                .muskip(17)
+                .map(crate::eqtb::MuGlueScalarV1::scaled),
+            Some(123)
+        );
+        assert_eq!(restored.next_muskip_register, 301);
+        assert_eq!(restored.next_skip_register, 256);
     }
 
     #[test]

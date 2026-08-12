@@ -6,6 +6,17 @@ use tex_vm::{
     VmSnapshotDocumentRestoreError, decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 
+const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
+
+fn muskip_snapshot() -> VmSnapshot {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.muskip_registers.insert(17, 123);
+    snapshot.next_muskip_register = 301;
+    snapshot
+}
+
 fn encoded_document(state: serde_json::Value) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
@@ -51,6 +62,79 @@ fn legacy_snapshot_normalizer_preserves_state_without_claiming_capabilities() {
 
     let future = SnapshotCapability::new("future.capability-v1");
     assert_eq!(future.as_str(), "future.capability-v1");
+}
+
+#[test]
+fn complete_muskip_snapshot_restores_values_and_independent_cursor() {
+    let snapshot = muskip_snapshot();
+    let mut interner = ControlSequenceInterner::new();
+    let restored = Vm::try_restore(&mut interner, &snapshot).expect("restore muskip snapshot");
+    let round_trip = restored.snapshot();
+
+    assert_eq!(round_trip.muskip_registers.get(&17), Some(&123));
+    assert_eq!(round_trip.next_muskip_register, 301);
+    assert_eq!(round_trip.next_skip_register, 256);
+}
+
+#[test]
+fn muskip_state_derives_capability_and_raw_legacy_write_fails_before_output() {
+    let snapshot = muskip_snapshot();
+    let capabilities = snapshot.required_capabilities();
+    let mut output = Vec::new();
+
+    let error = serde_json::to_writer(&mut output, &snapshot)
+        .expect_err("muskip state must not enter the legacy wire shape");
+
+    assert_eq!(capabilities.len(), 1);
+    assert!(
+        capabilities
+            .iter()
+            .any(|capability| capability.as_str() == MUSKIP_SCALAR_V1_CAPABILITY)
+    );
+    assert!(error.to_string().contains(MUSKIP_SCALAR_V1_CAPABILITY));
+    assert!(output.is_empty(), "legacy serializer wrote {output:?}");
+}
+
+#[test]
+fn muskip_cursor_progress_alone_requires_the_muskip_capability() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.next_muskip_register += 1;
+
+    assert!(
+        snapshot
+            .required_capabilities()
+            .iter()
+            .any(|capability| capability.as_str() == MUSKIP_SCALAR_V1_CAPABILITY)
+    );
+}
+
+#[test]
+fn capability_state_cannot_be_laundered_by_legacy_normalization() {
+    let document = normalize_legacy_vm_snapshot(muskip_snapshot());
+
+    assert!(
+        document
+            .required_capabilities
+            .iter()
+            .any(|capability| capability.as_str() == MUSKIP_SCALAR_V1_CAPABILITY)
+    );
+}
+
+#[test]
+fn legacy_decode_initializes_empty_muskip_state_independently_of_skip_cursor() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut legacy = serde_json::to_value(vm.snapshot()).expect("serialize legacy snapshot");
+    legacy["next_skip_register"] = json!(400);
+
+    let snapshot = serde_json::from_value::<VmSnapshot>(legacy).expect("decode legacy snapshot");
+
+    assert!(snapshot.muskip_registers.is_empty());
+    assert_eq!(snapshot.next_muskip_register, 256);
+    assert_eq!(snapshot.next_skip_register, 400);
+    assert!(snapshot.required_capabilities().is_empty());
 }
 
 #[test]
