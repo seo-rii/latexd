@@ -485,6 +485,37 @@ fn runtime_false_deeply_nested_nohyper_link_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_deeply_nested_nohyper_url_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\begin{NoHyper}
+\ifnum\count0>0\emph{\unknownwrapper{\url{wrong.example}}}\fi
+\emph{\unknownwrapper{\url{right.example}}}
+\end{NoHyper}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(text, ["right.example"], "{:#?}", outcome.render_events);
+    assert!(
+        outcome
+            .render_events
+            .iter()
+            .all(|envelope| !matches!(&envelope.event, RenderEvent::InlineLink(_))),
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
     let outcome = capture(
         r"\count0=0
