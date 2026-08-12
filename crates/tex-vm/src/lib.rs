@@ -1518,20 +1518,6 @@ impl<'i> Vm<'i> {
                 .insert(path.clone(), source.to_string());
             return;
         }
-        let previous_footnote_ids = self
-            .render_events
-            .iter()
-            .filter(|event| removed_event_ids.contains(&event.meta.sequence))
-            .filter_map(|event| {
-                let note_id = match &event.event {
-                    RenderEvent::BeginFootnote(footnote) => footnote.note_id,
-                    RenderEvent::EndFootnote(footnote) => footnote.note_id,
-                    RenderEvent::FootnoteMark(footnote) => footnote.note_id,
-                    _ => return None,
-                };
-                Some((event.meta.sequence, note_id))
-            })
-            .collect::<BTreeMap<_, _>>();
         let previous_parent_invocation_spans = self
             .render_events
             .iter()
@@ -1554,6 +1540,27 @@ impl<'i> Vm<'i> {
             });
 
         let original_scanner_event_anchors = self.scanner_event_anchors.clone();
+        let event_note_id = |event: &RenderEventEnvelope| match &event.event {
+            RenderEvent::BeginFootnote(footnote) => Some(footnote.note_id),
+            RenderEvent::EndFootnote(footnote) => Some(footnote.note_id),
+            RenderEvent::FootnoteMark(footnote) => Some(footnote.note_id),
+            _ => None,
+        };
+        let footnote_state_ids = |footnote: &VmSemanticFootnoteSnapshot| {
+            footnote
+                .completed_transactions
+                .iter()
+                .flatten()
+                .filter_map(event_note_id)
+                .chain(
+                    footnote
+                        .active_actions
+                        .iter()
+                        .filter_map(|capture| event_note_id(&capture.begin_event)),
+                )
+                .chain(footnote.pending_mark.iter().map(|pending| pending.note_id))
+                .collect::<BTreeSet<_>>()
+        };
         let original_math = self.semantic_math_snapshot();
         let original_text = self.semantic_text_snapshot();
         let original_graphic = self.semantic_graphic_snapshot();
@@ -1562,6 +1569,7 @@ impl<'i> Vm<'i> {
         let original_table = self.semantic_table_snapshot();
         let original_inline = self.semantic_inline_snapshot();
         let original_footnote = self.semantic_footnote_snapshot();
+        let original_footnote_state_ids = footnote_state_ids(&original_footnote);
         let original_front_matter = self.semantic_front_matter_snapshot();
         let original_heading = self.semantic_heading_snapshot();
         let original_caption = self.semantic_caption_snapshot();
@@ -1695,53 +1703,10 @@ impl<'i> Vm<'i> {
                 }
             }
         }
-        let emitted_footnote_ids = self
-            .render_events
-            .iter()
-            .filter_map(|event| {
-                let note_id = match &event.event {
-                    RenderEvent::BeginFootnote(footnote) => footnote.note_id,
-                    RenderEvent::EndFootnote(footnote) => footnote.note_id,
-                    RenderEvent::FootnoteMark(footnote) => footnote.note_id,
-                    _ => return None,
-                };
-                Some((event.meta.sequence, note_id))
-            })
-            .collect::<BTreeMap<_, _>>();
         if let Some(event_id_remap) = self
             .render_events
             .replace_transaction_since(&removed_event_ids, mark)
         {
-            let mut note_id_remap = BTreeMap::new();
-            let mut conflicting_note_ids = BTreeSet::new();
-            for (emitted_event_id, committed_event_id) in &event_id_remap {
-                let Some(emitted_note_id) = emitted_footnote_ids.get(emitted_event_id) else {
-                    continue;
-                };
-                let Some(committed_note_id) = previous_footnote_ids.get(committed_event_id) else {
-                    continue;
-                };
-                if note_id_remap
-                    .insert(*emitted_note_id, *committed_note_id)
-                    .is_some_and(|previous| previous != *committed_note_id)
-                {
-                    conflicting_note_ids.insert(*emitted_note_id);
-                }
-            }
-            for note_id in conflicting_note_ids {
-                note_id_remap.remove(&note_id);
-            }
-            for event in self.render_events.iter_mut() {
-                let note_id = match &mut event.event {
-                    RenderEvent::BeginFootnote(footnote) => &mut footnote.note_id,
-                    RenderEvent::EndFootnote(footnote) => &mut footnote.note_id,
-                    RenderEvent::FootnoteMark(footnote) => &mut footnote.note_id,
-                    _ => continue,
-                };
-                if let Some(committed_note_id) = note_id_remap.get(note_id) {
-                    *note_id = *committed_note_id;
-                }
-            }
             let remap_event_ids = |event_ids: &mut Vec<EventSequence>| {
                 for event_id in event_ids {
                     if let Some(committed_event_id) = event_id_remap.get(event_id) {
@@ -1795,6 +1760,67 @@ impl<'i> Vm<'i> {
             for slot in &mut footnote.scanner_slots {
                 remap_event_ids(&mut slot.event_ids);
             }
+            // A refreshed source can insert non-footnote events or change the
+            // number of notes, so positional event-ID reuse cannot preserve
+            // the independent footnote identity space. Recovery refresh only
+            // reruns the scanner before module execution: render-stream note
+            // IDs therefore retain scanner order, while completed, active, and
+            // pending state contains only the pre-refresh execution allocation
+            // suffix. Rebase those two phases in the same order as a clean run.
+            let mut note_id_remap = BTreeMap::new();
+            let mut next_note_id: FootnoteId = 1;
+            for note_id in self.render_events.iter().filter_map(event_note_id) {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    note_id_remap.entry(note_id)
+                {
+                    entry.insert(next_note_id);
+                    next_note_id = next_note_id
+                        .checked_add(1)
+                        .expect("semantic footnote identity exhausted during source refresh");
+                }
+            }
+            let executed_note_ids = footnote_state_ids(&footnote);
+            assert_eq!(
+                executed_note_ids, original_footnote_state_ids,
+                "semantic recovery scanning must not create executed footnote state"
+            );
+            for note_id in executed_note_ids {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    note_id_remap.entry(note_id)
+                {
+                    entry.insert(next_note_id);
+                    next_note_id = next_note_id
+                        .checked_add(1)
+                        .expect("semantic footnote identity exhausted during source refresh");
+                }
+            }
+            for event in self.render_events.iter_mut() {
+                let note_id = match &mut event.event {
+                    RenderEvent::BeginFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::EndFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::FootnoteMark(footnote) => &mut footnote.note_id,
+                    _ => continue,
+                };
+                *note_id = note_id_remap[note_id];
+            }
+            for event in footnote.completed_transactions.iter_mut().flatten().chain(
+                footnote
+                    .active_actions
+                    .iter_mut()
+                    .map(|capture| &mut capture.begin_event),
+            ) {
+                let note_id = match &mut event.event {
+                    RenderEvent::BeginFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::EndFootnote(footnote) => &mut footnote.note_id,
+                    RenderEvent::FootnoteMark(footnote) => &mut footnote.note_id,
+                    _ => continue,
+                };
+                *note_id = note_id_remap[note_id];
+            }
+            if let Some(pending) = &mut footnote.pending_mark {
+                pending.note_id = note_id_remap[&pending.note_id];
+            }
+            footnote.next_note_id = next_note_id;
             self.restore_semantic_footnote_snapshot(&footnote);
 
             let mut front_matter = self.semantic_front_matter_snapshot();

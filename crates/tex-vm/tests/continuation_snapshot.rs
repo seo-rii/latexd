@@ -542,6 +542,121 @@ fn input_enter_snapshot_replaces_changed_child_structural_events() {
 }
 
 #[test]
+fn input_enter_snapshot_preserves_footnote_identity_when_an_earlier_event_is_inserted() {
+    let (expected, replayed) = replay_render_events_after_changed_child(
+        r"\footnote{Stable note.}",
+        r"\cite{new-key}\footnote{Stable note.}",
+    );
+
+    assert_eq!(replayed, expected);
+}
+
+#[test]
+fn input_enter_snapshot_rebases_footnote_identity_when_child_note_count_changes() {
+    let source =
+        r"\begin{document}Before \input{child} After.\footnote{Parent note.}\end{document}";
+    for (previous_child, current_child) in [
+        (
+            r"\footnote{First note.}",
+            r"\footnote{First note.}\footnote{Second note.}",
+        ),
+        (
+            r"\footnote{First note.}\footnote{Removed note.}",
+            r"\footnote{First note.}",
+        ),
+    ] {
+        let (expected, replayed) =
+            replay_render_events_after_changed_child_in(source, previous_child, current_child);
+
+        assert_eq!(replayed, expected);
+    }
+}
+
+#[test]
+fn input_enter_snapshot_rebases_active_footnote_state_before_refreshed_scanner_notes() {
+    let source = r"\begin{document}\footnote{Before \input{child} after.}\footnote{Parent note.}\input{after}\end{document}";
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Old child.");
+    vm.mount_file("after.tex", "");
+    let previous = vm.run_plain(source);
+    let child_checkpoint = previous
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Enter
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .expect("child enter checkpoint");
+    let child_snapshot = child_checkpoint.snapshot.clone();
+    let active_note_id = child_snapshot
+        .semantic_capture
+        .as_ref()
+        .expect("semantic capture")
+        .footnote
+        .active_actions
+        .first()
+        .and_then(|capture| match &capture.begin_event.event {
+            RenderEvent::BeginFootnote(begin) => Some(begin.note_id),
+            _ => None,
+        })
+        .expect("active footnote identity");
+    assert!(
+        child_snapshot
+            .semantic_sink
+            .as_ref()
+            .expect("semantic sink")
+            .events
+            .iter()
+            .all(|event| match &event.event {
+                RenderEvent::BeginFootnote(begin) => begin.note_id != active_note_id,
+                RenderEvent::EndFootnote(end) => end.note_id != active_note_id,
+                RenderEvent::FootnoteMark(mark) => mark.note_id != active_note_id,
+                _ => true,
+            }),
+        "the active execution identity must still be absent from the scanner stream"
+    );
+    drop(vm);
+
+    let current_child = r"\footnote{First child note.}\footnote{Second child note.}";
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::restore(&mut restored_interner, &child_snapshot);
+    restored.mount_file("child.tex", current_child);
+    restored.mount_file("after.tex", "");
+    let replayed = restored
+        .resume_continuation()
+        .expect("restored input continuation");
+
+    let mut clean_interner = ControlSequenceInterner::new();
+    let mut clean = Vm::new(&mut clean_interner);
+    clean.enable_render_event_capture();
+    clean.set_entry_source_path("main.tex");
+    clean.mount_file("child.tex", current_child);
+    clean.mount_file("after.tex", "");
+    let expected = clean.run_plain(source);
+
+    assert_eq!(replayed.render_events, expected.render_events);
+    let footnote_snapshot_at_after = |outcome: &tex_vm::VmOutcome| {
+        outcome
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == VmModuleCheckpointKind::Enter
+                    && checkpoint.module_path.as_str() == "after.tex"
+            })
+            .and_then(|checkpoint| checkpoint.snapshot.semantic_capture.as_ref())
+            .map(|semantic| semantic.footnote.clone())
+            .expect("after enter footnote snapshot")
+    };
+    assert_eq!(
+        footnote_snapshot_at_after(&replayed),
+        footnote_snapshot_at_after(&expected)
+    );
+}
+
+#[test]
 fn input_enter_snapshot_rebuilds_an_active_bibliography_item() {
     let (expected, replayed) = replay_render_events_after_changed_child_in(
         r"\begin{document}\begin{thebibliography}{1}\bibitem{k}Before \input{child} After.\end{thebibliography}\end{document}",
