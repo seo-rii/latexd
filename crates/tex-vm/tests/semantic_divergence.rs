@@ -320,6 +320,39 @@ fn runtime_false_siunitx_command_does_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_link_text_helpers_do_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0
+\hyperref[hidden]{Wrong link}\nolinkurl{wrong.example}
+\fi
+\hyperref[visible]{Right link}\nolinkurl{right.example}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        text.iter()
+            .all(|text| !text.contains("Wrong") && !text.contains("wrong.example")),
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(text.iter().filter(|text| **text == "Right link").count(), 1);
+    assert_eq!(
+        text.iter().filter(|text| **text == "right.example").count(),
+        1
+    );
+}
+
+#[test]
 fn segmented_capture_preserves_document_mode_for_plain_body_text() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

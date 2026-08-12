@@ -7457,18 +7457,27 @@ impl<'i> Vm<'i> {
                         if let Some((text, content_start, content_end, after)) =
                             read_braced_source_argument(source, text_index)
                         {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent {
-                                    text: normalize_latex_text_with_inline_placeholders(text),
-                                }),
-                                Self::link_provenance(
-                                    source_path,
-                                    command_start,
-                                    after,
-                                    content_start,
-                                    content_end,
-                                    Some((target_start, target_end)),
-                                ),
+                            let event_id = self
+                                .emit_render_event(
+                                    RenderEvent::Text(TextEvent {
+                                        text: normalize_latex_text_with_inline_placeholders(text),
+                                    }),
+                                    Self::link_provenance(
+                                        source_path,
+                                        command_start,
+                                        after,
+                                        content_start,
+                                        content_end,
+                                        Some((target_start, target_end)),
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.record_scanner_boundary_event(
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                                event_id,
                             );
                             index = after;
                         }
@@ -7483,18 +7492,27 @@ impl<'i> Vm<'i> {
                         if let Some((text, content_start, content_end, after)) =
                             read_braced_source_argument(source, text_index)
                         {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent {
-                                    text: normalize_latex_text_with_inline_placeholders(text),
-                                }),
-                                Self::link_provenance(
-                                    source_path,
-                                    command_start,
-                                    after,
-                                    content_start,
-                                    content_end,
-                                    Some((target_start, target_end)),
-                                ),
+                            let event_id = self
+                                .emit_render_event(
+                                    RenderEvent::Text(TextEvent {
+                                        text: normalize_latex_text_with_inline_placeholders(text),
+                                    }),
+                                    Self::link_provenance(
+                                        source_path,
+                                        command_start,
+                                        after,
+                                        content_start,
+                                        content_end,
+                                        Some((target_start, target_end)),
+                                    ),
+                                )
+                                .meta
+                                .sequence;
+                            self.record_scanner_boundary_event(
+                                source_path,
+                                command_start as u32,
+                                after as u32,
+                                event_id,
                             );
                             index = after;
                         }
@@ -7549,23 +7567,32 @@ impl<'i> Vm<'i> {
                         read_url_like_source_argument(source, index)
                     };
                     if let Some((text, content_start, content_end, after)) = argument {
-                        self.emit_render_event(
-                            RenderEvent::Text(TextEvent {
-                                text: text.trim().to_string(),
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            )
-                            .with_related(
-                                SourceSpanRole::Invocation,
-                                ProvenanceSpan::File(SourceSpan {
-                                    path: source_path.to_owned(),
-                                    start_utf8: command_start as u32,
-                                    end_utf8: after as u32,
+                        let event_id = self
+                            .emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: text.trim().to_string(),
                                 }),
-                            ),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start as u32,
+                                        end_utf8: after as u32,
+                                    }),
+                                ),
+                            )
+                            .meta
+                            .sequence;
+                        self.record_scanner_boundary_event(
+                            source_path,
+                            command_start as u32,
+                            after as u32,
+                            event_id,
                         );
                         index = after;
                     }

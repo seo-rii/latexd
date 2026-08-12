@@ -230,9 +230,9 @@
           "text": "/tmp/archive"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "sequence": 11,
           "source": {
             "expansion_stack": [],
