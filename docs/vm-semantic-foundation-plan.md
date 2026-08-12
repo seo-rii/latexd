@@ -147,6 +147,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
 | V7 | partial continuation/replay characterization | open | this is not Snapshot v2, transactional-sink completion, or persistent-session readiness |
 | V8 | existing SemanticDocumentIr compatibility builder | open/not implemented as designed | no `StableEventId` or renderer-neutral `LayoutIr` boundary |
+| Diagnostic stream | schema-v6 render diagnostics carry stable codes for every current writer and an exact missing-graphic asset join key; both compiler adapters consume typed data | open | severity, phase, recovery, related diagnostics, canonical ownership, and versioned VM/renderer/HMR/WASM adapters remain |
 
 Design snippets below for `TokenOrigin`, `EngineState`, `NestFrame`,
 `StableEventId`, state roots, and `LayoutIr` are target contracts, not current
@@ -174,7 +175,7 @@ V2 sequence fix (`ba9424d`) -> V2 event-contract closeout
 V2 sequence fix -> V3 independence proof -> bounded V3 ownership migrations
 
 public event identity/schema -------- separate readers-first stream after V4
-shared structured diagnostics ------- separate ownership/schema stream
+shared structured diagnostics ------- schema-v6 render slice; wider ownership/adapters open
 path-based build dependencies ------- independent build/cache stream
 ```
 
@@ -450,7 +451,7 @@ expansion IDs. V2 keeps the scanner boundary and contract explicit. V4 must
 establish the source registry, exact revision lifecycle, scoped interner
 identity, expansion arena, and snapshot capability before it introduces this
 private validated interface. `ExecutedSourceSlice` remains internal in V4 and
-does not change schema v5. V6 owns the family-by-family migration and removal of
+does not change schema v6. V6 owns the family-by-family migration and removal of
 the authoritative whole-source production stream. Successful execution paths
 use `ExecutedSourceSlice`; truthfully classified dispatch/failure paths require
 a separately reviewed bounded input instead of a weakened slice.
@@ -603,7 +604,7 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 
 | Contract | Current evidence | State | Remaining gate |
 | --- | --- | --- | --- |
-| build-local sequence and schema migration | schema v5 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence | green | keep it out of revision-stable identity |
+| build-local sequence and schema migration | schema v6 serializes `sequence`, accepts legacy `event_id`, and the sink snapshots its next/batch sequence; fixed schema-v5 fixtures remain readable | green | keep it out of revision-stable identity |
 | scanner producer/confidence | typed scanner construction preserves ordinary `ScannerRecovery`/medium, `RawFallback` fallback origin, and current diagnostic `Unknown`/low behavior in focused model tests | green | preserve these semantics on every bounded recovery path; any diagnostic retag is a separate change |
 | primitive/macro origin | all current production `new()` writes and direct producer/confidence/generated-by mutations have migrated; executed list, environment, inline, caption, heading, footnote, math, graphic, front-matter, text, table, and bibliography paths pass an opaque typed origin into construction | green | preserve the syntax-tree and Clippy guard invariant for new families |
 | explicit constructor contract | opaque `EventOrigin`, private-field `EventBuildContext`, and `try_from_origin()` reject event-kind/origin mismatches; both public raw constructors and all real calls are gone; structural policy admits only the typed/scanner public paths and limits the private assembler; fixed JSON proves permissive legacy reads remain | green | preserve the sanctioned-path invariant without conflating it with full representational validity or wire-read strictness |
@@ -614,8 +615,8 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; producer-invariance regressions cover both shapes | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until execution identity exists; keep narrower inline/text/footnote rules separate |
 | bounded recovery input | `ExecutedSourceSlice` exists only as a target contract; a Pro review rejected placeholder identities and compiler-side decoration | moved to V4/V6 | V4 constructs the validated internal handle after identity-complete snapshot support; V6 migrates consumers family by family |
 | path-based build dependencies | the compiler tracks loaded sources plus final reconciled `GraphicRef`/`IncludePdf` paths; a visible missing asset is tracked while a runtime-false asset is excluded (`9ed7a09`) | independent/partial | continue build read-set coverage independently; never derive semantic `DependencyId` from path order or claim this satisfies event identity |
-| public event revision/dependencies | current schema-v5 `EventMeta` does not carry them, and one event may span several source revisions or dependencies | separate schema stream | after V4, decide whether revision belongs on each provenance reference and model zero/one/many typed dependencies before a readers-first version migration; do not assume singular `EventMeta` fields |
-| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | separate architecture stream | choose a dependency-neutral canonical owner, then design versioned VM/event/HMR/WASM/snapshot adapters in a separate review |
+| public event revision/dependencies | current schema-v6 `EventMeta` does not carry them, and one event may span several source revisions or dependencies | separate schema stream | after V4, decide whether revision belongs on each provenance reference and model zero/one/many typed dependencies before a readers-first version migration; do not assume singular `EventMeta` fields |
+| shared structured diagnostics | schema v6 gives every current render-diagnostic writer a stable code and carries the exact missing-graphic `asset_ref`; both compiler adapters use the validated typed pair rather than parsing the display message, while schema-v5 message-only diagnostics remain readable and round-trip as `Unknown` without semantic inference | separate architecture stream/partial | choose a dependency-neutral canonical owner, then add audited severity/phase/recovery and versioned VM/renderer/HMR/WASM/snapshot adapters; keep EPS projection on renderer state rather than duplicating raster/PDF policy |
 | sequence-independent semantic identity | footnotes use an independent allocator; changed-source replay densely rebases scanner and executed identity phases without consulting event-sequence correspondence, including active state-only and note-count-change regressions; a repository-wide audit found no other emitted payload/IR identity derived from `EventSequence`, while sink, snapshot, scanner, bootstrap, and compiler uses remain ordering or transaction correlation only | green | forbid new semantic IDs derived from sequence or byte offsets; keep cross-revision identity deferred to V4-backed `StableEventId` |
 | `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
 
@@ -653,8 +654,8 @@ ownership. V3 may proceed before V4 only when all of these checks are green:
   `EventMeta.sequence` as identity;
 - the existing interner-local `ControlSequenceId` remains local and is not made
   cross-run durable;
-- schema-v5 fields/tags, HMR/WASM wire types, and checkpoint format versions do
-  not change;
+- schema-v6 fields/tags, schema-v5 compatibility fixtures, HMR/WASM wire types,
+  and checkpoint format versions do not change;
 - internal snapshot ownership may move only while its serialized representation
   and legacy fixtures remain equivalent—byte-identical where deterministic,
   otherwise decode-equivalent under the same format version;
@@ -670,6 +671,26 @@ command-ID lifetime, consumes source provenance, or changes replay/event output.
 That work must then be coordinated with V4 or a separately reviewed snapshot
 migration. V3 and V4 edits to `snapshot.rs` are serialized operationally even
 when the gate proves their architecture independent.
+
+The entry gate is green without moving the production owner:
+
+- `2289907` adds a self-tested CI diff guard. A commit that touches a V3 owner
+  file may change only the bounded VM production surface plus tests/plans, and
+  added production lines may not introduce execution identity, provenance,
+  durable command identity, or serialization symbols.
+- `fe6b4df` pins continuation-safety version 2, semantic-capture version 22, and
+  the existing `VmSnapshot.scopes` JSON shape with a normalized golden, full
+  JSON decode, fresh-interner restore, and exact control-sequence behavior.
+- `d9cdf02` compares nested local/global shadowing, positive/negative
+  `\globaldefs`, group unwind, scopes, output, events, diagnostics, transcript,
+  registers, visible graphic recovery, and false missing-input suppression
+  across a clean run and an input-exit JSON checkpoint replay.
+
+The replay RED also exposed that semantic expansion markers split register
+aliases such as `\globaldefs → \count251` from following assignment syntax when
+event capture was enabled. `d9cdf02` makes count/dimen/skip/toks register-alias
+expansion markerless and pins capture/non-capture assignment equivalence. This
+is a prerequisite correctness fix, not a control-sequence ownership move.
 
 ```rust
 pub enum EqKey {
@@ -805,7 +826,7 @@ V4 implementation order is:
    contexts, stale revisions, invalid spans, command mismatches, unrelated
    expansions, legacy capability, and scanner-origin attempts.
 
-V4 keeps schema-v5 output stable by resolving internal records back to current
+V4 keeps schema-v6 output stable by resolving internal records back to current
 path/span/textual provenance. It does not migrate recovery consumers, introduce
 semantic dependency identity, or consolidate diagnostic formats.
 
@@ -904,7 +925,8 @@ Exit criteria:
 - the private `ExecutedSourceSlice` constructor passes positive and rejection
   tests for context, revision, span, command, expansion, restore, rebase, and
   scanner-origin boundaries;
-- schema v5 and its current path/span/textual provenance remain compatible.
+- schema v6 and its current path/span/textual provenance remain stable, while
+  schema-v5 compatibility fixtures remain readable.
 
 ## V5: Macro, Prefix, And Command Model
 
@@ -1466,8 +1488,8 @@ execution explicitly delegates for recovery.
 
 ## Shared Diagnostic Contract
 
-Introduce the shared schema in V2 and migrate command-specific diagnostics with
-their owning V3-V8 batches.
+Develop the shared schema in its dependency-neutral architecture stream and
+migrate command-specific diagnostics with their owning V3-V8 batches.
 
 As bounded compatibility bridges, the internal compiler projects
 `missing graphic asset ...` render events and deterministic unconvertible-EPS
@@ -1479,6 +1501,27 @@ type, but they are not the shared contract: VM diagnostics, render-event
 messages, image annotations, renderer outcomes, HMR diagnostics, and WASM
 strings still have different fields, and phase/recovery cannot be reconstructed
 reliably from their text.
+
+The first versioned slice is implemented in render-event schema v6 (`dcb4d08`,
+`2f3eee8`). `RenderDiagnosticCode` names missing package, class, input, cyclic
+input, and graphic asset events. Only the missing-graphic code carries the
+narrow `asset_ref` required to join display-list image operations; the model
+accessor accepts only that complete code/value pair. The VM keeps owning the
+existing human-readable message and `EventOrigin` keeps owning
+producer/confidence. Both compiler adapters consume the typed accessor, so a
+reworded message remains display content rather than a hidden protocol, and a
+prefix-looking mismatched payload fails closed.
+
+Schema-v5 message-only diagnostics retain structural read/display/exact
+round-trip compatibility as `Unknown` with no asset reference. They are not
+reclassified from English text and therefore do not recreate typed
+missing-graphic projections. Repository tracing found production artifact
+writes and serving for `events.json`, but no compiler path that replays a
+persisted v5 stream through those adapters; current deserialization sites are
+artifact assertions. Publishing schema-v6 artifacts is nevertheless the
+rollback boundary: rollback code must retain v6 read support. Severity, phase,
+recovery, related diagnostics, renderer outcomes, and versioned VM/HMR/WASM
+adapters remain outside this slice, so the shared contract is still partial.
 
 Use one structured diagnostic shape from mouth through rendering:
 
@@ -1735,6 +1778,7 @@ The direct implementation sequence is:
    the V2 all-family suppression/expected-failure audit
 8. prove V3 independence with differential behavior, snapshot compatibility,
    changed-path, and added-symbol guards before moving production ownership
+   (`2289907`, `fe6b4df`, `d9cdf02` landed)
 9. `feat(tex-vm): introduce Eqtb and SaveStack for one bounded ownership class`
 10. migrate remaining dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
    green commits
