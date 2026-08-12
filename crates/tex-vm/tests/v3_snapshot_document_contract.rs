@@ -138,6 +138,36 @@ fn legacy_decode_initializes_empty_muskip_state_independently_of_skip_cursor() {
 }
 
 #[test]
+fn raw_legacy_snapshot_rejects_reserved_muskip_fields() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut legacy = serde_json::to_value(vm.snapshot()).expect("serialize legacy snapshot");
+    legacy["muskip_registers"] = json!({"17": 123});
+    legacy["next_muskip_register"] = json!(301);
+
+    assert!(serde_json::from_value::<VmSnapshot>(legacy).is_err());
+}
+
+#[test]
+fn restore_rejects_muskip_cursor_below_dynamic_register_base_before_mutation() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut source_interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.next_muskip_register = 255;
+    let mut restored_interner = ControlSequenceInterner::new();
+    restored_interner.intern("sentinel");
+    let original_len = restored_interner.len();
+
+    let error = match Vm::try_restore(&mut restored_interner, &snapshot) {
+        Ok(_) => panic!("invalid muskip cursor must be rejected"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error, VmRestoreError::InvalidMuskipCursor(255));
+    assert_eq!(restored_interner.len(), original_len);
+}
+
+#[test]
 fn versioned_document_decodes_legacy_state_for_exact_restore() {
     let mut source_interner = ControlSequenceInterner::new();
     let mut source = Vm::new(&mut source_interner);

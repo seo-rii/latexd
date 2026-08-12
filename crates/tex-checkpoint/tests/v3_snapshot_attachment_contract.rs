@@ -1,9 +1,13 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use camino::Utf8PathBuf;
+use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
+use std::io::Write;
 use tex_checkpoint::{
-    CheckpointBundle, CheckpointPage, InputBoundaryCheckpoint, SnapshotAttachment,
-    build_checkpoint_bundle, build_checkpoint_bundle_with_snapshots, checkpoint_is_replay_safe,
-    save_checkpoint_bundle,
+    CheckpointBundle, CheckpointBundleReuse, CheckpointCacheMissReason, CheckpointPage,
+    InputBoundaryCheckpoint, SnapshotAttachment, build_checkpoint_bundle,
+    build_checkpoint_bundle_with_snapshots, checkpoint_is_replay_safe,
+    load_checkpoint_bundle_for_reuse, save_checkpoint_bundle,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm, VmSnapshot};
@@ -111,6 +115,52 @@ fn suppressed_muskip_snapshots_keep_state_sensitive_fingerprints() {
         first_bundle.checkpoints[0].meta.vm_state_hash,
         second_bundle.checkpoints[0].meta.vm_state_hash
     );
+}
+
+#[test]
+fn cursor_only_muskip_state_is_suppressed_before_legacy_capture() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.next_muskip_register += 1;
+
+    let bundle = build_checkpoint_bundle(1, &snapshot, "preamble", &[])
+        .expect("cursor-only nonlegacy state must be suppressed");
+
+    assert!(!bundle.checkpoints[0].meta.snapshot_attached);
+    assert!(matches!(
+        bundle.checkpoints[0].snapshot_attachment(),
+        SnapshotAttachment::None
+    ));
+}
+
+#[test]
+fn suppressed_recapture_replaces_existing_legacy_attachment_on_disk() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let eligible = vm.snapshot();
+    let first =
+        build_checkpoint_bundle(1, &eligible, "preamble", &[]).expect("build eligible checkpoint");
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
+        .expect("UTF-8 checkpoint path");
+    save_checkpoint_bundle(&path, &first).expect("save eligible checkpoint");
+    let mut ineligible = eligible;
+    ineligible.muskip_registers.insert(17, 123);
+    let second = build_checkpoint_bundle(1, &ineligible, "preamble", &[])
+        .expect("build suppressed recapture");
+
+    save_checkpoint_bundle(&path, &second).expect("replace checkpoint bundle");
+
+    let CheckpointBundleReuse::Hit(reloaded) = load_checkpoint_bundle_for_reuse(&path) else {
+        panic!("suppressed bundle must remain readable");
+    };
+    assert!(!reloaded.checkpoints[0].meta.snapshot_attached);
+    assert!(matches!(
+        reloaded.checkpoints[0].snapshot_attachment(),
+        SnapshotAttachment::None
+    ));
+    assert!(!checkpoint_is_replay_safe(&reloaded.checkpoints[0]));
 }
 
 #[test]
@@ -225,6 +275,39 @@ fn reader_rejects_unsupported_versioned_capability_before_state() {
             .contains("unsupported VM snapshot capability"),
         "{error}"
     );
+}
+
+#[test]
+fn production_reader_treats_reserved_muskip_fields_in_legacy_lane_as_unreadable() {
+    let mut bundle = legacy_bundle_json();
+    bundle["checkpoints"][0]["snapshot"]["muskip_registers"] = json!({"17": 123});
+    bundle["checkpoints"][0]["snapshot"]["next_muskip_register"] = json!(301);
+    let payload = serde_json::to_vec(&bundle).expect("serialize malformed legacy payload");
+    let mut compressor = GzEncoder::new(Vec::new(), Compression::fast());
+    compressor
+        .write_all(&payload)
+        .expect("compress malformed legacy payload");
+    let compressed = compressor.finish().expect("finish checkpoint compression");
+    let envelope = json!({
+        "schema_version": 2,
+        "encoding": "gzip+base64",
+        "payload": BASE64_STANDARD.encode(compressed),
+        "uncompressed_len": payload.len(),
+        "uncompressed_blake3": blake3::hash(&payload).to_hex().to_string(),
+    });
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
+        .expect("UTF-8 checkpoint path");
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&envelope).expect("serialize checkpoint envelope"),
+    )
+    .expect("write checkpoint envelope");
+
+    assert!(matches!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    ));
 }
 
 #[test]

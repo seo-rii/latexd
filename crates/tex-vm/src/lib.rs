@@ -113,6 +113,7 @@ const MAX_GROUP_DEPTH: usize = 1_000;
 pub enum VmRestoreError {
     MissingRootControlSequenceScope,
     UnknownPrimitive(String),
+    InvalidMuskipCursor(u32),
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -127,6 +128,11 @@ impl std::fmt::Display for VmRestoreError {
                     "VM snapshot references unknown primitive {name:?}"
                 )
             }
+            Self::InvalidMuskipCursor(cursor) => write!(
+                formatter,
+                "VM snapshot muskip cursor {cursor} is below the dynamic register base {}",
+                default_next_muskip_register()
+            ),
         }
     }
 }
@@ -16761,6 +16767,11 @@ impl<'i> Vm<'i> {
     ) -> Result<Self, VmRestoreError> {
         if snapshot.scopes.is_empty() {
             return Err(VmRestoreError::MissingRootControlSequenceScope);
+        }
+        if snapshot.next_muskip_register < default_next_muskip_register() {
+            return Err(VmRestoreError::InvalidMuskipCursor(
+                snapshot.next_muskip_register,
+            ));
         }
         for scope in &snapshot.scopes {
             for meaning in scope.values() {
