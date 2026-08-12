@@ -254,6 +254,11 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   투영한다. 따라서 runtime-false command는 class/IR layout을 바꾸지 않으며
   visible command와 continuation replay는 동일한 column count를 유지한다
   (`a3a39a0`).
+- runtime-false `graphicx` package-mode option은 이후 visible graphic의 scanner
+  payload에 남을 수 있었다. Direct primitive reconciliation은 scanner에만 붙은
+  `draft`/`final`/`demo` 등 package-mode prefix만 execution-owned payload에서
+  제거하고, resize/scale 같은 scanner wrapper option은 계속 보존한다
+  (`126f383`). 일반 runtime-false `Gin` key/default state는 별도 감사 범위다.
 - phase exit는 열려 있다. 전체 112개 call site 분류와 production/fixture
   migration을 마쳤고, public raw constructor 정의와 실제 Rust call expression은
   모두 0개다 (`0940368`). origin-sensitive semantic-text fixture 3개는
