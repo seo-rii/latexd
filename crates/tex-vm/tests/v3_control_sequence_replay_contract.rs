@@ -169,6 +169,40 @@ fn author_lexical_protection_propagates_through_nested_full_expansion() {
     assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
 }
 
+#[test]
+fn author_lexical_protection_propagates_through_expandafter() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\def\and{+}\author{Ada \expandafter Q\and Grace}\begin{document}\maketitle|\expandafter Q\and\end{document}",
+    );
+    let authors = outcome
+        .render_events
+        .iter()
+        .filter_map(|event| match &event.event {
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Author =>
+            {
+                Some(metadata.value.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(authors, vec!["Ada Q", "Grace"]);
+    assert!(outcome.output.ends_with("|Q+"), "{}", outcome.output);
+    assert!(matches!(
+        vm.snapshot().scopes[0].get("and"),
+        Some(SnapshotMeaning::Macro {
+            protected: false,
+            ..
+        })
+    ));
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
 fn assert_control_sequence_scope_replay_matches_clean_execution() {
     let source = r"\def\kept{R}{\def\kept{L}{\def\kept{N}\global\let\alias\kept}}{\globaldefs=1\def\persist{P}\let\persistalias\persist}{\globaldefs=-1\global\def\discarded{D}\global\let\discardedalias\persist}\count0=0\ifnum\count0>0\input{missing}\fi\input{barrier}\begin{document}[\kept][\alias][\persist][\persistalias]\ifdefined\discarded BAD\else GOOD\fi\begin{overpic}[width=4cm]{right.pdf}\end{overpic}\undefinedafter\end{document}";
 
