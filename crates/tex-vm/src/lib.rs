@@ -8472,10 +8472,10 @@ impl<'i> Vm<'i> {
                                             && !text.contains('\\')
                                             && !text.contains('$')
                                         {
-                                            self.emit_render_event(
-                                                RenderEvent::Text(TextEvent {
+                                            self.emit_owned_scanner_text(
+                                                TextEvent {
                                                     text: normalize_latex_text(text),
-                                                }),
+                                                },
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     text_start as u32,
@@ -8489,6 +8489,9 @@ impl<'i> Vm<'i> {
                                                         end_utf8: command_after as u32,
                                                     }),
                                                 ),
+                                                source_path,
+                                                inner_command_start as u32,
+                                                command_after as u32,
                                             );
                                             inner_index = command_after;
                                         }
