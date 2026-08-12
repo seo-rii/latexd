@@ -1,6 +1,6 @@
 use tex_render_model::RenderEvent;
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{Vm, VmModuleCheckpointKind, VmSnapshot};
+use tex_vm::{SnapshotMeaning, Vm, VmModuleCheckpointKind, VmSnapshot};
 
 #[test]
 fn control_sequence_scope_replay_matches_clean_execution() {
@@ -51,6 +51,74 @@ fn global_control_sequence_assignments_cancel_pending_local_restores() {
         "GGGBBBGG"
     );
     assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
+#[test]
+fn package_scope_precedence_only_promotes_base_control_sequence_definitions() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.mount_file(
+        "scope.sty",
+        r"\def\pkgroot{P}\input{scope-input}{\def\pkgnested{N}}{\globaldefs=-1\global\def\pkgnegative{X}}\count0=7",
+    );
+    vm.mount_file("scope-input.tex", r"\def\pkginput{I}");
+
+    let outcome = vm.run_plain(
+        r"\count0=1{\usepackage{scope}}[\pkgroot][\pkginput]\ifdefined\pkgnested T\else F\fi\ifdefined\pkgnegative T\else F\fi[\number\count0]",
+    );
+
+    assert_eq!(outcome.output, "[P][I]FF[1]");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
+#[test]
+fn aftergroup_observes_the_restored_outer_control_sequence_meaning() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+
+    let outcome = vm.run_plain(r"\def\state{O}{\def\state{L}\aftergroup\state}");
+
+    assert_eq!(outcome.output, "O");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
+#[test]
+fn unconditional_global_helpers_ignore_negative_globaldefs() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+
+    let outcome = vm.run_plain(
+        r"\makeatletter\def\list{}\def\macro{A}{\globaldefs=-1\@cons\list{X}\g@addto@macro\macro{B}}\def\@elt#1{[#1]}\list\macro\makeatother",
+    );
+
+    assert_eq!(outcome.output, "[X]AB");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+}
+
+#[test]
+fn author_expansion_restores_temporarily_protected_meanings() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+
+    let outcome = vm.run_plain(
+        r"\def\and{+}\def\thanks#1{(#1)}\author{Ada \and Grace\thanks{Note}}\begin{document}\maketitle\end{document}",
+    );
+
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let snapshot = vm.snapshot();
+    for name in ["and", "thanks"] {
+        assert!(
+            matches!(
+                snapshot.scopes[0].get(name),
+                Some(SnapshotMeaning::Macro {
+                    protected: false,
+                    ..
+                })
+            ),
+            "{name} must regain its original macro flags"
+        );
+    }
 }
 
 fn assert_control_sequence_scope_replay_matches_clean_execution() {

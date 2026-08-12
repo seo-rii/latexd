@@ -160,31 +160,29 @@ impl Vm<'_> {
             let mut protected_definitions = Vec::new();
             if field == MetadataField::Author {
                 for command_name in ["and", "thanks"] {
-                    let Some(scope_index) =
-                        self.control_sequences.visible_layer_index(command_name)
-                    else {
-                        continue;
-                    };
-                    let Some(Meaning::Macro(definition)) =
-                        self.control_sequences.get_mut_at(scope_index, command_name)
+                    let Some(Meaning::Macro(mut definition)) =
+                        self.eqtb.control_sequence(command_name).cloned()
                     else {
                         continue;
                     };
                     if definition.flags.protected {
                         continue;
                     }
-                    let original = definition.clone();
                     definition.flags.protected = true;
-                    protected_definitions.push((scope_index, command_name, original));
+                    let Some(original) = self
+                        .eqtb
+                        .replace_control_sequence_meaning(command_name, Meaning::Macro(definition))
+                    else {
+                        continue;
+                    };
+                    protected_definitions.push((command_name, original));
                 }
             }
             let expanded = self.fully_expand_tokens(segment_tokens);
-            for (scope_index, command_name, definition) in protected_definitions {
-                self.control_sequences.insert_at(
-                    scope_index,
-                    command_name.to_string(),
-                    Meaning::Macro(definition),
-                );
+            for (command_name, meaning) in protected_definitions {
+                self.eqtb
+                    .replace_control_sequence_meaning(command_name, meaning)
+                    .expect("temporarily protected control sequence must remain defined");
             }
             let (expanded_source, _) = tokens_to_source(&expanded, self.interner);
             let expanded_ranges = if field == MetadataField::Author {

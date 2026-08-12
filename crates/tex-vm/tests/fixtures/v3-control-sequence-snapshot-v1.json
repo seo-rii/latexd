@@ -36,8 +36,8 @@
               "ch": "L",
               "catcode": "letter"
             },
-            "start_utf8": 65,
-            "end_utf8": 66
+            "start_utf8": 110,
+            "end_utf8": 111
           }
         ]
       },
@@ -56,10 +56,14 @@
               "ch": "P",
               "catcode": "letter"
             },
-            "start_utf8": 144,
-            "end_utf8": 145
+            "start_utf8": 189,
+            "end_utf8": 190
           }
         ]
+      },
+      "vthreeprimitive": {
+        "kind": "primitive",
+        "name": "def"
       },
       "vthreeroot": {
         "kind": "macro",
@@ -80,6 +84,18 @@
             "end_utf8": 17
           }
         ]
+      },
+      "vthreetoken": {
+        "kind": "token",
+        "token": {
+          "kind": {
+            "kind": "character",
+            "ch": "Z",
+            "catcode": "letter"
+          },
+          "start_utf8": 91,
+          "end_utf8": 92
+        }
       }
     }
   ]
