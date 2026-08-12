@@ -259,6 +259,35 @@ impl Vm<'_> {
         }
 
         insert_unmatched_environment_events(&mut reconciled, executed);
+        let mut document_class_index = None;
+        for event_index in 0..reconciled.len() {
+            match &reconciled[event_index].event {
+                RenderEvent::DocumentClass(_) if document_class_index.is_none() => {
+                    document_class_index = Some(event_index);
+                }
+                RenderEvent::SetDocumentLayout(layout)
+                    if scanner_ids.contains(&reconciled[event_index].meta.sequence)
+                        && layout.profile.as_deref() == Some("neurips_2019") =>
+                {
+                    let Some(document_class_index) = document_class_index else {
+                        continue;
+                    };
+                    let RenderEvent::DocumentClass(document_class) =
+                        &mut reconciled[document_class_index].event
+                    else {
+                        unreachable!("the recorded event is a document class");
+                    };
+                    document_class.options.retain(|option| {
+                        !matches!(
+                            option.trim().to_ascii_lowercase().as_str(),
+                            "10pt" | "11pt" | "12pt"
+                        )
+                    });
+                    document_class.options.push("10pt".to_string());
+                }
+                _ => {}
+            }
+        }
         self.render_events.replace_events(reconciled);
     }
 }

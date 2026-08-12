@@ -6622,26 +6622,6 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            if (package_name.eq_ignore_ascii_case("neurips_2019")
-                                || package_name.eq_ignore_ascii_case("neurips_2019.sty"))
-                                && let Some(document_class) = self
-                                    .render_events
-                                    .iter_mut()
-                                    .find_map(|event| match &mut event.event {
-                                        RenderEvent::DocumentClass(document_class) => {
-                                            Some(document_class)
-                                        }
-                                        _ => None,
-                                    })
-                            {
-                                document_class.options.retain(|option| {
-                                    !matches!(
-                                        option.trim().to_ascii_lowercase().as_str(),
-                                        "10pt" | "11pt" | "12pt"
-                                    )
-                                });
-                                document_class.options.push("10pt".to_string());
-                            }
                             if matches!(package_name, "graphicx" | "graphics" | "epsfig") {
                                 let explicit_options = merge_graphic_options(
                                     scan_state.graphic_global_options.clone(),
@@ -15840,6 +15820,7 @@ impl<'i> Vm<'i> {
         let scanner_environment = matches!(
             &event,
             RenderEvent::DocumentClass(_)
+                | RenderEvent::SetDocumentLayout(_)
                 | RenderEvent::BeginBlock(_)
                 | RenderEvent::EndBlock(_)
                 | RenderEvent::BeginLayoutContainer(_)
@@ -33255,8 +33236,9 @@ mod tests {
         FootnoteCommandKind, GeneratedBy, GraphicAssetDensity, GraphicAssetDensityUnit,
         GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, LayoutAlignment, ListKind,
         MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan, RenderEvent,
-        RenderEventEnvelope, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
-        TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SourceSpanRole, SpaceKind,
+        TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent,
+        TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -51383,6 +51365,37 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("Visible.")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_discards_runtime_false_package_layout() {
+        let source = r"\count0=0\documentclass{article}\ifnum\count0>0\usepackage{neurips_2019}\fi\begin{document}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("neurips_2019.sty", "");
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(event.event, RenderEvent::SetDocumentLayout(_))),
+            "{:#?}",
+            outcome.render_events
+        );
+        let stream = RenderEventStream::new(
+            Some("runtime-false-package".to_string()),
+            outcome.render_events,
+        );
+        let document_ir = tex_layout::build_document_ir(&stream, &());
+        let document_class = document_ir.document_class.as_ref().expect("document class");
+
+        assert_eq!(document_class.name, "article");
+        assert!(document_class.options.is_empty(), "{document_class:#?}");
+        assert_eq!(document_ir.layout, None);
+        assert!(document_ir.extracted_text().contains("Visible."));
     }
 
     #[test]
