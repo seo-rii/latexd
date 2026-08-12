@@ -353,6 +353,45 @@ fn runtime_false_link_text_helpers_do_not_leak_scanner_text() {
 }
 
 #[test]
+fn runtime_false_spacing_and_symbol_helpers_do_not_leak_scanner_events() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\%\ \xspace\fi
+\%\ \xspace
+\end{document}",
+    );
+
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|envelope| {
+                matches!(&envelope.event, RenderEvent::Text(text) if text.text == "%")
+            })
+            .count(),
+        1,
+        "{:#?}",
+        outcome.render_events
+    );
+    assert_eq!(
+        outcome
+            .render_events
+            .iter()
+            .filter(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::Space(space) if space.kind == tex_render_model::SpaceKind::Explicit
+                )
+            })
+            .count(),
+        2,
+        "{:#?}",
+        outcome.render_events
+    );
+}
+
+#[test]
 fn segmented_capture_preserves_document_mode_for_plain_body_text() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);

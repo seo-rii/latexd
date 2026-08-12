@@ -6587,15 +6587,24 @@ impl<'i> Vm<'i> {
                 }
                 "xspace" if in_document => {
                     index = skip_ascii_whitespace(source, index);
-                    self.emit_render_event(
-                        RenderEvent::Space(SpaceEvent {
-                            kind: SpaceKind::Explicit,
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::Space(SpaceEvent {
+                                kind: SpaceKind::Explicit,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .sequence;
+                    self.record_scanner_boundary_event(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        event_id,
                     );
                 }
                 "addcontentsline" if in_document => {
@@ -10452,27 +10461,45 @@ impl<'i> Vm<'i> {
                     scan_state.pending_footnote_mark = Some((note_id, marker));
                 }
                 "%" | "&" | "$" | "#" | "_" | "{" | "}" if in_document => {
-                    self.emit_render_event(
-                        RenderEvent::Text(TextEvent {
-                            text: command.to_string(),
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::Text(TextEvent {
+                                text: command.to_string(),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .sequence;
+                    self.record_scanner_boundary_event(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        event_id,
                     );
                 }
                 " " if in_document => {
-                    self.emit_render_event(
-                        RenderEvent::Space(SpaceEvent {
-                            kind: SpaceKind::Explicit,
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            index as u32,
-                        ),
+                    let event_id = self
+                        .emit_render_event(
+                            RenderEvent::Space(SpaceEvent {
+                                kind: SpaceKind::Explicit,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        )
+                        .meta
+                        .sequence;
+                    self.record_scanner_boundary_event(
+                        source_path,
+                        command_start as u32,
+                        index as u32,
+                        event_id,
                     );
                 }
                 "\\" if in_document => {
