@@ -293,13 +293,24 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   self-test의 parsed source string 안에 있는 legacy call 예시는 이 inventory에서
   제외한다. 고정 Macro/Medium JSON fixture는 permissive legacy read가 생성자
   제거 뒤에도 유지됨을 검증한다. bibliography unmatched insertion은
-  expansion→primary source geometry로 producer와 분리됐다 (`4c24516`). graphic의
-  producer-coupled equivalence와 sequence/source reuse audit,
-  `ExecutedSourceSlice` interface, revision/dependency metadata, shared diagnostic
-  schema와 남은 family leakage characterization은 완료되지 않았다. definition
-  span만 공유하는 반복 macro
-  invocation의 교차 matching 가능성은 기존 `ARCH-007`의 coarse byte-overlap
-  risk에 속하며 execution identity 도입 전에는 의미를 바꾸지 않는다.
+  expansion→primary source geometry로 producer와 분리됐다 (`4c24516`). Footnote
+  identity도 event sequence correspondence 없이 changed-source refresh 뒤 clean
+  build와 같은 allocation phase로 rebase하며, repository audit은 남은 sequence
+  사용이 build-local ordering/transaction correlation임을 확인했다 (`ba9424d`,
+  `2bc5154`). graphic의 producer-coupled path equivalence는 현재 scanner wrapper
+  option과 macro override 방어를 보존해야 하므로 execution identity 뒤로
+  보류한다. definition span만 공유하는 반복 macro invocation의 교차 matching
+  가능성도 기존 `ARCH-007`의 coarse byte-overlap risk에 속한다.
+- M13.2 phase exit는 전체 recovery family의 suppression regression 또는 명시적
+  low-confidence expected-failure inventory를 끝낼 때까지 열려 있다. 구체
+  `ExecutedSourceSlice`, file/revision/expansion identity, public event
+  revision/dependency schema, shared diagnostic schema는 더 이상 M13.2 exit
+  blocker로 세지 않는다. 각각 M13.4/M13.6 또는 별도 readers-first architecture
+  stream의 책임이다.
+- internal compiler의 path-based build dependency는 final reconciled
+  `GraphicRef`/`IncludePdf`를 추적한다. 보이는 missing asset은 추적하고
+  runtime-false asset은 제외한다 (`9ed7a09`). 이 read set은 cache invalidation
+  선행 단위일 뿐 semantic `DependencyId`나 event identity 증거가 아니다.
 
 2026-08-11 Pro review 결정:
 - 새 write 경로는 opaque `EventOrigin`으로 제한하되 기존 wire field/tag와
@@ -339,6 +350,25 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - `Command` rename, schema v6, 새 `Shim`/`BblParser` semantics는 실제
   producer/consumer invariant와 readers-first, rollback-safe migration 계획이
   함께 생길 때까지 보류한다.
+- 후속 milestone review는 M13.2와 M13.4의 순환 gate를 해소했다.
+  M13.2는 schema-v5 event/reconciliation baseline만 닫고, source registry,
+  exact revision, lexical token origin, expansion/scoped command identity,
+  readers-first snapshot capability, validated `ExecutedSourceSlice`는 이 순서로
+  M13.4에서 도입한다. M13.6은 family별 consumer migration과 최종 scanner
+  retirement만 소유한다.
+- old path-only snapshot은 identity를 추론해 승격하지 않는다.
+  `LegacyPathOnly`는 기존 동작만 유지하고 slice construction을 거부하며,
+  `IdentityComplete(context)`만 같은 registry/interner/expansion context에서
+  validated slice를 만들 수 있다. Fresh rebuild/rebase는 새 context를 만든다.
+- M13.3은 M13.4와 sibling branch다. `ba9424d` 뒤 별도 independence proof가
+  source/revision/expansion/path/span/build-rev 의존 없음, local
+  `ControlSequenceId` lifetime 유지, wire/checkpoint format 불변, snapshot 및
+  replay differential equivalence를 증명할 때만 bounded ownership migration을
+  시작한다.
+- public event identity/revision/dependency와 shared diagnostics는 별도
+  readers-first architecture stream이다. singular `EventMeta` field를 미리
+  가정하거나 build `rev`/`DepTrace`를 source revision/semantic dependency로
+  재해석하지 않는다.
 
 - 장기 versioned taxonomy target에는 `Primitive`, `Macro`, command/shim/BibTeX
   계열 producer, `ScannerRecovery`, `Fallback`, `Unknown`을 명시하되, 현재
@@ -349,20 +379,20 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 - whole-source scanner는 미이전 event family의 명시적 low-confidence
   compatibility bridge와 debug differential로만 동결하고 새 기능을
   추가하지 않는다.
-- M13.2에서 VM이 실제 실행한 범위를 표현하는 bounded
-  `ExecutedSourceSlice` interface를 먼저 고정한다. M13.6에서 family별
-  whole-source bridge를 제거하고 이 interface를 유일한 production recovery
-  경로로 만든다.
+- M13.4에서 identity-complete execution context와 validated internal
+  `ExecutedSourceSlice`를 먼저 고정한다. M13.6에서 family별 whole-source
+  bridge를 제거하고 이 interface 또는 별도 리뷰된 failure/dispatch-bounded
+  input을 production recovery 경로로 만든다.
 - mouth/expansion/execution/lowering/checkpoint/layout/rendering이 공유하는
-  code/severity/provenance/recovery/phase diagnostic schema를 추가한다.
+  diagnostic schema는 dependency-neutral canonical owner와 transport adapter
+  versioning을 별도 리뷰한 뒤 진행한다.
 
 완료 조건:
 - false conditional leakage는 family별 suppression test로 제거하거나 이전
   전까지 known failing characterization으로 드러내며 high-confidence
   output으로 숨기지 않는다.
 - scanner recovery event는 medium/low confidence로 식별된다.
-- 모든 non-fallback event 생성 경로가 producer/confidence를 명시하고
-  `ExecutedSourceSlice` 경계가 file/revision/span/command/expansion을 가진다.
+- 모든 non-fallback event 생성 경로가 producer/confidence를 명시한다.
 - sequence를 revision-stable identity로 사용하지 않는다.
 - `StableEventId`는 M13.4의 token/expansion origin 이전에는 만들지 않는다.
 
@@ -379,6 +409,21 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   old scope 제거, persistent root/state hash도 남아 있다.
 - 따라서 control-sequence까지 공통 Eqtb/SaveStack을 사용한다는 이전
   status 주장은 철회하며 phase exit는 열려 있다.
+
+진입 gate:
+- production diff는 file/source revision, expansion,
+  `ExecutedSourceSlice`, source path/span, compiler build revision을 참조하지
+  않고 event `sequence`를 identity로 해석하지 않는다.
+- 기존 interner-local `ControlSequenceId` lifetime과 schema-v5/HMR/WASM wire,
+  checkpoint format version을 유지한다.
+- snapshot representation은 deterministic byte equality 또는 동일 version의
+  decode equality를 유지하고, nested local/global assignment, `\globaldefs`,
+  group unwind, snapshot/restore, continuation/replay의 Eqtb/SaveStack state,
+  events, diagnostics, recovery-visible behavior가 `ba9424d` baseline과 같다.
+- 첫 batch는 production owner를 옮기지 않고 위 differential fixture와
+  changed-path/added-symbol guard만 추가한다. 이 gate가 persisted field,
+  command-ID lifetime, provenance, replay output 변경을 요구하면 M13.4 또는
+  별도 snapshot migration과 다시 조정한다.
 
 이전 순서:
 1. control sequence definition과 `\let`
@@ -824,22 +869,31 @@ WASI에서 외부 변환기가 필요한 형식은 명시적으로 진단하고 
    `Fallback`/low 의미는 별도 audit 전 유지
 6. 7개 family의 location-only overlap 공통화와 네 family insertion anchor의
    origin metadata 분리는 `decccd7`, `694a0ee`에 landed. bibliography anchor도
-   source geometry로 분리됐다 (`4c24516`). graphic identity와 sequence reuse를
-   별도 audit한 뒤 bounded `ExecutedSourceSlice`를 도입
+   source geometry로 분리됐고 (`4c24516`), footnote sequence identity audit/fix도
+   닫혔다 (`ba9424d`). M13.2의 남은 all-family suppression closeout을 완료
 7. control-sequence behavior characterization — 기존 grouping/global/
    `\globaldefs`/snapshot tests green
 8. 기존 layered scope representation을 semantics 변경 없이 bounded
    `ControlSequenceScopes` module/API로 격리 — `94d277e` landed
-9. V2 gate가 green이거나 storage migration과 무관함이 증명된 뒤에만
-   control-sequence definition/`\let`을 Eqtb/SaveStack 단일 owner로 이전
-10. remaining assignment class와 old split scope 제거
-11. streaming Mouth의 file/revision-aware TokenOrigin과 expansion arena
-12. macro/command boundary를 유지하며 EngineState와 execution mode/nest 통합
-13. V6 whole-source scanner retirement와 실행 기반 SemanticSink exit
-14. token/expansion 기반 stable event ID
+9. production owner 이전 전 M13.3 independence differential/compatibility/
+   changed-path/added-symbol guard를 별도 test commit으로 추가
+10. gate가 green이면 control-sequence definition/`\let` 한 owner를 기존
+    serialized snapshot shape와 behavior 변경 없이 Eqtb/SaveStack으로 이전
+11. remaining assignment class와 old split scope 제거
+12. M13.4 identity ADR 승인 뒤 source registry shadow mode, lexical origin,
+    expansion/scoped command identity, readers-first snapshot capability,
+    validated internal `ExecutedSourceSlice` 순서로 구현
+13. streaming Mouth와 macro/command boundary를 구현한 뒤 EngineState와
+    execution mode/nest 통합
+14. M13.6 family별 bounded recovery/SemanticSink migration; scanner state parity,
+    legacy snapshot policy, zero divergence/fallback 뒤 최종 retirement
 15. Snapshot v2와 transactional replay
 16. SemanticDocumentIr metadata/frame builder와 LayoutIr
 17. MathList/수식 layout/AMS/OpenType 순서
+
+Public event identity/schema와 shared diagnostic contract는 위 critical path에
+끼워 넣지 않고 각각 별도 Pro/schema review와 readers-first adapter migration으로
+진행한다.
 
 8번은 전체 52,200줄 split 완료를 한 batch로 요구하지 않는다. 즉시 필요한
 control-sequence state family부터 기계적으로 격리하고, backing ownership을

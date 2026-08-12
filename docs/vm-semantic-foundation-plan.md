@@ -140,9 +140,9 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence scope owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
-| V2 | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, table suppression for lexical/runtime false conditionals, and sequence-independent current semantic IDs exist | open | graphic path equivalence, revision/dependency metadata, shared diagnostics, and remaining family leakage evidence are incomplete; bounded `ExecutedSourceSlice` construction is prerequisite-blocked on V4 file/revision/expansion identity; future producer semantics are explicitly deferred until a real producer/consumer contract exists |
+| V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, table suppression for lexical/runtime false conditionals, and sequence-independent current semantic IDs exist | open | finish the explicit all-family suppression/expected-failure closeout; graphic equivalence is audited and deferred, while execution identity, public event identity, and shared diagnostics belong to later or separate streams |
 | V3 | Count/Dimen/Skip/Toks/CatCode Eqtb/SaveStack slices; control-sequence layered maps isolated behind `ControlSequenceScopes` | open | control-sequence meanings are not yet owned by Eqtb/SaveStack; remaining assignment classes and persistent root/hash are absent |
-| V4 | streaming Mouth/cursor and continuation slices | open | file/revision-aware `TokenOrigin` and interned expansion arena are absent |
+| V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
 | V7 | partial continuation/replay characterization | open | this is not Snapshot v2, transactional-sink completion, or persistent-session readiness |
@@ -154,6 +154,33 @@ implementation. Later vertical slices do not waive earlier entry gates. New
 V6/V7 feature families are frozen while the state-ownership dependency spine
 is closed; existing slices remain characterization evidence and may receive
 bounded correctness fixes.
+
+The numbered phases form a dependency DAG, not a total commit order:
+
+```text
+V2 sequence fix (`ba9424d`) -> V2 event-contract closeout
+                                  |
+                                  v
+                         V4 identity semantics/registry
+                                  -> lexical origins
+                                  -> expansion + scoped command identity
+                                  -> readers-first snapshot capability
+                                  -> validated ExecutedSourceSlice
+                                                    |
+                                                    v
+                                           V6 family migrations
+                                                    -> scanner retirement
+
+V2 sequence fix -> V3 independence proof -> bounded V3 ownership migrations
+
+public event identity/schema -------- separate readers-first stream after V4
+shared structured diagnostics ------- separate ownership/schema stream
+path-based build dependencies ------- independent build/cache stream
+```
+
+V3 may proceed before V4 only through the mechanical independence gate below.
+V3 and V4 changes that both touch snapshot code remain operationally serialized
+even when their architectural dependencies are independent.
 
 ## V0: Characterization And Divergence Tests
 
@@ -397,29 +424,36 @@ consumer invariant plus a readers-first, rollback-safe version plan (`ba887bf`).
 The final recovery scanner must not scan the whole file and feed a second
 production event stream into IR.
 
-Allowed recovery input:
+Illustrative V4 target; its exact ownership and durable representation require
+the identity ADR described below:
 
 ```rust
 pub struct ExecutedSourceSlice {
-    pub file: FileId,
-    pub revision: RevisionId,
-    pub span: ByteSpan,
-    pub command: Option<ControlSequenceId>,
-    pub expansion: Option<ExpansionId>,
+    context: IdentityContextId,
+    source: SourceVersion, // file + exact immutable source revision
+    span: ByteSpan,        // lexical origin of the executed command token
+    command: ScopedControlSequenceId,
+    expansion: ExpansionId,
 }
 ```
 
 The VM creates this slice only after reaching the construct through normal
 execution. The scanner may recover a bounded command, argument, environment,
-or math region from that slice.
+or math region from that slice. Expansion records expose named call,
+definition, and argument anchors rather than letting consumers reinterpret the
+direct lexical span. Top-level execution needs a truthful root occurrence; it
+must not be encoded as a missing, zero, or placeholder expansion ID.
 
 This is the required recovery contract, but its concrete identity-bearing type
-must not be introduced with placeholder file, revision, or expansion IDs. V2
-keeps the scanner boundary and contract explicit; V4 must establish the
-file/revision/expansion identity lifecycles and then introduce this interface.
-V6 owns the family-by-family migration, removal of the authoritative
-whole-source production stream, and making `ExecutedSourceSlice` the sole
-production recovery input.
+must not be introduced with placeholder file, revision, command-context, or
+expansion IDs. V2 keeps the scanner boundary and contract explicit. V4 must
+establish the source registry, exact revision lifecycle, scoped interner
+identity, expansion arena, and snapshot capability before it introduces this
+private validated interface. `ExecutedSourceSlice` remains internal in V4 and
+does not change schema v5. V6 owns the family-by-family migration and removal of
+the authoritative whole-source production stream. Successful execution paths
+use `ExecutedSourceSlice`; truthfully classified dispatch/failure paths require
+a separately reviewed bounded input instead of a weakened slice.
 
 During V2-V6 migration, the old whole-source scanner may temporarily remain:
 
@@ -430,12 +464,13 @@ During V2-V6 migration, the old whole-source scanner may temporarily remain:
 
 No new production feature is added to that whole-source path. Each V6 vertical
 slice removes one event family from the whole-source recovery bridge. The bounded
-`ExecutedSourceSlice` interface is the only remaining production recovery path
-at final V6 exit. False-conditional leakage must be removed by family-specific
-suppression tests or remain an explicit failing characterization until the
-corresponding family migrates; it must not be hidden by a high-confidence
-event. Table recovery now covers both lexical and runtime-false conditional
-branches in `crates/tex-vm/tests/semantic_table.rs`. Runtime-false `minipage`
+execution contracts are the only remaining production recovery paths at final
+V6 exit; they may not rescan the whole source. False-conditional leakage must be
+removed by family-specific suppression tests or remain an explicit failing
+characterization until the corresponding family migrates; it must not be
+hidden by a high-confidence event. Table recovery now covers both lexical and
+runtime-false conditional branches in `crates/tex-vm/tests/semantic_table.rs`.
+Runtime-false `minipage`
 layout-container pairs are registered with environment reconciliation and
 discarded through the same suppression ranges, while visible pairs remain
 covered (`e69cb6d`). False `DocumentClass` recovery uses the same bounded
@@ -493,15 +528,15 @@ pub struct EventMeta {
     pub mode: SemanticMode,
     pub producer: EventProducer,
     pub confidence: SemanticConfidence,
-    pub revision: RevisionId,
-    pub dependencies: SmallVec<[DependencyId; 4]>,
 }
 ```
 
 `sequence` is build-local ordering. Do not derive `StableEventId` yet: it
 cannot be defined correctly until V4 supplies file-aware token origins and
-interned expansion records. Footnote or node identity must stop depending on
-the next event sequence before replay reuse is enabled.
+interned expansion records. Revision-aware provenance and typed zero/one/many
+dependencies belong to the later readers-first event-schema stream; they are
+not singular fields assumed here. Footnote or node identity must stop depending
+on the next event sequence before replay reuse is enabled.
 
 Footnotes now own a separate monotonic `FootnoteId` allocator, and changed-input
 recovery no longer infers that identity from the event sequences reused by the
@@ -577,9 +612,10 @@ JSON fixture even though Rust callers can no longer use the raw APIs.
 | future producer semantics | no sanctioned origin, production assignment, or consumer invariant exists for `CompatCommand`, `Shim`, or `BblParser` | deferred | require a real producer-plus-consumer contract and an explicit readers-first/rollback-safe schema decision before any rename or new wire tag |
 | false-conditional isolation | lexical and runtime-false table recovery, scanner-only minipage layout-container pairs, false `DocumentClass`, package-derived layout/class-option projections, column-command layout/class-option projections, direct graphic package-mode prefixes, source-scoped `Gin` defaults, scanner recovery diagnostics, and non-table raw fallbacks are suppressed with visible/actual/replay regressions | green | require a family-specific false/visible regression and continuation coverage when a new scanner recovery path can outlive execution filtering |
 | reconciliation location identity | seven families share a source-only overlap contract; heading/caption/graphic/front-matter share a terminal-call→Invocation→primary unmatched insertion anchor, while bibliography uses a source-only expansion→primary anchor; producer-invariance regressions cover both shapes | partial | keep graphic path equivalence and repeated-macro definition-span matching unchanged until execution identity exists; keep narrower inline/text/footnote rules separate |
-| bounded recovery input | `ExecutedSourceSlice` exists only as a target contract in this plan; a Pro review rejected placeholder identities | prerequisite-blocked | introduce it with the real file/revision/expansion identity lifecycles in V4, then migrate families in V6 |
-| revision and dependencies | current `EventMeta` does not carry them | missing | add and version their serialized contract |
-| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | missing | define and version the shared renderer outcome/schema adapters; do not infer phase/recovery from remaining message strings or duplicate raster/PDF decode policy |
+| bounded recovery input | `ExecutedSourceSlice` exists only as a target contract; a Pro review rejected placeholder identities and compiler-side decoration | moved to V4/V6 | V4 constructs the validated internal handle after identity-complete snapshot support; V6 migrates consumers family by family |
+| path-based build dependencies | the compiler tracks loaded sources plus final reconciled `GraphicRef`/`IncludePdf` paths; a visible missing asset is tracked while a runtime-false asset is excluded (`9ed7a09`) | independent/partial | continue build read-set coverage independently; never derive semantic `DependencyId` from path order or claim this satisfies event identity |
+| public event revision/dependencies | current schema-v5 `EventMeta` does not carry them, and one event may span several source revisions or dependencies | separate schema stream | after V4, decide whether revision belongs on each provenance reference and model zero/one/many typed dependencies before a readers-first version migration; do not assume singular `EventMeta` fields |
+| shared structured diagnostics | no common code/severity/provenance/recovery/phase schema spans all pipeline stages; the internal compiler boundedly projects missing-graphic events and deterministic unconvertible-EPS renderer state into deduplicated HMR warnings with primary-file provenance | separate architecture stream | choose a dependency-neutral canonical owner, then design versioned VM/event/HMR/WASM/snapshot adapters in a separate review |
 | sequence-independent semantic identity | footnotes use an independent allocator; changed-source replay densely rebases scanner and executed identity phases without consulting event-sequence correspondence, including active state-only and note-count-change regressions; a repository-wide audit found no other emitted payload/IR identity derived from `EventSequence`, while sink, snapshot, scanner, bootstrap, and compiler uses remain ordering or transaction correlation only | green | forbid new semantic IDs derived from sequence or byte offsets; keep cross-revision identity deferred to V4-backed `StableEventId` |
 | `StableEventId` | intentionally absent until V4 file-aware token/expansion origins | correctly deferred | add only after the V4 prerequisite is green |
 
@@ -589,18 +625,51 @@ Exit criteria:
 - no public raw compatibility constructor bypasses typed origin validation;
 - every known recovery family has a suppression regression or an explicit
   low-confidence expected failure for false-conditional leakage;
-- the bounded recovery contract remains explicit and no placeholder
-  `ExecutedSourceSlice` identity is introduced before V4 supplies file,
-  revision, and expansion lifecycles; whole-source production retirement
-  remains a V6 exit condition;
 - the current `event_id` contract is migrated/versioned as build-local
   `sequence`;
-- no code treats sequence as a revision-stable identity.
+- no code treats sequence as revision-stable or semantic identity;
+- current producer-coupled reconciliation cases are characterized and listed as
+  deferred risks rather than silently generalized;
+- V2 does not define, construct, serialize, or consume `ExecutedSourceSlice`,
+  add a schema-vNext writer, or add production features to the whole-source
+  scanner.
+
+File/revision/expansion identity, validated `ExecutedSourceSlice` construction,
+public event identity, and shared diagnostics are not V2 exit criteria. They
+remain explicitly tracked by the V4/V6 or separate-stream gates above.
 
 ## V3: Eqtb And SaveStack
 
 Replace split control-sequence scopes and independent register maps with one
 assignment model.
+
+### V3 Independence Gate
+
+The next bounded V3 batch proves independence before it moves production
+ownership. V3 may proceed before V4 only when all of these checks are green:
+
+- production changes do not reference file/source revision, expansion,
+  `ExecutedSourceSlice`, source paths/spans, compiler build revision, or
+  `EventMeta.sequence` as identity;
+- the existing interner-local `ControlSequenceId` remains local and is not made
+  cross-run durable;
+- schema-v5 fields/tags, HMR/WASM wire types, and checkpoint format versions do
+  not change;
+- internal snapshot ownership may move only while its serialized representation
+  and legacy fixtures remain equivalent—byte-identical where deterministic,
+  otherwise decode-equivalent under the same format version;
+- nested local/global assignment, `\globaldefs`, group unwind, snapshot,
+  restore, continuation, and replay produce equivalent Eqtb/SaveStack state,
+  events, diagnostics, and recovery-visible behavior against the post-`ba9424d`
+  baseline;
+- a changed-path/added-symbol guard rejects incidental identity, public-schema,
+  and checkpoint-format work in a V3 ownership batch.
+
+The gate fails if control-sequence migration requires a persisted field, changes
+command-ID lifetime, consumes source provenance, or changes replay/event output.
+That work must then be coordinated with V4 or a separately reviewed snapshot
+migration. V3 and V4 edits to `snapshot.rs` are serialized operationally even
+when the gate proves their architecture independent.
 
 ```rust
 pub enum EqKey {
@@ -697,7 +766,48 @@ Exit criteria:
   user migrates;
 - Eqtb state can be hashed and referenced by a persistent root.
 
-## V4: Streaming Mouth And Token Origins
+## V4: Streaming Mouth And Execution Identity
+
+V4 begins with an identity ADR; no production ID type lands before it defines
+source revision as the exact immutable normalized UTF-8 buffer indexed by
+`ByteSpan`, the logical locator/file lifecycle, identity-context namespace,
+fresh/continuation/mounted/restore/rebase behavior, command-interner scoping,
+and the direct slice span meaning. Compiler build revision is a separate domain
+and has no implicit conversion to source revision.
+
+The runtime and snapshot model distinguishes two capabilities:
+
+```text
+LegacyPathOnly
+  preserves old path/span behavior
+  cannot construct ExecutedSourceSlice
+
+IdentityComplete(context)
+  owns one source registry, interner scope, and expansion arena
+  may construct a validated ExecutedSourceSlice
+```
+
+An old path-only checkpoint remains `LegacyPathOnly` or triggers an explicitly
+reviewed fresh rebuild. It never acquires file/revision/expansion identity by
+inference. Readers for identity-complete snapshots must land before writers;
+rollback-capable readers remain available while the new writer is enabled.
+
+V4 implementation order is:
+
+1. approve identity semantics and ownership;
+2. register exact immutable source bytes at the resolver boundary in shadow
+   mode, without compiler-side event decoration;
+3. attach file/revision-aware lexical origins to source tokens;
+4. add an occurrence-specific expansion arena and command identity scoped to
+   the same execution/interner context;
+5. add readers-first snapshot/restore capability and explicit legacy behavior;
+6. construct the private validated `ExecutedSourceSlice`, rejecting mixed
+   contexts, stale revisions, invalid spans, command mismatches, unrelated
+   expansions, legacy capability, and scanner-origin attempts.
+
+V4 keeps schema-v5 output stable by resolving internal records back to current
+path/span/textual provenance. It does not migrate recovery consumers, introduce
+semantic dependency identity, or consolidate diagnostic formats.
 
 The main execution path stops calling whole-document `lex_plain()` before
 execution. The VM asks for the next token at the current catcode state.
@@ -758,10 +868,12 @@ Expansion stacks are interned in an arena:
 
 ```rust
 pub struct ExpansionRecord {
-    pub parent: Option<ExpansionId>,
-    pub command: ControlSequenceId,
-    pub call_site: TokenOriginId,
-    pub definition_site: Option<SourceSpanRef>,
+    pub context: IdentityContextId,
+    pub parent: ExpansionParent, // explicit execution root or expansion
+    pub command: ScopedControlSequenceId,
+    pub call_site: LexicalOrigin,
+    pub definition_site: ExpansionDefinitionOrigin,
+    pub argument_sources: Vec<LexicalOrigin>,
 }
 ```
 
@@ -781,8 +893,18 @@ Exit criteria:
 
 - eager lexing is no longer used by `run_plain()` or production execution;
 - `lex_plain()` remains only as a focused lexer helper/test API if still useful;
-- all source tokens identify file and revision;
-- expansion provenance comes from the VM expansion arena.
+- the source registry binds every file/revision handle to the exact immutable
+  UTF-8 bytes indexed by spans, with tested fresh/continuation/mounted/restore/
+  rebase behavior;
+- all source tokens carry complete lexical source identity;
+- expansion provenance and scoped command identity come from the same validated
+  execution context;
+- legacy path-only and identity-complete snapshot capabilities are explicit,
+  and old snapshots never receive fabricated identity;
+- the private `ExecutedSourceSlice` constructor passes positive and rejection
+  tests for context, revision, span, command, expansion, restore, rebase, and
+  scanner-origin boundaries;
+- schema v5 and its current path/span/textual provenance remain compatible.
 
 ## V5: Macro, Prefix, And Command Model
 
@@ -914,22 +1036,19 @@ Exit criteria:
 
 ## V6: VM-Owned SemanticSink
 
-Before migrating the first production family, add `StableEventId` using the
-file-aware token and expansion origins from V4:
+V6 consumes the validated V4 execution identity and `ExecutedSourceSlice` one
+recovery family at a time. Public `StableEventId`, revision-aware provenance,
+and semantic dependency relations belong to the separate readers-first event
+schema stream after V4. They are not prerequisites for an internal bounded
+consumer unless a family-specific test proves otherwise, and V6 does not assume
+singular revision/dependency fields belong directly on `EventMeta`.
 
-```rust
-pub struct EventMeta {
-    pub sequence: u64,
-    pub stable_id: StableEventId,
-    // producer, confidence, source, revision, dependencies...
-}
-```
-
-The stable anchor combines stable file identity, a source token anchor or
-bounded token fingerprint, expansion call-chain identity, semantic role, and a
-local ordinal among equivalent siblings. Absolute byte offsets and sequence
-numbers alone are not stable identities. Multi-revision tests cover reuse,
-collision detection, and deterministic disambiguation.
+Before a family migrates, inventory whether its legacy scanner behavior is
+post-success, dispatch-observed, failure-bound, or purely static. Prove with the
+scanner's event output disabled that it does not alter VM state or control flow.
+Commands that do not reach successful execution require a separately reviewed,
+truthfully named bounded dispatch/failure input rather than a weakened
+`ExecutedSourceSlice`.
 
 Migrate event families in vertical slices:
 
@@ -944,11 +1063,16 @@ Migrate event families in vertical slices:
 Each slice follows this sequence:
 
 1. add a divergence test for conditionals and macro generation;
-2. emit the event from actual command execution;
-3. attach actual token/expansion provenance;
-4. compare the VM stream with the legacy scanner stream in a debug test;
-5. switch production IR to the VM event for that capability;
-6. remove or demote the corresponding whole-source scanner rule.
+2. characterize scanner side effects, failure paths, and legacy-checkpoint
+   behavior for that family;
+3. emit the event from actual command execution or its reviewed bounded input;
+4. attach actual token/expansion provenance and shadow-consume the validated
+   slice;
+5. compare VM state, diagnostics, and event streams with the legacy scanner
+   path;
+6. switch production IR to the bounded path behind a family rollback switch;
+7. remove or demote the corresponding whole-source scanner rule only after
+   divergence and fallback reach zero.
 
 The sink interface supports transactions before checkpoint replay is enabled:
 
@@ -971,6 +1095,9 @@ Exit criteria per event family:
 - local assignments affect event behavior only within their group;
 - actual expansion frames produce provenance;
 - replay does not duplicate events;
+- scanner-enabled and scanner-disabled VM state/control flow remain equivalent;
+- continuation, snapshot/restore, malformed/unsupported input, and the relevant
+  missing-visible cases pass;
 - the production IR path no longer consumes that family from the whole-source
   scanner.
 
@@ -980,8 +1107,12 @@ Final V6 exit criteria:
   whole-document step in `run_plain()`;
 - the source scanner exists only as bounded recovery/debug compatibility;
 - every production event declares producer and confidence;
-- sequence and stable identity are separate, and replay preserves next-ID
-  state.
+- every inventoried family has zero bounded-vs-scanner divergence and zero
+  production scanner fallback through the required rollout window;
+- legacy path-only checkpoints have an explicit rebuild, retirement, or legacy
+  capability policy;
+- sequence remains build-local and no public identity migration is implied by
+  scanner retirement.
 
 ### Current V6 Implemented Vertical Slices (Phase Exit Open)
 
@@ -1600,19 +1731,31 @@ The direct implementation sequence is:
    bibliography/graphic identity and sequence reuse; defer concrete bounded
    `ExecutedSourceSlice` construction until step 11 supplies its identity
    lifecycles
-7. `feat(diagnostics): add phase-aware diagnostics and recovery metadata`
-8. `feat(tex-vm): introduce Eqtb and SaveStack for definitions and counts`
-9. migrate dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
+7. close the footnote sequence-as-identity regression (`ba9424d`) and finish
+   the V2 all-family suppression/expected-failure audit
+8. prove V3 independence with differential behavior, snapshot compatibility,
+   changed-path, and added-symbol guards before moving production ownership
+9. `feat(tex-vm): introduce Eqtb and SaveStack for one bounded ownership class`
+10. migrate remaining dimen/skip/toks/catcode/mathcode/font assignment classes in bounded
    green commits
-10. `feat(tex-vm): execute through a streaming mouth`
-11. `feat(tokens): preserve file, revision, and expansion token origins`
-12. `feat(tex-vm): support parameter text and command prefixes`
-13. `refactor(tex-vm): centralize execution mode and nest state`
-14. add stable event IDs from token/expansion origins, then migrate SemanticSink
-   event families one vertical slice per green commit
-15. `feat(checkpoint): add transactional continuation snapshots`
-16. `refactor(ir): introduce SemanticDocumentIr metadata and frame builder`
-17. `feat(layout): introduce renderer-neutral LayoutIr`
+11. approve the V4 identity ADR, then add source registry shadow mode, lexical
+    origins, expansion/scoped-command identity, readers-first snapshot
+    capability, and the validated internal `ExecutedSourceSlice` in that order
+12. `feat(tex-vm): execute through a streaming mouth`
+13. `feat(tex-vm): support parameter text and command prefixes`
+14. `refactor(tex-vm): centralize execution mode and nest state`
+15. migrate V6 recovery/SemanticSink families one vertical slice per green
+    commit, then retire the scanner only after the legacy policy and zero-
+    divergence/fallback gates pass
+16. `feat(checkpoint): add transactional continuation snapshots`
+17. `refactor(ir): introduce SemanticDocumentIr metadata and frame builder`
+18. `feat(layout): introduce renderer-neutral LayoutIr`
+
+The public event identity/schema and shared diagnostic contract are separate
+reviewed streams. The former starts only after V4 defines provenance/dependency
+semantics and readers are available; the latter first chooses a
+dependency-neutral canonical owner and versioned VM/event/HMR/WASM/snapshot
+adapters. Neither is inserted into the V2/V3/V4 critical path.
 
 These are commit-sized batches, not review phases. If a batch is still too
 large, split it by assignment class or event family without reordering the
