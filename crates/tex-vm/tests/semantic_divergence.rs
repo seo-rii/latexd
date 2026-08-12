@@ -392,6 +392,27 @@ fn runtime_false_spacing_and_symbol_helpers_do_not_leak_scanner_events() {
 }
 
 #[test]
+fn runtime_false_table_note_marker_does_not_leak_scanner_text() {
+    let outcome = capture(
+        r"\count0=0
+\begin{document}
+\ifnum\count0>0\tnote{hidden}\fi
+\tnote{visible}
+\end{document}",
+    );
+    let text = outcome
+        .render_events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(text, ["[visible]"], "{:#?}", outcome.render_events);
+}
+
+#[test]
 fn segmented_capture_preserves_document_mode_for_plain_body_text() {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
