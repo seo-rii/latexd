@@ -9194,12 +9194,32 @@ impl<'i> Vm<'i> {
                                                                         normalize_latex_text_with_inline_placeholders(
                                                                             text,
                                                                         );
-                                                                    self.emit_render_event(
-                                                                        if scan_state.no_hyper_depth > 0 {
-                                                                            RenderEvent::Text(
+                                                                    let provenance =
+                                                                        Self::link_provenance(
+                                                                            source_path,
+                                                                            argument_command_start,
+                                                                            command_after,
+                                                                            text_start,
+                                                                            link_text_end,
+                                                                            Some((
+                                                                                target_start,
+                                                                                target_end,
+                                                                            )),
+                                                                        );
+                                                                    if scan_state.no_hyper_depth > 0
+                                                                    {
+                                                                        self.emit_owned_scanner_text_event(
+                                                                            ScannerOwnedTextEvent::Text(
                                                                                 TextEvent { text },
-                                                                            )
-                                                                        } else {
+                                                                            ),
+                                                                            provenance,
+                                                                            source_path,
+                                                                            argument_command_start
+                                                                                as u32,
+                                                                            command_after as u32,
+                                                                        );
+                                                                    } else {
+                                                                        self.emit_render_event(
                                                                             RenderEvent::InlineLink(
                                                                                 InlineLinkEvent {
                                                                                     target: target
@@ -9210,34 +9230,10 @@ impl<'i> Vm<'i> {
                                                                                         argument_command
                                                                                             .to_string(),
                                                                                 },
-                                                                            )
-                                                                        },
-                                                                        if scan_state.no_hyper_depth > 0 {
-                                                                            Self::link_provenance(
-                                                                                source_path,
-                                                                                argument_command_start,
-                                                                                command_after,
-                                                                                text_start,
-                                                                                link_text_end,
-                                                                                Some((
-                                                                                    target_start,
-                                                                                    target_end,
-                                                                                )),
-                                                                            )
-                                                                        } else {
-                                                                            Self::link_provenance(
-                                                                                source_path,
-                                                                                argument_command_start,
-                                                                                command_after,
-                                                                                text_start,
-                                                                                link_text_end,
-                                                                                Some((
-                                                                                    target_start,
-                                                                                    target_end,
-                                                                                )),
-                                                                            )
-                                                                        },
-                                                                    );
+                                                                            ),
+                                                                            provenance,
+                                                                        );
+                                                                    }
                                                                     argument_inner_index =
                                                                         command_after;
                                                                 }
