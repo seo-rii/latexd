@@ -1192,9 +1192,20 @@ The migration evidence and current boundary are:
   longer exceed the same release's reader limit. Tex-checkpoint 60+12+21 plus
   the doctest, latexd lib 237, workspace checks, canonical Clippy/formatting,
   and the exact `00c8ee3` matrix pass.
+- `2469a35` closes the typed write-outcome gate. Checkpoint persistence exposes
+  low-cardinality `lane_mismatch`, `invalid_document`, `bundle_preflight`,
+  `size_limit`, `serialization`, `integrity_envelope`, `tempfile`, and `persist`
+  reasons, while success reports uncompressed and persisted byte counts. Every
+  internal attempt writes `checkpoint-write-outcome.json`, including failures
+  that abort before `build-meta.json`; successful metadata repeats the same
+  typed outcome, external compilation reports `not_attempted`, and old metadata
+  defaults the absent field to `not_attempted`. Tests cover success plus lane,
+  document, size, tempfile, and persist failures without parsing strings.
+  Capture suppression remains distinct from write attempts. Tex-checkpoint
+  61+12+21 plus the doctest, latexd lib 238, workspace checks, canonical
+  Clippy/formatting, and the exact `00c8ee3` matrix pass.
 
-The exact remaining repository order is: add typed write-failure outcomes, then
-prove exact production feature/profile behavior.
+The remaining repository gate is exact production feature/profile behavior.
 Then verify reader fleet deployment, the rollback floor, source-rebuild
 reliability, and workload/resource evidence before activating the writer only
 in a separate reviewed canary change.

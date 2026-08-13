@@ -805,9 +805,20 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   근거로 더 낮은 운영 상한을 정하는 일만 rollout evidence로 남는다. Tex-checkpoint
   60+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt와 exact
   `00c8ee3` matrix가 green이다.
+- `2469a35`는 다섯 번째 P1인 typed write outcome telemetry를 닫았다.
+  Checkpoint save는 low-cardinality `lane_mismatch`, `invalid_document`,
+  `bundle_preflight`, `size_limit`, `serialization`, `integrity_envelope`, `tempfile`,
+  `persist` failure reason과 성공 시 uncompressed/persisted byte 수를 반환한다.
+  Internal compiler는 attempt마다 `checkpoint-write-outcome.json`을 쓰므로 save가
+  실패해 후속 `build-meta.json`이 없더라도 typed reason을 수집할 수 있다. 성공한
+  outcome은 additive `checkpoint_write_outcome` metadata에도 같은 값으로 들어가고,
+  external compiler는 `not_attempted`, 이전 metadata의 missing field도 `not_attempted`로
+  읽힌다. Lane mismatch/invalid document/size/tempfile/persist와 성공 artifact를
+  executable tests로 고정했으며 capture suppression은 write attempt와 계속 분리된다.
+  Tex-checkpoint 61+12+21+doctest, latexd lib 238, workspace check, canonical Clippy/fmt와
+  exact `00c8ee3` matrix가 green이다.
 
-다음 저장소 순서는 (1) typed write-failure telemetry와 (2) exact production
-feature/profile gate를 닫는 것이다.
+다음 저장소 순서는 exact production feature/profile gate를 닫는 것이다.
 그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
 확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만
