@@ -879,6 +879,34 @@ capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는
 7. mathcode/delcode
 8. font/box/parameter
 
+Mathcode/delcode 진입 계획은 Pro review
+`6a7ddf11-4714-83ea-a87c-80da662df53f`의 `REVISE` 결론을 반영한다. 두
+family는 assignment/SaveStack 기반은 공유하지만 capability, document state,
+source activation, rollback은 분리한다. 순서는 oracle characterization → passive
+strict reader → snapshot-safe dormant Eqtb → `mathcode` source activation → `delcode`
+source activation이다. Source에서 도달 가능한 assignment는 current/pending state와
+latent primitive owner를 snapshot이 완전하게 보존하고 raw legacy serialization 및
+LegacyOnly checkpoint attachment가 fail-closed/suppress되는 단위와 동시에만 들어간다.
+현재 source-normalizing math renderer는 code table을 소비하지 않으므로 이 단계는
+storage/query/persistence compatibility substrate이며 math spacing, family/slot glyph,
+active-mathcode 실행, delimiter selection, `\mathchar`, `\mathchardef` 실행을 포함하지
+않는다.
+
+`328859a`는 첫 characterization gate를 추가했고, 그 후속 hardening은 authoritative
+target을 `pdfTeX -ini`의 TeX82 semantics로 고정한다. CI artifact
+`mathcode-delcode-oracle`은 실행 binary의 전체 version, resolved path와 SHA-256,
+probe source/hash, exit status, normalized observations/diagnostics를 보존한다. V1 source
+character domain은 `0..=255`이며 invalid LHS는 TeX recovery에 따라 character 0으로
+대체된 뒤 assignment가 계속된다. Fresh INITEX mathcode default는 digit에
+`0x7000 + character`, ASCII letter에 `0x7100 + character`, 나머지 8-bit character에
+character 자체를 사용한다. Delcode default는 `'.'`만 0이고 나머지는 -1이다.
+Mathcode RHS는 `0..=32768`이고 `32768`은 active sentinel이며, 범위 밖 RHS는 진단 뒤
+0을 저장한다. Delcode RHS는 `-2147483647..=16777215`를 그대로 보존하고 상한 초과는
+진단 뒤 0을 저장한다. Decimal/octal/hex/backtick character scanning, optional `=`,
+`\the`와 `\number`, local/global/nested/positive·negative `\globaldefs`, 256-entry full
+default table을 oracle이 검사한다. `\mathchardef`는 32767까지이고 32768은 진단 뒤
+0-valued meaning을 만들며, 별도 control-sequence meaning migration으로 남긴다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
 project/restore/project property, restore time/RSS 측정 뒤 별도 versioned

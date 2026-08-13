@@ -1315,6 +1315,39 @@ Migration order:
 7. mathcodes and delcodes;
 8. fonts, boxes, and remaining parameters.
 
+The mathcode/delcode program follows the `REVISE` verdict from Pro review
+`6a7ddf11-4714-83ea-a87c-80da662df53f`. The two families share checked
+character scanning and the common Eqtb/SaveStack machinery, but use separate
+snapshot capabilities, state sections, source-activation commits, and rollback
+boundaries. The required sequence is oracle characterization, passive strict
+readers, snapshot-safe dormant Eqtb state, mathcode activation, and then
+delcode activation. No source-reachable state may precede complete current and
+pending-state capture, latent-owner capability derivation, raw-legacy
+rejection, and LegacyOnly checkpoint suppression.
+
+The V1 compatibility target is TeX82 behavior observed through `pdfTeX -ini`.
+`scripts/check_mathcode_delcode_oracle.py` checks the complete 256-entry fresh
+INITEX tables and records the resolved engine path, full version, executable
+SHA-256, exact probe sources and hashes, exit statuses, normalized values, and
+diagnostics in the CI `mathcode-delcode-oracle` artifact. The source character
+domain is 0 through 255; an invalid LHS recovers as character 0 and continues
+the assignment. Fresh mathcodes are `0x7000 + character` for digits,
+`0x7100 + character` for ASCII letters, and the character number otherwise.
+Fresh delcodes are -1 except for `'.'`, whose value is 0. Mathcode values are
+0 through 32768, with 32768 the active sentinel; invalid values diagnose and
+store 0. Delcode preserves values from -2147483647 through 16777215, including
+values below -1; an excessive positive value diagnoses and stores 0. The
+oracle also fixes decimal/octal/hex and backtick scanning, optional `=`,
+`\the`/`\number`, nested local/global assignments, both signs of
+`\globaldefs`, and the separate 32767 `\mathchardef` ceiling.
+
+This phase is only a storage/query/persistence compatibility substrate. The
+current source-normalizing math capture does not consume math class, family,
+slot, active-mathcode, or delimiter variants. Math-list/noad rendering,
+class-based spacing, glyph selection, delimiter sizing, `\mathchar`, and
+`\mathchardef` execution remain explicit non-goals; `\mathchardef` requires a
+later control-sequence-meaning review.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
