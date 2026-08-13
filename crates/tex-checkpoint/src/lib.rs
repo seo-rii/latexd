@@ -767,7 +767,7 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
     } else if !preamble_is_enabled {
         suppression_counts.unsupported_capabilities += 1;
     }
-    let vm_state_hash = checkpoint_vm_state_hash(preamble_snapshot)
+    let vm_state_hash = checkpoint_vm_semantic_hash(preamble_snapshot)
         .context("failed to fingerprint preamble snapshot")?;
     let mut checkpoints = vec![StoredCheckpoint::with_snapshot(
         CheckpointMeta {
@@ -803,7 +803,7 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
             .map(|checkpoint| checkpoint.source_offset_utf8)
             .unwrap_or(0);
         let vm_state_hash = shipout_checkpoint
-            .map(|checkpoint| checkpoint_vm_state_hash(&checkpoint.snapshot))
+            .map(|checkpoint| checkpoint_vm_semantic_hash(&checkpoint.snapshot))
             .transpose()
             .context("failed to fingerprint shipout snapshot")?
             .unwrap_or_else(|| vm_state_hash.clone());
@@ -875,7 +875,7 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
         } else if !is_enabled {
             suppression_counts.unsupported_capabilities += 1;
         }
-        let vm_state_hash = checkpoint_vm_state_hash(&boundary.snapshot)
+        let vm_state_hash = checkpoint_vm_semantic_hash(&boundary.snapshot)
             .context("failed to fingerprint input-boundary snapshot")?;
         let boundary_hash = blake3::hash(
             format!(
@@ -931,16 +931,19 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
     })
 }
 
-fn checkpoint_vm_state_hash(snapshot: &VmSnapshot) -> Result<String> {
+// Persisted in checkpoint metadata and folded into checkpoint ids. This is a
+// semantic state identity: write-lane policy and attachment representation must
+// not change it. Capability-free state retains the legacy hash domain, while
+// capability-bearing state uses the complete domain-separated fingerprint.
+fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     let required_capabilities = snapshot.required_capabilities();
-    if SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
-        let snapshot_json = serde_json::to_vec(snapshot)?;
-        return Ok(blake3::hash(&snapshot_json).to_hex().to_string());
+    let legacy: &LegacyVmSnapshotV1 = snapshot;
+    let legacy_json = serde_json::to_vec(&serde_json::to_value(legacy)?)?;
+    if required_capabilities.is_empty() {
+        return Ok(blake3::hash(&legacy_json).to_hex().to_string());
     }
 
-    let legacy: &LegacyVmSnapshotV1 = snapshot;
-    let legacy_json = serde_json::to_vec(legacy)?;
-    let muskip_json = serde_json::to_vec(&snapshot.muskip_registers)?;
+    let muskip_json = serde_json::to_vec(&serde_json::to_value(&snapshot.muskip_registers)?)?;
     let mut fingerprint = blake3::Hasher::new();
     fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
     fingerprint.update(
@@ -2064,6 +2067,100 @@ mod tests {
         .expect("right");
 
         assert_eq!(left, right);
+    }
+
+    #[test]
+    fn vm_semantic_hash_is_stable_policy_independent_and_state_complete() {
+        let mut first_interner = ControlSequenceInterner::new();
+        let first = compile_format_snapshot(
+            &mut first_interner,
+            r"\def\zeta{Z}\def\alpha{A}\def\middle{M}",
+        );
+        let mut second_interner = ControlSequenceInterner::new();
+        let second = compile_format_snapshot(
+            &mut second_interner,
+            r"\def\zeta{Z}\def\alpha{A}\def\middle{M}",
+        );
+        assert_eq!(first, second);
+        let first_hash = super::checkpoint_vm_semantic_hash(&first).expect("hash first snapshot");
+        let second_hash =
+            super::checkpoint_vm_semantic_hash(&second).expect("hash second snapshot");
+        assert_eq!(first_hash, second_hash);
+
+        let mut first_muskip_interner = ControlSequenceInterner::new();
+        let mut first_muskip_vm = Vm::new(&mut first_muskip_interner);
+        let outcome = first_muskip_vm
+            .run_plain(r"\def\zeta{Z}\def\alpha{A}\newmuskip\first\first=2.5mu\muskipdef\fixed=17");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let first_muskip = first_muskip_vm.snapshot();
+        let mut second_muskip_interner = ControlSequenceInterner::new();
+        let mut second_muskip_vm = Vm::new(&mut second_muskip_interner);
+        let outcome = second_muskip_vm
+            .run_plain(r"\def\zeta{Z}\def\alpha{A}\newmuskip\first\first=2.5mu\muskipdef\fixed=17");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let second_muskip = second_muskip_vm.snapshot();
+        assert_eq!(first_muskip, second_muskip);
+        let first_muskip_hash =
+            super::checkpoint_vm_semantic_hash(&first_muskip).expect("hash first muskip snapshot");
+        let second_muskip_hash = super::checkpoint_vm_semantic_hash(&second_muskip)
+            .expect("hash second muskip snapshot");
+        assert_eq!(first_muskip_hash, second_muskip_hash);
+        assert_eq!(
+            (first_hash.as_str(), first_muskip_hash.as_str()),
+            (
+                "55d9206986dbe96fb89a79e06b363b5d4d104f3b77e28b07d512015cdbd29b06",
+                "ed142f79e88c2bcff4311ad59c5fce98f18b64ec594800e91c783cf3ab5bd696",
+            )
+        );
+
+        let mut scalar_changed = first_muskip.clone();
+        *scalar_changed
+            .muskip_registers
+            .values_mut()
+            .next()
+            .expect("allocated muskip scalar") += 1;
+        let mut cursor_changed = first_muskip.clone();
+        cursor_changed.next_muskip_register += 1;
+        let mut legacy_changed = first_muskip.clone();
+        legacy_changed.registers.insert(404, 7);
+        for changed in [scalar_changed, cursor_changed, legacy_changed] {
+            assert_ne!(
+                first_muskip_hash,
+                super::checkpoint_vm_semantic_hash(&changed).expect("hash changed snapshot")
+            );
+        }
+        let mut alias_changed_interner = ControlSequenceInterner::new();
+        let mut alias_changed_vm = Vm::new(&mut alias_changed_interner);
+        let outcome = alias_changed_vm
+            .run_plain(r"\def\zeta{Z}\def\alpha{A}\newmuskip\first\first=2.5mu\muskipdef\fixed=18");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        assert_ne!(
+            first_muskip_hash,
+            super::checkpoint_vm_semantic_hash(&alias_changed_vm.snapshot())
+                .expect("hash alias-changed snapshot")
+        );
+
+        let production = build_checkpoint_bundle(10, &first_muskip, "preamble", &[])
+            .expect("build suppressed production checkpoint");
+        let candidate = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
+            10,
+            &first_muskip,
+            "preamble",
+            0,
+            &[],
+            &[],
+            &[],
+            SnapshotWriteMode::Versioned {
+                enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+            },
+        )
+        .expect("build private versioned checkpoint")
+        .bundle;
+        assert_eq!(
+            production.checkpoints[0].meta.vm_state_hash,
+            candidate.checkpoints[0].meta.vm_state_hash,
+            "writer routing changed semantic identity"
+        );
     }
 
     #[test]
