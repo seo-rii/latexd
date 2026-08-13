@@ -736,6 +736,18 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   현재 지원 `serde_json` compact encoding의 고정 bytes를 뜻하며 임의 serializer나
   RFC canonical JSON 일반 계약을 뜻하지 않는다. Full tex-vm/checkpoint/latexd,
   workspace check/Clippy/fmt와 `00c8ee3` matrix도 green이다.
+- `c92f53a`는 production builder가 checkpoint wire와 별개인 typed
+  `CheckpointBundleBuild`를 반환하게 하고, 실제 capture candidate가 탈락한 이유를
+  `unsafe_continuation`과 `unsupported_capabilities`로 집계한다. Preamble과 input
+  boundary는 항상 후보이고, shipout snapshot이 애초에 없는 page는 suppression으로
+  오계수하지 않는다. Internal compiler는 성공한 build의 이 counts를 additive
+  `checkpoint_suppression_counts`로 `build-meta.json`에 기록한다. Muskip source
+  rebuild 회귀는 모든 후보를 unsupported capability로, unsafe preamble 회귀는
+  정확히 1건을 unsafe로, 정상 legacy build와 external build는 zero counts로 고정한다.
+  이전 metadata는 missing field를 zero로 읽는다. 이 수치로 conservative dynamic-name
+  suppression 비용을 측정할 수 있지만 write-time lane mismatch/invalid-document error
+  telemetry까지 대체하지는 않는다. Tex-checkpoint 55+12+21+doctest, latexd lib 237,
+  workspace check/Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
 
 다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
 failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,

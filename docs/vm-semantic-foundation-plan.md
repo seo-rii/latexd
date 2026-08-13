@@ -1114,6 +1114,20 @@ The migration evidence and current boundary are:
   bytes under the supported compact `serde_json` encoding, not a promise about
   arbitrary serializers or a general RFC canonical-JSON profile. All package,
   workspace, lint/format, and exact `00c8ee3` compatibility gates remain green.
+- `c92f53a` adds typed capture-suppression observability without changing the
+  checkpoint wire. The production builder returns a separate
+  `CheckpointBundleBuild` whose counts distinguish unsafe/non-restorable
+  continuations from unsupported capabilities. Preamble and input boundaries
+  are candidates; a page with no shipout snapshot is not falsely counted as a
+  suppression. Successful internal builds copy these counts into additive
+  `checkpoint_suppression_counts` metadata. The muskip source-rebuild fixture
+  records every real candidate under unsupported capabilities, an unsafe
+  preamble records one unsafe suppression despite a missing shipout candidate,
+  and ordinary legacy plus external builds record zeros. Old metadata defaults
+  the absent field to zeros. These values measure conservative dynamic-name
+  suppression cost; write-time lane-mismatch and invalid-document error
+  telemetry remain separate activation work. Tex-checkpoint 55+12+21 plus the
+  doctest, latexd lib 237, workspace checks, and the mixed-binary matrix pass.
 
 The exact remaining order is: verify reader fleet deployment and the rollback
 floor, close bounded failure/resource observability and exact production-build
