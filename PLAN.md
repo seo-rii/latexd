@@ -725,6 +725,17 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   같은 판정을 사용한다. Reader의 기존 decode→fallible restore 두 단계와 error type은
   유지된다. Tex-vm 전체(document contract 24), tex-checkpoint 전체, latexd lib 237,
   workspace check/Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
+- `1a91712`는 같은 snapshot instance를 재사용한 기존 determinism test가 놓친
+  `HashMap` seed/order 의존을 독립 VM RED로 재현했다. Canonical writer는 outer
+  serializer를 열기 전에 exact legacy projection을 정렬된 `serde_json::Value`
+  object로 정규화하고 두 muskip field를 충돌 검사 후 삽입한다. 따라서 의미상 같은
+  독립 snapshot은 byte-identical하며, future legacy DTO가 reserved muskip key를
+  추가하면 duplicate output 대신 zero-byte error가 난다. Scalar-only, alias-only,
+  combined compact JSON의 exact length+Blake3 golden을 고정했고 서로 다른 test
+  process에서도 document contract 25가 같은 digest로 통과한다. 여기서 canonical은
+  현재 지원 `serde_json` compact encoding의 고정 bytes를 뜻하며 임의 serializer나
+  RFC canonical JSON 일반 계약을 뜻하지 않는다. Full tex-vm/checkpoint/latexd,
+  workspace check/Clippy/fmt와 `00c8ee3` matrix도 green이다.
 
 다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
 failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,

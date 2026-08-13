@@ -1101,6 +1101,19 @@ The migration evidence and current boundary are:
   decode-then-fallible-restore API. Tex-vm, tex-checkpoint, latexd lib, workspace
   check, canonical Clippy/formatting, and the exact `00c8ee3` matrix remain green;
   the document contract now has 24 tests.
+- `1a91712` reproduces and fixes canonical byte drift between independently
+  constructed equal snapshots. The old writer flattened legacy state directly,
+  so randomized `HashMap` iteration could change bytes even though serializing
+  one instance twice looked deterministic. The writer now materializes the
+  exact legacy projection as a sorted `serde_json::Value` object before opening
+  the outer serializer, rejects either reserved muskip key if a future legacy
+  DTO collides, and then inserts the typed map and cursor. Scalar-only,
+  alias-only, and combined compact JSON have fixed length-plus-BLAKE3 goldens;
+  the 25-test document contract also constructs equivalent VMs independently
+  and passes in separate test processes. “Canonical” here means deterministic
+  bytes under the supported compact `serde_json` encoding, not a promise about
+  arbitrary serializers or a general RFC canonical-JSON profile. All package,
+  workspace, lint/format, and exact `00c8ee3` compatibility gates remain green.
 
 The exact remaining order is: verify reader fleet deployment and the rollback
 floor, close bounded failure/resource observability and exact production-build
