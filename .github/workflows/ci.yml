@@ -69,7 +69,15 @@ jobs:
           test -n "$(kpsewhich cmr10.pfb)"
 
       - name: Verify TeX82 mathcode and delcode oracle
-        run: python3 scripts/check_mathcode_delcode_oracle.py
+        run: >-
+          python3 scripts/check_mathcode_delcode_oracle.py
+          --report target/mathcode-delcode-oracle.json
+
+      - name: Upload TeX82 mathcode and delcode oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathcode-delcode-oracle
+          path: target/mathcode-delcode-oracle.json
 
       - name: Run Rust test suite
         run: cargo test -q

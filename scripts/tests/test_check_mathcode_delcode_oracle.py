@@ -1,10 +1,16 @@
+import copy
+import hashlib
+import json
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
 from scripts.check_mathcode_delcode_oracle import (
     EXPECTED_OBSERVATIONS,
     EXPECTED_REJECTIONS,
+    ORACLE_SOURCE,
+    main,
     parse_observations,
     run_oracle,
     run_rejection_oracle,
@@ -21,9 +27,11 @@ class MathcodeDelcodeOracleTests(unittest.TestCase):
 
         policy_test = "scripts.tests.test_check_mathcode_delcode_oracle"
         oracle = "python3 scripts/check_mathcode_delcode_oracle.py"
+        artifact = "mathcode-delcode-oracle"
         tex_install = "Install Computer Modern test fonts"
         self.assertIn(policy_test, workflow)
         self.assertIn(oracle, workflow)
+        self.assertIn(artifact, workflow)
         self.assertLess(workflow.index(tex_install), workflow.index(oracle))
 
     def test_parses_wrapped_tex_message_observations(self) -> None:
@@ -44,6 +52,34 @@ No pages of output.
 
     def test_accepts_exact_tex82_observations(self) -> None:
         self.assertEqual(validate_observations(EXPECTED_OBSERVATIONS), [])
+
+    def test_freezes_the_complete_eight_bit_default_tables(self) -> None:
+        math_defaults = {
+            key: value
+            for key, value in EXPECTED_OBSERVATIONS.items()
+            if key.startswith("math_default_")
+        }
+        del_defaults = {
+            key: value
+            for key, value in EXPECTED_OBSERVATIONS.items()
+            if key.startswith("del_default_")
+        }
+
+        self.assertEqual(len(math_defaults), 256)
+        self.assertEqual(len(del_defaults), 256)
+        for character in range(256):
+            expected_mathcode = character
+            if ord("0") <= character <= ord("9"):
+                expected_mathcode += 0x7000
+            elif ord("A") <= character <= ord("Z") or ord("a") <= character <= ord("z"):
+                expected_mathcode += 0x7100
+            self.assertEqual(
+                math_defaults[f"math_default_{character:03d}"], expected_mathcode
+            )
+            expected_delcode = 0 if character == ord(".") else -1
+            self.assertEqual(
+                del_defaults[f"del_default_{character:03d}"], expected_delcode
+            )
 
     def test_rejects_changed_default(self) -> None:
         observations = EXPECTED_OBSERVATIONS.copy()
@@ -70,10 +106,24 @@ No pages of output.
 
     def test_accepts_exact_tex82_rejections(self) -> None:
         self.assertEqual(validate_rejections(EXPECTED_REJECTIONS), [])
+        self.assertEqual(
+            set(EXPECTED_REJECTIONS),
+            {
+                "mathcode_character_negative",
+                "mathcode_character_too_large",
+                "delcode_character_negative",
+                "delcode_character_too_large",
+                "mathcode_negative",
+                "mathcode_too_large",
+                "delcode_too_large",
+                "mathchar_active",
+                "mathchardef_active",
+            },
+        )
 
     def test_rejects_changed_numeric_boundary(self) -> None:
-        rejections = EXPECTED_REJECTIONS.copy()
-        rejections["mathcode_too_large"] = "Bad mathchar (65536)"
+        rejections = copy.deepcopy(EXPECTED_REJECTIONS)
+        rejections["mathcode_too_large"]["diagnostics"] = ["Bad mathchar (65536)"]
 
         violations = validate_rejections(rejections)
 
@@ -81,11 +131,39 @@ No pages of output.
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
     def test_pdftex_initex_matches_characterization(self) -> None:
-        self.assertEqual(run_oracle("pdftex"), EXPECTED_OBSERVATIONS)
+        run = run_oracle("pdftex")
+
+        self.assertEqual(run["exit_status"], 0)
+        self.assertEqual(run["observations"], EXPECTED_OBSERVATIONS)
+        self.assertEqual(
+            run["source_sha256"], hashlib.sha256(ORACLE_SOURCE.encode()).hexdigest()
+        )
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
     def test_pdftex_initex_rejects_out_of_range_values(self) -> None:
         self.assertEqual(run_rejection_oracle("pdftex"), EXPECTED_REJECTIONS)
+
+    @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
+    def test_cli_records_reproducible_engine_and_probe_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            report_path = Path(temp) / "oracle.json"
+
+            self.assertEqual(
+                main(["--engine", "pdftex", "--report", str(report_path)]), 0
+            )
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["format"], "latexd.mathcode-delcode-oracle")
+        self.assertEqual(report["schema_version"], 1)
+        self.assertEqual(report["compatibility_target"], "TeX82 via pdfTeX INITEX")
+        self.assertIn("pdfTeX", report["engine"]["version"])
+        self.assertTrue(Path(report["engine"]["path"]).is_absolute())
+        self.assertEqual(len(report["engine"]["sha256"]), 64)
+        self.assertEqual(report["valid_probe"]["source"], ORACLE_SOURCE)
+        self.assertEqual(
+            report["valid_probe"]["observations"], EXPECTED_OBSERVATIONS
+        )
+        self.assertEqual(report["rejection_probes"], EXPECTED_REJECTIONS)
 
 
 if __name__ == "__main__":
