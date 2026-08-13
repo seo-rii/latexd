@@ -817,10 +817,25 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   executable tests로 고정했으며 capture suppression은 write attempt와 계속 분리된다.
   Tex-checkpoint 61+12+21+doctest, latexd lib 238, workspace check, canonical Clippy/fmt와
   exact `00c8ee3` matrix가 green이다.
+- `e4d54f5`는 여섯 번째이자 마지막 repository-local P1인 exact native release
+  feature/profile gate를 닫았다. 저장소에 별도 production packaging/deployment profile이
+  없었으므로 canonical native contract를 Rust `1.94.0`,
+  `x86_64-unknown-linux-gnu`, Cargo default features, `--release --locked`로 명시했다.
+  `scripts/check_snapshot_release_contract.py`는 toolchain/host와 `Cargo.lock`을 확인하고,
+  production binary인 `latexd`에서 해석된 전체 feature graph 및 그 hash, lock hash,
+  rustc 상세 버전, revision, 실제 명령을 JSON artifact로 기록한다. Serializer에 영향을
+  주는 `serde_json` feature는 정확히 `default`, `raw_value`, `std`여야 하며 다른 값은
+  fail-closed다. 서로 다른 두 clean target directory의 25개 fixed compact-document
+  golden, release `tex-checkpoint` 61+12+21+doctest, real internal compiler의 policy/count 및
+  muskip suppression→source rebuild 회귀, release/target-pinned exact `00c8ee3`
+  bidirectional matrix가 모두 green이다. CI도 같은 toolchain/target을 pin하고 결과를
+  `snapshot-release-contract` artifact로 보존한다. Python policy suite 31개도 green이다.
 
-다음 저장소 순서는 exact production feature/profile gate를 닫는 것이다.
-그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
-확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
+여섯 repository-local P1은 모두 닫혔다. 다음 순서는 실제 배포 artifact가 위 canonical
+contract와 일치하는지 확인하고, reader fleet 선배포/rollback floor,
+source-rebuild reliability, representative size/RSS, production filesystem semantics를
+수집하는 외부 rollout evidence다. 이 evidence와 별도 activation review 없이는 writer를
+활성화하지 않는다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만
 binding-aware precision을 후속 최적화한다. 어느 단계에서도
 capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가

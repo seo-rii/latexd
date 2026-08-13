@@ -1204,11 +1204,29 @@ The migration evidence and current boundary are:
   Capture suppression remains distinct from write attempts. Tex-checkpoint
   61+12+21 plus the doctest, latexd lib 238, workspace checks, canonical
   Clippy/formatting, and the exact `00c8ee3` matrix pass.
+- `e4d54f5` closes the sixth and final repository-local gate by defining and
+  executing the canonical native release contract. Because the repository had
+  no separate production packaging or deployment profile, that contract is
+  Rust `1.94.0`, target `x86_64-unknown-linux-gnu`, Cargo default features, and
+  `--release --locked`. `scripts/check_snapshot_release_contract.py` verifies
+  the toolchain and host, resolves the full feature graph from the `latexd`
+  production binary, and rejects any `serde_json` feature set other than
+  `default`, `raw_value`, and `std`. Its JSON artifact records the full graph
+  and hash, Cargo-lock hash, detailed rustc version, repository revision, and
+  exact commands. Two independent clean release target directories each pass
+  the 25 fixed compact-document goldens. The same contract runs all
+  tex-checkpoint tests, the real internal compiler policy/count and muskip
+  suppression-to-source-rebuild regression, and the bidirectional `00c8ee3`
+  migration probe in release mode. CI pins the toolchain/target and uploads the
+  `snapshot-release-contract` artifact. The release checkpoint totals are
+  61+12+21 plus the doctest, and all 31 Python policy tests pass.
 
-The remaining repository gate is exact production feature/profile behavior.
-Then verify reader fleet deployment, the rollback floor, source-rebuild
-reliability, and workload/resource evidence before activating the writer only
-in a separate reviewed canary change.
+All six repository-local activation gates are now closed. An actual deployment
+must still prove that its artifact uses the canonical contract (or execute the
+same gate for its real target), and provide reader-fleet deployment, rollback
+floor, source-rebuild reliability, representative size/RSS, and production
+filesystem evidence. Writer activation remains a separate reviewed canary
+change after that external evidence.
 Measure conservative dynamic-name suppression before writer
 activation and improve its precision only if the rebuild cost warrants it. A
 capability-bearing state must never be written through the legacy lane, a
