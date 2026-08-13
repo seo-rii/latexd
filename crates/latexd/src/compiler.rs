@@ -24,10 +24,10 @@ use tex_bootstrap::{
 };
 use tex_checkpoint::{
     CheckpointBundle, CheckpointBundleReuse, CheckpointKind, CheckpointPage,
-    InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment,
-    StoredCheckpoint, build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe,
-    find_unchanged_tail, load_checkpoint_bundle_for_reuse, preamble_key_for_source,
-    save_checkpoint_bundle, select_reusable_preamble,
+    CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint,
+    SnapshotAttachment, StoredCheckpoint, build_checkpoint_bundle_with_shipouts_and_stats,
+    checkpoint_is_replay_safe, find_unchanged_tail, load_checkpoint_bundle_for_reuse,
+    preamble_key_for_source, save_checkpoint_bundle, select_reusable_preamble,
 };
 use tex_pdf::{
     render_display_list_pdf_with_materialized_assets_and_tex_fonts,
@@ -1300,6 +1300,8 @@ struct BuildMeta {
     checkpoint_writer_policy: tex_checkpoint::SnapshotWritePolicy,
     #[serde(default)]
     checkpoint_attachment_counts: CheckpointAttachmentCounts,
+    #[serde(default)]
+    checkpoint_suppression_counts: CheckpointSuppressionCounts,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -2375,7 +2377,7 @@ impl CompilerDriver {
                 }
                 checkpoints
             };
-            let checkpoint_bundle = build_checkpoint_bundle_with_shipouts(
+            let checkpoint_build = build_checkpoint_bundle_with_shipouts_and_stats(
                 request.rev,
                 &preamble_checkpoint.snapshot,
                 &preamble_key,
@@ -2420,6 +2422,8 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build checkpoint bundle: {error}"),
             })?;
+            let checkpoint_bundle = checkpoint_build.bundle;
+            let checkpoint_suppression_counts = checkpoint_build.suppression_counts;
             let execution_page_metadata = build
                 .page_metadata
                 .iter()
@@ -2799,6 +2803,7 @@ impl CompilerDriver {
                         })
                         .count(),
                 },
+                checkpoint_suppression_counts,
             };
             let serialized_build_meta =
                 serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -3130,6 +3135,7 @@ impl CompilerDriver {
             semantic_aux_backdated: false,
             checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
             checkpoint_attachment_counts: CheckpointAttachmentCounts::default(),
+            checkpoint_suppression_counts: CheckpointSuppressionCounts::default(),
         };
         let serialized_build_meta =
             serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -4589,10 +4595,11 @@ mod tests {
     };
 
     use super::{
-        ArtifactSourceSpan, BuildMeta, CheckpointAttachmentCounts, CheckpointPage, CompileRequest,
-        CompilerDriver, DepTrace, PageArtifactMeta, PageSyncMapArtifact, PreparedAssetCacheStats,
-        PreviousInternalBuild, ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter,
-        SemanticAux, StoredModuleCheckpoint, StoredModuleTrace, StoredSourceTexts, UnchangedTail,
+        ArtifactSourceSpan, BuildMeta, CheckpointAttachmentCounts, CheckpointPage,
+        CheckpointSuppressionCounts, CompileRequest, CompilerDriver, DepTrace, PageArtifactMeta,
+        PageSyncMapArtifact, PreparedAssetCacheStats, PreviousInternalBuild,
+        ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
+        StoredModuleCheckpoint, StoredModuleTrace, StoredSourceTexts, UnchangedTail,
         annotate_display_list_image_diagnostics, build_renderer_page_state,
         capture_internal_render_ir, capture_internal_render_ir_from_project_root,
         capture_internal_render_ir_from_project_run_with_asset_cache,
@@ -5611,6 +5618,13 @@ mod tests {
                 "versioned": 0,
             })
         );
+        assert_eq!(
+            first_build_meta["checkpoint_suppression_counts"],
+            serde_json::json!({
+                "unsafe_continuation": 0,
+                "unsupported_capabilities": first_checkpoints.checkpoints.len(),
+            })
+        );
         let mut legacy_build_meta = first_build_meta.clone();
         legacy_build_meta
             .as_object_mut()
@@ -5620,6 +5634,10 @@ mod tests {
             .as_object_mut()
             .expect("build meta object")
             .remove("checkpoint_attachment_counts");
+        legacy_build_meta
+            .as_object_mut()
+            .expect("build meta object")
+            .remove("checkpoint_suppression_counts");
         let legacy_build_meta: BuildMeta = serde_json::from_value(legacy_build_meta)
             .expect("decode build metadata written before checkpoint observability");
         assert_eq!(
@@ -5629,6 +5647,10 @@ mod tests {
         assert_eq!(
             legacy_build_meta.checkpoint_attachment_counts,
             CheckpointAttachmentCounts::default()
+        );
+        assert_eq!(
+            legacy_build_meta.checkpoint_suppression_counts,
+            CheckpointSuppressionCounts::default()
         );
 
         fs::write(root.join("main.tex"), format!("{source}% revision two"))
@@ -6096,6 +6118,10 @@ mod tests {
         );
         assert!(build_meta.checkpoint_attachment_counts.legacy > 0);
         assert_eq!(build_meta.checkpoint_attachment_counts.versioned, 0);
+        assert_eq!(
+            build_meta.checkpoint_suppression_counts,
+            CheckpointSuppressionCounts::default()
+        );
 
         let events = serde_json::from_slice::<RenderEventStream>(
             &fs::read(build_root.join("rev-2/render-ir/events.json")).expect("read render events"),

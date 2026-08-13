@@ -678,7 +678,40 @@ pub fn build_checkpoint_bundle_with_shipouts(
     shipout_checkpoints: &[ShipoutCheckpoint],
     input_boundaries: &[InputBoundaryCheckpoint],
 ) -> Result<CheckpointBundle> {
-    build_checkpoint_bundle_with_shipouts_and_policy(
+    Ok(build_checkpoint_bundle_with_shipouts_and_stats(
+        rev,
+        preamble_snapshot,
+        preamble_key,
+        preamble_source_offset_utf8,
+        pages,
+        shipout_checkpoints,
+        input_boundaries,
+    )?
+    .bundle)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointSuppressionCounts {
+    pub unsafe_continuation: usize,
+    pub unsupported_capabilities: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckpointBundleBuild {
+    pub bundle: CheckpointBundle,
+    pub suppression_counts: CheckpointSuppressionCounts,
+}
+
+pub fn build_checkpoint_bundle_with_shipouts_and_stats(
+    rev: u64,
+    preamble_snapshot: &VmSnapshot,
+    preamble_key: &str,
+    preamble_source_offset_utf8: u32,
+    pages: &[CheckpointPage],
+    shipout_checkpoints: &[ShipoutCheckpoint],
+    input_boundaries: &[InputBoundaryCheckpoint],
+) -> Result<CheckpointBundleBuild> {
+    build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
         rev,
         preamble_snapshot,
         preamble_key,
@@ -690,7 +723,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
     )
 }
 
-fn build_checkpoint_bundle_with_shipouts_and_policy(
+fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
     rev: u64,
     preamble_snapshot: &VmSnapshot,
     preamble_key: &str,
@@ -699,15 +732,22 @@ fn build_checkpoint_bundle_with_shipouts_and_policy(
     shipout_checkpoints: &[ShipoutCheckpoint],
     input_boundaries: &[InputBoundaryCheckpoint],
     policy: SnapshotWriteMode,
-) -> Result<CheckpointBundle> {
+) -> Result<CheckpointBundleBuild> {
     if !shipout_checkpoints.is_empty() && shipout_checkpoints.len() != pages.len() {
         anyhow::bail!("shipout snapshot/page length mismatch");
     }
+    let mut suppression_counts = CheckpointSuppressionCounts::default();
     let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
-    let preamble_snapshot_attached = preamble_continuation_safety.is_safe()
-        && policy
-            .lane_for(&preamble_snapshot.required_capabilities())
-            .is_some();
+    let preamble_is_safe = preamble_continuation_safety.is_safe();
+    let preamble_is_enabled = policy
+        .lane_for(&preamble_snapshot.required_capabilities())
+        .is_some();
+    let preamble_snapshot_attached = preamble_is_safe && preamble_is_enabled;
+    if !preamble_is_safe {
+        suppression_counts.unsafe_continuation += 1;
+    } else if !preamble_is_enabled {
+        suppression_counts.unsupported_capabilities += 1;
+    }
     let vm_state_hash = checkpoint_vm_state_hash(preamble_snapshot)
         .context("failed to fingerprint preamble snapshot")?;
     let mut checkpoints = vec![StoredCheckpoint::with_snapshot(
@@ -752,10 +792,16 @@ fn build_checkpoint_bundle_with_shipouts_and_policy(
             .map(|checkpoint| checkpoint.snapshot.continuation_safety.clone())
             .unwrap_or_default();
         let snapshot_attached = shipout_checkpoint.is_some_and(|checkpoint| {
-            continuation_safety.is_safe()
-                && policy
-                    .lane_for(&checkpoint.snapshot.required_capabilities())
-                    .is_some()
+            let is_safe = continuation_safety.is_safe();
+            let is_enabled = policy
+                .lane_for(&checkpoint.snapshot.required_capabilities())
+                .is_some();
+            if !is_safe {
+                suppression_counts.unsafe_continuation += 1;
+            } else if !is_enabled {
+                suppression_counts.unsupported_capabilities += 1;
+            }
+            is_safe && is_enabled
         });
         checkpoints.push(StoredCheckpoint::with_snapshot(
             CheckpointMeta {
@@ -795,15 +841,21 @@ fn build_checkpoint_bundle_with_shipouts_and_policy(
 
     for boundary in input_boundaries {
         let continuation_safety = boundary.snapshot.continuation_safety.clone();
-        let snapshot_attached = continuation_safety.is_safe()
+        let is_safe = continuation_safety.is_safe()
             && boundary
                 .snapshot
                 .input_continuation
                 .as_ref()
-                .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable)
-            && policy
-                .lane_for(&boundary.snapshot.required_capabilities())
-                .is_some();
+                .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable);
+        let is_enabled = policy
+            .lane_for(&boundary.snapshot.required_capabilities())
+            .is_some();
+        let snapshot_attached = is_safe && is_enabled;
+        if !is_safe {
+            suppression_counts.unsafe_continuation += 1;
+        } else if !is_enabled {
+            suppression_counts.unsupported_capabilities += 1;
+        }
         let vm_state_hash = checkpoint_vm_state_hash(&boundary.snapshot)
             .context("failed to fingerprint input-boundary snapshot")?;
         let boundary_hash = blake3::hash(
@@ -851,9 +903,12 @@ fn build_checkpoint_bundle_with_shipouts_and_policy(
         )?);
     }
 
-    Ok(CheckpointBundle {
-        checkpoints,
-        pages: pages.to_vec(),
+    Ok(CheckpointBundleBuild {
+        bundle: CheckpointBundle {
+            checkpoints,
+            pages: pages.to_vec(),
+        },
+        suppression_counts,
     })
 }
 
@@ -1217,7 +1272,8 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        SnapshotCapability, Vm, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+        SnapshotCapability, Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmReplayFrame,
+        compile_format_snapshot,
     };
 
     use super::{
@@ -1226,7 +1282,8 @@ mod tests {
         SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode,
         SnapshotWritePolicy, StoredSnapshotAttachment, VersionedSnapshotSlot,
         build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
-        build_checkpoint_bundle_with_shipouts_and_policy, build_checkpoint_bundle_with_snapshots,
+        build_checkpoint_bundle_with_shipouts_and_policy_and_stats,
+        build_checkpoint_bundle_with_shipouts_and_stats, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
         load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
         save_checkpoint_bundle, save_checkpoint_bundle_with_policy, select_reusable_preamble,
@@ -1260,7 +1317,7 @@ mod tests {
         let policy = SnapshotWriteMode::Versioned {
             enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
         };
-        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+        let bundle = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
             1,
             &snapshot,
             "preamble",
@@ -1270,7 +1327,8 @@ mod tests {
             &[],
             policy,
         )
-        .expect("build versioned-policy checkpoint");
+        .expect("build versioned-policy checkpoint")
+        .bundle;
 
         assert!(matches!(
             bundle.checkpoints[0].snapshot_attachment(),
@@ -1309,7 +1367,7 @@ mod tests {
         let outcome = vm.run_plain(r"\newmuskip\first\first=2.5mu");
         assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
         let snapshot = vm.snapshot();
-        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+        let build = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
             1,
             &snapshot,
             "preamble",
@@ -1322,12 +1380,50 @@ mod tests {
             },
         )
         .expect("build partially enabled checkpoint");
+        assert_eq!(build.suppression_counts.unsafe_continuation, 0);
+        assert_eq!(build.suppression_counts.unsupported_capabilities, 1);
+        let bundle = build.bundle;
 
         assert!(!bundle.checkpoints[0].meta.snapshot_attached);
         assert!(matches!(
             bundle.checkpoints[0].snapshot_attachment(),
             SnapshotAttachment::None
         ));
+    }
+
+    #[test]
+    fn production_stats_do_not_count_missing_shipout_candidates_as_suppression() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut snapshot = compile_format_snapshot(&mut interner, r"\def\snapshotword{R}");
+        snapshot
+            .continuation_safety
+            .blockers
+            .push(VmContinuationBlocker::OpenGroup);
+        let pages = [CheckpointPage {
+            page_id: "page-1".to_string(),
+            index: 0,
+            content_hash: "page-hash".to_string(),
+            text_start_utf8: 0,
+            text_end_utf8: 1,
+        }];
+
+        let build = build_checkpoint_bundle_with_shipouts_and_stats(
+            1,
+            &snapshot,
+            "preamble",
+            0,
+            &pages,
+            &[],
+            &[],
+        )
+        .expect("build unsafe preamble without shipout candidate");
+
+        assert_eq!(build.suppression_counts.unsafe_continuation, 1);
+        assert_eq!(build.suppression_counts.unsupported_capabilities, 0);
+        assert_eq!(build.bundle.checkpoints.len(), 2);
+        assert!(build.bundle.checkpoints.iter().all(|checkpoint| {
+            matches!(checkpoint.snapshot_attachment(), SnapshotAttachment::None)
+        }));
     }
 
     #[test]
@@ -1340,7 +1436,7 @@ mod tests {
         let policy = SnapshotWriteMode::Versioned {
             enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
         };
-        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+        let bundle = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
             1,
             &snapshot,
             "preamble",
@@ -1350,7 +1446,8 @@ mod tests {
             &[],
             policy,
         )
-        .expect("build versioned-policy checkpoint");
+        .expect("build versioned-policy checkpoint")
+        .bundle;
         drop(source);
         let tempdir = tempdir().expect("tempdir");
         let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
@@ -1380,7 +1477,7 @@ mod tests {
         let policy = SnapshotWriteMode::Versioned {
             enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
         };
-        let normal_bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+        let normal_bundle = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
             1,
             &snapshot,
             "preamble",
@@ -1390,7 +1487,8 @@ mod tests {
             &[],
             policy,
         )
-        .expect("build capability-free checkpoint");
+        .expect("build capability-free checkpoint")
+        .bundle;
         assert!(matches!(
             normal_bundle.checkpoints[0].snapshot_attachment(),
             SnapshotAttachment::Legacy(_)
