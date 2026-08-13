@@ -28,7 +28,7 @@ pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct SnapshotCapability(String);
 
 impl SnapshotCapability {
@@ -53,6 +53,44 @@ pub struct VmSnapshotDocument {
     pub schema_version: u32,
     pub required_capabilities: BTreeSet<SnapshotCapability>,
     pub state: VmSnapshot,
+}
+
+#[derive(Serialize)]
+struct VmSnapshotDocumentWriteWire<'a> {
+    format: &'a str,
+    schema_version: u32,
+    required_capabilities: &'a BTreeSet<SnapshotCapability>,
+    state: VmSnapshotDocumentStateWriteWire<'a>,
+}
+
+#[derive(Serialize)]
+struct VmSnapshotDocumentStateWriteWire<'a> {
+    #[serde(flatten)]
+    legacy: &'a LegacyVmSnapshotV1,
+    muskip_registers: &'a BTreeMap<u32, i32>,
+    next_muskip_register: u32,
+}
+
+impl Serialize for VmSnapshotDocument {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.validate_for_write()
+            .map_err(serde::ser::Error::custom)?;
+
+        VmSnapshotDocumentWriteWire {
+            format: &self.format,
+            schema_version: self.schema_version,
+            required_capabilities: &self.required_capabilities,
+            state: VmSnapshotDocumentStateWriteWire {
+                legacy: &self.state,
+                muskip_registers: &self.state.muskip_registers,
+                next_muskip_register: self.state.next_muskip_register,
+            },
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +132,55 @@ impl fmt::Display for VmSnapshotDocumentError {
 }
 
 impl std::error::Error for VmSnapshotDocumentError {}
+
+impl VmSnapshotDocument {
+    pub fn from_snapshot(state: VmSnapshot) -> Self {
+        let required_capabilities = state.required_capabilities();
+        Self {
+            format: VM_SNAPSHOT_DOCUMENT_FORMAT.to_string(),
+            schema_version: VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+            required_capabilities,
+            state,
+        }
+    }
+
+    pub fn validate_for_write(&self) -> Result<(), VmSnapshotDocumentError> {
+        if self.format != VM_SNAPSHOT_DOCUMENT_FORMAT {
+            return Err(VmSnapshotDocumentError::UnsupportedFormat(
+                self.format.clone(),
+            ));
+        }
+        if self.schema_version != VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION {
+            return Err(VmSnapshotDocumentError::UnsupportedSchemaVersion(
+                self.schema_version,
+            ));
+        }
+        if let Some(capability) = self.required_capabilities.iter().find(|capability| {
+            !VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES.contains(&capability.as_str())
+        }) {
+            return Err(VmSnapshotDocumentError::UnsupportedCapability(
+                capability.as_str().to_string(),
+            ));
+        }
+        let derived_capabilities = self.state.required_capabilities();
+        if self.required_capabilities != derived_capabilities {
+            return Err(VmSnapshotDocumentError::InvalidState(format!(
+                "declared capabilities [{}] do not match state requirements [{}]",
+                self.required_capabilities
+                    .iter()
+                    .map(SnapshotCapability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                derived_capabilities
+                    .iter()
+                    .map(SnapshotCapability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -280,13 +367,7 @@ pub fn decode_vm_snapshot_document(
 }
 
 pub fn normalize_legacy_vm_snapshot(snapshot: VmSnapshot) -> VmSnapshotDocument {
-    let required_capabilities = snapshot.required_capabilities();
-    VmSnapshotDocument {
-        format: VM_SNAPSHOT_DOCUMENT_FORMAT.to_string(),
-        schema_version: VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-        required_capabilities,
-        state: snapshot,
-    }
+    VmSnapshotDocument::from_snapshot(snapshot)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

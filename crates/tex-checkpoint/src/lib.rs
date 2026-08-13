@@ -177,6 +177,32 @@ impl VersionedSnapshotSlot {
     pub fn document(&self) -> &VmSnapshotDocument {
         &self.document
     }
+
+    fn from_snapshot(snapshot: VmSnapshot) -> Self {
+        Self {
+            document: VmSnapshotDocument::from_snapshot(snapshot),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct VersionedSnapshotSlotWriteWire<'a> {
+    document: &'a VmSnapshotDocument,
+}
+
+impl Serialize for VersionedSnapshotSlot {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.document
+            .validate_for_write()
+            .map_err(serde::ser::Error::custom)?;
+        VersionedSnapshotSlotWriteWire {
+            document: &self.document,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Deserialize)]
@@ -233,6 +259,16 @@ impl<'a> SnapshotForRestore<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The production checkpoint writer policy intentionally exposes no versioned
+/// selection surface.
+///
+/// ```compile_fail
+/// use tex_checkpoint::SnapshotWritePolicy;
+///
+/// let _ = SnapshotWritePolicy::Versioned {
+///     enabled_capabilities: &[],
+/// };
+/// ```
 pub enum SnapshotWritePolicy {
     LegacyOnly,
 }
@@ -242,10 +278,53 @@ impl SnapshotWritePolicy {
         self,
         required_capabilities: &std::collections::BTreeSet<SnapshotCapability>,
     ) -> bool {
-        match self {
-            Self::LegacyOnly => required_capabilities.is_empty(),
+        SnapshotWriteMode::from(self)
+            .lane_for(required_capabilities)
+            .is_some()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotWriteMode {
+    LegacyOnly,
+    #[allow(dead_code)] // Compiled now for candidate validation; no production constructor exists.
+    Versioned {
+        enabled_capabilities: &'static [&'static str],
+    },
+}
+
+impl From<SnapshotWritePolicy> for SnapshotWriteMode {
+    fn from(policy: SnapshotWritePolicy) -> Self {
+        match policy {
+            SnapshotWritePolicy::LegacyOnly => Self::LegacyOnly,
         }
     }
+}
+
+impl SnapshotWriteMode {
+    fn lane_for(
+        self,
+        required_capabilities: &std::collections::BTreeSet<SnapshotCapability>,
+    ) -> Option<SnapshotWriteLane> {
+        if required_capabilities.is_empty() {
+            return Some(SnapshotWriteLane::Legacy);
+        }
+        match self {
+            Self::LegacyOnly => None,
+            Self::Versioned {
+                enabled_capabilities,
+            } => required_capabilities
+                .iter()
+                .all(|required| enabled_capabilities.contains(&required.as_str()))
+                .then_some(SnapshotWriteLane::Versioned),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotWriteLane {
+    Legacy,
+    Versioned,
 }
 
 const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;
@@ -294,6 +373,48 @@ pub struct StoredCheckpoint {
 struct StoredCheckpointWriteWire<'a> {
     meta: &'a CheckpointMeta,
     snapshot: Option<&'a VmSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    versioned_snapshot: Option<&'a VersionedSnapshotSlot>,
+}
+
+impl StoredCheckpoint {
+    fn write_wire(&self, policy: SnapshotWriteMode) -> Result<StoredCheckpointWriteWire<'_>> {
+        let (snapshot, versioned_snapshot) = match &self.attachment {
+            StoredSnapshotAttachment::None => (None, None),
+            StoredSnapshotAttachment::Legacy(snapshot) => {
+                ensure_legacy_snapshot_writable(snapshot)?;
+                (Some(snapshot), None)
+            }
+            StoredSnapshotAttachment::Versioned(slot) => {
+                let required_capabilities = &slot.document.required_capabilities;
+                if !matches!(
+                    policy.lane_for(required_capabilities),
+                    Some(SnapshotWriteLane::Versioned)
+                ) {
+                    match policy {
+                        SnapshotWriteMode::LegacyOnly => {
+                            anyhow::bail!("versioned snapshot writer is disabled")
+                        }
+                        SnapshotWriteMode::Versioned { .. } => anyhow::bail!(
+                            "versioned snapshot writer does not enable required capabilities: {}",
+                            required_capabilities
+                                .iter()
+                                .map(SnapshotCapability::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    }
+                }
+                slot.document.validate_for_write()?;
+                (None, Some(slot))
+            }
+        };
+        Ok(StoredCheckpointWriteWire {
+            meta: &self.meta,
+            snapshot,
+            versioned_snapshot,
+        })
+    }
 }
 
 impl Serialize for StoredCheckpoint {
@@ -301,23 +422,9 @@ impl Serialize for StoredCheckpoint {
     where
         S: Serializer,
     {
-        let snapshot = match &self.attachment {
-            StoredSnapshotAttachment::None => None,
-            StoredSnapshotAttachment::Legacy(snapshot) => {
-                ensure_legacy_snapshot_writable(snapshot).map_err(serde::ser::Error::custom)?;
-                Some(snapshot)
-            }
-            StoredSnapshotAttachment::Versioned(_) => {
-                return Err(serde::ser::Error::custom(
-                    "versioned snapshot writer is disabled",
-                ));
-            }
-        };
-        StoredCheckpointWriteWire {
-            meta: &self.meta,
-            snapshot,
-        }
-        .serialize(serializer)
+        self.write_wire(SNAPSHOT_WRITE_POLICY.into())
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }
 
@@ -355,11 +462,21 @@ impl<'de> Deserialize<'de> for StoredCheckpoint {
 }
 
 impl StoredCheckpoint {
-    fn with_legacy_snapshot(meta: CheckpointMeta, snapshot: Option<VmSnapshot>) -> Result<Self> {
+    fn with_snapshot(
+        meta: CheckpointMeta,
+        snapshot: Option<VmSnapshot>,
+        policy: SnapshotWriteMode,
+    ) -> Result<Self> {
         let attachment = match snapshot {
-            Some(snapshot) => {
-                StoredSnapshotAttachment::Legacy(LegacySnapshotForWrite::try_from(snapshot)?.0)
-            }
+            Some(snapshot) => match policy.lane_for(&snapshot.required_capabilities()) {
+                Some(SnapshotWriteLane::Legacy) => {
+                    StoredSnapshotAttachment::Legacy(LegacySnapshotForWrite::try_from(snapshot)?.0)
+                }
+                Some(SnapshotWriteLane::Versioned) => StoredSnapshotAttachment::Versioned(
+                    VersionedSnapshotSlot::from_snapshot(snapshot),
+                ),
+                None => anyhow::bail!("snapshot is not enabled by the write policy"),
+            },
             None => StoredSnapshotAttachment::None,
         };
         Ok(Self { meta, attachment })
@@ -395,31 +512,42 @@ pub struct CheckpointBundle {
 
 #[derive(Serialize)]
 struct CheckpointBundleWriteWire<'a> {
-    checkpoints: &'a [StoredCheckpoint],
+    checkpoints: Vec<StoredCheckpointWriteWire<'a>>,
     pages: &'a [CheckpointPage],
 }
 
+struct CheckpointBundleWriteWithPolicy<'a> {
+    bundle: &'a CheckpointBundle,
+    policy: SnapshotWriteMode,
+}
+
+impl Serialize for CheckpointBundleWriteWithPolicy<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.bundle
+            .ensure_writable(self.policy)
+            .map_err(serde::ser::Error::custom)?;
+        let checkpoints = self
+            .bundle
+            .checkpoints
+            .iter()
+            .map(|checkpoint| checkpoint.write_wire(self.policy))
+            .collect::<Result<Vec<_>>>()
+            .map_err(serde::ser::Error::custom)?;
+        CheckpointBundleWriteWire {
+            checkpoints,
+            pages: &self.bundle.pages,
+        }
+        .serialize(serializer)
+    }
+}
+
 impl CheckpointBundle {
-    fn ensure_legacy_writable(&self) -> Result<()> {
-        match SNAPSHOT_WRITE_POLICY {
-            SnapshotWritePolicy::LegacyOnly => {
-                if self.checkpoints.iter().any(|checkpoint| {
-                    matches!(
-                        checkpoint.snapshot_attachment(),
-                        SnapshotAttachment::Versioned(_)
-                    )
-                }) {
-                    anyhow::bail!("versioned snapshot writer is disabled");
-                }
-                for snapshot in self.checkpoints.iter().filter_map(|checkpoint| {
-                    match checkpoint.snapshot_attachment() {
-                        SnapshotAttachment::Legacy(snapshot) => Some(snapshot),
-                        SnapshotAttachment::None | SnapshotAttachment::Versioned(_) => None,
-                    }
-                }) {
-                    ensure_legacy_snapshot_writable(snapshot)?;
-                }
-            }
+    fn ensure_writable(&self, policy: SnapshotWriteMode) -> Result<()> {
+        for checkpoint in &self.checkpoints {
+            checkpoint.write_wire(policy)?;
         }
         Ok(())
     }
@@ -430,11 +558,9 @@ impl Serialize for CheckpointBundle {
     where
         S: Serializer,
     {
-        self.ensure_legacy_writable()
-            .map_err(serde::ser::Error::custom)?;
-        CheckpointBundleWriteWire {
-            checkpoints: &self.checkpoints,
-            pages: &self.pages,
+        CheckpointBundleWriteWithPolicy {
+            bundle: self,
+            policy: SNAPSHOT_WRITE_POLICY.into(),
         }
         .serialize(serializer)
     }
@@ -550,15 +676,39 @@ pub fn build_checkpoint_bundle_with_shipouts(
     shipout_checkpoints: &[ShipoutCheckpoint],
     input_boundaries: &[InputBoundaryCheckpoint],
 ) -> Result<CheckpointBundle> {
+    build_checkpoint_bundle_with_shipouts_and_policy(
+        rev,
+        preamble_snapshot,
+        preamble_key,
+        preamble_source_offset_utf8,
+        pages,
+        shipout_checkpoints,
+        input_boundaries,
+        SNAPSHOT_WRITE_POLICY.into(),
+    )
+}
+
+fn build_checkpoint_bundle_with_shipouts_and_policy(
+    rev: u64,
+    preamble_snapshot: &VmSnapshot,
+    preamble_key: &str,
+    preamble_source_offset_utf8: u32,
+    pages: &[CheckpointPage],
+    shipout_checkpoints: &[ShipoutCheckpoint],
+    input_boundaries: &[InputBoundaryCheckpoint],
+    policy: SnapshotWriteMode,
+) -> Result<CheckpointBundle> {
     if !shipout_checkpoints.is_empty() && shipout_checkpoints.len() != pages.len() {
         anyhow::bail!("shipout snapshot/page length mismatch");
     }
     let preamble_continuation_safety = preamble_snapshot.continuation_safety.clone();
     let preamble_snapshot_attached = preamble_continuation_safety.is_safe()
-        && SNAPSHOT_WRITE_POLICY.allows(&preamble_snapshot.required_capabilities());
+        && policy
+            .lane_for(&preamble_snapshot.required_capabilities())
+            .is_some();
     let vm_state_hash = checkpoint_vm_state_hash(preamble_snapshot)
         .context("failed to fingerprint preamble snapshot")?;
-    let mut checkpoints = vec![StoredCheckpoint::with_legacy_snapshot(
+    let mut checkpoints = vec![StoredCheckpoint::with_snapshot(
         CheckpointMeta {
             checkpoint_id: checkpoint_id(
                 CheckpointKind::Preamble,
@@ -582,6 +732,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
             output_start_utf8: 0,
         },
         preamble_snapshot_attached.then(|| preamble_snapshot.clone()),
+        policy,
     )?];
 
     for (index, page) in pages.iter().enumerate() {
@@ -600,9 +751,11 @@ pub fn build_checkpoint_bundle_with_shipouts(
             .unwrap_or_default();
         let snapshot_attached = shipout_checkpoint.is_some_and(|checkpoint| {
             continuation_safety.is_safe()
-                && SNAPSHOT_WRITE_POLICY.allows(&checkpoint.snapshot.required_capabilities())
+                && policy
+                    .lane_for(&checkpoint.snapshot.required_capabilities())
+                    .is_some()
         });
-        checkpoints.push(StoredCheckpoint::with_legacy_snapshot(
+        checkpoints.push(StoredCheckpoint::with_snapshot(
             CheckpointMeta {
                 checkpoint_id: checkpoint_id(
                     CheckpointKind::Shipout,
@@ -634,6 +787,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
                     .snapshot
                     .clone()
             }),
+            policy,
         )?);
     }
 
@@ -645,7 +799,9 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 .input_continuation
                 .as_ref()
                 .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable)
-            && SNAPSHOT_WRITE_POLICY.allows(&boundary.snapshot.required_capabilities());
+            && policy
+                .lane_for(&boundary.snapshot.required_capabilities())
+                .is_some();
         let vm_state_hash = checkpoint_vm_state_hash(&boundary.snapshot)
             .context("failed to fingerprint input-boundary snapshot")?;
         let boundary_hash = blake3::hash(
@@ -665,7 +821,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
         )
         .to_hex()
         .to_string();
-        checkpoints.push(StoredCheckpoint::with_legacy_snapshot(
+        checkpoints.push(StoredCheckpoint::with_snapshot(
             CheckpointMeta {
                 checkpoint_id: checkpoint_id(
                     CheckpointKind::InputBoundary,
@@ -689,6 +845,7 @@ pub fn build_checkpoint_bundle_with_shipouts(
                 output_start_utf8: boundary.output_start_utf8,
             },
             snapshot_attached.then(|| boundary.snapshot.clone()),
+            policy,
         )?);
     }
 
@@ -735,7 +892,15 @@ fn checkpoint_vm_state_hash(snapshot: &VmSnapshot) -> Result<String> {
 }
 
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {
-    bundle.ensure_legacy_writable()?;
+    save_checkpoint_bundle_with_policy(path, bundle, SNAPSHOT_WRITE_POLICY.into())
+}
+
+fn save_checkpoint_bundle_with_policy(
+    path: &Utf8Path,
+    bundle: &CheckpointBundle,
+    policy: SnapshotWriteMode,
+) -> Result<()> {
+    bundle.ensure_writable(policy)?;
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))?;
@@ -748,8 +913,11 @@ pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Res
         let encoded = EncoderWriter::new(temporary.as_file_mut(), &BASE64_STANDARD);
         let compressed = GzEncoder::new(encoded, Compression::fast());
         let mut integrity = IntegrityWriter::new(compressed);
-        serde_json::to_writer(&mut integrity, bundle)
-            .context("failed to serialize checkpoint bundle")?;
+        serde_json::to_writer(
+            &mut integrity,
+            &CheckpointBundleWriteWithPolicy { bundle, policy },
+        )
+        .context("failed to serialize checkpoint bundle")?;
         let (compressed, uncompressed_len, uncompressed_hash) = integrity.into_parts();
         let mut encoded = compressed
             .finish()
@@ -1047,17 +1215,23 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        SnapshotCapability, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+        SnapshotCapability, Vm, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
     use super::{
-        CheckpointBundleReuse, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
-        InputBoundaryCheckpoint, ShipoutCheckpoint, SnapshotWritePolicy, build_checkpoint_bundle,
-        build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
-        can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
-        load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
-        save_checkpoint_bundle, select_reusable_preamble,
+        CheckpointBundle, CheckpointBundleReuse, CheckpointBundleWriteWithPolicy,
+        CheckpointCacheMissReason, CheckpointKind, CheckpointPage, InputBoundaryCheckpoint,
+        ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode, SnapshotWritePolicy,
+        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
+        build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_shipouts_and_policy,
+        build_checkpoint_bundle_with_snapshots, can_reuse_preamble, find_unchanged_tail,
+        load_checkpoint_bundle, load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble,
+        preamble_key_for_source, save_checkpoint_bundle, save_checkpoint_bundle_with_policy,
+        select_reusable_preamble,
     };
+
+    const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
+    const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 
     #[test]
     fn legacy_only_write_policy_rejects_required_capabilities() {
@@ -1068,6 +1242,227 @@ mod tests {
             !SnapshotWritePolicy::LegacyOnly.allows(&required_capabilities),
             "capability-bearing state must not enter the legacy lane"
         );
+    }
+
+    #[test]
+    fn versioned_write_policy_builds_a_canonical_attachment_without_enabling_default_writes() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\newmuskip\first\first=2.5mu");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let snapshot = vm.snapshot();
+        let policy = SnapshotWriteMode::Versioned {
+            enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+        };
+        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+            1,
+            &snapshot,
+            "preamble",
+            0,
+            &[],
+            &[],
+            &[],
+            policy,
+        )
+        .expect("build versioned-policy checkpoint");
+
+        assert!(matches!(
+            bundle.checkpoints[0].snapshot_attachment(),
+            SnapshotAttachment::Versioned(_)
+        ));
+        let wire = serde_json::to_value(CheckpointBundleWriteWithPolicy {
+            bundle: &bundle,
+            policy,
+        })
+        .expect("serialize versioned-policy checkpoint");
+        assert!(wire["checkpoints"][0]["snapshot"].is_null());
+        assert!(wire["checkpoints"][0]["versioned_snapshot"].is_object());
+        let decoded = serde_json::from_value::<super::CheckpointBundle>(wire)
+            .expect("decode canonical versioned checkpoint");
+        let restore = decoded.checkpoints[0]
+            .snapshot_for_restore()
+            .expect("versioned restore state");
+        assert!(restore.is_versioned());
+        assert_eq!(restore.state(), &snapshot);
+
+        let mut default_output = Vec::new();
+        let error = serde_json::to_writer(&mut default_output, &bundle)
+            .expect_err("default writer policy must remain LegacyOnly");
+        assert!(
+            error
+                .to_string()
+                .contains("versioned snapshot writer is disabled")
+        );
+        assert!(default_output.is_empty());
+    }
+
+    #[test]
+    fn versioned_write_policy_suppresses_capabilities_outside_its_allowlist() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\newmuskip\first\first=2.5mu");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let snapshot = vm.snapshot();
+        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+            1,
+            &snapshot,
+            "preamble",
+            0,
+            &[],
+            &[],
+            &[],
+            SnapshotWriteMode::Versioned {
+                enabled_capabilities: &[MUSKIP_SCALAR_V1_CAPABILITY],
+            },
+        )
+        .expect("build partially enabled checkpoint");
+
+        assert!(!bundle.checkpoints[0].meta.snapshot_attached);
+        assert!(matches!(
+            bundle.checkpoints[0].snapshot_attachment(),
+            SnapshotAttachment::None
+        ));
+    }
+
+    #[test]
+    fn versioned_write_policy_saves_and_reloads_the_production_envelope() {
+        let mut source_interner = ControlSequenceInterner::new();
+        let mut source = Vm::new(&mut source_interner);
+        let outcome = source.run_plain(r"\newmuskip\first\first=2.5mu");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let snapshot = source.snapshot();
+        let policy = SnapshotWriteMode::Versioned {
+            enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+        };
+        let bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+            1,
+            &snapshot,
+            "preamble",
+            0,
+            &[],
+            &[],
+            &[],
+            policy,
+        )
+        .expect("build versioned-policy checkpoint");
+        drop(source);
+        let tempdir = tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
+            .expect("UTF-8 checkpoint path");
+
+        save_checkpoint_bundle_with_policy(&path, &bundle, policy)
+            .expect("save versioned-policy checkpoint");
+        let reloaded = load_checkpoint_bundle(&path).expect("load versioned-policy checkpoint");
+        let restore = reloaded.checkpoints[0]
+            .snapshot_for_restore()
+            .expect("versioned restore state");
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::try_restore(&mut restored_interner, restore.state())
+            .expect("restore versioned-policy checkpoint");
+        let replay = restored.run_plain(r"[\the\first]");
+
+        assert!(restore.is_versioned());
+        assert_eq!(replay.output, "[2.5mu]");
+        assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+    }
+
+    #[test]
+    fn capability_free_snapshot_cannot_be_forced_into_the_versioned_lane() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\snapshotword{R}");
+        assert!(snapshot.required_capabilities().is_empty());
+        let policy = SnapshotWriteMode::Versioned {
+            enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+        };
+        let normal_bundle = build_checkpoint_bundle_with_shipouts_and_policy(
+            1,
+            &snapshot,
+            "preamble",
+            0,
+            &[],
+            &[],
+            &[],
+            policy,
+        )
+        .expect("build capability-free checkpoint");
+        assert!(matches!(
+            normal_bundle.checkpoints[0].snapshot_attachment(),
+            SnapshotAttachment::Legacy(_)
+        ));
+
+        let mut unauthorized = normal_bundle.checkpoints[0].clone();
+        unauthorized.attachment =
+            StoredSnapshotAttachment::Versioned(VersionedSnapshotSlot::from_snapshot(snapshot));
+        let error = match unauthorized.write_wire(policy) {
+            Ok(_) => panic!("private policy must enforce exact stored-lane equality"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("does not enable required capabilities")
+        );
+
+        let mut checkpoint_output = Vec::new();
+        serde_json::to_writer(&mut checkpoint_output, &unauthorized)
+            .expect_err("default checkpoint writer must reject the versioned lane");
+        assert!(checkpoint_output.is_empty());
+
+        let bundle = CheckpointBundle {
+            checkpoints: vec![
+                normal_bundle.checkpoints[0].clone(),
+                unauthorized,
+                normal_bundle.checkpoints[0].clone(),
+            ],
+            pages: Vec::new(),
+        };
+        let mut default_bundle_output = Vec::new();
+        serde_json::to_writer(&mut default_bundle_output, &bundle)
+            .expect_err("late unauthorized child must fail parent preflight");
+        assert!(default_bundle_output.is_empty());
+
+        let mut private_bundle_output = Vec::new();
+        serde_json::to_writer(
+            &mut private_bundle_output,
+            &CheckpointBundleWriteWithPolicy {
+                bundle: &bundle,
+                policy,
+            },
+        )
+        .expect_err("private full policy must reject a capability-free versioned lane");
+        assert!(private_bundle_output.is_empty());
+
+        let tempdir = tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
+            .expect("UTF-8 checkpoint path");
+        fs::write(&path, b"sentinel").expect("write sentinel");
+        let entries_before = fs::read_dir(tempdir.path())
+            .expect("read tempdir before save")
+            .count();
+        save_checkpoint_bundle(&path, &bundle)
+            .expect_err("public save must reject before touching the filesystem");
+        assert_eq!(fs::read(&path).expect("read sentinel"), b"sentinel");
+        assert_eq!(
+            fs::read_dir(tempdir.path())
+                .expect("read tempdir after save")
+                .count(),
+            entries_before
+        );
+    }
+
+    #[test]
+    fn versioned_slot_rejects_an_invalid_document_before_output() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\snapshotword{R}");
+        let mut slot = VersionedSnapshotSlot::from_snapshot(snapshot);
+        slot.document
+            .required_capabilities
+            .insert(SnapshotCapability::new(MUSKIP_SCALAR_V1_CAPABILITY));
+
+        let mut output = Vec::new();
+        serde_json::to_writer(&mut output, &slot)
+            .expect_err("slot must validate its document before output");
+        assert!(output.is_empty());
     }
 
     #[test]

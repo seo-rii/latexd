@@ -20,6 +20,9 @@ EXPECTED_RESULTS = {
     "raw_versioned_document": {
         "accepted": False,
     },
+    "canonical_muskip_document_to_pre_reader": {
+        "accepted": False,
+    },
     "candidate_legacy_bundle_to_pre_reader": {
         "accepted": True,
         "replay_safe": True,

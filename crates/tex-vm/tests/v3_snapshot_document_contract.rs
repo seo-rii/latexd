@@ -158,6 +158,68 @@ fn capability_state_cannot_be_laundered_by_legacy_normalization() {
 }
 
 #[test]
+fn canonical_versioned_writer_round_trips_each_muskip_capability_shape() {
+    let scalar = muskip_snapshot();
+
+    let mut alias_interner = ControlSequenceInterner::new();
+    let mut alias_vm = Vm::new(&mut alias_interner);
+    alias_vm.run_plain(r"\muskipdef\fixed=17");
+    let alias = alias_vm.snapshot();
+
+    let mut combined_interner = ControlSequenceInterner::new();
+    let mut combined_vm = Vm::new(&mut combined_interner);
+    combined_vm.run_plain(r"\newmuskip\first\first=2.5mu");
+    let combined = combined_vm.snapshot();
+
+    for (name, snapshot) in [("scalar", scalar), ("alias", alias), ("combined", combined)] {
+        let document = VmSnapshotDocument::from_snapshot(snapshot.clone());
+
+        let encoded = serde_json::to_vec(&document)
+            .unwrap_or_else(|error| panic!("serialize {name} versioned document: {error}"));
+        let encoded_again = serde_json::to_vec(&document)
+            .unwrap_or_else(|error| panic!("reserialize {name} versioned document: {error}"));
+        let decoded = decode_vm_snapshot_document(&encoded)
+            .unwrap_or_else(|error| panic!("decode {name} versioned document: {error}"));
+        let wire: serde_json::Value =
+            serde_json::from_slice(&encoded).expect("inspect canonical document wire");
+
+        assert_eq!(encoded, encoded_again, "{name} writer is not deterministic");
+        assert_eq!(decoded.state, snapshot, "{name} state changed");
+        assert_eq!(
+            decoded.required_capabilities,
+            snapshot.required_capabilities(),
+            "{name} capabilities changed"
+        );
+        assert_eq!(
+            wire["state"]["muskip_registers"],
+            json!(snapshot.muskip_registers),
+            "{name} muskip map changed"
+        );
+        assert_eq!(
+            wire["state"]["next_muskip_register"],
+            json!(snapshot.next_muskip_register),
+            "{name} muskip cursor changed"
+        );
+    }
+}
+
+#[test]
+fn canonical_versioned_writer_rejects_header_state_laundering_before_output() {
+    let mut document = VmSnapshotDocument::from_snapshot(muskip_snapshot());
+    document.required_capabilities.clear();
+    let mut output = Vec::new();
+
+    let error = serde_json::to_writer(&mut output, &document)
+        .expect_err("canonical writer must reject a laundered capability header");
+
+    assert!(
+        error.to_string().contains("declared capabilities"),
+        "{error}"
+    );
+    assert!(output.is_empty(), "versioned writer wrote {output:?}");
+}
+
+#[test]
 fn legacy_decode_initializes_empty_muskip_state_independently_of_skip_cursor() {
     let mut interner = ControlSequenceInterner::new();
     let vm = Vm::new(&mut interner);

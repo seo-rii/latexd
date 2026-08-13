@@ -33,6 +33,9 @@ EXPECTED_PRE_READER_RESULTS = {
     "raw_versioned_document": {
         "accepted": False,
     },
+    "canonical_muskip_document_to_pre_reader": {
+        "accepted": False,
+    },
     "candidate_legacy_bundle_to_pre_reader": {
         "accepted": True,
         "replay_safe": True,
@@ -97,6 +100,8 @@ use tex_checkpoint::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{Vm, VmSnapshot};
+#[cfg(feature = "candidate")]
+use tex_vm::VmSnapshotDocument;
 
 fn produce_raw(path: &Path) {
     let mut interner = ControlSequenceInterner::new();
@@ -126,6 +131,22 @@ fn consume_raw(path: &Path) {
         Err(_) => json!({ "accepted": false }),
     };
     println!("{}", serde_json::to_string(&result).expect("serialize raw result"));
+}
+
+#[cfg(feature = "candidate")]
+fn produce_muskip_document(path: &Path) {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let mut snapshot = vm.snapshot();
+    snapshot.muskip_registers.insert(17, 163840);
+    snapshot.muskip_registers.insert(300, 458752);
+    snapshot.next_muskip_register = 301;
+    let document = VmSnapshotDocument::from_snapshot(snapshot);
+    fs::write(
+        path,
+        serde_json::to_vec(&document).expect("serialize canonical muskip document"),
+    )
+    .expect("write canonical muskip document");
 }
 
 fn produce_bundle(path: &Path) {
@@ -296,6 +317,8 @@ fn main() {
     match mode.to_str().expect("UTF-8 mode") {
         "produce-raw" => produce_raw(Path::new(&path)),
         "consume-raw" => consume_raw(Path::new(&path)),
+        #[cfg(feature = "candidate")]
+        "produce-muskip-document" => produce_muskip_document(Path::new(&path)),
         "produce-bundle" => produce_bundle(Path::new(&path)),
         "consume-bundle" => consume_bundle(Path::new(&path)),
         "produce-envelope" => produce_envelope(Path::new(&path)),
@@ -574,20 +597,21 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 repo,
             )
 
-            candidate_muskip_state = copy.deepcopy(candidate_legacy_snapshot)
-            candidate_muskip_state["muskip_registers"] = {
-                "17": 163840,
-                "300": 458752,
-            }
-            candidate_muskip_state["next_muskip_register"] = 301
+            candidate_muskip_document_path = temp_root / "candidate-muskip-document.json"
+            _run(
+                [
+                    str(candidate_binary),
+                    "produce-muskip-document",
+                    str(candidate_muskip_document_path),
+                ],
+                cwd=repo,
+            )
+            candidate_muskip_document = json.loads(
+                candidate_muskip_document_path.read_text(encoding="utf-8")
+            )
             candidate_muskip_bundle = copy.deepcopy(candidate_versioned_bundle)
             candidate_muskip_bundle["checkpoints"][0]["versioned_snapshot"] = {
-                "document": {
-                    "format": "latexd.vm-snapshot",
-                    "schema_version": 1,
-                    "required_capabilities": ["eqtb.muskip.scalar-v1"],
-                    "state": candidate_muskip_state,
-                }
+                "document": candidate_muskip_document
             }
             candidate_muskip_envelope = temp_root / "candidate-muskip-envelope.json"
             _write_wrapped_payload(
@@ -686,6 +710,9 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 ),
                 "raw_versioned_document": _read_result(
                     binary, "consume-raw", versioned_document_path, repo
+                ),
+                "canonical_muskip_document_to_pre_reader": _read_result(
+                    binary, "consume-raw", candidate_muskip_document_path, repo
                 ),
                 "candidate_legacy_bundle_to_pre_reader": {
                     **candidate_old_result,
