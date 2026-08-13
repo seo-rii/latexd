@@ -672,14 +672,41 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   넘어간다. Legacy 양방향 호환, dual lane, future capability, malformed 문서 결과도
   유지된다. Reader 전체 gate는 tex-vm 663 unit+모든 integration, tex-checkpoint
   49+12+21, latexd lib 237, workspace test-target check, canonical Clippy/fmt가 green이다.
+- `436e246`은 canonical versioned muskip document와 checkpoint attachment writer를
+  구현하되 production 정책을 기존 public `SnapshotWritePolicy::LegacyOnly`에 고정한다.
+  `VmSnapshotDocument::from_snapshot`과 custom serializer는 complete state에서
+  capability header를 유도하고 format/schema/지원 capability/exact state equality를
+  첫 byte 전에 검증한다. Scalar-only, alias-only, combined shape는 strict reader로
+  round-trip하며 migration probe도 같은 실제 serializer output을 사용한다.
+- Versioned lane 선택, bundle serializer, builder, save helper는 crate-private
+  `SnapshotWriteMode`로만 접근할 수 있다. Public policy enum에는 versioned variant가
+  없음을 compile-fail doctest로 고정했고, public builder/Serde/save는 모두 상수
+  `LegacyOnly`를 주입한다. Capability-free state는 private full policy에서도 legacy
+  lane에만 배치된다. 이미 versioned lane에 들어온 같은 state는 direct checkpoint,
+  late-invalid-child bundle, private policy serializer, public atomic save에서 출력이나
+  파일 변경 전에 거부된다. Invalid public slot도 nested document를 선검증한다.
+- Disabled-writer Pro review
+  `6a7db198-0c34-83e8-8630-f204d8985b8f`는 초기 evidence packet을 **REVISE**했다.
+  가장 중요한 exact-lane 우려는 구현이 이미 `Some(Versioned)` equality를 사용했고
+  기존 integration fixture도 empty-capability versioned lane을 거부했지만, direct,
+  late-child, private full-policy, filesystem matrix를 추가해 명시적으로 닫았다. 공개
+  enum의 새 variant는 실제 API/semver 위험이라 제거하고 private routing으로 옮겼다.
+  Slot zero-byte preflight는 기존 custom serializer를 새 regression으로 확인했다.
+  Reader/write semantic-validity closure, golden byte/insertion-order contract, 세 checkpoint
+  category의 enabled-path restore, resource/telemetry는 activation 전 `ARCH-014` gate로
+  남긴다.
+- `436e246` 검증은 tex-vm 663 unit+모든 integration(document contract 23),
+  tex-checkpoint 54+12+21+doctest, latexd lib 237, workspace test-target check, canonical
+  Clippy/fmt, Python 8을 통과했다. Exact `00c8ee3` matrix에서 canonical raw muskip
+  document는 pre-reader가 거부하고, candidate envelope는 `[2.5mu][3mu][3mu]`로
+  replay-safe hit이며, pre-reader envelope는 attachment 없이 source rebuild 경계에
+  남는다. Production이 유기적으로 생성하는 versioned checkpoint는 여전히 0이다.
 
-다음 순서는 (1) versioned writer를 명시적으로 disabled policy 뒤에 구현하고,
-(2) old/new real-binary gate와 reader 선배포, rollback floor 확인 뒤 별도 change로
-writer를 활성화하는 것이다. Reader activation 전에 bounded failure observability와
-checkpoint resource limit의 기존 enforcement를 확인하고, writer phase의 fleet gate에
-명시적으로 연결한다. 현재
-source slice의 conservative dynamic-name suppression 빈도는 activation 전에 측정하고,
-필요할 때만 binding-aware precision을 후속 최적화한다. 어느 단계에서도
+다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
+failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,
+(2) 별도 change와 canary 결정으로 writer를 활성화하는 것이다. 현재 source slice의
+conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만
+binding-aware precision을 후속 최적화한다. 어느 단계에서도
 capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가
 아니라 attachment suppression과 정상 source rebuild로 귀결한다.
 
@@ -712,9 +739,10 @@ capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는
 4. skip — 완료; muskip — readers-first document와 dual checkpoint reader,
    legacy eligibility/suppression seam, typed runtime owner, complete in-memory
    snapshot/capability, strict legacy boundary, source allocator/alias/scalar assignment,
-   arithmetic, dynamic-name capability, fresh-source rebuild, strict capability reader 완료.
-   Disabled writer phase가 남아 있다 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
-   `a2466c7`, `b809c30`, `f899127`, `f02a4cd`, `6604eb7`, `2cad7c2`).
+   arithmetic, dynamic-name capability, fresh-source rebuild, strict capability reader,
+   private-policy disabled writer 완료. Writer activation은 별도 fleet/observability
+   gate로 남아 있다 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`, `a2466c7`,
+   `b809c30`, `f899127`, `f02a4cd`, `6604eb7`, `2cad7c2`, `436e246`).
 5. toks
 6. catcode
 7. mathcode/delcode

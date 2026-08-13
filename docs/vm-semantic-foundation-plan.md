@@ -134,14 +134,14 @@ incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
 
-### Current State Matrix (2026-08-12)
+### Current State Matrix (2026-08-13)
 
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
 | V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | diagnostic subtype characterization and bounded graphic/bibliography mixed-macro isolation are complete; exact macro-generated raw-fallback isolation remains open under `ARCH-007`, while public event identity and shared diagnostic architecture belong to later or separate streams |
-| V3 | Count/Dimen/Skip/MuSkip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; muskip has a strict readers-first capability boundary and source primitives; legacy `scopes` snapshots are projected from that state | open | mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent; the muskip versioned writer remains disabled |
+| V3 | Count/Dimen/Skip/MuSkip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; muskip has a strict readers-first capability boundary, source primitives, and a compiled private-policy writer; legacy `scopes` snapshots are projected from that state | open | mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent; production muskip versioned writing remains disabled pending fleet/observability activation gates |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
@@ -1037,10 +1037,45 @@ The migration evidence and current boundary are:
   Production versioned serialization is still disabled, capability-bearing
   legacy serialization still fails before output, and the durable-save
   sentinel/temporary-file and allocator underflow/exhaustion gates remain green.
+- `436e246` implements canonical versioned muskip document serialization and a
+  checkpoint attachment writer without changing the production policy.
+  `VmSnapshotDocument::from_snapshot` derives the capability header from the
+  complete state, and its custom serializer validates format, schema, supported
+  capabilities, and exact header/state equality before output. Scalar-only,
+  alias-only, and combined documents round-trip through the strict reader. The
+  migration probe now uses this serializer for the scalar canary rather than
+  hand-building its document state.
+- Candidate lane selection, bundle serialization, construction, and save are
+  reachable only through crate-private `SnapshotWriteMode`; every public/default
+  path injects the unchanged `SnapshotWritePolicy::LegacyOnly`. A compile-fail
+  API test proves the public policy has no versioned variant. Capability-free
+  snapshots remain legacy even under the private full policy, while an existing
+  capability-free versioned attachment is rejected by direct checkpoint,
+  late-invalid-child bundle, private-policy bundle, and public atomic-save
+  preflight. The public versioned slot also validates its document before
+  opening its own serialization object.
+- The disabled-writer Pro review
+  `6a7db198-0c34-83e8-8630-f204d8985b8f` initially returned **REVISE** because
+  the packet did not mechanically prove the empty-capability lane mismatch or
+  private API boundary. The implementation already used exact
+  `Some(Versioned)` authorization and custom slot preflight; the expanded
+  adversarial matrix now makes both guarantees executable. The unnecessary
+  public `Versioned` policy variant was a real semver surface and was replaced
+  by private routing. Reader/write semantic-validation closure, fixed canonical
+  bytes and insertion-order properties, enabled-path coverage for all checkpoint
+  categories, and bounded resource/telemetry evidence remain activation gates
+  tracked as `ARCH-014`.
+- Validation for `436e246` passed tex-vm 663 unit tests plus all integrations
+  (document contract 23), tex-checkpoint 54+12+21 plus the API doctest, latexd
+  lib 237, the workspace test-target check, canonical Clippy/formatting, and
+  eight Python tests. In the exact `00c8ee3` matrix, the old raw reader rejects
+  the canonical versioned document; the candidate production envelope restores
+  `[2.5mu][3mu][3mu]`; and the pre-reader accepts the outer envelope without a
+  replayable attachment, preserving the source-rebuild rollback floor.
 
-The exact remaining order is: implement the versioned writer behind an explicit
-disabled policy; then activate only after old/new real-binary gates, rollback-floor
-verification, reader deployment, and bounded failure/resource observability.
+The exact remaining order is: verify reader fleet deployment and the rollback
+floor, close bounded failure/resource observability and exact production-build
+gates, then activate the writer only in a separate reviewed canary change.
 Measure conservative dynamic-name suppression before writer
 activation and improve its precision only if the rebuild cost warrants it. A
 capability-bearing state must never be written through the legacy lane, a
@@ -1122,7 +1157,8 @@ Migration order:
    checkpoint reader, legacy eligibility/attachment suppression, typed runtime
    owner, complete snapshot/capability, source allocator/alias/scalar assignment,
    arithmetic, dynamic-name suppression, source-rebuild, and strict capability
-   reader phases. The disabled-writer phase remains;
+   reader phases plus the private-policy disabled writer. Production writer
+   activation remains a separate fleet/observability gate;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;
