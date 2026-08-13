@@ -44,6 +44,94 @@ impl std::fmt::Display for CheckpointUncompressedSizeLimitExceeded {
 
 impl std::error::Error for CheckpointUncompressedSizeLimitExceeded {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+/// Low-cardinality checkpoint persistence failure classes for fleet reporting.
+pub enum CheckpointWriteFailureReason {
+    LaneMismatch,
+    InvalidDocument,
+    BundlePreflight,
+    SizeLimit,
+    Serialization,
+    IntegrityEnvelope,
+    Tempfile,
+    Persist,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Byte counts produced by a successfully persisted compact checkpoint envelope.
+pub struct CheckpointWriteStats {
+    pub uncompressed_bytes: u64,
+    pub persisted_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+/// A stable artifact representation of whether checkpoint persistence ran.
+pub enum CheckpointWriteOutcome {
+    #[default]
+    NotAttempted,
+    Success {
+        uncompressed_bytes: u64,
+        persisted_bytes: u64,
+    },
+    Failure {
+        reason: CheckpointWriteFailureReason,
+    },
+}
+
+impl From<CheckpointWriteStats> for CheckpointWriteOutcome {
+    fn from(stats: CheckpointWriteStats) -> Self {
+        Self::Success {
+            uncompressed_bytes: stats.uncompressed_bytes,
+            persisted_bytes: stats.persisted_bytes,
+        }
+    }
+}
+
+#[derive(Debug)]
+/// A checkpoint save error with a stable reason and its detailed source chain.
+pub struct CheckpointWriteError {
+    reason: CheckpointWriteFailureReason,
+    source: anyhow::Error,
+}
+
+impl CheckpointWriteError {
+    fn new(reason: CheckpointWriteFailureReason, source: impl Into<anyhow::Error>) -> Self {
+        Self {
+            reason,
+            source: source.into(),
+        }
+    }
+
+    pub fn reason(&self) -> CheckpointWriteFailureReason {
+        self.reason
+    }
+}
+
+impl std::fmt::Display for CheckpointWriteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.source.fmt(formatter)
+    }
+}
+
+impl std::error::Error for CheckpointWriteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
+#[derive(Debug)]
+struct CheckpointLaneMismatch(String);
+
+impl std::fmt::Display for CheckpointLaneMismatch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CheckpointLaneMismatch {}
+
 #[derive(Debug, Deserialize)]
 struct CheckpointBundleEnvelope<'a> {
     schema_version: u32,
@@ -443,17 +531,19 @@ impl TryFrom<VmSnapshot> for LegacySnapshotForWrite {
     }
 }
 
-fn ensure_legacy_snapshot_writable(snapshot: &VmSnapshot) -> Result<()> {
+fn ensure_legacy_snapshot_writable(
+    snapshot: &VmSnapshot,
+) -> std::result::Result<(), CheckpointLaneMismatch> {
     let required_capabilities = snapshot.required_capabilities();
     if !SNAPSHOT_WRITE_POLICY.allows(&required_capabilities) {
-        anyhow::bail!(
+        return Err(CheckpointLaneMismatch(format!(
             "legacy snapshot writer cannot encode required capabilities: {}",
             required_capabilities
                 .iter()
                 .map(SnapshotCapability::as_str)
                 .collect::<Vec<_>>()
                 .join(", ")
-        );
+        )));
     }
     Ok(())
 }
@@ -488,16 +578,22 @@ impl StoredCheckpoint {
                 ) {
                     match policy {
                         SnapshotWriteMode::LegacyOnly => {
-                            anyhow::bail!("versioned snapshot writer is disabled")
+                            return Err(CheckpointLaneMismatch(
+                                "versioned snapshot writer is disabled".to_string(),
+                            )
+                            .into());
                         }
-                        SnapshotWriteMode::Versioned { .. } => anyhow::bail!(
-                            "versioned snapshot writer does not enable required capabilities: {}",
-                            required_capabilities
-                                .iter()
-                                .map(SnapshotCapability::as_str)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
+                        SnapshotWriteMode::Versioned { .. } => {
+                            return Err(CheckpointLaneMismatch(format!(
+                                "versioned snapshot writer does not enable required capabilities: {}",
+                                required_capabilities
+                                    .iter()
+                                    .map(SnapshotCapability::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ))
+                            .into());
+                        }
                     }
                 }
                 slot.document.validate_for_write()?;
@@ -1064,37 +1160,92 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
 }
 
 pub fn save_checkpoint_bundle(path: &Utf8Path, bundle: &CheckpointBundle) -> Result<()> {
-    save_checkpoint_bundle_with_policy(path, bundle, SNAPSHOT_WRITE_POLICY.into())
+    save_checkpoint_bundle_with_stats(path, bundle)
+        .map(|_| ())
+        .map_err(anyhow::Error::new)
 }
 
+pub fn save_checkpoint_bundle_with_stats(
+    path: &Utf8Path,
+    bundle: &CheckpointBundle,
+) -> std::result::Result<CheckpointWriteStats, CheckpointWriteError> {
+    save_checkpoint_bundle_with_policy_and_limit_and_stats(
+        path,
+        bundle,
+        SNAPSHOT_WRITE_POLICY.into(),
+        MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+    )
+}
+
+#[cfg(test)]
 fn save_checkpoint_bundle_with_policy(
     path: &Utf8Path,
     bundle: &CheckpointBundle,
     policy: SnapshotWriteMode,
 ) -> Result<()> {
-    save_checkpoint_bundle_with_policy_and_limit(
+    save_checkpoint_bundle_with_policy_and_limit_and_stats(
         path,
         bundle,
         policy,
         MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
     )
+    .map(|_| ())
+    .map_err(anyhow::Error::new)
 }
 
+#[cfg(test)]
 fn save_checkpoint_bundle_with_policy_and_limit(
     path: &Utf8Path,
     bundle: &CheckpointBundle,
     policy: SnapshotWriteMode,
     max_uncompressed_bytes: u64,
 ) -> Result<()> {
-    bundle.ensure_writable(policy)?;
+    save_checkpoint_bundle_with_policy_and_limit_and_stats(
+        path,
+        bundle,
+        policy,
+        max_uncompressed_bytes,
+    )
+    .map(|_| ())
+    .map_err(anyhow::Error::new)
+}
+
+fn save_checkpoint_bundle_with_policy_and_limit_and_stats(
+    path: &Utf8Path,
+    bundle: &CheckpointBundle,
+    policy: SnapshotWriteMode,
+    max_uncompressed_bytes: u64,
+) -> std::result::Result<CheckpointWriteStats, CheckpointWriteError> {
+    bundle.ensure_writable(policy).map_err(|error| {
+        let reason = if error.downcast_ref::<CheckpointLaneMismatch>().is_some() {
+            CheckpointWriteFailureReason::LaneMismatch
+        } else if error
+            .downcast_ref::<tex_vm::VmSnapshotDocumentError>()
+            .is_some()
+        {
+            CheckpointWriteFailureReason::InvalidDocument
+        } else {
+            CheckpointWriteFailureReason::BundlePreflight
+        };
+        CheckpointWriteError::new(reason, error)
+    })?;
     let parent = path
         .parent()
-        .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))?;
+        .ok_or_else(|| anyhow!("checkpoint bundle path has no parent: {path}"))
+        .map_err(|error| {
+            CheckpointWriteError::new(CheckpointWriteFailureReason::Tempfile, error)
+        })?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .with_context(|| format!("failed to create temporary checkpoint bundle beside {path}"))?;
+        .with_context(|| format!("failed to create temporary checkpoint bundle beside {path}"))
+        .map_err(|error| {
+            CheckpointWriteError::new(CheckpointWriteFailureReason::Tempfile, error)
+        })?;
     temporary
         .write_all(CHECKPOINT_ENVELOPE_PREFIX)
-        .with_context(|| format!("failed to write checkpoint envelope header for {path}"))?;
+        .with_context(|| format!("failed to write checkpoint envelope header for {path}"))
+        .map_err(|error| {
+            CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+        })?;
     let (uncompressed_len, uncompressed_hash) = {
         let encoded = EncoderWriter::new(temporary.as_file_mut(), &BASE64_STANDARD);
         let compressed = GzEncoder::new(encoded, Compression::fast());
@@ -1104,17 +1255,29 @@ fn save_checkpoint_bundle_with_policy_and_limit(
             &CheckpointBundleWriteWithPolicy { bundle, policy },
         ) {
             if let Some(limit_error) = integrity.limit_exceeded() {
-                return Err(limit_error.into());
+                return Err(CheckpointWriteError::new(
+                    CheckpointWriteFailureReason::SizeLimit,
+                    limit_error,
+                ));
             }
-            return Err(error).context("failed to serialize checkpoint bundle");
+            return Err(CheckpointWriteError::new(
+                CheckpointWriteFailureReason::Serialization,
+                anyhow::Error::new(error).context("failed to serialize checkpoint bundle"),
+            ));
         }
         let (compressed, uncompressed_len, uncompressed_hash) = integrity.into_parts();
         let mut encoded = compressed
             .finish()
-            .context("failed to finish checkpoint compression")?;
+            .context("failed to finish checkpoint compression")
+            .map_err(|error| {
+                CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+            })?;
         encoded
             .finish()
-            .context("failed to finish checkpoint base64 encoding")?;
+            .context("failed to finish checkpoint base64 encoding")
+            .map_err(|error| {
+                CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+            })?;
         (uncompressed_len, uncompressed_hash)
     };
     writeln!(
@@ -1122,16 +1285,34 @@ fn save_checkpoint_bundle_with_policy_and_limit(
         "\",\"uncompressed_len\":{uncompressed_len},\"uncompressed_blake3\":\"{}\"}}",
         uncompressed_hash.to_hex()
     )
-    .with_context(|| format!("failed to write checkpoint envelope footer for {path}"))?;
+    .with_context(|| format!("failed to write checkpoint envelope footer for {path}"))
+    .map_err(|error| {
+        CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+    })?;
     temporary
         .as_file()
         .sync_all()
-        .with_context(|| format!("failed to sync temporary checkpoint bundle for {path}"))?;
+        .with_context(|| format!("failed to sync temporary checkpoint bundle for {path}"))
+        .map_err(|error| {
+            CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+        })?;
+    let persisted_bytes = temporary
+        .as_file()
+        .metadata()
+        .with_context(|| format!("failed to inspect temporary checkpoint bundle for {path}"))
+        .map_err(|error| {
+            CheckpointWriteError::new(CheckpointWriteFailureReason::IntegrityEnvelope, error)
+        })?
+        .len();
     temporary
         .persist(path)
         .map_err(|error| error.error)
-        .with_context(|| format!("failed to replace checkpoint bundle {path}"))?;
-    Ok(())
+        .with_context(|| format!("failed to replace checkpoint bundle {path}"))
+        .map_err(|error| CheckpointWriteError::new(CheckpointWriteFailureReason::Persist, error))?;
+    Ok(CheckpointWriteStats {
+        uncompressed_bytes: uncompressed_len,
+        persisted_bytes,
+    })
 }
 
 pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
@@ -1420,16 +1601,17 @@ mod tests {
         CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse,
         CheckpointBundleWriteWithPolicy, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
         CheckpointSuppressionCounts, CheckpointUncompressedSizeLimitExceeded,
-        InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment,
-        SnapshotWriteMode, SnapshotWritePolicy, SnapshotWritePolicyObservation,
-        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
-        build_checkpoint_bundle_with_shipouts,
+        CheckpointWriteFailureReason, CheckpointWriteOutcome, InputBoundaryCheckpoint,
+        SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode,
+        SnapshotWritePolicy, SnapshotWritePolicyObservation, StoredSnapshotAttachment,
+        VersionedSnapshotSlot, build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
         build_checkpoint_bundle_with_shipouts_and_policy_and_stats,
         build_checkpoint_bundle_with_shipouts_and_stats, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
         load_checkpoint_bundle_for_reuse, load_checkpoint_bundle_with_limit,
         load_latest_reusable_preamble, preamble_key_for_source, save_checkpoint_bundle,
         save_checkpoint_bundle_with_policy, save_checkpoint_bundle_with_policy_and_limit,
+        save_checkpoint_bundle_with_policy_and_limit_and_stats, save_checkpoint_bundle_with_stats,
         select_reusable_preamble,
     };
 
@@ -1960,6 +2142,17 @@ mod tests {
         let entries_before = fs::read_dir(tempdir.path())
             .expect("read tempdir before save")
             .count();
+        let classified = save_checkpoint_bundle_with_policy_and_limit_and_stats(
+            &path,
+            &bundle,
+            policy,
+            super::MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+        )
+        .expect_err("classify exact-lane mismatch");
+        assert_eq!(
+            classified.reason(),
+            CheckpointWriteFailureReason::LaneMismatch
+        );
         save_checkpoint_bundle(&path, &bundle)
             .expect_err("public save must reject before touching the filesystem");
         assert_eq!(fs::read(&path).expect("read sentinel"), b"sentinel");
@@ -1984,6 +2177,38 @@ mod tests {
         serde_json::to_writer(&mut output, &slot)
             .expect_err("slot must validate its document before output");
         assert!(output.is_empty());
+
+        let mut checkpoint = build_checkpoint_bundle(
+            1,
+            &compile_format_snapshot(&mut interner, r"\def\snapshotword{R}"),
+            "preamble",
+            &[],
+        )
+        .expect("base checkpoint")
+        .checkpoints
+        .remove(0);
+        checkpoint.attachment = StoredSnapshotAttachment::Versioned(slot);
+        let bundle = CheckpointBundle {
+            checkpoints: vec![checkpoint],
+            pages: Vec::new(),
+        };
+        let tempdir = tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(tempdir.path().join("invalid.json"))
+            .expect("UTF-8 invalid path");
+        let classified = save_checkpoint_bundle_with_policy_and_limit_and_stats(
+            &path,
+            &bundle,
+            SnapshotWriteMode::Versioned {
+                enabled_capabilities: &[MUSKIP_SCALAR_V1_CAPABILITY],
+            },
+            super::MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+        )
+        .expect_err("classify invalid versioned document");
+        assert_eq!(
+            classified.reason(),
+            CheckpointWriteFailureReason::InvalidDocument
+        );
+        assert!(!path.exists());
     }
 
     #[test]
@@ -2079,11 +2304,6 @@ mod tests {
             exact_limit - 1,
         )
         .expect_err("reject payload one byte above limit");
-        let size_error = error
-            .downcast_ref::<CheckpointUncompressedSizeLimitExceeded>()
-            .expect("typed uncompressed size-limit error");
-        assert_eq!(size_error.limit, exact_limit - 1);
-        assert!(size_error.attempted > size_error.limit);
         let error_message = format!("{error:#}");
         assert!(
             error_message.contains("uncompressed") && error_message.contains("exceeding"),
@@ -2099,6 +2319,75 @@ mod tests {
                 .count(),
             entries_before,
             "rejected size admission leaked a temporary file"
+        );
+        let classified = save_checkpoint_bundle_with_policy_and_limit_and_stats(
+            &rejected_path,
+            &bundle,
+            policy,
+            exact_limit - 1,
+        )
+        .expect_err("classify payload one byte above limit");
+        assert_eq!(classified.reason(), CheckpointWriteFailureReason::SizeLimit);
+        assert!(
+            classified
+                .source
+                .downcast_ref::<CheckpointUncompressedSizeLimitExceeded>()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn checkpoint_save_reports_typed_success_and_failure_outcomes() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle =
+            build_checkpoint_bundle(1, &snapshot, "preamble", &[]).expect("checkpoint bundle");
+        let tempdir = tempdir().expect("tempdir");
+        let success_path = Utf8PathBuf::from_path_buf(tempdir.path().join("success.json"))
+            .expect("UTF-8 success path");
+
+        let stats = save_checkpoint_bundle_with_stats(&success_path, &bundle)
+            .expect("save with typed success stats");
+        assert!(stats.uncompressed_bytes > 0);
+        assert!(stats.persisted_bytes > 0);
+        assert_eq!(
+            serde_json::to_value(CheckpointWriteOutcome::from(stats))
+                .expect("serialize successful write outcome"),
+            serde_json::json!({
+                "status": "success",
+                "uncompressed_bytes": stats.uncompressed_bytes,
+                "persisted_bytes": stats.persisted_bytes,
+            })
+        );
+
+        let missing_parent =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("missing-parent/checkpoints.json"))
+                .expect("UTF-8 missing-parent path");
+        let tempfile_error = save_checkpoint_bundle_with_stats(&missing_parent, &bundle)
+            .expect_err("classify temporary-file creation failure");
+        assert_eq!(
+            tempfile_error.reason(),
+            CheckpointWriteFailureReason::Tempfile
+        );
+
+        let directory_target = Utf8PathBuf::from_path_buf(tempdir.path().join("directory-target"))
+            .expect("UTF-8 directory target");
+        fs::create_dir(&directory_target).expect("create persist-failure target");
+        let persist_error = save_checkpoint_bundle_with_stats(&directory_target, &bundle)
+            .expect_err("classify atomic persist failure");
+        assert_eq!(
+            persist_error.reason(),
+            CheckpointWriteFailureReason::Persist
+        );
+        assert_eq!(
+            serde_json::to_value(CheckpointWriteOutcome::Failure {
+                reason: persist_error.reason(),
+            })
+            .expect("serialize failed write outcome"),
+            serde_json::json!({
+                "status": "failure",
+                "reason": "persist",
+            })
         );
     }
 

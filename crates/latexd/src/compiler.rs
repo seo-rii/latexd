@@ -24,11 +24,11 @@ use tex_bootstrap::{
 };
 use tex_checkpoint::{
     CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse, CheckpointKind,
-    CheckpointPage, CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
-    ShipoutCheckpoint, SnapshotWritePolicyObservation, StoredCheckpoint,
+    CheckpointPage, CheckpointSuppressionCounts, CheckpointWriteOutcome, InputBoundaryCheckpoint,
+    SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotWritePolicyObservation, StoredCheckpoint,
     build_checkpoint_bundle_with_shipouts_and_stats, checkpoint_is_replay_safe,
     find_unchanged_tail, load_checkpoint_bundle_for_reuse, preamble_key_for_source,
-    save_checkpoint_bundle, select_reusable_preamble,
+    save_checkpoint_bundle_with_stats, select_reusable_preamble,
 };
 use tex_pdf::{
     render_display_list_pdf_with_materialized_assets_and_tex_fonts,
@@ -1303,6 +1303,66 @@ struct BuildMeta {
     checkpoint_attachment_counts: CheckpointAttachmentCounts,
     #[serde(default)]
     checkpoint_suppression_counts: CheckpointSuppressionCounts,
+    #[serde(default)]
+    checkpoint_write_outcome: CheckpointWriteOutcome,
+}
+
+fn save_checkpoint_bundle_observed(
+    toplevel: &Utf8Path,
+    rev_dir: &Utf8Path,
+    checkpoint_path: &Utf8Path,
+    checkpoint_bundle: &CheckpointBundle,
+) -> Result<CheckpointWriteOutcome, CompileFailure> {
+    let (outcome, write_failure) =
+        match save_checkpoint_bundle_with_stats(checkpoint_path, checkpoint_bundle) {
+            Ok(stats) => (CheckpointWriteOutcome::from(stats), None),
+            Err(error) => (
+                CheckpointWriteOutcome::Failure {
+                    reason: error.reason(),
+                },
+                Some(format!(
+                    "failed to save checkpoints {checkpoint_path} ({:?}): {error}",
+                    error.reason()
+                )),
+            ),
+        };
+    let outcome_path = rev_dir.join("checkpoint-write-outcome.json");
+    let serialized = serde_json::to_vec_pretty(&outcome).map_err(|error| CompileFailure {
+        diagnostics: vec![Diagnostic {
+            level: DiagnosticLevel::Error,
+            file: Some(toplevel.to_string()),
+            line: None,
+            message: format!("failed to serialize checkpoint write outcome: {error}"),
+        }],
+        message: format!("failed to serialize checkpoint write outcome: {error}"),
+    })?;
+    fs::write(outcome_path.as_std_path(), serialized).map_err(|error| CompileFailure {
+        diagnostics: vec![Diagnostic {
+            level: DiagnosticLevel::Error,
+            file: Some(toplevel.to_string()),
+            line: None,
+            message: format!(
+                "failed to write checkpoint outcome {}: {error}",
+                outcome_path
+            ),
+        }],
+        message: format!(
+            "failed to write checkpoint outcome {}: {error}",
+            outcome_path
+        ),
+    })?;
+    if let Some(message) = write_failure {
+        return Err(CompileFailure {
+            diagnostics: vec![Diagnostic {
+                level: DiagnosticLevel::Error,
+                file: Some(toplevel.to_string()),
+                line: None,
+                message: message.clone(),
+            }],
+            message,
+        });
+    }
+    Ok(outcome)
 }
 
 const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
@@ -2561,17 +2621,12 @@ impl CompilerDriver {
                 })
                 .unwrap_or_default();
             let checkpoint_path = rev_dir.join("checkpoints.json");
-            save_checkpoint_bundle(&checkpoint_path, &checkpoint_bundle).map_err(|error| {
-                CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
-                        message: format!("failed to save checkpoints {}: {error}", checkpoint_path),
-                    }],
-                    message: format!("failed to save checkpoints {}: {error}", checkpoint_path),
-                }
-            })?;
+            let checkpoint_write_outcome = save_checkpoint_bundle_observed(
+                &request.toplevel,
+                &rev_dir,
+                &checkpoint_path,
+                &checkpoint_bundle,
+            )?;
             let mut tracked_inputs = materialized_project
                 .as_ref()
                 .map(|materialized| materialized.tracked_inputs.clone())
@@ -2770,6 +2825,7 @@ impl CompilerDriver {
                 checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY.into(),
                 checkpoint_attachment_counts: checkpoint_bundle.attachment_counts(),
                 checkpoint_suppression_counts,
+                checkpoint_write_outcome,
             };
             let serialized_build_meta =
                 serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -3102,6 +3158,7 @@ impl CompilerDriver {
             checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY.into(),
             checkpoint_attachment_counts: CheckpointAttachmentCounts::default(),
             checkpoint_suppression_counts: CheckpointSuppressionCounts::default(),
+            checkpoint_write_outcome: CheckpointWriteOutcome::NotAttempted,
         };
         let serialized_build_meta =
             serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -4543,7 +4600,8 @@ mod tests {
     use tex_aux::MaterializedRewriteSpan;
     use tex_bootstrap::{ProjectPageMeta, ProjectReplayCheckpoint, run_project};
     use tex_checkpoint::{
-        CheckpointKind, InputBoundaryCheckpoint, ShipoutCheckpoint,
+        CheckpointKind, CheckpointWriteFailureReason, CheckpointWriteOutcome,
+        InputBoundaryCheckpoint, ShipoutCheckpoint, build_checkpoint_bundle,
         build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_snapshots,
         load_checkpoint_bundle, preamble_key_for_source,
     };
@@ -4578,10 +4636,44 @@ mod tests {
         parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
-        run_external_command, save_source_texts, select_shipout_replay_plan,
-        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
-        should_capture_shipout_checkpoints,
+        run_external_command, save_checkpoint_bundle_observed, save_source_texts,
+        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
+        shift_shipout_source_offset, should_capture_shipout_checkpoints,
     };
+
+    #[test]
+    fn checkpoint_write_failure_artifact_preserves_typed_reason() {
+        let tempdir = tempdir().expect("tempdir");
+        let rev_dir =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("rev-1")).expect("UTF-8 revision path");
+        fs::create_dir(&rev_dir).expect("create revision directory");
+        let checkpoint_path = rev_dir.join("checkpoints.json");
+        fs::create_dir(&checkpoint_path).expect("create persist-failure target");
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle =
+            build_checkpoint_bundle(1, &snapshot, "preamble", &[]).expect("checkpoint bundle");
+
+        save_checkpoint_bundle_observed(
+            Utf8Path::new("main.tex"),
+            &rev_dir,
+            &checkpoint_path,
+            &bundle,
+        )
+        .expect_err("persist failure must abort compile");
+
+        let outcome: CheckpointWriteOutcome = serde_json::from_slice(
+            &fs::read(rev_dir.join("checkpoint-write-outcome.json"))
+                .expect("read failure outcome artifact"),
+        )
+        .expect("decode failure outcome artifact");
+        assert_eq!(
+            outcome,
+            CheckpointWriteOutcome::Failure {
+                reason: CheckpointWriteFailureReason::Persist,
+            }
+        );
+    }
 
     #[test]
     fn shipout_checkpoint_capture_respects_event_clone_budget() {
@@ -5592,6 +5684,29 @@ mod tests {
                 "unsupported_capabilities": first_checkpoints.checkpoints.len(),
             })
         );
+        assert_eq!(
+            first_build_meta["checkpoint_write_outcome"]["status"],
+            serde_json::json!("success")
+        );
+        assert!(
+            first_build_meta["checkpoint_write_outcome"]["uncompressed_bytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes > 0)
+        );
+        assert!(
+            first_build_meta["checkpoint_write_outcome"]["persisted_bytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes > 0)
+        );
+        let first_write_outcome: serde_json::Value = serde_json::from_slice(
+            &fs::read(build_root.join("rev-1/checkpoint-write-outcome.json"))
+                .expect("read checkpoint write outcome"),
+        )
+        .expect("decode checkpoint write outcome");
+        assert_eq!(
+            first_write_outcome,
+            first_build_meta["checkpoint_write_outcome"]
+        );
         let mut future_policy_build_meta = first_build_meta.clone();
         future_policy_build_meta["checkpoint_writer_policy"] =
             serde_json::json!("future_versioned_muskip");
@@ -5615,6 +5730,10 @@ mod tests {
             .as_object_mut()
             .expect("build meta object")
             .remove("checkpoint_suppression_counts");
+        legacy_build_meta
+            .as_object_mut()
+            .expect("build meta object")
+            .remove("checkpoint_write_outcome");
         let legacy_build_meta: BuildMeta = serde_json::from_value(legacy_build_meta)
             .expect("decode build metadata written before checkpoint observability");
         assert_eq!(
@@ -5628,6 +5747,10 @@ mod tests {
         assert_eq!(
             legacy_build_meta.checkpoint_suppression_counts,
             CheckpointSuppressionCounts::default()
+        );
+        assert_eq!(
+            legacy_build_meta.checkpoint_write_outcome,
+            CheckpointWriteOutcome::NotAttempted
         );
 
         fs::write(root.join("main.tex"), format!("{source}% revision two"))
