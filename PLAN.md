@@ -785,10 +785,19 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   재계산 비교하지 않으므로 새 capture ID는 canonical 값으로 한 번 전환되지만 기존
   bundle read/replay contract는 유지된다. Tex-checkpoint 59+12+21+doctest, latexd lib
   237, workspace check, canonical Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
+- `3c6798b`는 세 번째 P1인 writer-policy metadata forward tolerance를 닫았다.
+  `BuildMeta.checkpoint_writer_policy`가 strict route-control enum을 직접 읽어 미래
+  `"future_versioned_muskip"` 값에서 전체 metadata decode를 실패시키는 RED를 추가했다.
+  새 `SnapshotWritePolicyObservation`은 `legacy_only`를 typed value로, 그 밖의 문자열을
+  `Other(String)`으로 손실 없이 보존·재직렬화한다. Builder/save는 이 observation을
+  받지 않고 기존 단일 public `SnapshotWritePolicy::LegacyOnly`와 crate-private mode만
+  사용하므로 tolerant reader가 activation surface를 다시 만들지 않는다. Missing field
+  default와 internal/external metadata의 기존 `"legacy_only"` wire도 유지된다.
+  Tex-checkpoint 59+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt가
+  green이다.
 
-다음 저장소 순서는 (1) future policy observation을 forward-tolerant하게 읽으며,
-(2) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고, (3) typed write-failure
-telemetry와 exact production feature/profile gate를 닫는 것이다.
+다음 저장소 순서는 (1) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고, (2) typed
+write-failure telemetry와 exact production feature/profile gate를 닫는 것이다.
 그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
 확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만

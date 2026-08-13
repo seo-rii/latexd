@@ -1170,10 +1170,21 @@ The migration evidence and current boundary are:
   bundle reads or replay. Tex-checkpoint 59+12+21 plus the doctest, latexd lib
   237, workspace checks, canonical Clippy/formatting, and the exact `00c8ee3`
   matrix pass.
+- `3c6798b` closes the forward-compatible writer-policy observation gate. A RED
+  showed that binding `BuildMeta.checkpoint_writer_policy` directly to the
+  strict route-control enum rejected the entire record on
+  `"future_versioned_muskip"`. `SnapshotWritePolicyObservation` now represents
+  `legacy_only` explicitly and preserves every other string as `Other(String)`
+  through decode/re-encode. Builders and saves never accept the observation;
+  the only public control value remains `SnapshotWritePolicy::LegacyOnly`, and
+  candidate routing remains crate-private. Missing-field defaults and current
+  internal/external `"legacy_only"` bytes are unchanged. Tex-checkpoint
+  59+12+21 plus the doctest, latexd lib 237, workspace check, canonical Clippy,
+  and formatting pass.
 
-The exact remaining repository order is: make policy observation
-forward-tolerant; mirror the current 8 GiB reader cap on save; add typed
-write-failure outcomes; and prove exact production feature/profile behavior.
+The exact remaining repository order is: mirror the current 8 GiB reader cap on
+save; add typed write-failure outcomes; and prove exact production
+feature/profile behavior.
 Then verify reader fleet deployment, the rollback floor, source-rebuild
 reliability, and workload/resource evidence before activating the writer only
 in a separate reviewed canary change.
