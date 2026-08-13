@@ -54,7 +54,7 @@ use command::{
     Primitive, ReferenceCommand, TextScriptCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
-use eqtb::{AssignmentScope, Eqtb, MuGlueScalarV1};
+use eqtb::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
     RestoredInputContinuation,
@@ -16771,8 +16771,8 @@ impl<'i> Vm<'i> {
             legacy,
             self.eqtb.muskip_values(),
             self.next_muskip_register,
-            None,
-            None,
+            self.eqtb.mathcode_snapshot_state(&self.save_stack),
+            self.eqtb.delcode_snapshot_state(&self.save_stack),
         )
     }
 
@@ -16849,9 +16849,15 @@ impl<'i> Vm<'i> {
             snapshot.catcodes.clone(),
         );
         vm.save_stack = SaveStack::default();
+        let has_code_table_state =
+            snapshot.mathcode_state.is_some() || snapshot.delcode_state.is_some();
         for (group_level, layer) in control_sequence_layers.into_iter().enumerate() {
             if group_level > 0 {
-                vm.save_stack.begin_legacy_control_sequence_group();
+                if has_code_table_state {
+                    vm.save_stack.begin_group();
+                } else {
+                    vm.save_stack.begin_legacy_control_sequence_group();
+                }
             }
             let scope = if group_level == 0 {
                 AssignmentScope::Global
@@ -16866,6 +16872,30 @@ impl<'i> Vm<'i> {
                     group_level,
                     &mut vm.save_stack,
                 );
+            }
+            if let Some(state) = &snapshot.mathcode_state {
+                for assignment in &state.layers[group_level] {
+                    vm.eqtb.assign_mathcode(
+                        assignment.character,
+                        MathCodeV1::try_from_raw(assignment.value)
+                            .expect("validated snapshot mathcode must be in range"),
+                        scope,
+                        group_level,
+                        &mut vm.save_stack,
+                    );
+                }
+            }
+            if let Some(state) = &snapshot.delcode_state {
+                for assignment in &state.layers[group_level] {
+                    vm.eqtb.assign_delcode(
+                        assignment.character,
+                        DelimiterCodeV1::try_from_raw(assignment.value)
+                            .expect("validated snapshot delcode must be in range"),
+                        scope,
+                        group_level,
+                        &mut vm.save_stack,
+                    );
+                }
             }
         }
         vm.next_count_register = snapshot.next_count_register;

@@ -291,6 +291,102 @@ fn passive_code_table_reader_rejects_noncanonical_or_mismatched_state() {
 }
 
 #[test]
+fn passive_code_table_reader_restores_and_unwinds_layered_state() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source = Vm::new(&mut source_interner);
+    let mut state = versioned_state(&source.snapshot());
+    state["scopes"]
+        .as_array_mut()
+        .expect("snapshot scopes")
+        .push(json!({}));
+    state["mathcode_state"] = json!({"layers": [
+        [{"character": 65, "value": 100}],
+        [{"character": 65, "value": 101}]
+    ]});
+    state["delcode_state"] = json!({"layers": [
+        [{"character": 46, "value": -2}],
+        []
+    ]});
+    let encoded = encoded_document_with_capabilities(
+        &[MATHCODE_TABLE_V1_CAPABILITY, DELCODE_TABLE_V1_CAPABILITY],
+        state,
+    );
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore_document(&mut restored_interner, &encoded)
+        .expect("restore layered code-table state");
+
+    let open_group = restored.snapshot();
+    assert_eq!(
+        serde_json::to_value(&VmSnapshotDocument::from_snapshot(open_group))
+            .expect("serialize restored open-group state")["state"]["mathcode_state"],
+        json!({"layers": [
+            [{"character": 65, "value": 100}],
+            [{"character": 65, "value": 101}]
+        ]})
+    );
+
+    let outcome = restored.run_plain("}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let unwound = restored.snapshot();
+    let unwound_wire = serde_json::to_value(&VmSnapshotDocument::from_snapshot(unwound))
+        .expect("serialize unwound code-table state");
+    assert_eq!(
+        unwound_wire["state"]["mathcode_state"],
+        json!({"layers": [[{"character": 65, "value": 100}]]})
+    );
+    assert_eq!(
+        unwound_wire["state"]["delcode_state"],
+        json!({"layers": [[{"character": 46, "value": -2}]]})
+    );
+}
+
+#[test]
+fn passive_code_table_restore_keeps_fresh_defaults_implicit() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source = Vm::new(&mut source_interner);
+    let mut state = versioned_state(&source.snapshot());
+    state["scopes"]
+        .as_array_mut()
+        .expect("snapshot scopes")
+        .push(json!({}));
+    state["mathcode_state"] = json!({"layers": [
+        [],
+        [{"character": 65, "value": 100}]
+    ]});
+    let encoded = encoded_document_with_capabilities(&[MATHCODE_TABLE_V1_CAPABILITY], state);
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore_document(&mut restored_interner, &encoded)
+        .expect("restore local mathcode over an implicit default");
+
+    let open_group = restored.snapshot();
+    assert_eq!(
+        open_group
+            .mathcode_state
+            .as_ref()
+            .expect("local mathcode state")
+            .layers,
+        vec![
+            vec![],
+            vec![tex_vm::VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }],
+        ]
+    );
+
+    let outcome = restored.run_plain("}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let unwound = restored.snapshot();
+    assert_eq!(unwound.mathcode_state, None);
+    assert!(
+        unwound
+            .required_capabilities()
+            .iter()
+            .all(|capability| capability.as_str() != MATHCODE_TABLE_V1_CAPABILITY)
+    );
+}
+
+#[test]
 fn complete_muskip_snapshot_restores_values_and_independent_cursor() {
     let snapshot = muskip_snapshot();
     let mut interner = ControlSequenceInterner::new();

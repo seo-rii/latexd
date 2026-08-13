@@ -907,6 +907,18 @@ Mathcode RHS는 `0..=32768`이고 `32768`은 active sentinel이며, 범위 밖 R
 default table을 oracle이 검사한다. `\mathchardef`는 32767까지이고 32768은 진단 뒤
 0-valued meaning을 만들며, 별도 control-sequence meaning migration으로 남긴다.
 
+Passive-reader와 dormant-owner 단계도 완료됐다. Versioned document는
+`eqtb.mathcode.table-v1`과 `eqtb.delcode.table-v1`을 서로 독립된 capability/state로
+읽고 쓰며, scope depth와 정확히 같은 root-plus-group layer, layer별 오름차순 unique
+8-bit character, 위 V1 value domain을 엄격히 검증한다. Eqtb의 typed owner는 암묵적
+fresh default를 펼치지 않고 명시적 root/local assignment와 SaveStack pending restore를
+투영한다. 복원은 이 layer를 root-to-leaf로 다시 할당하므로 열린 group을 종료했을 때
+이전 값 또는 암묵 default로 정확히 되감긴다. Capability-bearing raw legacy write는
+계속 fail-closed이고 checkpoint semantic hash는 두 table의 실제 state를 포함한다.
+아직 source primitive는 등록하지 않았으므로 일반 TeX 입력은 이 상태를 만들 수 없다.
+다음 rollback 단위는 mathcode source activation이며 delcode activation은 그 뒤의 별도
+단위다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
 project/restore/project property, restore time/RSS 측정 뒤 별도 versioned

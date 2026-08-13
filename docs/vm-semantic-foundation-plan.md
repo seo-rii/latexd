@@ -1348,6 +1348,20 @@ class-based spacing, glyph selection, delimiter sizing, `\mathchar`, and
 `\mathchardef` execution remain explicit non-goals; `\mathchardef` requires a
 later control-sequence-meaning review.
 
+The passive-reader and dormant-owner steps are complete. Versioned documents
+read and write `eqtb.mathcode.table-v1` and `eqtb.delcode.table-v1` as separate
+capabilities and state sections. Each state must contain exactly one root layer
+plus one layer per open VM scope; entries in a layer are unique, strictly
+increasing 8-bit character assignments whose values satisfy the family-specific
+V1 range. The typed Eqtb owners keep fresh defaults implicit while projecting
+explicit root/local assignments and pending SaveStack restores. Restore rebuilds
+those layers root-to-leaf, so ending a restored open group reveals the explicit
+prior value or the implicit default exactly. Raw legacy serialization remains
+fail-closed for capability-bearing state, and the checkpoint semantic hash now
+includes both tables' actual contents. No source primitive is registered yet,
+so ordinary TeX input cannot create this state. Mathcode source activation is
+the next rollback unit; delcode activation remains separate and follows it.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use

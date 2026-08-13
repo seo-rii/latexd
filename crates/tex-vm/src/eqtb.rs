@@ -6,6 +6,7 @@ use tex_tokens::{CatCode, Token};
 use crate::{
     command::Meaning,
     save_stack::{SaveDisposition, SaveStack},
+    snapshot::{VmCodeTableAssignmentV1, VmCodeTableStateV1},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +22,37 @@ impl MuGlueScalarV1 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MathCodeV1(u16);
+
+impl MathCodeV1 {
+    pub(crate) fn try_from_raw(value: i32) -> Option<Self> {
+        let value = u16::try_from(value).ok()?;
+        (value <= 32_768).then_some(Self(value))
+    }
+
+    pub(crate) const fn raw(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DelimiterCodeV1(i32);
+
+impl DelimiterCodeV1 {
+    pub(crate) const fn try_from_raw(value: i32) -> Option<Self> {
+        if value >= -2_147_483_647 && value <= 16_777_215 {
+            Some(Self(value))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn raw(self) -> i32 {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EqKey {
     Count(u32),
@@ -29,6 +61,8 @@ pub(crate) enum EqKey {
     MuSkip(u32),
     Toks(u32),
     CatCode(char),
+    MathCode(u8),
+    DelCode(u8),
     ControlSequence(String),
 }
 
@@ -40,6 +74,8 @@ pub(crate) enum EqValue {
     MuGlue(MuGlueScalarV1),
     TokenList(Vec<Token>),
     CatCode(CatCode),
+    MathCode(MathCodeV1),
+    DelCode(DelimiterCodeV1),
     ControlSequence(Box<Meaning>),
 }
 
@@ -153,6 +189,8 @@ impl Eqtb {
                 | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
+                | EqValue::MathCode(_)
+                | EqValue::DelCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("count entry must contain an integer")
                 }
@@ -169,6 +207,8 @@ impl Eqtb {
                 | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
+                | EqValue::MathCode(_)
+                | EqValue::DelCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
@@ -185,6 +225,8 @@ impl Eqtb {
                 | EqValue::MuGlue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
+                | EqValue::MathCode(_)
+                | EqValue::DelCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
                 }
@@ -201,6 +243,8 @@ impl Eqtb {
                 | EqValue::Glue(_)
                 | EqValue::TokenList(_)
                 | EqValue::CatCode(_)
+                | EqValue::MathCode(_)
+                | EqValue::DelCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("muskip entry must contain math glue")
                 }
@@ -217,6 +261,8 @@ impl Eqtb {
                 | EqValue::Glue(_)
                 | EqValue::MuGlue(_)
                 | EqValue::CatCode(_)
+                | EqValue::MathCode(_)
+                | EqValue::DelCode(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
@@ -225,6 +271,36 @@ impl Eqtb {
 
     pub(crate) fn catcodes(&self) -> &CatCodeTable {
         &self.catcodes
+    }
+
+    pub(crate) fn mathcode(&self, character: u8) -> MathCodeV1 {
+        self.entries
+            .get(&EqKey::MathCode(character))
+            .map(|entry| match entry.value {
+                EqValue::MathCode(value) => value,
+                _ => unreachable!("mathcode entry must contain a mathcode"),
+            })
+            .unwrap_or_else(|| match character {
+                b'0'..=b'9' => MathCodeV1(0x7000 + character as u16),
+                b'A'..=b'Z' | b'a'..=b'z' => MathCodeV1(0x7100 + character as u16),
+                _ => MathCodeV1(character as u16),
+            })
+    }
+
+    pub(crate) fn delcode(&self, character: u8) -> DelimiterCodeV1 {
+        self.entries
+            .get(&EqKey::DelCode(character))
+            .map(|entry| match entry.value {
+                EqValue::DelCode(value) => value,
+                _ => unreachable!("delcode entry must contain a delimiter code"),
+            })
+            .unwrap_or_else(|| {
+                if character == b'.' {
+                    DelimiterCodeV1(0)
+                } else {
+                    DelimiterCodeV1(-1)
+                }
+            })
     }
 
     pub(crate) fn contains_count(&self, index: u32) -> bool {
@@ -374,6 +450,40 @@ impl Eqtb {
         self.catcodes.set(ch, value);
     }
 
+    pub(crate) fn assign_mathcode(
+        &mut self,
+        character: u8,
+        value: MathCodeV1,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::MathCode(character),
+            EqValue::MathCode(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
+    pub(crate) fn assign_delcode(
+        &mut self,
+        character: u8,
+        value: DelimiterCodeV1,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        self.assign(
+            EqKey::DelCode(character),
+            EqValue::DelCode(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
     pub(crate) fn assign_control_sequence(
         &mut self,
         name: String,
@@ -441,6 +551,103 @@ impl Eqtb {
             })
             .collect();
         layers
+    }
+
+    pub(crate) fn mathcode_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmCodeTableStateV1> {
+        self.code_table_snapshot_state(
+            save_stack,
+            |key| match key {
+                EqKey::MathCode(character) => Some(*character),
+                _ => None,
+            },
+            |value| match value {
+                EqValue::MathCode(value) => Some(value.raw()),
+                _ => None,
+            },
+        )
+    }
+
+    pub(crate) fn delcode_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmCodeTableStateV1> {
+        self.code_table_snapshot_state(
+            save_stack,
+            |key| match key {
+                EqKey::DelCode(character) => Some(*character),
+                _ => None,
+            },
+            |value| match value {
+                EqValue::DelCode(value) => Some(value.raw()),
+                _ => None,
+            },
+        )
+    }
+
+    fn code_table_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+        key_character: impl Fn(&EqKey) -> Option<u8> + Copy,
+        entry_value: impl Fn(&EqValue) -> Option<i32> + Copy,
+    ) -> Option<VmCodeTableStateV1> {
+        let mut working = self
+            .entries
+            .iter()
+            .filter(|(key, _)| key_character(key).is_some())
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut layers = vec![Vec::new(); save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
+            for (key, previous) in restores {
+                let Some(character) = key_character(key) else {
+                    continue;
+                };
+                let current = working
+                    .remove(key)
+                    .expect("restore record must have a current code-table entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current code-table entry must match its restore group level"
+                );
+                layers[group_level].push(VmCodeTableAssignmentV1 {
+                    character,
+                    value: entry_value(&current.value)
+                        .expect("code-table key must contain a matching value"),
+                });
+                if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous code-table entry must precede its restore group level"
+                    );
+                    entry_value(&previous.value)
+                        .expect("code-table restore must contain a matching value");
+                    working.insert(key.clone(), previous.clone());
+                }
+            }
+        }
+
+        layers[0] = working
+            .into_iter()
+            .map(|(key, entry)| {
+                assert_eq!(entry.level, 0, "root code-table entry must have level zero");
+                VmCodeTableAssignmentV1 {
+                    character: key_character(&key)
+                        .expect("filtered code-table key must have a character"),
+                    value: entry_value(&entry.value)
+                        .expect("code-table key must contain a matching value"),
+                }
+            })
+            .collect();
+
+        layers
+            .iter()
+            .any(|layer| !layer.is_empty())
+            .then_some(VmCodeTableStateV1 { layers })
     }
 
     fn assign(
@@ -595,7 +802,7 @@ fn control_sequence_meaning(entry: &EqEntry) -> &Meaning {
 mod tests {
     use std::mem::size_of;
 
-    use super::{AssignmentScope, Eqtb, MuGlueScalarV1};
+    use super::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
     use crate::{
         command::{Meaning, Primitive},
         save_stack::SaveStack,
@@ -610,6 +817,8 @@ mod tests {
         MuGlue(MuGlueScalarV1),
         TokenList(Vec<Token>),
         CatCode(CatCode),
+        MathCode(MathCodeV1),
+        DelCode(DelimiterCodeV1),
     }
 
     #[test]
@@ -703,6 +912,131 @@ mod tests {
 
         assert_eq!(eqtb.skip(0), Some(20));
         assert_eq!(eqtb.muskip(0).map(MuGlueScalarV1::scaled), Some(30));
+    }
+
+    #[test]
+    fn mathcode_and_delcode_values_enforce_tex82_ranges_and_defaults() {
+        assert_eq!(MathCodeV1::try_from_raw(-1), None);
+        assert_eq!(MathCodeV1::try_from_raw(0).map(MathCodeV1::raw), Some(0));
+        assert_eq!(
+            MathCodeV1::try_from_raw(32_768).map(MathCodeV1::raw),
+            Some(32_768)
+        );
+        assert_eq!(MathCodeV1::try_from_raw(32_769), None);
+
+        assert_eq!(DelimiterCodeV1::try_from_raw(i32::MIN), None);
+        assert_eq!(
+            DelimiterCodeV1::try_from_raw(-2_147_483_647).map(DelimiterCodeV1::raw),
+            Some(-2_147_483_647)
+        );
+        assert_eq!(
+            DelimiterCodeV1::try_from_raw(16_777_215).map(DelimiterCodeV1::raw),
+            Some(16_777_215)
+        );
+        assert_eq!(DelimiterCodeV1::try_from_raw(16_777_216), None);
+
+        let eqtb = Eqtb::default();
+        assert_eq!(eqtb.mathcode(b'A').raw(), 28_993);
+        assert_eq!(eqtb.mathcode(b'a').raw(), 29_025);
+        assert_eq!(eqtb.mathcode(b'0').raw(), 28_720);
+        assert_eq!(eqtb.mathcode(b'+').raw(), 43);
+        assert_eq!(eqtb.delcode(b'A').raw(), -1);
+        assert_eq!(eqtb.delcode(b'.').raw(), 0);
+    }
+
+    #[test]
+    fn mathcode_and_delcode_assignments_share_nested_group_semantics() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_mathcode(
+            b'A',
+            MathCodeV1::try_from_raw(100).expect("valid mathcode"),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        eqtb.assign_delcode(
+            b'A',
+            DelimiterCodeV1::try_from_raw(200).expect("valid delcode"),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_mathcode(
+            b'A',
+            MathCodeV1::try_from_raw(101).expect("valid mathcode"),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        eqtb.assign_mathcode(
+            b'A',
+            MathCodeV1::try_from_raw(102).expect("valid mathcode"),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        eqtb.assign_delcode(
+            b'A',
+            DelimiterCodeV1::try_from_raw(201).expect("valid delcode"),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_mathcode(
+            b'A',
+            MathCodeV1::try_from_raw(103).expect("valid mathcode"),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_delcode(
+            b'A',
+            DelimiterCodeV1::try_from_raw(202).expect("valid delcode"),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+
+        eqtb.assign_mathcode(
+            b'A',
+            MathCodeV1::try_from_raw(104).expect("valid mathcode"),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_delcode(
+            b'A',
+            DelimiterCodeV1::try_from_raw(203).expect("valid delcode"),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+
+        let mathcode_state = eqtb
+            .mathcode_snapshot_state(&save_stack)
+            .expect("explicit mathcode state");
+        assert_eq!(mathcode_state.layers.len(), 3);
+        assert_eq!(mathcode_state.layers[0][0].character, b'A');
+        assert_eq!(mathcode_state.layers[0][0].value, 104);
+        assert!(mathcode_state.layers[1].is_empty());
+        assert!(mathcode_state.layers[2].is_empty());
+        let delcode_state = eqtb
+            .delcode_snapshot_state(&save_stack)
+            .expect("explicit delcode state");
+        assert_eq!(delcode_state.layers.len(), 3);
+        assert_eq!(delcode_state.layers[0][0].character, b'A');
+        assert_eq!(delcode_state.layers[0][0].value, 203);
+        assert!(delcode_state.layers[1].is_empty());
+        assert!(delcode_state.layers[2].is_empty());
+
+        eqtb.end_group(&mut save_stack);
+        eqtb.end_group(&mut save_stack);
+
+        assert_eq!(eqtb.mathcode(b'A').raw(), 104);
+        assert_eq!(eqtb.delcode(b'A').raw(), 203);
     }
 
     #[test]
