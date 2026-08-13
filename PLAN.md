@@ -701,6 +701,15 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   document는 pre-reader가 거부하고, candidate envelope는 `[2.5mu][3mu][3mu]`로
   replay-safe hit이며, pre-reader envelope는 attachment 없이 source rebuild 경계에
   남는다. Production이 유기적으로 생성하는 versioned checkpoint는 여전히 0이다.
+- `059be28`은 이 0-artifact invariant를 production build artifact에서 관찰할 수
+  있게 한다. Internal/external `build-meta.json`은 shared
+  `SNAPSHOT_WRITE_POLICY`를 `checkpoint_writer_policy: "legacy_only"`로 기록하고,
+  실제 완성 bundle의 none/legacy/versioned attachment 수를
+  `checkpoint_attachment_counts`에 기록한다. Muskip state suppression은
+  `none=N, legacy=0, versioned=0`, 정상 legacy state는 `legacy>0, versioned=0`으로
+  고정된다. 두 field가 없는 이전 build metadata는 `legacy_only`와 zero counts로
+  읽히므로 additive artifact compatibility를 유지한다. 이는 관측 gate이며 writer
+  activation이나 외부 policy injection API가 아니다.
 
 다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
 failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,

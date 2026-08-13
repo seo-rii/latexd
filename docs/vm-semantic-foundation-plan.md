@@ -1072,6 +1072,17 @@ The migration evidence and current boundary are:
   the canonical versioned document; the candidate production envelope restores
   `[2.5mu][3mu][3mu]`; and the pre-reader accepts the outer envelope without a
   replayable attachment, preserving the source-rebuild rollback floor.
+- `059be28` makes the disabled production boundary observable without exposing
+  an activation control. The shared public constant still has the single value
+  `SnapshotWritePolicy::LegacyOnly`; internal and external `build-meta.json`
+  serialize it as `checkpoint_writer_policy: "legacy_only"`. Internal builds
+  additionally count the actual none, legacy, and versioned attachments in the
+  completed bundle. The muskip source-rebuild regression pins all attachments
+  to `none` with zero versioned entries, while a normal legacy-capable build
+  pins a nonzero legacy count and zero versioned entries. Older metadata without
+  either additive field decodes as legacy-only with zero counts. Deployment can
+  therefore audit the hard invariant `versioned == 0`; changing that value still
+  requires a separate writer-activation change.
 
 The exact remaining order is: verify reader fleet deployment and the rollback
 floor, close bounded failure/resource observability and exact production-build
