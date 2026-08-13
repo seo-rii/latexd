@@ -458,7 +458,7 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
 상태: `in progress`
 
 현재 구현:
-- `Count`, `Dimen`, `Skip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
+- `Count`, `Dimen`, `Skip`, `MuSkip`, `Toks`, `CatCode`는 `EqKey` 기반 Eqtb와
   SaveStack assignment/restore 경로를 사용한다.
 - control-sequence definition, `\let`, lookup, group unwind는
   `EqKey::ControlSequence(String)`/`EqValue::ControlSequence(Box<Meaning>)`과
@@ -466,7 +466,7 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   path를 위해 Eqtb 내부 map은 분리하되 assignment/restore 의미는 하나이며,
   interner-local `ControlSequenceId` lifetime은 바꾸지 않았다.
 - 기존 `ControlSequenceScopes` production owner는 제거됐다. 다만
-  muskip/mathcode/delcode, font/box/remaining parameter, persistent root/state
+  mathcode/delcode, font/box/remaining parameter, persistent root/state
   hash가 남아 있어 phase exit는 계속 열려 있다.
 - production owner 이전용 독립성 gate는 green이다. CI diff guard가 V3 owner
   file 변경을 감지하면 허용 경로 밖 production diff와 신규
@@ -555,8 +555,8 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   `latexd.vm-snapshot`, 독립 semantic schema는 1이며 typed capability 문자열을
   header에서 state보다 먼저 검증한다. 알려진 schema의 unknown document/state
   field를 거부하고, legacy flat snapshot normalizer와 decode→fallible restore의
-  mutation-free error boundary를 제공한다. 현재 supported capability 집합은 비어
-  있어 `eqtb.muskip.scalar-v1` 문서는 명시적으로 거부된다.
+  mutation-free error boundary를 제공한다. 이 단계의 supported capability 집합은
+  비어 있어 `eqtb.muskip.scalar-v1` 문서를 명시적으로 거부했다.
 - `8d91fd3`은 checkpoint envelope schema 2를 유지하면서 reader-only
   `versioned_snapshot.document` lane을 추가했다. Internal attachment는
   none/legacy/versioned 중 정확히 하나이고, compiler와 replay selection은 lane
@@ -648,12 +648,36 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   RED/GREEN으로 닫았다. Mid-command capture 지적은 input-enter가 primitive token을
   requeue한 snapshot이고 input-exit가 dispatcher boundary라는 실제 구조로 기각했다.
   Primitive legacy meaning은 enum ordinal이 아니라 string name DTO이므로 variant 삽입에
-  따른 wire discriminant 위험도 해당하지 않는다. Versioned supported capability 집합과
-  durable writer는 계속 비활성이다.
+  따른 wire discriminant 위험도 해당하지 않는다. 이 source-only 단계에서는
+  versioned supported capability 집합과 durable writer를 계속 비활성으로 유지했다.
+- `2cad7c2`는 `eqtb.muskip.alias-v1`과 `eqtb.muskip.scalar-v1` reader를 활성화한다.
+  Document header의 format/schema/지원 capability를 state보다 먼저 검사하고, raw
+  state를 strict duplicate-aware visitor로 읽은 뒤 exact `LegacyVmSnapshotV1`과 두
+  muskip field를 결합한다. 선언 capability와 state-derived capability 집합은 정확히
+  같아야 하므로 누락과 false claim을 모두 거부한다. Alias-only, scalar-only, 두
+  capability 조합은 각 의미 상태에 맞게 복원되며 durable versioned writer와
+  capability-bearing legacy writer는 계속 비활성이다.
+- Capability-reader Pro review `6a7da491-0088-83ea-857d-c30bb49ea813`는 초기
+  candidate를 **REVISE**(confidence 약 0.88)로 판정했다. `serde_json::Value`가
+  duplicate state member를 leaf decoder 전에 소실시키는 blocker를 직접 document,
+  nested checkpoint, production gzip+base64 envelope RED로 재현했다. Raw JSON은
+  `StoredCheckpointWire` → `VersionedSnapshotSlotWire` → document state 전 경로에서
+  보존하고, duplicate state/register member와 noncanonical register index를
+  fail-closed로 거부하도록 수정했다. 기존 production save의 sentinel/temporary-file
+  불변성과 cursor 255/`u32::MAX` allocator 비랩 회귀도 재확인했다.
+- 확장된 exact `00c8ee3` matrix에서 현재 reader는 scalar envelope를 replay-safe
+  hit로 복원해 `[2.5mu][3mu][3mu]`를 만들고, duplicate cursor envelope는 unreadable
+  miss다. 같은 scalar envelope를 pre-reader binary가 읽으면 versioned field를
+  보존하되 snapshot attachment가 없어 replay-safe가 아니며 source rebuild 경계로
+  넘어간다. Legacy 양방향 호환, dual lane, future capability, malformed 문서 결과도
+  유지된다. Reader 전체 gate는 tex-vm 663 unit+모든 integration, tex-checkpoint
+  49+12+21, latexd lib 237, workspace test-target check, canonical Clippy/fmt가 green이다.
 
-다음 순서는 (1) 현재 disabled supported set을 유지한 채 muskip capability reader를
-구현하고, (2) versioned writer를 명시적으로 disabled policy 뒤에 구현하며, (3) old/new
-real-binary gate와 reader 선배포 뒤 별도 change로 writer를 활성화하는 것이다. 현재
+다음 순서는 (1) versioned writer를 명시적으로 disabled policy 뒤에 구현하고,
+(2) old/new real-binary gate와 reader 선배포, rollback floor 확인 뒤 별도 change로
+writer를 활성화하는 것이다. Reader activation 전에 bounded failure observability와
+checkpoint resource limit의 기존 enforcement를 확인하고, writer phase의 fleet gate에
+명시적으로 연결한다. 현재
 source slice의 conservative dynamic-name suppression 빈도는 activation 전에 측정하고,
 필요할 때만 binding-aware precision을 후속 최적화한다. 어느 단계에서도
 capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가
@@ -688,9 +712,9 @@ capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는
 4. skip — 완료; muskip — readers-first document와 dual checkpoint reader,
    legacy eligibility/suppression seam, typed runtime owner, complete in-memory
    snapshot/capability, strict legacy boundary, source allocator/alias/scalar assignment,
-   arithmetic, dynamic-name capability와 fresh-source rebuild 완료. Capability reader와
-   disabled writer phase가 남아 있다 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
-   `a2466c7`, `b809c30`, `f899127`, `f02a4cd`, `6604eb7`).
+   arithmetic, dynamic-name capability, fresh-source rebuild, strict capability reader 완료.
+   Disabled writer phase가 남아 있다 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
+   `a2466c7`, `b809c30`, `f899127`, `f02a4cd`, `6604eb7`, `2cad7c2`).
 5. toks
 6. catcode
 7. mathcode/delcode

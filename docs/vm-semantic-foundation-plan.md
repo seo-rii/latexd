@@ -141,7 +141,7 @@ TeX math layout ------------------ requires V8 plus MathList/font metrics
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
 | V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | diagnostic subtype characterization and bounded graphic/bibliography mixed-macro isolation are complete; exact macro-generated raw-fallback isolation remains open under `ARCH-007`, while public event identity and shared diagnostic architecture belong to later or separate streams |
-| V3 | Count/Dimen/Skip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; legacy `scopes` snapshots are projected from that state | open | muskip/mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent |
+| V3 | Count/Dimen/Skip/MuSkip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; muskip has a strict readers-first capability boundary and source primitives; legacy `scopes` snapshots are projected from that state | open | mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent; the muskip versioned writer remains disabled |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
@@ -924,8 +924,8 @@ The migration evidence and current boundary are:
   validates format, schema, and capabilities before strict state decoding, then
   offers decode plus fallible restore as one mutation-free error boundary.
   Unknown fields in the known document/state schema fail closed.
-- The supported capability set remains intentionally empty, so
-  `eqtb.muskip.scalar-v1` is rejected before state decode. `8d91fd3` adds the
+- At this phase the supported capability set remained intentionally empty, so
+  `eqtb.muskip.scalar-v1` was rejected before state decode. `8d91fd3` adds the
   reader-only `versioned_snapshot.document` checkpoint lane behind a private
   none/legacy/versioned attachment and lane-tagged restore view. Cardinality is
   decided before semantic decode, both lanes are invalid, and compiler/replay
@@ -1012,11 +1012,36 @@ The migration evidence and current boundary are:
   snapshots requeue the complete input primitive token, while input-exit capture
   occurs at a dispatcher boundary. Primitive meanings use string names in the
   legacy DTO, so adding runtime enum variants does not renumber a wire tag.
+- `2cad7c2` enables the reader for `eqtb.muskip.alias-v1` and
+  `eqtb.muskip.scalar-v1` without enabling a writer. Format, schema, and
+  supported capabilities are still checked before state interpretation. The
+  decoded state must have exactly the same state-derived capability set as its
+  header, preserving alias-only, scalar-only, and combined states while
+  rejecting both omissions and unused claims. The exact legacy DTO remains the
+  remainder decoder, and the raw legacy lane remains strict and unchanged.
+- The capability-reader Pro review
+  `6a7da491-0088-83ea-857d-c30bb49ea813` returned **REVISE** with about 0.88
+  confidence for the initial candidate. Its blocking finding was valid:
+  intermediate `serde_json::Value` layers collapsed duplicate reserved state
+  members before the strict leaf decoder. Raw JSON is now retained through
+  `StoredCheckpointWire`, `VersionedSnapshotSlotWire`, and document state. A
+  duplicate-aware state/register visitor rejects repeated members and
+  noncanonical register indices. Direct-document, nested-checkpoint, and real
+  gzip+base64 envelope REDs pin this behavior.
+- The expanded exact `00c8ee3` matrix now records both directions for a
+  supported scalar envelope. The candidate produces a replay-safe hit and
+  `[2.5mu][3mu][3mu]`; the pre-reader retains no restoreable attachment and
+  therefore falls through to source rebuild. A duplicate cursor envelope is an
+  unreadable candidate miss. Legacy exchange, dual-lane rejection, future
+  capability rejection, and malformed-document behavior remain unchanged.
+  Production versioned serialization is still disabled, capability-bearing
+  legacy serialization still fails before output, and the durable-save
+  sentinel/temporary-file and allocator underflow/exhaustion gates remain green.
 
-The exact remaining order is: land the muskip capability reader while the
-supported-capability set stays empty; implement the versioned writer behind an
-explicit disabled policy; then activate only after old/new real-binary gates and
-reader deployment. Measure conservative dynamic-name suppression before writer
+The exact remaining order is: implement the versioned writer behind an explicit
+disabled policy; then activate only after old/new real-binary gates, rollback-floor
+verification, reader deployment, and bounded failure/resource observability.
+Measure conservative dynamic-name suppression before writer
 activation and improve its precision only if the rebuild cost warrants it. A
 capability-bearing state must never be written through the legacy lane, a
 checkpoint with both lanes is invalid, and production save rejection remains
@@ -1096,8 +1121,8 @@ Migration order:
    old-binary fixture, cache-miss normalization, reader-only document, dual
    checkpoint reader, legacy eligibility/attachment suppression, typed runtime
    owner, complete snapshot/capability, source allocator/alias/scalar assignment,
-   arithmetic, dynamic-name suppression, and source-rebuild phases. Capability
-   reader and disabled-writer phases remain;
+   arithmetic, dynamic-name suppression, source-rebuild, and strict capability
+   reader phases. The disabled-writer phase remains;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;
