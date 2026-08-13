@@ -26,6 +26,24 @@ const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const CHECKPOINT_ENVELOPE_PREFIX: &[u8] =
     b"{\"schema_version\":2,\"encoding\":\"gzip+base64\",\"payload\":\"";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointUncompressedSizeLimitExceeded {
+    pub attempted: u64,
+    pub limit: u64,
+}
+
+impl std::fmt::Display for CheckpointUncompressedSizeLimitExceeded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "checkpoint payload contains at least {} uncompressed bytes, exceeding the {} byte limit",
+            self.attempted, self.limit
+        )
+    }
+}
+
+impl std::error::Error for CheckpointUncompressedSizeLimitExceeded {}
+
 #[derive(Debug, Deserialize)]
 struct CheckpointBundleEnvelope<'a> {
     schema_version: u32,
@@ -46,15 +64,23 @@ struct IntegrityWriter<W> {
     inner: W,
     hasher: blake3::Hasher,
     bytes_written: u64,
+    max_bytes: u64,
+    limit_exceeded: Option<CheckpointUncompressedSizeLimitExceeded>,
 }
 
 impl<W> IntegrityWriter<W> {
-    fn new(inner: W) -> Self {
+    fn new(inner: W, max_bytes: u64) -> Self {
         Self {
             inner,
             hasher: blake3::Hasher::new(),
             bytes_written: 0,
+            max_bytes,
+            limit_exceeded: None,
         }
+    }
+
+    fn limit_exceeded(&self) -> Option<CheckpointUncompressedSizeLimitExceeded> {
+        self.limit_exceeded
     }
 
     fn into_parts(self) -> (W, u64, blake3::Hash) {
@@ -64,6 +90,18 @@ impl<W> IntegrityWriter<W> {
 
 impl<W: Write> Write for IntegrityWriter<W> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let attempted = self
+            .bytes_written
+            .checked_add(u64::try_from(buffer.len()).unwrap_or(u64::MAX))
+            .unwrap_or(u64::MAX);
+        if attempted > self.max_bytes {
+            let error = CheckpointUncompressedSizeLimitExceeded {
+                attempted,
+                limit: self.max_bytes,
+            };
+            self.limit_exceeded = Some(error);
+            return Err(io::Error::new(io::ErrorKind::InvalidData, error));
+        }
         let written = self.inner.write(buffer)?;
         self.hasher.update(&buffer[..written]);
         self.bytes_written = self.bytes_written.saturating_add(written as u64);
@@ -1034,6 +1072,20 @@ fn save_checkpoint_bundle_with_policy(
     bundle: &CheckpointBundle,
     policy: SnapshotWriteMode,
 ) -> Result<()> {
+    save_checkpoint_bundle_with_policy_and_limit(
+        path,
+        bundle,
+        policy,
+        MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+    )
+}
+
+fn save_checkpoint_bundle_with_policy_and_limit(
+    path: &Utf8Path,
+    bundle: &CheckpointBundle,
+    policy: SnapshotWriteMode,
+    max_uncompressed_bytes: u64,
+) -> Result<()> {
     bundle.ensure_writable(policy)?;
     let parent = path
         .parent()
@@ -1046,12 +1098,16 @@ fn save_checkpoint_bundle_with_policy(
     let (uncompressed_len, uncompressed_hash) = {
         let encoded = EncoderWriter::new(temporary.as_file_mut(), &BASE64_STANDARD);
         let compressed = GzEncoder::new(encoded, Compression::fast());
-        let mut integrity = IntegrityWriter::new(compressed);
-        serde_json::to_writer(
+        let mut integrity = IntegrityWriter::new(compressed, max_uncompressed_bytes);
+        if let Err(error) = serde_json::to_writer(
             &mut integrity,
             &CheckpointBundleWriteWithPolicy { bundle, policy },
-        )
-        .context("failed to serialize checkpoint bundle")?;
+        ) {
+            if let Some(limit_error) = integrity.limit_exceeded() {
+                return Err(limit_error.into());
+            }
+            return Err(error).context("failed to serialize checkpoint bundle");
+        }
         let (compressed, uncompressed_len, uncompressed_hash) = integrity.into_parts();
         let mut encoded = compressed
             .finish()
@@ -1079,6 +1135,13 @@ fn save_checkpoint_bundle_with_policy(
 }
 
 pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
+    load_checkpoint_bundle_with_limit(path, MAX_CHECKPOINT_UNCOMPRESSED_BYTES)
+}
+
+fn load_checkpoint_bundle_with_limit(
+    path: &Utf8Path,
+    max_uncompressed_bytes: u64,
+) -> Result<CheckpointBundle> {
     let contents =
         fs::read(path).with_context(|| format!("failed to read checkpoint bundle {path}"))?;
     let without_bom = contents
@@ -1119,11 +1182,11 @@ pub fn load_checkpoint_bundle(path: &Utf8Path) -> Result<CheckpointBundle> {
             envelope.encoding
         );
     }
-    if envelope.uncompressed_len > MAX_CHECKPOINT_UNCOMPRESSED_BYTES {
+    if envelope.uncompressed_len > max_uncompressed_bytes {
         anyhow::bail!(
             "checkpoint payload declares {} uncompressed bytes, exceeding the {} byte limit in {path}",
             envelope.uncompressed_len,
-            MAX_CHECKPOINT_UNCOMPRESSED_BYTES
+            max_uncompressed_bytes
         );
     }
 
@@ -1356,15 +1419,18 @@ mod tests {
     use super::{
         CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse,
         CheckpointBundleWriteWithPolicy, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
-        CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
-        ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode, SnapshotWritePolicy,
-        SnapshotWritePolicyObservation, StoredSnapshotAttachment, VersionedSnapshotSlot,
-        build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
+        CheckpointSuppressionCounts, CheckpointUncompressedSizeLimitExceeded,
+        InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment,
+        SnapshotWriteMode, SnapshotWritePolicy, SnapshotWritePolicyObservation,
+        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
+        build_checkpoint_bundle_with_shipouts,
         build_checkpoint_bundle_with_shipouts_and_policy_and_stats,
         build_checkpoint_bundle_with_shipouts_and_stats, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
-        load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
-        save_checkpoint_bundle, save_checkpoint_bundle_with_policy, select_reusable_preamble,
+        load_checkpoint_bundle_for_reuse, load_checkpoint_bundle_with_limit,
+        load_latest_reusable_preamble, preamble_key_for_source, save_checkpoint_bundle,
+        save_checkpoint_bundle_with_policy, save_checkpoint_bundle_with_policy_and_limit,
+        select_reusable_preamble,
     };
 
     const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -1965,6 +2031,75 @@ mod tests {
         let loaded = load_checkpoint_bundle(&path).expect("load");
 
         assert_eq!(loaded, bundle);
+    }
+
+    #[test]
+    fn save_and_read_share_the_uncompressed_payload_limit() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            1,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("checkpoint bundle");
+        let policy = SnapshotWriteMode::LegacyOnly;
+        let exact_limit = u64::try_from(
+            serde_json::to_vec(&CheckpointBundleWriteWithPolicy {
+                bundle: &bundle,
+                policy,
+            })
+            .expect("serialize checkpoint payload")
+            .len(),
+        )
+        .expect("payload length fits u64");
+        let tempdir = tempdir().expect("tempdir");
+        let exact_path = Utf8PathBuf::from_path_buf(tempdir.path().join("exact.json"))
+            .expect("UTF-8 exact path");
+
+        save_checkpoint_bundle_with_policy_and_limit(&exact_path, &bundle, policy, exact_limit)
+            .expect("save payload exactly at limit");
+        assert_eq!(
+            load_checkpoint_bundle_with_limit(&exact_path, exact_limit)
+                .expect("read payload exactly at limit"),
+            bundle
+        );
+
+        let rejected_path = Utf8PathBuf::from_path_buf(tempdir.path().join("rejected.json"))
+            .expect("UTF-8 rejected path");
+        fs::write(&rejected_path, b"sentinel").expect("write sentinel target");
+        let entries_before = fs::read_dir(tempdir.path())
+            .expect("read tempdir before rejected save")
+            .count();
+        let error = save_checkpoint_bundle_with_policy_and_limit(
+            &rejected_path,
+            &bundle,
+            policy,
+            exact_limit - 1,
+        )
+        .expect_err("reject payload one byte above limit");
+        let size_error = error
+            .downcast_ref::<CheckpointUncompressedSizeLimitExceeded>()
+            .expect("typed uncompressed size-limit error");
+        assert_eq!(size_error.limit, exact_limit - 1);
+        assert!(size_error.attempted > size_error.limit);
+        let error_message = format!("{error:#}");
+        assert!(
+            error_message.contains("uncompressed") && error_message.contains("exceeding"),
+            "{error_message}"
+        );
+        assert_eq!(
+            fs::read(&rejected_path).expect("read preserved sentinel"),
+            b"sentinel"
+        );
+        assert_eq!(
+            fs::read_dir(tempdir.path())
+                .expect("read tempdir after rejected save")
+                .count(),
+            entries_before,
+            "rejected size admission leaked a temporary file"
+        );
     }
 
     #[test]
