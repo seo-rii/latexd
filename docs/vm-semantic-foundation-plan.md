@@ -1088,10 +1088,11 @@ The migration evidence and current boundary are:
   the existing 8 GiB declaration ceiling is checked before gzip decoding. The
   remaining local `arxiv-basic` artifacts top out near 1.17 MiB but are legacy
   raw bundles rather than a representative compact-envelope uncompressed-size
-  distribution. Lowering the production ceiling without long-paper size/RSS
-  evidence could make the writer produce an artifact its own reader rejects;
-  measurement, a save-side matching limit, and the lower read limit therefore
-  remain one coordinated `ARCH-014` change.
+  distribution. The writer must mirror the current 8 GiB reader ceiling before
+  activation so a successful save is self-readable; this correctness gate does
+  not wait for measurement. Selecting a materially lower production ceiling
+  still requires long-paper size/RSS evidence and one coordinated read/save
+  change.
 - `d1fc0c2` closes the context-independent writer/restore validity gap from the
   Pro review. Root-scope presence, the muskip cursor lower bound, and primitive
   name support now have one validation function called by both canonical writer
@@ -1128,10 +1129,40 @@ The migration evidence and current boundary are:
   suppression cost; write-time lane-mismatch and invalid-document error
   telemetry remain separate activation work. Tex-checkpoint 55+12+21 plus the
   doctest, latexd lib 237, workspace checks, and the mixed-binary matrix pass.
+- Follow-up Pro review `6a7dc38f-c90c-83e8-bcaf-991e258ab10f` returns
+  **APPROVE** (confidence 0.84) for closing the dormant implementation phase.
+  It finds no public/default checkpoint path that can authorize or persist a
+  versioned attachment and no P0/P1 defect in the disabled phase. Public raw
+  `VmSnapshotDocument` construction/serialization remains an intentional
+  document-level API; the disabled boundary is specifically checkpoint lane
+  authorization and persistence. The phase state is therefore **disabled core
+  complete; production activation blocked**.
+- The review identifies six repository-local activation gates: category-complete
+  enabled paths, a policy-independent semantic state-hash contract,
+  forward-tolerant future writer-policy observation, save admission matching
+  the reader ceiling, typed write-failure outcomes, and exact release
+  feature/profile reproducibility. Reader-fleet/rollback-floor coverage,
+  source-rebuild reliability, representative resource behavior, and production
+  filesystem semantics remain external rollout evidence.
+- `0723906` closes the category gate. One private fully enabled bundle carries a
+  legacy preamble plus muskip-bearing shipout and input-boundary checkpoints;
+  both later categories select only the versioned lane, retain their category
+  metadata through compact-envelope save/read, restore with `Vm::try_restore`,
+  and replay `[2.5mu][category]`. Partial capability and unsafe-continuation
+  cases suppress both categories with exact typed counts and no attachment.
+  `CheckpointBundle::attachment_counts` now owns actual none/legacy/versioned
+  classification for both these tests and compiler build metadata. The complete
+  current `VmRestoreError` surface is the three shared preflight variants, with
+  no fallible restore tail after validation. Tex-checkpoint 58+12+21 plus the
+  doctest, latexd lib 237, workspace check, canonical Clippy, and formatting pass.
 
-The exact remaining order is: verify reader fleet deployment and the rollback
-floor, close bounded failure/resource observability and exact production-build
-gates, then activate the writer only in a separate reviewed canary change.
+The exact remaining repository order is: freeze policy-independent semantic
+state-hash behavior after tracing all consumers; make policy observation
+forward-tolerant; mirror the current 8 GiB reader cap on save; add typed
+write-failure outcomes; and prove exact production feature/profile behavior.
+Then verify reader fleet deployment, the rollback floor, source-rebuild
+reliability, and workload/resource evidence before activating the writer only
+in a separate reviewed canary change.
 Measure conservative dynamic-name suppression before writer
 activation and improve its precision only if the rebuild cost warrants it. A
 capability-bearing state must never be written through the legacy lane, a

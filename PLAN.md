@@ -715,8 +715,9 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   검사함을 재확인했다. Workspace의 남은 `arxiv-basic` checkpoint 표본은 최대 약
   1.17 MiB지만 모두 현재 compact envelope의 representative uncompressed corpus가
   아니므로 이를 근거로 production cap을 임의 축소하지 않는다. Writer가 자신이 만든
-  artifact를 reader가 거부하지 않도록, 실제 long-paper uncompressed size/RSS 측정과
-  save-side 동일 cap을 함께 설계한 뒤 `ARCH-014`에서 별도 변경한다.
+  artifact를 reader가 거부하지 않도록 현재 8 GiB ceiling은 측정과 무관하게 save에도
+  먼저 대칭 적용한다. 더 낮은 production cap만 실제 long-paper uncompressed size/RSS
+  측정 뒤 read/save에 함께 적용한다.
 - `d1fc0c2`는 Pro review의 writer/read semantic-validity gap을 닫았다.
   `Vm::try_restore`의 context-independent root-scope, muskip cursor, primitive-name
   validation을 writer와 공유한다. 따라서 exact capability header를 가진 문서라도
@@ -748,10 +749,37 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   suppression 비용을 측정할 수 있지만 write-time lane mismatch/invalid-document error
   telemetry까지 대체하지는 않는다. Tex-checkpoint 55+12+21+doctest, latexd lib 237,
   workspace check/Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
+- Follow-up Pro review `6a7dc38f-c90c-83e8-bcaf-991e258ab10f`는 현재 disabled
+  versioned-muskip writer phase 종료를 **APPROVE**(confidence 0.84)했다. Public/default
+  checkpoint builder/Serde/save 중 versioned lane을 허용하는 경로와 현재 phase를
+  무효화하는 P0/P1 결함은 발견하지 못했다. 단, public
+  `VmSnapshotDocument::from_snapshot`과 document `Serialize`로 raw versioned document
+  bytes를 만드는 것은 의도된 document API이며, “비활성”은 checkpoint attachment
+  emission lane에 한정한다. 결론은 **disabled writer core complete / production writer
+  activation blocked**이다.
+- 같은 review가 activation 전 repository-local P1을 category-complete enabled path,
+  policy-independent semantic state hash contract, future policy 값을 보존하는 tolerant
+  metadata observation, reader의 현재 8 GiB ceiling과 같은 save admission, typed
+  write-failure telemetry, exact release feature/profile reproducibility로 분류했다. Reader
+  fleet/rollback floor와 source-rebuild 신뢰성, representative size/RSS, production
+  filesystem semantics는 저장소 green만으로 닫을 수 없는 외부 evidence다.
+- `0723906`은 첫 P1인 category coverage를 닫았다. Legacy preamble과 muskip-bearing
+  shipout/input-boundary를 한 private full-policy bundle에 넣고, 두 category가 정확히
+  versioned lane을 택하며 metadata를 보존한 채 compact envelope save/read,
+  `Vm::try_restore`, `[2.5mu][category]` replay까지 통과함을 고정한다. Partial capability와
+  unsafe continuation은 두 category에서 각각 `unsupported_capabilities=2`와
+  `unsafe_continuation=2`로 suppress되고 attachment는 none이다. Bundle-owned
+  `CheckpointAttachmentCounts`가 test와 compiler `build-meta.json`의 실제 lane 집계를
+  함께 소유한다. `VmRestoreError`의 현재 세 variant도 모두 shared preflight가 판정하며
+  `try_restore`에는 그 뒤 fallible tail이 없음을 재감사했다. Tex-checkpoint
+  58+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt가 green이다.
 
-다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
-failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,
-(2) 별도 change와 canary 결정으로 writer를 활성화하는 것이다. 현재 source slice의
+다음 저장소 순서는 (1) `checkpoint_vm_state_hash` 소비자를 감사해 writer policy와
+무관한 semantic identity contract를 고정하고, (2) future policy observation을
+forward-tolerant하게 읽으며, (3) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고,
+(4) typed write-failure telemetry와 exact production feature/profile gate를 닫는 것이다.
+그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
+확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만
 binding-aware precision을 후속 최적화한다. 어느 단계에서도
 capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가
