@@ -51,9 +51,9 @@
           "text": "paper"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "sequence": 4,
           "source": {
             "expansion_stack": [],
@@ -163,9 +163,9 @@
           "text": "https://visible.test/raw"
         },
         "meta": {
-          "confidence": "medium",
+          "confidence": "high",
           "mode_hint": "horizontal",
-          "producer": "scanner_recovery",
+          "producer": "primitive",
           "sequence": 8,
           "source": {
             "expansion_stack": [],
