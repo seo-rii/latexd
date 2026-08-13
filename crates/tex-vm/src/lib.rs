@@ -139,6 +139,27 @@ impl std::fmt::Display for VmRestoreError {
 
 impl std::error::Error for VmRestoreError {}
 
+fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreError> {
+    if snapshot.scopes.is_empty() {
+        return Err(VmRestoreError::MissingRootControlSequenceScope);
+    }
+    if snapshot.next_muskip_register < default_next_muskip_register() {
+        return Err(VmRestoreError::InvalidMuskipCursor(
+            snapshot.next_muskip_register,
+        ));
+    }
+    for scope in &snapshot.scopes {
+        for meaning in scope.values() {
+            if let SnapshotMeaning::Primitive { name } = meaning
+                && builtin_primitive(name).is_none()
+            {
+                return Err(VmRestoreError::UnknownPrimitive(name.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmSnapshotDocumentRestoreError {
     Document(VmSnapshotDocumentError),
@@ -16771,23 +16792,7 @@ impl<'i> Vm<'i> {
         interner: &'i mut ControlSequenceInterner,
         snapshot: &VmSnapshot,
     ) -> Result<Self, VmRestoreError> {
-        if snapshot.scopes.is_empty() {
-            return Err(VmRestoreError::MissingRootControlSequenceScope);
-        }
-        if snapshot.next_muskip_register < default_next_muskip_register() {
-            return Err(VmRestoreError::InvalidMuskipCursor(
-                snapshot.next_muskip_register,
-            ));
-        }
-        for scope in &snapshot.scopes {
-            for meaning in scope.values() {
-                if let SnapshotMeaning::Primitive { name } = meaning
-                    && builtin_primitive(name).is_none()
-                {
-                    return Err(VmRestoreError::UnknownPrimitive(name.clone()));
-                }
-            }
-        }
+        validate_snapshot_for_restore(snapshot)?;
         let mut vm = Self::new(interner);
         vm.jobname_source_path = snapshot.jobname_source_path.clone();
         let control_sequence_layers = snapshot

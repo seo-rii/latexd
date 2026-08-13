@@ -178,6 +178,8 @@ impl VmSnapshotDocument {
                     .join(", ")
             )));
         }
+        crate::validate_snapshot_for_restore(&self.state)
+            .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
         Ok(())
     }
 }

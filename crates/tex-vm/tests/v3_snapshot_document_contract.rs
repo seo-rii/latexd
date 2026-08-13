@@ -1,10 +1,10 @@
 use serde_json::json;
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    SnapshotCapability, VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, Vm, VmRestoreError, VmSnapshot,
-    VmSnapshotDocument, VmSnapshotDocumentError, VmSnapshotDocumentRestoreError,
-    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
+    SnapshotCapability, SnapshotMeaning, VM_SNAPSHOT_DOCUMENT_FORMAT,
+    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, Vm,
+    VmRestoreError, VmSnapshot, VmSnapshotDocument, VmSnapshotDocumentError,
+    VmSnapshotDocumentRestoreError, decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -217,6 +217,45 @@ fn canonical_versioned_writer_rejects_header_state_laundering_before_output() {
         "{error}"
     );
     assert!(output.is_empty(), "versioned writer wrote {output:?}");
+}
+
+#[test]
+fn canonical_versioned_writer_rejects_restore_invalid_state_before_output() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+
+    let mut missing_root_scope = vm.snapshot();
+    missing_root_scope.scopes.clear();
+
+    let mut invalid_muskip_cursor = vm.snapshot();
+    invalid_muskip_cursor.next_muskip_register = 255;
+
+    let mut unknown_primitive = vm.snapshot();
+    unknown_primitive.scopes[0].insert(
+        "poisoned".to_string(),
+        SnapshotMeaning::Primitive {
+            name: "unknown-versioned-writer-primitive".to_string(),
+        },
+    );
+
+    for (name, snapshot) in [
+        ("missing root scope", missing_root_scope),
+        ("invalid muskip cursor", invalid_muskip_cursor),
+        ("unknown primitive", unknown_primitive),
+    ] {
+        let document = VmSnapshotDocument::from_snapshot(snapshot);
+        let mut output = Vec::new();
+
+        let error = serde_json::to_writer(&mut output, &document)
+            .expect_err(&format!("{name} must fail writer validation"));
+
+        assert!(
+            error
+                .to_string()
+                .contains("invalid VM snapshot document state")
+        );
+        assert!(output.is_empty(), "{name} writer produced {output:?}");
+    }
 }
 
 #[test]
