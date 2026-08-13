@@ -602,11 +602,12 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   모두 거부한다. Preamble, shipout, input-boundary capture는 attachment를
   suppression하고 source rebuild로 귀결하며, laundering normalization과 cursor-only
   state도 같은 gate를 통과한다.
-- Legacy-compatible state hash는 기존 byte 계약을 유지한다. Non-legacy state의
-  complete fingerprint는 legacy projection, capability, muskip map, cursor를
+- `5a7bd82`부터 legacy-compatible state hash도 정렬된 exact legacy projection을
+  사용한다. Non-legacy state의 complete fingerprint는 같은 canonical legacy
+  projection, ordered capability, canonical muskip map, cursor를
   length-delimited/domain-separated 입력으로 포함해 suppression된 재캡처도 상태
-  변화를 구분한다. 이 fingerprint는 cache metadata이며 향후 versioned wire
-  표현으로 간주하지 않는다.
+  변화를 구분한다. 이 fingerprint는 writer policy/lane과 무관한 semantic metadata
+  identity이며 versioned wire 표현이나 wire-byte hash로 간주하지 않는다.
 - Exact `f899127` detached worktree에서 tex-vm 전체, tex-checkpoint 전체,
   workspace test-target check, canonical Clippy/fmt, Python guard, 실제
   `00c8ee3` old/new binary migration matrix가 green이다. Candidate legacy
@@ -773,11 +774,21 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   함께 소유한다. `VmRestoreError`의 현재 세 variant도 모두 shared preflight가 판정하며
   `try_restore`에는 그 뒤 fallible tail이 없음을 재감사했다. Tex-checkpoint
   58+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt가 green이다.
+- `5a7bd82`는 두 번째 P1인 semantic state-hash contract를 실제 RED로 닫았다.
+  기존 legacy branch와 non-legacy fingerprint의 legacy projection은 nested
+  `HashMap` iteration order를 그대로 hash해 독립 생성한 동등 snapshot이 서로 다른
+  값을 냈다. 이제 두 branch 모두 정렬된 `serde_json::Value` projection을 입력으로
+  사용하고 함수 이름과 주석도 policy-independent semantic identity를 명시한다.
+  Legacy/muskip golden, 독립 VM equality, scalar/alias/cursor/legacy-field mutation,
+  production suppression/private versioned routing equality가 이를 고정한다. 소비자는
+  `CheckpointMeta.vm_state_hash`와 같은 bundle의 `checkpoint_id` 생성뿐이고 reader가
+  재계산 비교하지 않으므로 새 capture ID는 canonical 값으로 한 번 전환되지만 기존
+  bundle read/replay contract는 유지된다. Tex-checkpoint 59+12+21+doctest, latexd lib
+  237, workspace check, canonical Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
 
-다음 저장소 순서는 (1) `checkpoint_vm_state_hash` 소비자를 감사해 writer policy와
-무관한 semantic identity contract를 고정하고, (2) future policy observation을
-forward-tolerant하게 읽으며, (3) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고,
-(4) typed write-failure telemetry와 exact production feature/profile gate를 닫는 것이다.
+다음 저장소 순서는 (1) future policy observation을 forward-tolerant하게 읽으며,
+(2) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고, (3) typed write-failure
+telemetry와 exact production feature/profile gate를 닫는 것이다.
 그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
 확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만

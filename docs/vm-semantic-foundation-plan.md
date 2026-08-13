@@ -1155,9 +1155,23 @@ The migration evidence and current boundary are:
   current `VmRestoreError` surface is the three shared preflight variants, with
   no fallible restore tail after validation. Tex-checkpoint 58+12+21 plus the
   doctest, latexd lib 237, workspace check, canonical Clippy, and formatting pass.
+- `5a7bd82` closes the semantic-state-hash gate with a real RED. Both the former
+  legacy branch and the complete non-legacy fingerprint fed unsorted nested
+  `HashMap` serialization into Blake3, so independently constructed equal
+  legacy snapshots produced different identities. Both branches now encode a
+  sorted `serde_json::Value` legacy projection; the capability-bearing branch
+  retains its ordered capabilities, canonical muskip map, cursor, length
+  delimiters, and domain separator. Fixed legacy/muskip goldens, independent
+  VMs, scalar/alias/cursor/legacy-field mutations, and equality across public
+  suppression versus private versioned routing freeze the contract. The only
+  consumers persist the value in `CheckpointMeta` and fold it into that bundle's
+  checkpoint id; readers do not recompute it against old artifacts. New captures
+  therefore make a one-time transition to canonical ids without invalidating old
+  bundle reads or replay. Tex-checkpoint 59+12+21 plus the doctest, latexd lib
+  237, workspace checks, canonical Clippy/formatting, and the exact `00c8ee3`
+  matrix pass.
 
-The exact remaining repository order is: freeze policy-independent semantic
-state-hash behavior after tracing all consumers; make policy observation
+The exact remaining repository order is: make policy observation
 forward-tolerant; mirror the current 8 GiB reader cap on save; add typed
 write-failure outcomes; and prove exact production feature/profile behavior.
 Then verify reader fleet deployment, the rollback floor, source-rebuild
