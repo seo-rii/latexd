@@ -60,15 +60,7 @@ struct VmSnapshotDocumentWriteWire<'a> {
     format: &'a str,
     schema_version: u32,
     required_capabilities: &'a BTreeSet<SnapshotCapability>,
-    state: VmSnapshotDocumentStateWriteWire<'a>,
-}
-
-#[derive(Serialize)]
-struct VmSnapshotDocumentStateWriteWire<'a> {
-    #[serde(flatten)]
-    legacy: &'a LegacyVmSnapshotV1,
-    muskip_registers: &'a BTreeMap<u32, i32>,
-    next_muskip_register: u32,
+    state: &'a serde_json::Value,
 }
 
 impl Serialize for VmSnapshotDocument {
@@ -78,16 +70,40 @@ impl Serialize for VmSnapshotDocument {
     {
         self.validate_for_write()
             .map_err(serde::ser::Error::custom)?;
+        let legacy: &LegacyVmSnapshotV1 = &self.state;
+        let mut state = serde_json::to_value(legacy).map_err(serde::ser::Error::custom)?;
+        let state_fields = state.as_object_mut().ok_or_else(|| {
+            serde::ser::Error::custom("legacy VM snapshot did not serialize as an object")
+        })?;
+        if state_fields
+            .insert(
+                "muskip_registers".to_string(),
+                serde_json::to_value(&self.state.muskip_registers)
+                    .map_err(serde::ser::Error::custom)?,
+            )
+            .is_some()
+        {
+            return Err(serde::ser::Error::custom(
+                "legacy VM snapshot collides with reserved field muskip_registers",
+            ));
+        }
+        if state_fields
+            .insert(
+                "next_muskip_register".to_string(),
+                serde_json::Value::from(self.state.next_muskip_register),
+            )
+            .is_some()
+        {
+            return Err(serde::ser::Error::custom(
+                "legacy VM snapshot collides with reserved field next_muskip_register",
+            ));
+        }
 
         VmSnapshotDocumentWriteWire {
             format: &self.format,
             schema_version: self.schema_version,
             required_capabilities: &self.required_capabilities,
-            state: VmSnapshotDocumentStateWriteWire {
-                legacy: &self.state,
-                muskip_registers: &self.state.muskip_registers,
-                next_muskip_register: self.state.next_muskip_register,
-            },
+            state: &state,
         }
         .serialize(serializer)
     }

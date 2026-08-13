@@ -170,9 +170,11 @@ fn canonical_versioned_writer_round_trips_each_muskip_capability_shape() {
     let mut combined_vm = Vm::new(&mut combined_interner);
     combined_vm.run_plain(r"\newmuskip\first\first=2.5mu");
     let combined = combined_vm.snapshot();
+    let mut golden_bytes = Vec::new();
 
     for (name, snapshot) in [("scalar", scalar), ("alias", alias), ("combined", combined)] {
         let document = VmSnapshotDocument::from_snapshot(snapshot.clone());
+        let legacy_state = serde_json::to_value(&*snapshot).expect("serialize legacy projection");
 
         let encoded = serde_json::to_vec(&document)
             .unwrap_or_else(|error| panic!("serialize {name} versioned document: {error}"));
@@ -184,6 +186,8 @@ fn canonical_versioned_writer_round_trips_each_muskip_capability_shape() {
             serde_json::from_slice(&encoded).expect("inspect canonical document wire");
 
         assert_eq!(encoded, encoded_again, "{name} writer is not deterministic");
+        assert!(legacy_state.get("muskip_registers").is_none());
+        assert!(legacy_state.get("next_muskip_register").is_none());
         assert_eq!(decoded.state, snapshot, "{name} state changed");
         assert_eq!(
             decoded.required_capabilities,
@@ -200,7 +204,67 @@ fn canonical_versioned_writer_round_trips_each_muskip_capability_shape() {
             json!(snapshot.next_muskip_register),
             "{name} muskip cursor changed"
         );
+        golden_bytes.push((
+            name,
+            encoded.len(),
+            blake3::hash(&encoded).to_hex().to_string(),
+        ));
     }
+
+    assert_eq!(
+        golden_bytes,
+        [
+            (
+                "scalar",
+                10_473,
+                "e906ca9926966f1361c61556e7283249cdb2b6de57ab9d1b94c00c3fa87de440".to_string(),
+            ),
+            (
+                "alias",
+                10_873,
+                "40f9acf0f2ffeafb2a04aa8935499dc324ddc1bceb40e24b1f0291702cc8bca0".to_string(),
+            ),
+            (
+                "combined",
+                10_994,
+                "adc85cee74857e2d140f7d194fd834c03b429edcb2c7707216c00a8d1a4d80c4".to_string(),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn canonical_versioned_writer_is_stable_across_independent_equal_snapshots() {
+    let mut first_interner = ControlSequenceInterner::new();
+    let mut first_vm = Vm::new(&mut first_interner);
+    let first_outcome = first_vm
+        .run_plain(r"\def\zeta{Z}\def\alpha{A}\newmuskip\first\first=2.5mu\muskipdef\fixed=17");
+    assert!(
+        first_outcome.diagnostics.is_empty(),
+        "{:#?}",
+        first_outcome.diagnostics
+    );
+    let first = first_vm.snapshot();
+
+    let mut second_interner = ControlSequenceInterner::new();
+    let mut second_vm = Vm::new(&mut second_interner);
+    let second_outcome = second_vm
+        .run_plain(r"\def\zeta{Z}\def\alpha{A}\newmuskip\first\first=2.5mu\muskipdef\fixed=17");
+    assert!(
+        second_outcome.diagnostics.is_empty(),
+        "{:#?}",
+        second_outcome.diagnostics
+    );
+    let second = second_vm.snapshot();
+
+    assert_eq!(first, second, "fixtures must be semantically equal");
+    assert_eq!(
+        serde_json::to_vec(&VmSnapshotDocument::from_snapshot(first))
+            .expect("serialize first independent document"),
+        serde_json::to_vec(&VmSnapshotDocument::from_snapshot(second))
+            .expect("serialize second independent document"),
+        "canonical bytes depend on HashMap construction identity"
+    );
 }
 
 #[test]
