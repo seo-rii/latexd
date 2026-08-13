@@ -521,7 +521,7 @@ impl Vm<'_> {
             };
             matches!(
                 self.interner.resolve(name).unwrap_or(""),
-                "count" | "dimen" | "skip" | "toks"
+                "count" | "dimen" | "skip" | "muskip" | "toks"
             ) && rest.iter().all(|token| {
                 matches!(
                     token.kind,

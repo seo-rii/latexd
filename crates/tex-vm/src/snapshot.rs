@@ -22,6 +22,7 @@ pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
 pub const VM_SNAPSHOT_DOCUMENT_FORMAT: &str = "latexd.vm-snapshot";
 pub const VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION: u32 = 1;
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[];
+pub const VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 pub const VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1690,6 +1691,96 @@ impl VmSnapshot {
                 VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
             ));
         }
+        let token_requires_muskip_alias = |token: &SnapshotToken| {
+            matches!(
+                &token.kind,
+                SnapshotTokenKind::ControlSequence { name }
+                    if matches!(
+                        name.as_str(),
+                        "muskip"
+                            | "newmuskip"
+                            | "muskipdef"
+                            | "csname"
+                            | "ifcsname"
+                            | "@nameuse"
+                    )
+            )
+        };
+        let tokens_require_muskip_alias =
+            |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_muskip_alias);
+        let scopes_require_muskip_alias = self.scopes.iter().any(|scope| {
+            scope.values().any(|meaning| match meaning {
+                SnapshotMeaning::Macro {
+                    parameter_text,
+                    optional_first_argument_default,
+                    body,
+                    ..
+                } => {
+                    tokens_require_muskip_alias(parameter_text)
+                        || optional_first_argument_default
+                            .as_deref()
+                            .is_some_and(&tokens_require_muskip_alias)
+                        || tokens_require_muskip_alias(body)
+                }
+                SnapshotMeaning::Primitive { name } => {
+                    matches!(
+                        name.as_str(),
+                        "muskip" | "newmuskip" | "muskipdef" | "csname" | "ifcsname" | "@nameuse"
+                    )
+                }
+                SnapshotMeaning::Token { token } => token_requires_muskip_alias(token),
+            })
+        });
+        let continuation_requires_muskip_alias =
+            self.input_continuation
+                .as_ref()
+                .is_some_and(|continuation| {
+                    continuation.queue.iter().any(|item| {
+                        matches!(
+                            item,
+                            VmQueueItemSnapshot::Token { token }
+                                if token_requires_muskip_alias(token)
+                        )
+                    }) || continuation.source_stack.iter().any(|frame| {
+                        frame
+                            .end_hooks
+                            .iter()
+                            .any(|tokens| tokens_require_muskip_alias(tokens))
+                            || frame.module_options.as_ref().is_some_and(|options| {
+                                options
+                                    .declared_options
+                                    .values()
+                                    .any(|tokens| tokens_require_muskip_alias(tokens))
+                                    || options
+                                        .default_option_body
+                                        .as_deref()
+                                        .is_some_and(&tokens_require_muskip_alias)
+                            })
+                    })
+                });
+        if scopes_require_muskip_alias
+            || self
+                .token_registers
+                .values()
+                .any(|tokens| tokens_require_muskip_alias(tokens))
+            || self
+                .aftergroup_tokens
+                .iter()
+                .any(|tokens| tokens_require_muskip_alias(tokens))
+            || self
+                .after_assignment_token
+                .as_ref()
+                .is_some_and(&token_requires_muskip_alias)
+            || self
+                .at_end_document_hooks
+                .iter()
+                .any(|tokens| tokens_require_muskip_alias(tokens))
+            || continuation_requires_muskip_alias
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
+            ));
+        }
         capabilities
     }
 }
@@ -1733,11 +1824,23 @@ impl<'de> Deserialize<'de> for VmSnapshot {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(Self {
+        let snapshot = Self {
             legacy: LegacyVmSnapshotV1::deserialize(deserializer)?,
             muskip_registers: BTreeMap::new(),
             next_muskip_register: default_next_muskip_register(),
-        })
+        };
+        let capabilities = snapshot.required_capabilities();
+        if !capabilities.is_empty() {
+            return Err(serde::de::Error::custom(format!(
+                "legacy VM snapshot contains state requiring unsupported capabilities: {}",
+                capabilities
+                    .iter()
+                    .map(SnapshotCapability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        Ok(snapshot)
     }
 }
 

@@ -54,7 +54,7 @@ use command::{
     Primitive, ReferenceCommand, TextScriptCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
-use eqtb::{AssignmentScope, Eqtb};
+use eqtb::{AssignmentScope, Eqtb, MuGlueScalarV1};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
     RestoredInputContinuation,
@@ -917,6 +917,12 @@ const BUILTIN_GENERIC_CLASS_SHIMS: &[&str] = &[
 enum ConditionalState {
     ThenExecuted,
     ElseExecuted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MuGlueExpressionV1 {
+    base_scaled: i32,
+    has_unsupported_components: bool,
 }
 
 #[derive(Debug, Default)]
@@ -20320,6 +20326,60 @@ impl<'i> Vm<'i> {
                     self.push_token_front(queue, token);
                 }
             }
+            Primitive::NewMuSkip => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let mut next_muskip_register = self.next_muskip_register;
+                if next_muskip_register == u32::MAX {
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+                while self.eqtb.muskip(next_muskip_register).is_some() {
+                    let Some(next) = next_muskip_register.checked_add(1) else {
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
+                    };
+                    next_muskip_register = next;
+                }
+                let register_index = next_muskip_register;
+                let Some(next_register) = register_index.checked_add(1) else {
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                };
+                let muskip_id = self.interner.intern("muskip");
+                let mut body = vec![Token::control_sequence(muskip_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
+                        parameter_text: Vec::new(),
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.next_muskip_register = next_register;
+                self.transcript
+                    .push(format!("newmuskip \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::CountDef => {
                 let force_global = mem::take(&mut self.global_prefix);
                 let Some(name) = self.read_control_sequence_name(queue) else {
@@ -20463,6 +20523,59 @@ impl<'i> Vm<'i> {
                 );
                 self.transcript
                     .push(format!("skipdef \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::MuSkipDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(register_index) = self
+                    .read_integer(queue)
+                    .and_then(|value| u32::try_from(value).ok())
+                else {
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                };
+                let muskip_id = self.interner.intern("muskip");
+                let mut body = vec![Token::control_sequence(muskip_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        flags: MacroFlags::default(),
+                        parameter_text: Vec::new(),
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("muskipdef \\{name}={register_index}"));
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
                 }
@@ -22585,6 +22698,110 @@ impl<'i> Vm<'i> {
                     if let Some(token) = self.after_assignment_token.take() {
                         self.push_token_front(queue, token);
                     }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_muskip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(delta) = self.read_muglue_expression(queue) else {
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
+                    };
+                    if delta.has_unsupported_components {
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
+                    }
+                    let delta = delta.base_scaled;
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let next = self
+                        .eqtb
+                        .muskip(index)
+                        .map(MuGlueScalarV1::scaled)
+                        .unwrap_or(0)
+                        .saturating_add(delta);
+                    self.eqtb.assign_muskip(
+                        index,
+                        MuGlueScalarV1::from_scaled(next),
+                        assignment_scope,
+                        self.save_stack.group_level(),
+                        &mut self.save_stack,
+                    );
+                    self.transcript
+                        .push(format!("muskip{index}+={}", format_muskip_value(delta)));
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut invalid_queue = queue.clone();
+                self.skip_optional_spaces(&mut invalid_queue);
+                let invalid_raw_muskip = self
+                    .pop_next_token(&mut invalid_queue)
+                    .and_then(|token| match token.kind {
+                        TokenKind::ControlSequence { name }
+                            if self.interner.resolve(name).unwrap_or("") == "muskip" =>
+                        {
+                            self.read_integer(&mut invalid_queue)
+                        }
+                        TokenKind::ControlSequence { .. } | TokenKind::Character { .. } => None,
+                    })
+                    .is_some_and(|index| index < 0);
+                if invalid_raw_muskip {
+                    *queue = invalid_queue;
+                    self.global_prefix = false;
+                    self.skip_optional_spaces(queue);
+                    if self.consume_text_keyword(queue, "by") {
+                        self.skip_optional_spaces(queue);
+                    }
+                    let _ = self.read_muglue_expression(queue);
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
                 }
             }
             Primitive::Multiply | Primitive::Divide => {
@@ -22811,6 +23028,115 @@ impl<'i> Vm<'i> {
                     if let Some(token) = self.after_assignment_token.take() {
                         self.push_token_front(queue, token);
                     }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_muskip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(factor) = self.read_number_expression(queue) else {
+                        return;
+                    };
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let current = self
+                        .eqtb
+                        .muskip(index)
+                        .map(MuGlueScalarV1::scaled)
+                        .unwrap_or(0);
+                    let next = match primitive {
+                        Primitive::Multiply => current.saturating_mul(factor),
+                        Primitive::Divide => {
+                            if factor == 0 {
+                                if let Some(token) = self.after_assignment_token.take() {
+                                    self.push_token_front(queue, token);
+                                }
+                                return;
+                            }
+                            current.saturating_div(factor)
+                        }
+                        _ => unreachable!(),
+                    };
+                    self.eqtb.assign_muskip(
+                        index,
+                        MuGlueScalarV1::from_scaled(next),
+                        assignment_scope,
+                        self.save_stack.group_level(),
+                        &mut self.save_stack,
+                    );
+                    self.transcript.push(match primitive {
+                        Primitive::Multiply => format!("muskip{index}*={factor}"),
+                        Primitive::Divide => format!("muskip{index}/={factor}"),
+                        _ => unreachable!(),
+                    });
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut invalid_queue = queue.clone();
+                self.skip_optional_spaces(&mut invalid_queue);
+                let invalid_raw_muskip = self
+                    .pop_next_token(&mut invalid_queue)
+                    .and_then(|token| match token.kind {
+                        TokenKind::ControlSequence { name }
+                            if self.interner.resolve(name).unwrap_or("") == "muskip" =>
+                        {
+                            self.read_integer(&mut invalid_queue)
+                        }
+                        TokenKind::ControlSequence { .. } | TokenKind::Character { .. } => None,
+                    })
+                    .is_some_and(|index| index < 0);
+                if invalid_raw_muskip {
+                    *queue = invalid_queue;
+                    self.global_prefix = false;
+                    self.skip_optional_spaces(queue);
+                    if self.consume_text_keyword(queue, "by") {
+                        self.skip_optional_spaces(queue);
+                    }
+                    let _ = self.read_number_expression(queue);
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
                 }
             }
             Primitive::IfX => {
@@ -23006,6 +23332,76 @@ impl<'i> Vm<'i> {
                     }
                 }
             }
+            Primitive::MuSkip => {
+                let Some(raw_index) = self.read_integer(queue) else {
+                    return;
+                };
+                let Ok(index) = u32::try_from(raw_index) else {
+                    self.global_prefix = false;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: '=',
+                                catcode: CatCode::Other,
+                            },
+                            ..
+                        })
+                    ) {
+                        self.pop_next_token(queue);
+                        let _ = self.read_muglue_expression(queue);
+                    }
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                    let requested_global = mem::take(&mut self.global_prefix);
+                    if let Some(value) = self.read_muglue_expression(queue) {
+                        if value.has_unsupported_components {
+                            if let Some(token) = self.after_assignment_token.take() {
+                                self.push_token_front(queue, token);
+                            }
+                            return;
+                        }
+                        let value = value.base_scaled;
+                        let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                            std::cmp::Ordering::Greater => AssignmentScope::Global,
+                            std::cmp::Ordering::Less => AssignmentScope::Local,
+                            std::cmp::Ordering::Equal if requested_global => {
+                                AssignmentScope::Global
+                            }
+                            std::cmp::Ordering::Equal => AssignmentScope::Local,
+                        };
+                        self.eqtb.assign_muskip(
+                            index,
+                            MuGlueScalarV1::from_scaled(value),
+                            assignment_scope,
+                            self.save_stack.group_level(),
+                            &mut self.save_stack,
+                        );
+                        self.transcript
+                            .push(format!("muskip{index}={}", format_muskip_value(value)));
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                    } else if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
             Primitive::Toks => {
                 let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
                     return;
@@ -23095,6 +23491,23 @@ impl<'i> Vm<'i> {
                         source_offset_utf8,
                         self.last_token_end_utf8.max(source_end_utf8),
                         render_dimension_tokens(value),
+                        queue,
+                    );
+                    return;
+                }
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_muskip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    let value = self
+                        .eqtb
+                        .muskip(index)
+                        .map(MuGlueScalarV1::scaled)
+                        .unwrap_or(0);
+                    self.queue_macro_expansion(
+                        "the",
+                        source_offset_utf8,
+                        self.last_token_end_utf8.max(source_end_utf8),
+                        render_muskip_tokens(value),
                         queue,
                     );
                     return;
@@ -23598,18 +24011,31 @@ impl<'i> Vm<'i> {
                                 render_dimension_tokens(self.eqtb.skip(index).unwrap_or(0))
                             } else {
                                 let mut local_queue = queue.clone();
-                                if let Some(value) =
-                                    self.read_dimension_expression(&mut local_queue)
+                                if let Some(index) =
+                                    self.read_muskip_register_index(&mut local_queue)
                                 {
                                     *queue = local_queue;
-                                    render_dimension_tokens(value)
+                                    render_muskip_tokens(
+                                        self.eqtb
+                                            .muskip(index)
+                                            .map(MuGlueScalarV1::scaled)
+                                            .unwrap_or(0),
+                                    )
                                 } else {
-                                    self.read_number_expression(queue)
-                                        .unwrap_or_default()
-                                        .to_string()
-                                        .chars()
-                                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
-                                        .collect()
+                                    let mut local_queue = queue.clone();
+                                    if let Some(value) =
+                                        self.read_dimension_expression(&mut local_queue)
+                                    {
+                                        *queue = local_queue;
+                                        render_dimension_tokens(value)
+                                    } else {
+                                        self.read_number_expression(queue)
+                                            .unwrap_or_default()
+                                            .to_string()
+                                            .chars()
+                                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                                            .collect()
+                                    }
                                 }
                             }
                         }
@@ -23844,6 +24270,17 @@ impl<'i> Vm<'i> {
             queue.push_back(QueueItem::Token(token));
         }
         self.read_glue_expression(&mut queue)
+    }
+
+    fn read_muglue_expression_from_tokens(
+        &mut self,
+        tokens: Vec<Token>,
+    ) -> Option<MuGlueExpressionV1> {
+        let mut queue = VecDeque::new();
+        for token in tokens {
+            queue.push_back(QueueItem::Token(token));
+        }
+        self.read_muglue_expression(&mut queue)
     }
 
     fn read_counter_format_value_from_tokens(&mut self, tokens: Vec<Token>) -> Option<i32> {
@@ -24666,7 +25103,7 @@ impl<'i> Vm<'i> {
             }
             TokenKind::Character { .. } => {
                 self.push_token_front(queue, next);
-                self.read_dimension_literal(queue)
+                self.read_scaled_dimension_literal(queue, false)
             }
         }
     }
@@ -24709,8 +25146,83 @@ impl<'i> Vm<'i> {
         }
     }
 
+    fn read_muglue_expression(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<MuGlueExpressionV1> {
+        self.skip_optional_spaces(queue);
+        let next = self.pop_next_token(queue)?;
+        match next.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                if name == "muskip" {
+                    let index = u32::try_from(self.read_integer(queue)?).ok()?;
+                    return Some(MuGlueExpressionV1 {
+                        base_scaled: self
+                            .eqtb
+                            .muskip(index)
+                            .map(MuGlueScalarV1::scaled)
+                            .unwrap_or(0),
+                        has_unsupported_components: false,
+                    });
+                }
+                if let Some(index) = self.resolve_muskip_register_name(&name) {
+                    return Some(MuGlueExpressionV1 {
+                        base_scaled: self
+                            .eqtb
+                            .muskip(index)
+                            .map(MuGlueScalarV1::scaled)
+                            .unwrap_or(0),
+                        has_unsupported_components: false,
+                    });
+                }
+                match self.lookup_meaning(&name) {
+                    Some(Meaning::Macro(definition))
+                        if definition.parameter_count == 0
+                            && definition.optional_first_argument_default.is_none() =>
+                    {
+                        self.read_muglue_expression_from_tokens(definition.body.clone())
+                    }
+                    _ => None,
+                }
+            }
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            } => {
+                self.push_token_front(queue, next);
+                self.read_balanced_group(queue)
+                    .and_then(|tokens| self.read_muglue_expression_from_tokens(tokens))
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, next);
+                let value = self.read_scaled_dimension_literal(queue, true)?;
+                let mut has_unsupported_components = false;
+                loop {
+                    let mut local_queue = queue.clone();
+                    self.skip_optional_spaces(&mut local_queue);
+                    let saw_keyword = self.consume_text_keyword(&mut local_queue, "plus")
+                        || self.consume_text_keyword(&mut local_queue, "minus");
+                    if !saw_keyword {
+                        break;
+                    }
+                    let Some(component) = self.read_muglue_expression(&mut local_queue) else {
+                        break;
+                    };
+                    has_unsupported_components |=
+                        component.base_scaled != 0 || component.has_unsupported_components;
+                    *queue = local_queue;
+                }
+                Some(MuGlueExpressionV1 {
+                    base_scaled: value,
+                    has_unsupported_components,
+                })
+            }
+        }
+    }
+
     fn read_glue_literal(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
-        let value = self.read_dimension_literal(queue)?;
+        let value = self.read_scaled_dimension_literal(queue, false)?;
         loop {
             let mut local_queue = queue.clone();
             self.skip_optional_spaces(&mut local_queue);
@@ -24727,7 +25239,11 @@ impl<'i> Vm<'i> {
         Some(value)
     }
 
-    fn read_dimension_literal(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+    fn read_scaled_dimension_literal(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        math_unit: bool,
+    ) -> Option<i32> {
         self.skip_optional_spaces(queue);
         let mut number = String::new();
         let mut seen_digit = false;
@@ -24794,17 +25310,18 @@ impl<'i> Vm<'i> {
             letters.push(ch.to_ascii_lowercase());
             self.pop_next_token(&mut local_queue);
         }
-        match letters.as_slice() {
-            ['p', 't'] | ['s', 'p'] => {
+        match (math_unit, letters.as_slice()) {
+            (true, ['m', 'u']) | (false, ['p', 't'] | ['s', 'p']) => {
                 unit.extend(letters);
                 *queue = local_queue;
+                self.skip_optional_spaces(queue);
             }
-            [] => {}
+            (false, []) => {}
             _ => return None,
         }
         let numeric = number.parse::<f64>().ok()?;
         match unit.as_str() {
-            "" | "pt" => Some((numeric * 65536.0).round() as i32),
+            "" | "pt" | "mu" => Some((numeric * 65536.0).round() as i32),
             "sp" => Some(numeric.round() as i32),
             _ => None,
         }
@@ -24961,6 +25478,21 @@ impl<'i> Vm<'i> {
         self.resolve_skip_register_name(&name)
     }
 
+    fn read_muskip_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("").to_string();
+        if name == "muskip" {
+            return self
+                .read_integer(queue)
+                .and_then(|value| u32::try_from(value).ok());
+        }
+        self.resolve_muskip_register_name(&name)
+    }
+
     fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
         self.skip_optional_spaces(queue);
         let token = self.pop_next_token(queue)?;
@@ -25093,6 +25625,43 @@ impl<'i> Vm<'i> {
             return None;
         };
         if self.interner.resolve(*skip_name).unwrap_or("") != "skip" {
+            return None;
+        }
+        let mut digits = String::new();
+        for token in tokens {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            digits.push(ch);
+        }
+        if digits.is_empty() {
+            return None;
+        }
+        digits.parse().ok()
+    }
+
+    fn resolve_muskip_register_name(&self, name: &str) -> Option<u32> {
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return None;
+        };
+        if definition.parameter_count != 0
+            || !definition.parameter_text.is_empty()
+            || definition.optional_first_argument_default.is_some()
+        {
+            return None;
+        }
+        let mut tokens = definition.body.iter();
+        let Some(Token {
+            kind: TokenKind::ControlSequence { name: muskip_name },
+            ..
+        }) = tokens.next()
+        else {
+            return None;
+        };
+        if self.interner.resolve(*muskip_name).unwrap_or("") != "muskip" {
             return None;
         }
         let mut digits = String::new();
@@ -26442,6 +27011,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "dimendef" => Some(Primitive::DimenDef),
         "newskip" => Some(Primitive::NewSkip),
         "skipdef" => Some(Primitive::SkipDef),
+        "newmuskip" => Some(Primitive::NewMuSkip),
+        "muskipdef" => Some(Primitive::MuSkipDef),
         "setcounter" => Some(Primitive::SetCounter),
         "addtocounter" => Some(Primitive::AddToCounter),
         "stepcounter" => Some(Primitive::StepCounter),
@@ -26559,6 +27130,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "count" => Some(Primitive::Count),
         "dimen" => Some(Primitive::Dimen),
         "skip" => Some(Primitive::Skip),
+        "muskip" => Some(Primitive::MuSkip),
         "toks" => Some(Primitive::Toks),
         "value" => Some(Primitive::Value),
         "the" => Some(Primitive::The),
@@ -26970,6 +27542,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::DimenDef => "dimendef",
         Primitive::NewSkip => "newskip",
         Primitive::SkipDef => "skipdef",
+        Primitive::NewMuSkip => "newmuskip",
+        Primitive::MuSkipDef => "muskipdef",
         Primitive::SetCounter => "setcounter",
         Primitive::AddToCounter => "addtocounter",
         Primitive::StepCounter => "stepcounter",
@@ -27080,6 +27654,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Count => "count",
         Primitive::Dimen => "dimen",
         Primitive::Skip => "skip",
+        Primitive::MuSkip => "muskip",
         Primitive::Toks => "toks",
         Primitive::Value => "value",
         Primitive::The => "the",
@@ -33660,12 +34235,20 @@ fn render_roman_numeral(value: i32) -> String {
 }
 
 fn format_dimension_value(value: i32) -> String {
+    format_scaled_value(value, "pt")
+}
+
+fn format_muskip_value(value: i32) -> String {
+    format_scaled_value(value, "mu")
+}
+
+fn format_scaled_value(value: i32, unit: &str) -> String {
     let sign = if value < 0 { "-" } else { "" };
     let abs = i64::from(value).unsigned_abs();
     let mut whole = abs / 65_536;
     let frac = abs % 65_536;
     if frac == 0 {
-        return format!("{sign}{whole}pt");
+        return format!("{sign}{whole}{unit}");
     }
     let mut frac_scaled = ((frac * 100_000) + 32_768) / 65_536;
     if frac_scaled == 100_000 {
@@ -33676,11 +34259,18 @@ fn format_dimension_value(value: i32) -> String {
     while frac_text.ends_with('0') {
         frac_text.pop();
     }
-    format!("{sign}{whole}.{frac_text}pt")
+    format!("{sign}{whole}.{frac_text}{unit}")
 }
 
 fn render_dimension_tokens(value: i32) -> Vec<Token> {
     format_dimension_value(value)
+        .chars()
+        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+        .collect()
+}
+
+fn render_muskip_tokens(value: i32) -> Vec<Token> {
+    format_muskip_value(value)
         .chars()
         .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
         .collect()

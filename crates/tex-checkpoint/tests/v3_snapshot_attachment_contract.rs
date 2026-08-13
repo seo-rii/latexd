@@ -12,6 +12,8 @@ use tex_checkpoint::{
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm, VmSnapshot};
 
+const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
+
 fn legacy_bundle_json() -> Value {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = Vm::new(&mut interner);
@@ -97,6 +99,118 @@ fn production_capture_suppresses_muskip_state_in_every_checkpoint_category() {
         ));
         assert!(checkpoint_wire["snapshot"].is_null());
         assert!(checkpoint_wire.get("versioned_snapshot").is_none());
+    }
+}
+
+#[test]
+fn source_created_alias_only_muskip_state_is_suppressed_at_every_capture_boundary() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    let outcome = vm.run_plain(r"\muskipdef\fixed=17");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let snapshot = vm.snapshot();
+    assert!(snapshot.muskip_registers.is_empty());
+    assert_eq!(snapshot.next_muskip_register, 256);
+    assert!(
+        snapshot
+            .required_capabilities()
+            .iter()
+            .any(|capability| capability.as_str() == MUSKIP_ALIAS_V1_CAPABILITY)
+    );
+    let pages = [CheckpointPage {
+        page_id: "page-1".to_string(),
+        index: 0,
+        content_hash: "page-hash".to_string(),
+        text_start_utf8: 0,
+        text_end_utf8: 1,
+    }];
+    let input_boundaries = [InputBoundaryCheckpoint {
+        kind: tex_vm::VmModuleCheckpointKind::Enter,
+        module_path: Utf8PathBuf::from("chapter.tex"),
+        resume_path: Some(Utf8PathBuf::from("main.tex")),
+        source_offset_utf8: 7,
+        continuation_stack: Vec::new(),
+        output_start_utf8: 0,
+        page_index_after: 1,
+        snapshot: snapshot.clone(),
+    }];
+
+    let bundle = build_checkpoint_bundle_with_snapshots(
+        1,
+        &snapshot,
+        "preamble",
+        0,
+        &pages,
+        &[snapshot.clone()],
+        &[5],
+        &input_boundaries,
+    )
+    .expect("source-created alias state must suppress attachments without failing the build");
+
+    assert_eq!(bundle.checkpoints.len(), 3);
+    for checkpoint in &bundle.checkpoints {
+        assert!(!checkpoint.meta.snapshot_attached);
+        assert!(matches!(
+            checkpoint.snapshot_attachment(),
+            SnapshotAttachment::None
+        ));
+        assert!(!checkpoint_is_replay_safe(checkpoint));
+    }
+}
+
+#[test]
+fn dynamic_muskip_name_state_is_suppressed_at_every_capture_boundary() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    let outcome = vm.run_plain(r"\def\later{\csname muskip\endcsname0=9mu}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let snapshot = vm.snapshot();
+    assert!(snapshot.muskip_registers.is_empty());
+    assert_eq!(snapshot.next_muskip_register, 256);
+    assert!(
+        snapshot
+            .required_capabilities()
+            .iter()
+            .any(|capability| capability.as_str() == MUSKIP_ALIAS_V1_CAPABILITY)
+    );
+    let pages = [CheckpointPage {
+        page_id: "page-1".to_string(),
+        index: 0,
+        content_hash: "page-hash".to_string(),
+        text_start_utf8: 0,
+        text_end_utf8: 1,
+    }];
+    let input_boundaries = [InputBoundaryCheckpoint {
+        kind: tex_vm::VmModuleCheckpointKind::Enter,
+        module_path: Utf8PathBuf::from("chapter.tex"),
+        resume_path: Some(Utf8PathBuf::from("main.tex")),
+        source_offset_utf8: 7,
+        continuation_stack: Vec::new(),
+        output_start_utf8: 0,
+        page_index_after: 1,
+        snapshot: snapshot.clone(),
+    }];
+
+    let bundle = build_checkpoint_bundle_with_snapshots(
+        1,
+        &snapshot,
+        "preamble",
+        0,
+        &pages,
+        &[snapshot.clone()],
+        &[5],
+        &input_boundaries,
+    )
+    .expect("dynamic muskip state must suppress attachments without failing the build");
+
+    assert_eq!(bundle.checkpoints.len(), 3);
+    for checkpoint in &bundle.checkpoints {
+        assert!(!checkpoint.meta.snapshot_attached);
+        assert!(matches!(
+            checkpoint.snapshot_attachment(),
+            SnapshotAttachment::None
+        ));
+        assert!(!checkpoint_is_replay_safe(checkpoint));
     }
 }
 

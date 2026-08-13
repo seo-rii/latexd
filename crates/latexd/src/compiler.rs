@@ -1941,16 +1941,30 @@ impl CompilerDriver {
                     text_end_utf8: page.text_span.end_utf8,
                 })
                 .collect::<Vec<_>>();
-            let unchanged_tail = previous_build
-                .as_ref()
-                .and_then(|previous| find_unchanged_tail(&previous.bundle, &checkpoint_pages))
-                .map(|tail| UnchangedTail {
+            let unchanged_tail = previous_build.as_ref().and_then(|previous| {
+                let tail = find_unchanged_tail(&previous.bundle, &checkpoint_pages)?;
+                let all_tail_checkpoints_are_reusable = (0..tail.page_count).all(|offset| {
+                    let previous_page_index = tail.previous_page_start + offset;
+                    previous
+                        .bundle
+                        .checkpoints
+                        .iter()
+                        .find(|checkpoint| {
+                            checkpoint.meta.page_index_after == previous_page_index + 1
+                        })
+                        .and_then(|checkpoint| {
+                            replay_checkpoint_from_stored(checkpoint, &request.toplevel)
+                        })
+                        .is_some()
+                });
+                all_tail_checkpoints_are_reusable.then_some(UnchangedTail {
                     previous_rev: tail.previous_rev,
                     resume_checkpoint_id: tail.resume_checkpoint_id,
                     previous_page_start: tail.previous_page_start,
                     current_page_start: tail.current_page_start,
                     page_count: tail.page_count,
-                });
+                })
+            });
             let previous_execution_page_hashes = previous_build
                 .as_ref()
                 .map(|previous| {
@@ -5501,6 +5515,68 @@ mod tests {
                 .join(&first_display_list_svg)
                 .exists()
         );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_rebuilds_source_when_muskip_snapshots_are_suppressed() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let source = concat!(
+            r"\newmuskip\dynamic\dynamic=2mu",
+            r"\muskipdef\fixed=17\fixed=3mu",
+            r"\begin{document}[\the\dynamic][\the\fixed]\end{document}",
+        );
+        fs::write(root.join("main.tex"), source).expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+
+        let first = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("first muskip compile");
+        assert_eq!(first.reused_checkpoint_id, None);
+        let first_output = fs::read_to_string(build_root.join("rev-1/render-ir/legacy-output.txt"))
+            .expect("first legacy output");
+        assert!(first_output.contains("[2mu][3mu]"), "{first_output:?}");
+        let first_checkpoints = load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json"))
+            .expect("first checkpoint bundle");
+        assert!(!first_checkpoints.checkpoints.is_empty());
+        assert!(first_checkpoints.checkpoints.iter().all(|checkpoint| {
+            !checkpoint.meta.snapshot_attached && checkpoint.snapshot_for_restore().is_none()
+        }));
+
+        fs::write(root.join("main.tex"), format!("{source}% revision two"))
+            .expect("update main tex");
+        let second = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("second muskip compile");
+
+        assert_eq!(second.reused_checkpoint_id, None);
+        let second_output =
+            fs::read_to_string(build_root.join("rev-2/render-ir/legacy-output.txt"))
+                .expect("second legacy output");
+        assert_eq!(second_output, first_output);
+        let second_checkpoints = load_checkpoint_bundle(&build_root.join("rev-2/checkpoints.json"))
+            .expect("second checkpoint bundle");
+        assert!(second_checkpoints.checkpoints.iter().all(|checkpoint| {
+            !checkpoint.meta.snapshot_attached && checkpoint.snapshot_for_restore().is_none()
+        }));
     }
 
     #[tokio::test]
