@@ -10,6 +10,7 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::value::RawValue;
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
     LegacyVmSnapshotV1, SnapshotCapability, Vm, VmContinuationBlocker, VmContinuationSafety,
@@ -181,7 +182,7 @@ impl VersionedSnapshotSlot {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VersionedSnapshotSlotWire {
-    document: serde_json::Value,
+    document: Box<RawValue>,
 }
 
 impl<'de> Deserialize<'de> for VersionedSnapshotSlot {
@@ -190,8 +191,8 @@ impl<'de> Deserialize<'de> for VersionedSnapshotSlot {
         D: Deserializer<'de>,
     {
         let wire = VersionedSnapshotSlotWire::deserialize(deserializer)?;
-        let encoded = serde_json::to_vec(&wire.document).map_err(serde::de::Error::custom)?;
-        let document = decode_vm_snapshot_document(&encoded).map_err(serde::de::Error::custom)?;
+        let document = decode_vm_snapshot_document(wire.document.get().as_bytes())
+            .map_err(serde::de::Error::custom)?;
         Ok(Self { document })
     }
 }
@@ -325,7 +326,7 @@ struct StoredCheckpointWire {
     meta: CheckpointMeta,
     snapshot: Option<VmSnapshot>,
     #[serde(default)]
-    versioned_snapshot: Option<serde_json::Value>,
+    versioned_snapshot: Option<Box<RawValue>>,
 }
 
 impl<'de> Deserialize<'de> for StoredCheckpoint {
@@ -338,7 +339,7 @@ impl<'de> Deserialize<'de> for StoredCheckpoint {
             (None, None) => StoredSnapshotAttachment::None,
             (Some(snapshot), None) => StoredSnapshotAttachment::Legacy(snapshot),
             (None, Some(slot)) => StoredSnapshotAttachment::Versioned(
-                serde_json::from_value(slot).map_err(serde::de::Error::custom)?,
+                serde_json::from_str(slot.get()).map_err(serde::de::Error::custom)?,
             ),
             (Some(_), Some(_)) => {
                 return Err(serde::de::Error::custom(

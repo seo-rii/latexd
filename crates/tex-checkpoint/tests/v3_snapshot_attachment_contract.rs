@@ -13,6 +13,7 @@ use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm, VmSnapshot};
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
+const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 
 fn legacy_bundle_json() -> Value {
     let mut interner = ControlSequenceInterner::new();
@@ -375,7 +376,7 @@ fn reader_rejects_unsupported_versioned_capability_before_state() {
         "document": {
             "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
             "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-            "required_capabilities": ["eqtb.muskip.scalar-v1"],
+            "required_capabilities": ["future.capability-v1"],
             "state": "not a VM snapshot",
         }
     });
@@ -387,6 +388,99 @@ fn reader_rejects_unsupported_versioned_capability_before_state() {
         error
             .to_string()
             .contains("unsupported VM snapshot capability"),
+        "{error}"
+    );
+}
+
+#[test]
+fn reader_accepts_replay_safe_versioned_muskip_checkpoint() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    source.run_plain(r"\newmuskip\first\first=2.5mu");
+    let snapshot = source.snapshot();
+    let mut state = serde_json::to_value(&*snapshot).expect("serialize legacy projection");
+    state["muskip_registers"] = json!(snapshot.muskip_registers);
+    state["next_muskip_register"] = json!(snapshot.next_muskip_register);
+    let mut bundle_json = legacy_bundle_json();
+    bundle_json["checkpoints"][0]["snapshot"] = Value::Null;
+    bundle_json["checkpoints"][0]["versioned_snapshot"] = json!({
+        "document": {
+            "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
+            "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+            "required_capabilities": [
+                MUSKIP_ALIAS_V1_CAPABILITY,
+                MUSKIP_SCALAR_V1_CAPABILITY
+            ],
+            "state": state,
+        }
+    });
+    drop(source);
+
+    let bundle = serde_json::from_value::<CheckpointBundle>(bundle_json)
+        .expect("decode versioned muskip checkpoint");
+    let checkpoint = &bundle.checkpoints[0];
+    assert!(checkpoint_is_replay_safe(checkpoint));
+    let restore = checkpoint
+        .snapshot_for_restore()
+        .expect("versioned muskip restore state");
+    assert!(restore.is_versioned());
+    assert_eq!(
+        restore
+            .required_capabilities()
+            .map(|capability| capability.as_str())
+            .collect::<Vec<_>>(),
+        vec![MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY]
+    );
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore(&mut restored_interner, restore.state())
+        .expect("restore versioned muskip checkpoint");
+    let replay = restored.run_plain(r"[\the\first]");
+    assert_eq!(replay.output, "[2.5mu]");
+    assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+}
+
+#[test]
+fn versioned_checkpoint_rejects_duplicate_muskip_state_members_before_value_collapse() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    source.run_plain(r"\newmuskip\first\first=2.5mu");
+    let snapshot = source.snapshot();
+    let mut state = serde_json::to_value(&*snapshot).expect("serialize legacy projection");
+    state["muskip_registers"] = json!(snapshot.muskip_registers);
+    state["next_muskip_register"] = json!(snapshot.next_muskip_register);
+    let mut bundle_json = legacy_bundle_json();
+    bundle_json["checkpoints"][0]["snapshot"] = Value::Null;
+    bundle_json["checkpoints"][0]["versioned_snapshot"] = json!({
+        "document": {
+            "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
+            "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+            "required_capabilities": [
+                MUSKIP_ALIAS_V1_CAPABILITY,
+                MUSKIP_SCALAR_V1_CAPABILITY
+            ],
+            "state": state,
+        }
+    });
+    let encoded = serde_json::to_string(&bundle_json).expect("serialize checkpoint fixture");
+    let cursor_member = format!(
+        r#""next_muskip_register":{}"#,
+        snapshot.next_muskip_register
+    );
+    assert_eq!(encoded.matches(&cursor_member).count(), 1);
+    let duplicate = encoded.replacen(
+        &cursor_member,
+        &format!(r#""next_muskip_register":"invalid",{cursor_member}"#),
+        1,
+    );
+    drop(source);
+
+    let error = serde_json::from_str::<CheckpointBundle>(&duplicate)
+        .expect_err("duplicate nested muskip state members must be rejected");
+
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate state member `next_muskip_register`"),
         "{error}"
     );
 }

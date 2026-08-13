@@ -1,11 +1,13 @@
 use serde_json::json;
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    SnapshotCapability, VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm,
-    VmRestoreError, VmSnapshot, VmSnapshotDocument, VmSnapshotDocumentError,
-    VmSnapshotDocumentRestoreError, decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
+    SnapshotCapability, VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, Vm, VmRestoreError, VmSnapshot,
+    VmSnapshotDocument, VmSnapshotDocumentError, VmSnapshotDocumentRestoreError,
+    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 
+const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 
 fn muskip_snapshot() -> VmSnapshot {
@@ -18,13 +20,46 @@ fn muskip_snapshot() -> VmSnapshot {
 }
 
 fn encoded_document(state: serde_json::Value) -> Vec<u8> {
+    encoded_document_with_capabilities(&[], state)
+}
+
+fn encoded_document_with_capabilities(
+    required_capabilities: &[&str],
+    state: serde_json::Value,
+) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
         "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-        "required_capabilities": [],
+        "required_capabilities": required_capabilities,
         "state": state,
     }))
     .expect("serialize test snapshot document")
+}
+
+fn encoded_document_with_raw_state(required_capabilities: &[&str], state: &str) -> Vec<u8> {
+    format!(
+        r#"{{"format":{},"schema_version":{},"required_capabilities":{},"state":{state}}}"#,
+        serde_json::to_string(VM_SNAPSHOT_DOCUMENT_FORMAT).expect("serialize document format"),
+        VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+        serde_json::to_string(required_capabilities).expect("serialize document capabilities"),
+    )
+    .into_bytes()
+}
+
+fn legacy_state_with_raw_fields(snapshot: &VmSnapshot, fields: &str) -> String {
+    let mut state = serde_json::to_string(&**snapshot).expect("serialize legacy state projection");
+    assert_eq!(state.pop(), Some('}'));
+    state.push(',');
+    state.push_str(fields);
+    state.push('}');
+    state
+}
+
+fn versioned_state(snapshot: &VmSnapshot) -> serde_json::Value {
+    let mut state = serde_json::to_value(&**snapshot).expect("serialize legacy state projection");
+    state["muskip_registers"] = json!(snapshot.muskip_registers);
+    state["next_muskip_register"] = json!(snapshot.next_muskip_register);
+    state
 }
 
 #[test]
@@ -188,11 +223,166 @@ fn versioned_document_decodes_legacy_state_for_exact_restore() {
 }
 
 #[test]
+fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
+    assert_eq!(
+        VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
+        [MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY]
+    );
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    let outcome = source.run_plain(r"\newmuskip\first\first=2.25mu");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let snapshot = source.snapshot();
+    let document_json = encoded_document_with_capabilities(
+        &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+        versioned_state(&snapshot),
+    );
+    drop(source);
+
+    let document = decode_vm_snapshot_document(&document_json)
+        .expect("decode versioned muskip snapshot document");
+    assert_eq!(
+        document.required_capabilities,
+        snapshot.required_capabilities()
+    );
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore(&mut restored_interner, &document.state)
+        .expect("restore versioned muskip snapshot state");
+    let replay = restored.run_plain(r"\newmuskip\second\second=4mu[\the\first][\the\second]");
+
+    assert_eq!(replay.output, "[2.25mu][4mu]");
+    assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+    assert_eq!(restored.snapshot().next_muskip_register, 258);
+}
+
+#[test]
+fn versioned_muskip_reader_rejects_header_state_capability_laundering() {
+    let scalar_snapshot = muskip_snapshot();
+    let omitted_header = encoded_document(versioned_state(&scalar_snapshot));
+    assert!(matches!(
+        decode_vm_snapshot_document(&omitted_header),
+        Err(VmSnapshotDocumentError::InvalidState(error))
+            if error.contains("declared capabilities")
+                && error.contains(MUSKIP_SCALAR_V1_CAPABILITY)
+    ));
+
+    let mut legacy_interner = ControlSequenceInterner::new();
+    let legacy_vm = Vm::new(&mut legacy_interner);
+    let false_header = encoded_document_with_capabilities(
+        &[MUSKIP_SCALAR_V1_CAPABILITY],
+        serde_json::to_value(legacy_vm.snapshot()).expect("serialize legacy state"),
+    );
+    assert!(matches!(
+        decode_vm_snapshot_document(&false_header),
+        Err(VmSnapshotDocumentError::InvalidState(error))
+            if error.contains("declared capabilities")
+                && error.contains(MUSKIP_SCALAR_V1_CAPABILITY)
+    ));
+
+    let mut alias_interner = ControlSequenceInterner::new();
+    let mut alias_vm = Vm::new(&mut alias_interner);
+    alias_vm.run_plain(r"\muskipdef\fixed=17");
+    let alias_snapshot = alias_vm.snapshot();
+    let missing_alias = encoded_document_with_capabilities(
+        &[MUSKIP_SCALAR_V1_CAPABILITY],
+        versioned_state(&alias_snapshot),
+    );
+    assert!(matches!(
+        decode_vm_snapshot_document(&missing_alias),
+        Err(VmSnapshotDocumentError::InvalidState(error))
+            if error.contains("declared capabilities")
+                && error.contains(MUSKIP_ALIAS_V1_CAPABILITY)
+    ));
+}
+
+#[test]
+fn versioned_muskip_reader_rejects_duplicate_cursor_declarations() {
+    let snapshot = muskip_snapshot();
+    let state = legacy_state_with_raw_fields(
+        &snapshot,
+        r#""muskip_registers":{"17":123},"next_muskip_register":"invalid","next_muskip_register":301"#,
+    );
+    let document = encoded_document_with_raw_state(&[MUSKIP_SCALAR_V1_CAPABILITY], &state);
+
+    let error = decode_vm_snapshot_document(&document)
+        .expect_err("duplicate muskip cursor declarations must be rejected");
+
+    assert!(
+        matches!(&error, VmSnapshotDocumentError::InvalidState(message)
+            if message.contains("duplicate") && message.contains("next_muskip_register")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn versioned_muskip_reader_rejects_duplicate_map_declarations() {
+    let snapshot = muskip_snapshot();
+    let state = legacy_state_with_raw_fields(
+        &snapshot,
+        r#""muskip_registers":"invalid","muskip_registers":{"17":123},"next_muskip_register":301"#,
+    );
+    let document = encoded_document_with_raw_state(&[MUSKIP_SCALAR_V1_CAPABILITY], &state);
+
+    let error = decode_vm_snapshot_document(&document)
+        .expect_err("duplicate muskip map declarations must be rejected");
+
+    assert!(
+        matches!(&error, VmSnapshotDocumentError::InvalidState(message)
+            if message.contains("duplicate") && message.contains("muskip_registers")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn versioned_muskip_reader_rejects_duplicate_decoded_register_indices() {
+    let snapshot = muskip_snapshot();
+    let state = legacy_state_with_raw_fields(
+        &snapshot,
+        r#""muskip_registers":{"17":"invalid","17":123},"next_muskip_register":301"#,
+    );
+    let document = encoded_document_with_raw_state(&[MUSKIP_SCALAR_V1_CAPABILITY], &state);
+
+    let error = decode_vm_snapshot_document(&document)
+        .expect_err("duplicate decoded muskip register indices must be rejected");
+
+    assert!(
+        matches!(&error, VmSnapshotDocumentError::InvalidState(message)
+            if message.contains("duplicate muskip register") && message.contains("17")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn versioned_alias_only_capability_reader_restores_deferred_source_state() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    source.run_plain(r"\muskipdef\fixed=17\def\later{\fixed=6mu}");
+    let snapshot = source.snapshot();
+    assert!(snapshot.muskip_registers.is_empty());
+    assert_eq!(snapshot.next_muskip_register, 256);
+    let document_json = encoded_document_with_capabilities(
+        &[MUSKIP_ALIAS_V1_CAPABILITY],
+        versioned_state(&snapshot),
+    );
+    drop(source);
+
+    let document = decode_vm_snapshot_document(&document_json)
+        .expect("decode alias-only versioned snapshot document");
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore(&mut restored_interner, &document.state)
+        .expect("restore alias-only versioned state");
+    let replay = restored.run_plain(r"\later[\the\fixed]");
+
+    assert_eq!(replay.output, "[6mu]");
+    assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+}
+
+#[test]
 fn document_restore_is_transactional_across_header_and_state_validation() {
     let unsupported_capability = serde_json::to_vec(&json!({
         "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
         "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-        "required_capabilities": ["eqtb.muskip.scalar-v1"],
+        "required_capabilities": ["future.capability-v1"],
         "state": "not a VM snapshot",
     }))
     .expect("serialize unsupported-capability document");
@@ -208,7 +398,7 @@ fn document_restore_is_transactional_across_header_and_state_validation() {
     assert_eq!(
         error,
         VmSnapshotDocumentRestoreError::Document(VmSnapshotDocumentError::UnsupportedCapability(
-            "eqtb.muskip.scalar-v1".to_string()
+            "future.capability-v1".to_string()
         ))
     );
     assert_eq!(interner.len(), original_len);
@@ -264,14 +454,14 @@ fn document_header_and_capabilities_are_validated_before_state() {
     let unsupported_capability = serde_json::to_vec(&json!({
         "format": VM_SNAPSHOT_DOCUMENT_FORMAT,
         "schema_version": VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-        "required_capabilities": ["eqtb.muskip.scalar-v1"],
+        "required_capabilities": ["future.capability-v1"],
         "state": "not a VM snapshot",
     }))
     .expect("serialize unsupported-capability document");
     assert_eq!(
         decode_vm_snapshot_document(&unsupported_capability),
         Err(VmSnapshotDocumentError::UnsupportedCapability(
-            "eqtb.muskip.scalar-v1".to_string()
+            "future.capability-v1".to_string()
         ))
     );
 }

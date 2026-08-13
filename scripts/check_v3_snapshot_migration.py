@@ -56,6 +56,20 @@ EXPECTED_PRE_READER_RESULTS = {
         "replay_safe": True,
         "output": "R",
     },
+    "candidate_supported_muskip_capability_envelope": {
+        "reuse": "hit",
+        "replay_safe": True,
+        "output": "[2.5mu][3mu][3mu]",
+    },
+    "supported_muskip_envelope_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": False,
+        "output": None,
+    },
+    "candidate_duplicate_muskip_member_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
     "candidate_dual_lane_envelope": {"reuse": "miss", "reason": "unreadable"},
     "candidate_unsupported_capability_envelope": {
         "reuse": "miss",
@@ -158,6 +172,16 @@ fn replay_output(snapshot: &VmSnapshot) -> String {
     vm.run_plain(r"\vthreemigrationprobe").output
 }
 
+#[cfg(feature = "candidate")]
+fn replay_muskip_output(snapshot: &VmSnapshot) -> String {
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::restore(&mut interner, snapshot);
+    vm.run_plain(
+        r"\newmuskip\dynamic\dynamic=3mu[\the\muskip17][\the\dynamic][\the\muskip301]",
+    )
+    .output
+}
+
 #[cfg(not(feature = "candidate"))]
 fn consume_envelope(path: &Path) {
     let utf8_path = Utf8Path::from_path(path).expect("UTF-8 envelope path");
@@ -219,6 +243,31 @@ fn consume_reuse(path: &Path) {
     println!("{}", serde_json::to_string(&result).expect("serialize reuse result"));
 }
 
+#[cfg(feature = "candidate")]
+fn consume_muskip_reuse(path: &Path) {
+    let utf8_path = Utf8Path::from_path(path).expect("UTF-8 envelope path");
+    let result = match load_checkpoint_bundle_for_reuse(utf8_path) {
+        CheckpointBundleReuse::Hit(bundle) => {
+            let checkpoint = bundle.checkpoints.first().expect("checkpoint");
+            json!({
+                "reuse": "hit",
+                "replay_safe": checkpoint_is_replay_safe(checkpoint),
+                "output": checkpoint
+                    .snapshot_for_restore()
+                    .map(|restore| replay_muskip_output(restore.state())),
+            })
+        }
+        CheckpointBundleReuse::Miss(reason) => json!({
+            "reuse": "miss",
+            "reason": match reason {
+                CheckpointCacheMissReason::NotFound => "not_found",
+                CheckpointCacheMissReason::Unreadable => "unreadable",
+            },
+        }),
+    };
+    println!("{}", serde_json::to_string(&result).expect("serialize reuse result"));
+}
+
 fn wrap_raw_payload(raw_path: &Path, envelope_path: &Path) {
     let payload = fs::read(raw_path).expect("read raw checkpoint payload");
     let mut compressor = GzEncoder::new(Vec::new(), Compression::fast());
@@ -253,6 +302,8 @@ fn main() {
         "consume-envelope" => consume_envelope(Path::new(&path)),
         #[cfg(feature = "candidate")]
         "consume-reuse" => consume_reuse(Path::new(&path)),
+        #[cfg(feature = "candidate")]
+        "consume-muskip-reuse" => consume_muskip_reuse(Path::new(&path)),
         "wrap-raw" => wrap_raw_payload(
             Path::new(&path),
             Path::new(&second_path.expect("envelope output path")),
@@ -523,6 +574,59 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 repo,
             )
 
+            candidate_muskip_state = copy.deepcopy(candidate_legacy_snapshot)
+            candidate_muskip_state["muskip_registers"] = {
+                "17": 163840,
+                "300": 458752,
+            }
+            candidate_muskip_state["next_muskip_register"] = 301
+            candidate_muskip_bundle = copy.deepcopy(candidate_versioned_bundle)
+            candidate_muskip_bundle["checkpoints"][0]["versioned_snapshot"] = {
+                "document": {
+                    "format": "latexd.vm-snapshot",
+                    "schema_version": 1,
+                    "required_capabilities": ["eqtb.muskip.scalar-v1"],
+                    "state": candidate_muskip_state,
+                }
+            }
+            candidate_muskip_envelope = temp_root / "candidate-muskip-envelope.json"
+            _write_wrapped_payload(
+                candidate_binary,
+                candidate_muskip_bundle,
+                temp_root / "candidate-muskip-payload.json",
+                candidate_muskip_envelope,
+                repo,
+            )
+
+            duplicate_muskip_payload = json.dumps(
+                candidate_muskip_bundle, separators=(",", ":")
+            )
+            cursor_member = '"next_muskip_register":301'
+            if duplicate_muskip_payload.count(cursor_member) != 1:
+                raise AssertionError("expected one muskip cursor member in fixture")
+            duplicate_muskip_payload = duplicate_muskip_payload.replace(
+                cursor_member,
+                '"next_muskip_register":"invalid",' + cursor_member,
+            )
+            duplicate_muskip_payload_path = (
+                temp_root / "candidate-duplicate-muskip-payload.json"
+            )
+            duplicate_muskip_payload_path.write_text(
+                duplicate_muskip_payload, encoding="utf-8"
+            )
+            duplicate_muskip_envelope = (
+                temp_root / "candidate-duplicate-muskip-envelope.json"
+            )
+            _run(
+                [
+                    str(candidate_binary),
+                    "wrap-raw",
+                    str(duplicate_muskip_payload_path),
+                    str(duplicate_muskip_envelope),
+                ],
+                cwd=repo,
+            )
+
             candidate_dual_bundle = copy.deepcopy(candidate_bundle)
             candidate_dual_bundle["checkpoints"][0]["versioned_snapshot"] = candidate_slot
             candidate_dual_envelope = temp_root / "candidate-dual-envelope.json"
@@ -539,7 +643,7 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 "document": {
                     "format": "latexd.vm-snapshot",
                     "schema_version": 1,
-                    "required_capabilities": ["eqtb.muskip.scalar-v1"],
+                    "required_capabilities": ["future.capability-v1"],
                     "state": "must not be decoded",
                 }
             }
@@ -604,6 +708,21 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 "pre_reader_envelope_to_candidate": baseline_envelope_candidate_result,
                 "candidate_versioned_envelope": _read_result(
                     candidate_binary, "consume-reuse", candidate_versioned_envelope, repo
+                ),
+                "candidate_supported_muskip_capability_envelope": _read_result(
+                    candidate_binary,
+                    "consume-muskip-reuse",
+                    candidate_muskip_envelope,
+                    repo,
+                ),
+                "supported_muskip_envelope_to_pre_reader": _read_result(
+                    binary, "consume-envelope", candidate_muskip_envelope, repo
+                ),
+                "candidate_duplicate_muskip_member_envelope": _read_result(
+                    candidate_binary,
+                    "consume-reuse",
+                    duplicate_muskip_envelope,
+                    repo,
                 ),
                 "candidate_dual_lane_envelope": _read_result(
                     candidate_binary, "consume-reuse", candidate_dual_envelope, repo

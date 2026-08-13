@@ -5,8 +5,8 @@ use std::{
 };
 
 use camino::Utf8PathBuf;
-use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use tex_lexer::{Mouth, MouthSnapshot};
 use tex_render_model::{
     CaptionInlinePlaceholderEvent, CaptionKind, EventProducer, EventSequence, FootnoteId, ListKind,
@@ -21,9 +21,12 @@ pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
 pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
 pub const VM_SNAPSHOT_DOCUMENT_FORMAT: &str = "latexd.vm-snapshot";
 pub const VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION: u32 = 1;
-pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[];
 pub const VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 pub const VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
+pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
+    VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
+    VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotCapability(String);
@@ -94,11 +97,107 @@ impl std::error::Error for VmSnapshotDocumentError {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawVmSnapshotDocument {
+struct RawVmSnapshotDocument<'a> {
     format: String,
     schema_version: u32,
     required_capabilities: BTreeSet<String>,
-    state: serde_json::Value,
+    #[serde(borrow)]
+    state: &'a RawValue,
+}
+
+struct RawVersionedVmSnapshotState {
+    fields: BTreeMap<String, Box<RawValue>>,
+}
+
+impl<'de> Deserialize<'de> for RawVersionedVmSnapshotState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct StateVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for StateVisitor {
+            type Value = RawVersionedVmSnapshotState;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a VM snapshot state object")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut fields = BTreeMap::new();
+                while let Some(name) = map.next_key::<String>()? {
+                    if fields.contains_key(&name) {
+                        return Err(serde::de::Error::custom(format!(
+                            "duplicate state member `{name}`"
+                        )));
+                    }
+                    let value = map.next_value::<Box<RawValue>>()?;
+                    fields.insert(name, value);
+                }
+                Ok(RawVersionedVmSnapshotState { fields })
+            }
+        }
+
+        deserializer.deserialize_map(StateVisitor)
+    }
+}
+
+struct StrictMuskipRegisters(BTreeMap<u32, i32>);
+
+impl<'de> Deserialize<'de> for StrictMuskipRegisters {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RegistersVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RegistersVisitor {
+            type Value = StrictMuskipRegisters;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an object of canonical muskip register indices")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut raw_registers = BTreeMap::new();
+                while let Some(raw_index) = map.next_key::<String>()? {
+                    let index = raw_index.parse::<u32>().map_err(|_| {
+                        serde::de::Error::custom(format!(
+                            "invalid muskip register index `{raw_index}`"
+                        ))
+                    })?;
+                    if raw_index != index.to_string() {
+                        return Err(serde::de::Error::custom(format!(
+                            "non-canonical muskip register index `{raw_index}`"
+                        )));
+                    }
+                    if raw_registers.contains_key(&index) {
+                        return Err(serde::de::Error::custom(format!(
+                            "duplicate muskip register `{index}`"
+                        )));
+                    }
+                    let value = map.next_value::<Box<RawValue>>()?;
+                    raw_registers.insert(index, value);
+                }
+
+                let mut registers = BTreeMap::new();
+                for (index, raw_value) in raw_registers {
+                    let value = serde_json::from_str::<i32>(raw_value.get())
+                        .map_err(serde::de::Error::custom)?;
+                    registers.insert(index, value);
+                }
+                Ok(StrictMuskipRegisters(registers))
+            }
+        }
+
+        deserializer.deserialize_map(RegistersVisitor)
+    }
 }
 
 pub fn decode_vm_snapshot_document(
@@ -122,27 +221,60 @@ pub fn decode_vm_snapshot_document(
         ));
     }
 
-    let mut ignored_fields = Vec::new();
-    let state = serde_ignored::deserialize(document.state.into_deserializer(), |path| {
-        ignored_fields.push(path.to_string());
-    })
-    .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
-    if !ignored_fields.is_empty() {
+    let declared_capabilities = document
+        .required_capabilities
+        .iter()
+        .cloned()
+        .map(SnapshotCapability::new)
+        .collect::<BTreeSet<_>>();
+    let mut state_fields =
+        serde_json::from_str::<RawVersionedVmSnapshotState>(document.state.get())
+            .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?
+            .fields;
+    let muskip_registers = state_fields
+        .remove("muskip_registers")
+        .map(|raw| serde_json::from_str::<StrictMuskipRegisters>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?
+        .map(|registers| registers.0)
+        .unwrap_or_default();
+    let next_muskip_register = state_fields
+        .remove("next_muskip_register")
+        .map(|raw| serde_json::from_str::<u32>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?
+        .unwrap_or_else(default_next_muskip_register);
+    let mut legacy_fields = serde_json::Map::new();
+    for (name, raw) in state_fields {
+        let value = serde_json::from_str(raw.get())
+            .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+        legacy_fields.insert(name, value);
+    }
+    let legacy =
+        serde_json::from_value::<LegacyVmSnapshotV1>(serde_json::Value::Object(legacy_fields))
+            .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let state = VmSnapshot::from_parts(legacy, muskip_registers, next_muskip_register);
+    let derived_capabilities = state.required_capabilities();
+    if declared_capabilities != derived_capabilities {
         return Err(VmSnapshotDocumentError::InvalidState(format!(
-            "unknown fields for schema {}: {}",
-            document.schema_version,
-            ignored_fields.join(", ")
+            "declared capabilities [{}] do not match state requirements [{}]",
+            declared_capabilities
+                .iter()
+                .map(SnapshotCapability::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            derived_capabilities
+                .iter()
+                .map(SnapshotCapability::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
     }
 
     Ok(VmSnapshotDocument {
         format: document.format,
         schema_version: document.schema_version,
-        required_capabilities: document
-            .required_capabilities
-            .into_iter()
-            .map(SnapshotCapability::new)
-            .collect(),
+        required_capabilities: declared_capabilities,
         state,
     })
 }

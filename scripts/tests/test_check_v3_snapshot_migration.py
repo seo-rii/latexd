@@ -43,6 +43,20 @@ EXPECTED_RESULTS = {
         "replay_safe": True,
         "output": "R",
     },
+    "candidate_supported_muskip_capability_envelope": {
+        "reuse": "hit",
+        "replay_safe": True,
+        "output": "[2.5mu][3mu][3mu]",
+    },
+    "supported_muskip_envelope_to_pre_reader": {
+        "accepted": True,
+        "replay_safe": False,
+        "output": None,
+    },
+    "candidate_duplicate_muskip_member_envelope": {
+        "reuse": "miss",
+        "reason": "unreadable",
+    },
     "candidate_dual_lane_envelope": {"reuse": "miss", "reason": "unreadable"},
     "candidate_unsupported_capability_envelope": {
         "reuse": "miss",

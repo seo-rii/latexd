@@ -11,7 +11,7 @@ blake3.workspace = true
 camino.workspace = true
 flate2.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 tempfile.workspace = true
 tex-tokens = { path = "../tex-tokens" }
 tex-vm = { path = "../tex-vm" }
