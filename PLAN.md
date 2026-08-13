@@ -624,19 +624,38 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   safety blocker는 아니지만, public API 안정화나 versioned capability 지원 전에는
   projection을 제한하거나 손실 계약을 명시해야 한다. 현재 이름이 넓은
   `normalize_legacy_vm_snapshot`도 그때 versioned normalization과 분리한다.
+- `6604eb7`의 source-level muskip slice는 `\newmuskip`, `\muskipdef`, raw `\muskip`,
+  markerless register alias, `\the`, local/global/`\globaldefs`, 그리고
+  `\advance`/`\multiply`/`\divide`를 typed owner에 연결한다. Scalar-v1 범위는 base
+  `mu`만 보존하며 명시적 nonzero `plus`/`minus` component는 전체 RHS를 소비하되
+  기존 값을 바꾸지 않는다. 음수 index, 0 divisor, `MIN / -1`, allocator 고갈은
+  wrap/panic/후속 prefix 또는 `\afterassignment` 누수 없이 종료한다.
+- Alias-only/deferred state는 `eqtb.muskip.alias-v1`을 요구한다. Visible scope뿐 아니라
+  모든 serialized scope history, token register, aftergroup/afterassignment/end-document
+  hook, continuation token, source-end hook, module option body를 검사한다. 동적 이름은
+  exact semantic 판정을 약속하지 않고 conservative may-depend 정책을 사용한다.
+  따라서 persisted `\csname`, `\ifcsname`, `\@nameuse` 또는 그 primitive alias도
+  capability를 요구하며 false-positive attachment suppression은 허용한다. 이는 unsafe
+  legacy replay보다 fresh source rebuild를 선택하는 명시적 호환성 계약이다.
+- Alias/scalar capability state는 legacy serializer에서 첫 byte 전에 거부되고,
+  explicit legacy projection decode도 같은 구조 판정으로 fail-closed된다. Preamble,
+  shipout, input-boundary attachment는 모두 none이며, compiler unchanged-tail reuse는
+  필요한 모든 prior page checkpoint가 실제 restore 가능할 때만 선택된다. Suppressed
+  state가 있는 다음 revision은 사용자 오류 대신 source rebuild로 동일 output을 만든다.
+- Source implementation Pro review `6a7cb02d-855c-83ee-9ffe-36371addf309`은 초기
+  candidate를 **REVISE**(confidence 약 0.90)로 판정했다. 지적된 dynamic-name
+  laundering, lossy plus/minus, division overflow, failure-completion 누수는 각각
+  RED/GREEN으로 닫았다. Mid-command capture 지적은 input-enter가 primitive token을
+  requeue한 snapshot이고 input-exit가 dispatcher boundary라는 실제 구조로 기각했다.
+  Primitive legacy meaning은 enum ordinal이 아니라 string name DTO이므로 variant 삽입에
+  따른 wire discriminant 위험도 해당하지 않는다. Versioned supported capability 집합과
+  durable writer는 계속 비활성이다.
 
-승인된 다음 순서는 (1) source-level allocator와 alias 의미를 RED test로 고정하되
-cursor overflow를 checked/fail-closed로 처리하고 alias-only state도 구조적으로
-capability를 요구하게 만들기, (2) fixed/dynamic alias assignment, `\the`,
-local/global unwind와 snapshot/restore differential 구현, (3) 소스에서 실제 도달한
-capability-bearing state의 preamble/shipout/input-boundary suppression 및 fresh source
-rebuild 검증, (4) arithmetic, (5) muskip capability reader, (6) 명시적으로 disabled인
-versioned writer 구현, (7) old/new real-binary gate와 reader 선배포 뒤 별도 writer
-활성화다. 열린 group은 현재 `VmContinuationBlocker::OpenGroup`으로 capture가
-차단되지만, alias/SaveStack 표현이 추가될 때 capability 판정이 visible scope뿐 아니라
-직렬화 가능한 모든 alias/history 구조를 빠짐없이 덮는지 구조 테스트로 고정한다.
-Durable checkpoint root마다 capability-bearing state가 legacy attachment bytes를
-0개 생성한다는 inventory도 source primitive rollout 전에 완료한다. 어느 단계에서도
+다음 순서는 (1) 현재 disabled supported set을 유지한 채 muskip capability reader를
+구현하고, (2) versioned writer를 명시적으로 disabled policy 뒤에 구현하며, (3) old/new
+real-binary gate와 reader 선배포 뒤 별도 change로 writer를 활성화하는 것이다. 현재
+source slice의 conservative dynamic-name suppression 빈도는 activation 전에 측정하고,
+필요할 때만 binding-aware precision을 후속 최적화한다. 어느 단계에서도
 capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는 save 오류가
 아니라 attachment suppression과 정상 source rebuild로 귀결한다.
 
@@ -666,11 +685,12 @@ capability-bearing state를 legacy lane에 쓰지 않으며, non-legacy state는
 1. control sequence definition과 `\let` — 완료 (`775cc22`)
 2. count와 arithmetic
 3. dimen
-4. skip — 완료; muskip — readers-first document와 dual checkpoint reader 완료,
+4. skip — 완료; muskip — readers-first document와 dual checkpoint reader,
    legacy eligibility/suppression seam, typed runtime owner, complete in-memory
-   snapshot/capability와 strict legacy boundary 완료. Source allocator/alias와
-   arithmetic 진행 예정 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`, `a2466c7`,
-   `b809c30`, `f899127`, `f02a4cd`)
+   snapshot/capability, strict legacy boundary, source allocator/alias/scalar assignment,
+   arithmetic, dynamic-name capability와 fresh-source rebuild 완료. Capability reader와
+   disabled writer phase가 남아 있다 (`e3bec73`, `dcbee7c`, `1d29aaa`, `8d91fd3`,
+   `a2466c7`, `b809c30`, `f899127`, `f02a4cd`, `6604eb7`).
 5. toks
 6. catcode
 7. mathcode/delcode

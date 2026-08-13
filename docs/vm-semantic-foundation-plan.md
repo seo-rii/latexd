@@ -969,17 +969,58 @@ The migration evidence and current boundary are:
   muskip field re-establishes that initial cursor independently of restored skip
   allocator progress. No snapshot field, capability, alias/allocation primitive,
   or arithmetic is source-reachable yet.
+- `f899127` completes the in-memory boundary without changing the legacy DTO.
+  `VmSnapshot` owns `muskip_registers` and `next_muskip_register` beside the
+  exact `LegacyVmSnapshotV1` projection. A nonempty map or cursor other than 256
+  derives `eqtb.muskip.scalar-v1`; legacy serialization rejects before bytes are
+  written, and preamble, shipout, and input-boundary capture suppress attachment.
+  The complete state fingerprint includes capability, muskip map, and cursor,
+  while the legacy-safe byte/hash contract stays unchanged.
+- The complete-snapshot review `6a7ca2a2-afa4-83e8-aad8-f7381d3e7695`
+  returned **PROCEED** with 0.82 confidence. `f02a4cd` applies its closeout:
+  legacy DTO unknown fields fail closed, cursors below 256 are rejected before
+  restore mutation, cursor-only state is suppressed, and recapture removes a
+  stale legacy attachment from the durable bundle.
+- `6604eb7` adds the source slice: `\newmuskip`, `\muskipdef`, raw `\muskip`, markerless
+  aliases, `\the`, local/global/`\globaldefs`, and saturating arithmetic. The
+  scalar-v1 source subset stores only the base scaled `mu` value. Explicit
+  nonzero `plus` or `minus` components are fully consumed but reject the
+  assignment without changing the old value. Negative indices, division by
+  zero, signed `MIN / -1`, and allocator exhaustion do not wrap, panic, leak
+  syntax, retain a prefix, or delay `\afterassignment` into another command.
+- Source aliases are intentionally encoded like the existing register-family
+  aliases, as zero-argument markerless macros expanding to `\muskip<digits>`.
+  `eqtb.muskip.alias-v1` is derived from every serialized scope/history and
+  executable token owner. Dynamic-name compatibility uses a conservative
+  may-depend contract: persisted `\csname`, `\ifcsname`, `\@nameuse`, or an
+  alias whose meaning is one of those primitives also requires the capability.
+  This can suppress an actually unrelated checkpoint, but cannot permit a
+  dynamic muskip lookup to enter the legacy lane. Fresh source rebuild is the
+  accepted recovery path; a future binding-aware analysis is an optimization,
+  not a safety prerequisite.
+- Explicit lossy legacy projections containing the new alias/dynamic meanings
+  are rejected by legacy decode. The compiler reuses an unchanged page tail only
+  when every corresponding prior checkpoint is replay-safe and restoreable. If
+  capability suppression removed an attachment, the already completed source
+  run is retained and all needed checkpoints are freshly captured rather than
+  returning `missing reusable unchanged-tail snapshot` to the user.
+- The source implementation review `6a7cb02d-855c-83ee-9ffe-36371addf309`
+  returned **REVISE** with about 0.90 confidence. Its confirmed blockers—dynamic
+  name laundering, lossy finite components, signed division overflow, and
+  failed-operation completion leakage—were reproduced as RED tests and fixed.
+  Its mid-command-capture concern does not match the implementation: input-enter
+  snapshots requeue the complete input primitive token, while input-exit capture
+  occurs at a dispatcher boundary. Primitive meanings use string names in the
+  legacy DTO, so adding runtime enum variants does not renumber a wire tag.
 
-The exact remaining order is: RED-test the cursor's complete snapshot/restore
-differential and a real capability-bearing snapshot's write, suppression, and
-laundering boundaries; make the in-memory snapshot complete in the same gate
-that derives the capability and exercises capture suppression; add allocator,
-alias, and arithmetic primitives; land the muskip capability reader; implement the
-versioned writer behind an explicit disabled policy; then activate only after
-old/new real-binary gates and reader deployment. A capability-bearing state must
-never be written through the legacy lane, a checkpoint with both lanes is
-invalid, and production save rejection remains defense in depth rather than
-routine suppression control flow.
+The exact remaining order is: land the muskip capability reader while the
+supported-capability set stays empty; implement the versioned writer behind an
+explicit disabled policy; then activate only after old/new real-binary gates and
+reader deployment. Measure conservative dynamic-name suppression before writer
+activation and improve its precision only if the rebuild cost warrants it. A
+capability-bearing state must never be written through the legacy lane, a
+checkpoint with both lanes is invalid, and production save rejection remains
+defense in depth rather than routine suppression control flow.
 
 The asserting production-restore follow-up is already closed by `00c8ee3`,
 which makes `Vm::try_restore` the guarded production boundary.
@@ -1052,10 +1093,11 @@ Migration order:
 2. count registers and arithmetic — landed;
 3. dimen registers — landed;
 4. skip registers — landed; muskip readers-first migration has completed the
-   old-binary fixture, cache-miss normalization, reader-only document, and dual
-   checkpoint reader phases; the legacy eligibility/attachment suppression seam
-   and typed runtime owner are installed, and complete snapshot/capability
-   regressions are next;
+   old-binary fixture, cache-miss normalization, reader-only document, dual
+   checkpoint reader, legacy eligibility/attachment suppression, typed runtime
+   owner, complete snapshot/capability, source allocator/alias/scalar assignment,
+   arithmetic, dynamic-name suppression, and source-rebuild phases. Capability
+   reader and disabled-writer phases remain;
 5. token registers — landed;
 6. catcodes — landed;
 7. mathcodes and delcodes;
