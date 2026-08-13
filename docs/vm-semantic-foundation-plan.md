@@ -1181,10 +1181,20 @@ The migration evidence and current boundary are:
   internal/external `"legacy_only"` bytes are unchanged. Tex-checkpoint
   59+12+21 plus the doctest, latexd lib 237, workspace check, canonical Clippy,
   and formatting pass.
+- `499db9a` closes the same-release writer/reader admission gap. Public compact
+  save and envelope load inject the same 8 GiB uncompressed ceiling. The
+  streaming integrity writer rejects the first write that would exceed the
+  ceiling with a typed `CheckpointUncompressedSizeLimitExceeded`, before footer,
+  sync, or atomic persist. A low-limit test proves exact-byte save/read success,
+  limit-plus-one rejection, preservation of a sentinel target, and temporary
+  cleanup. Choosing a materially lower operational ceiling still depends on
+  representative long-paper size/RSS evidence, but a successful save can no
+  longer exceed the same release's reader limit. Tex-checkpoint 60+12+21 plus
+  the doctest, latexd lib 237, workspace checks, canonical Clippy/formatting,
+  and the exact `00c8ee3` matrix pass.
 
-The exact remaining repository order is: mirror the current 8 GiB reader cap on
-save; add typed write-failure outcomes; and prove exact production
-feature/profile behavior.
+The exact remaining repository order is: add typed write-failure outcomes, then
+prove exact production feature/profile behavior.
 Then verify reader fleet deployment, the rollback floor, source-rebuild
 reliability, and workload/resource evidence before activating the writer only
 in a separate reviewed canary change.

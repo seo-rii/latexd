@@ -795,9 +795,19 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   default와 internal/external metadata의 기존 `"legacy_only"` wire도 유지된다.
   Tex-checkpoint 59+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt가
   green이다.
+- `499db9a`는 네 번째 P1인 reader/writer resource admission 대칭을 닫았다.
+  Public save와 envelope load가 같은 8 GiB uncompressed ceiling을 주입하고, streaming
+  `IntegrityWriter`가 limit을 넘기는 write를 typed
+  `CheckpointUncompressedSizeLimitExceeded { attempted, limit }`로 중단한다. Test-only
+  작은 limit에서 exact byte save/read는 성공하고 +1 byte save는 persist 전에 실패하며
+  기존 sentinel target과 directory entry 수가 유지되어 temporary file cleanup도
+  확인된다. 이 correctness ceiling은 이제 닫혔고, representative long-paper size/RSS를
+  근거로 더 낮은 운영 상한을 정하는 일만 rollout evidence로 남는다. Tex-checkpoint
+  60+12+21+doctest, latexd lib 237, workspace check, canonical Clippy/fmt와 exact
+  `00c8ee3` matrix가 green이다.
 
-다음 저장소 순서는 (1) 현재 reader 8 GiB 상한을 save에도 대칭 적용하고, (2) typed
-write-failure telemetry와 exact production feature/profile gate를 닫는 것이다.
+다음 저장소 순서는 (1) typed write-failure telemetry와 (2) exact production
+feature/profile gate를 닫는 것이다.
 그 뒤 실제 reader fleet 선배포/rollback floor와 source-rebuild/resource evidence를
 확인하고, 별도 change와 canary 결정으로만 writer를 활성화한다. 현재 source slice의
 conservative dynamic-name suppression 빈도는 activation 전에 측정하고, 필요할 때만
