@@ -23,9 +23,9 @@ use tex_bootstrap::{
     run_project_pdf_from_base_snapshot_with_mounts,
 };
 use tex_checkpoint::{
-    CheckpointBundle, CheckpointBundleReuse, CheckpointKind, CheckpointPage,
-    CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint,
-    SnapshotAttachment, StoredCheckpoint, build_checkpoint_bundle_with_shipouts_and_stats,
+    CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse, CheckpointKind,
+    CheckpointPage, CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
+    ShipoutCheckpoint, StoredCheckpoint, build_checkpoint_bundle_with_shipouts_and_stats,
     checkpoint_is_replay_safe, find_unchanged_tail, load_checkpoint_bundle_for_reuse,
     preamble_key_for_source, save_checkpoint_bundle, select_reusable_preamble,
 };
@@ -1302,13 +1302,6 @@ struct BuildMeta {
     checkpoint_attachment_counts: CheckpointAttachmentCounts,
     #[serde(default)]
     checkpoint_suppression_counts: CheckpointSuppressionCounts,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct CheckpointAttachmentCounts {
-    none: usize,
-    legacy: usize,
-    versioned: usize,
 }
 
 const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
@@ -2774,35 +2767,7 @@ impl CompilerDriver {
                 semantic_fixpoint_reached,
                 semantic_aux_backdated,
                 checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
-                checkpoint_attachment_counts: CheckpointAttachmentCounts {
-                    none: checkpoint_bundle
-                        .checkpoints
-                        .iter()
-                        .filter(|checkpoint| {
-                            matches!(checkpoint.snapshot_attachment(), SnapshotAttachment::None)
-                        })
-                        .count(),
-                    legacy: checkpoint_bundle
-                        .checkpoints
-                        .iter()
-                        .filter(|checkpoint| {
-                            matches!(
-                                checkpoint.snapshot_attachment(),
-                                SnapshotAttachment::Legacy(_)
-                            )
-                        })
-                        .count(),
-                    versioned: checkpoint_bundle
-                        .checkpoints
-                        .iter()
-                        .filter(|checkpoint| {
-                            matches!(
-                                checkpoint.snapshot_attachment(),
-                                SnapshotAttachment::Versioned(_)
-                            )
-                        })
-                        .count(),
-                },
+                checkpoint_attachment_counts: checkpoint_bundle.attachment_counts(),
                 checkpoint_suppression_counts,
             };
             let serialized_build_meta =

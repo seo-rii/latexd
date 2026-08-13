@@ -512,6 +512,13 @@ pub struct CheckpointBundle {
     pub pages: Vec<CheckpointPage>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointAttachmentCounts {
+    pub none: usize,
+    pub legacy: usize,
+    pub versioned: usize,
+}
+
 #[derive(Serialize)]
 struct CheckpointBundleWriteWire<'a> {
     checkpoints: Vec<StoredCheckpointWriteWire<'a>>,
@@ -552,6 +559,18 @@ impl CheckpointBundle {
             checkpoint.write_wire(policy)?;
         }
         Ok(())
+    }
+
+    pub fn attachment_counts(&self) -> CheckpointAttachmentCounts {
+        let mut counts = CheckpointAttachmentCounts::default();
+        for checkpoint in &self.checkpoints {
+            match checkpoint.snapshot_attachment() {
+                SnapshotAttachment::None => counts.none += 1,
+                SnapshotAttachment::Legacy(_) => counts.legacy += 1,
+                SnapshotAttachment::Versioned(_) => counts.versioned += 1,
+            }
+        }
+        counts
     }
 }
 
@@ -1277,11 +1296,12 @@ mod tests {
     };
 
     use super::{
-        CheckpointBundle, CheckpointBundleReuse, CheckpointBundleWriteWithPolicy,
-        CheckpointCacheMissReason, CheckpointKind, CheckpointPage, InputBoundaryCheckpoint,
-        SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode,
-        SnapshotWritePolicy, StoredSnapshotAttachment, VersionedSnapshotSlot,
-        build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
+        CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse,
+        CheckpointBundleWriteWithPolicy, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
+        CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
+        ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode, SnapshotWritePolicy,
+        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
+        build_checkpoint_bundle_with_shipouts,
         build_checkpoint_bundle_with_shipouts_and_policy_and_stats,
         build_checkpoint_bundle_with_shipouts_and_stats, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
@@ -1467,6 +1487,263 @@ mod tests {
         assert!(restore.is_versioned());
         assert_eq!(replay.output, "[2.5mu]");
         assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+    }
+
+    #[test]
+    fn versioned_write_policy_round_trips_shipout_and_input_boundary_categories() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot =
+            compile_format_snapshot(&mut interner, r"\def\preambleword{legacy}");
+        let mut source = Vm::new(&mut interner);
+        let outcome =
+            source.run_plain(r"\newmuskip\first\first=2.5mu\def\checkpointword{category}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let category_snapshot = source.snapshot();
+        let policy = SnapshotWriteMode::Versioned {
+            enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+        };
+        let pages = [CheckpointPage {
+            page_id: "page-1".to_string(),
+            index: 0,
+            content_hash: "page-hash".to_string(),
+            text_start_utf8: 0,
+            text_end_utf8: 24,
+        }];
+        let build = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
+            7,
+            &preamble_snapshot,
+            "preamble",
+            11,
+            &pages,
+            &[ShipoutCheckpoint {
+                snapshot: category_snapshot.clone(),
+                source_offset_utf8: 37,
+                resume_path: Some(Utf8PathBuf::from("sections/tail.tex")),
+                continuation_stack: vec![VmReplayFrame {
+                    path: Utf8PathBuf::from("main.tex"),
+                    source_offset_utf8: 41,
+                }],
+            }],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/body.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 53,
+                continuation_stack: vec![VmReplayFrame {
+                    path: Utf8PathBuf::from("outer.tex"),
+                    source_offset_utf8: 59,
+                }],
+                output_start_utf8: 17,
+                page_index_after: 1,
+                snapshot: category_snapshot,
+            }],
+            policy,
+        )
+        .expect("build category-complete versioned checkpoint");
+
+        assert_eq!(
+            build.suppression_counts,
+            CheckpointSuppressionCounts::default()
+        );
+        assert_eq!(
+            build.bundle.attachment_counts(),
+            CheckpointAttachmentCounts {
+                none: 0,
+                legacy: 1,
+                versioned: 2,
+            }
+        );
+        let tempdir = tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(tempdir.path().join("checkpoints.json"))
+            .expect("UTF-8 checkpoint path");
+        save_checkpoint_bundle_with_policy(&path, &build.bundle, policy)
+            .expect("save category-complete versioned checkpoint");
+        let reloaded = load_checkpoint_bundle(&path).expect("reload versioned checkpoints");
+        assert_eq!(
+            reloaded.attachment_counts(),
+            CheckpointAttachmentCounts {
+                none: 0,
+                legacy: 1,
+                versioned: 2,
+            }
+        );
+
+        let shipout = reloaded
+            .checkpoints
+            .iter()
+            .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::Shipout)
+            .expect("shipout checkpoint");
+        assert_eq!(shipout.meta.source_offset_utf8, 37);
+        assert_eq!(
+            shipout.meta.resume_path.as_deref(),
+            Some(camino::Utf8Path::new("sections/tail.tex"))
+        );
+        let input = reloaded
+            .checkpoints
+            .iter()
+            .find(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
+            .expect("input-boundary checkpoint");
+        assert_eq!(input.meta.source_offset_utf8, 53);
+        assert_eq!(input.meta.output_start_utf8, 17);
+        assert_eq!(
+            input.meta.module_path.as_deref(),
+            Some(camino::Utf8Path::new("sections/body.tex"))
+        );
+
+        for checkpoint in [shipout, input] {
+            let restore = checkpoint
+                .snapshot_for_restore()
+                .expect("versioned category restore state");
+            assert!(restore.is_versioned());
+            let mut restored_interner = ControlSequenceInterner::new();
+            let mut restored = Vm::try_restore(&mut restored_interner, restore.state())
+                .expect("restore versioned category checkpoint");
+            let replay = restored.run_plain(r"[\the\first][\checkpointword]");
+            assert_eq!(replay.output, "[2.5mu][category]");
+            assert!(replay.diagnostics.is_empty(), "{:#?}", replay.diagnostics);
+        }
+    }
+
+    #[test]
+    fn versioned_write_policy_reports_category_capability_suppression() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot =
+            compile_format_snapshot(&mut interner, r"\def\preambleword{legacy}");
+        let mut source = Vm::new(&mut interner);
+        let outcome = source.run_plain(r"\newmuskip\first\first=2.5mu");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let category_snapshot = source.snapshot();
+        let pages = [CheckpointPage {
+            page_id: "page-1".to_string(),
+            index: 0,
+            content_hash: "page-hash".to_string(),
+            text_start_utf8: 0,
+            text_end_utf8: 24,
+        }];
+        let build = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
+            8,
+            &preamble_snapshot,
+            "preamble",
+            0,
+            &pages,
+            &[ShipoutCheckpoint {
+                snapshot: category_snapshot.clone(),
+                source_offset_utf8: 37,
+                resume_path: None,
+                continuation_stack: Vec::new(),
+            }],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/body.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 53,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 17,
+                page_index_after: 1,
+                snapshot: category_snapshot,
+            }],
+            SnapshotWriteMode::Versioned {
+                enabled_capabilities: &[MUSKIP_SCALAR_V1_CAPABILITY],
+            },
+        )
+        .expect("build partially enabled category checkpoints");
+
+        assert_eq!(build.suppression_counts.unsafe_continuation, 0);
+        assert_eq!(build.suppression_counts.unsupported_capabilities, 2);
+        assert_eq!(
+            build.bundle.attachment_counts(),
+            CheckpointAttachmentCounts {
+                none: 2,
+                legacy: 1,
+                versioned: 0,
+            }
+        );
+        for kind in [CheckpointKind::Shipout, CheckpointKind::InputBoundary] {
+            let checkpoint = build
+                .bundle
+                .checkpoints
+                .iter()
+                .find(|checkpoint| checkpoint.meta.kind == kind)
+                .expect("category checkpoint");
+            assert!(!checkpoint.meta.snapshot_attached);
+            assert!(matches!(
+                checkpoint.snapshot_attachment(),
+                SnapshotAttachment::None
+            ));
+        }
+    }
+
+    #[test]
+    fn versioned_write_policy_reports_category_continuation_suppression() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot =
+            compile_format_snapshot(&mut interner, r"\def\preambleword{legacy}");
+        let mut source = Vm::new(&mut interner);
+        let outcome = source.run_plain(r"\newmuskip\first\first=2.5mu");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut category_snapshot = source.snapshot();
+        category_snapshot
+            .continuation_safety
+            .blockers
+            .push(VmContinuationBlocker::OpenGroup);
+        let pages = [CheckpointPage {
+            page_id: "page-1".to_string(),
+            index: 0,
+            content_hash: "page-hash".to_string(),
+            text_start_utf8: 0,
+            text_end_utf8: 24,
+        }];
+        let build = build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
+            9,
+            &preamble_snapshot,
+            "preamble",
+            0,
+            &pages,
+            &[ShipoutCheckpoint {
+                snapshot: category_snapshot.clone(),
+                source_offset_utf8: 37,
+                resume_path: None,
+                continuation_stack: Vec::new(),
+            }],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/body.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 53,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 17,
+                page_index_after: 1,
+                snapshot: category_snapshot,
+            }],
+            SnapshotWriteMode::Versioned {
+                enabled_capabilities: &[MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY],
+            },
+        )
+        .expect("build unsafe category checkpoints");
+
+        assert_eq!(build.suppression_counts.unsafe_continuation, 2);
+        assert_eq!(build.suppression_counts.unsupported_capabilities, 0);
+        assert_eq!(
+            build.bundle.attachment_counts(),
+            CheckpointAttachmentCounts {
+                none: 2,
+                legacy: 1,
+                versioned: 0,
+            }
+        );
+        for kind in [CheckpointKind::Shipout, CheckpointKind::InputBoundary] {
+            let checkpoint = build
+                .bundle
+                .checkpoints
+                .iter()
+                .find(|checkpoint| checkpoint.meta.kind == kind)
+                .expect("category checkpoint");
+            assert!(!checkpoint.meta.snapshot_attached);
+            assert!(matches!(
+                checkpoint.snapshot_attachment(),
+                SnapshotAttachment::None
+            ));
+        }
     }
 
     #[test]
