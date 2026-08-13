@@ -1083,6 +1083,24 @@ The migration evidence and current boundary are:
   either additive field decodes as legacy-only with zero counts. Deployment can
   therefore audit the hard invariant `versioned == 0`; changing that value still
   requires a separate writer-activation change.
+- The resource audit confirmed that `IntegrityReader` reads at most the declared
+  uncompressed length and probes exactly one further decompressed byte, while
+  the existing 8 GiB declaration ceiling is checked before gzip decoding. The
+  remaining local `arxiv-basic` artifacts top out near 1.17 MiB but are legacy
+  raw bundles rather than a representative compact-envelope uncompressed-size
+  distribution. Lowering the production ceiling without long-paper size/RSS
+  evidence could make the writer produce an artifact its own reader rejects;
+  measurement, a save-side matching limit, and the lower read limit therefore
+  remain one coordinated `ARCH-014` change.
+- `d1fc0c2` closes the context-independent writer/restore validity gap from the
+  Pro review. Root-scope presence, the muskip cursor lower bound, and primitive
+  name support now have one validation function called by both canonical writer
+  preflight and `Vm::try_restore`. A document with an exact capability header
+  but missing root scope, cursor below 256, or an unknown primitive fails before
+  any bytes are written. The reader retains its deliberate two-stage
+  decode-then-fallible-restore API. Tex-vm, tex-checkpoint, latexd lib, workspace
+  check, canonical Clippy/formatting, and the exact `00c8ee3` matrix remain green;
+  the document contract now has 24 tests.
 
 The exact remaining order is: verify reader fleet deployment and the rollback
 floor, close bounded failure/resource observability and exact production-build

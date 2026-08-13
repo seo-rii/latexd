@@ -710,6 +710,21 @@ hybrid reader-first/runtime-only 첫 단계를 `PROCEED`(confidence 0.87)로
   고정된다. 두 field가 없는 이전 build metadata는 `legacy_only`와 zero counts로
   읽히므로 additive artifact compatibility를 유지한다. 이는 관측 gate이며 writer
   activation이나 외부 policy injection API가 아니다.
+- Resource audit에서 envelope reader는 선언한 uncompressed length까지만 gzip stream을
+  읽고 정확히 1 byte를 더 확인해 초과를 거부하며, 8 GiB ceiling도 해제 전에
+  검사함을 재확인했다. Workspace의 남은 `arxiv-basic` checkpoint 표본은 최대 약
+  1.17 MiB지만 모두 현재 compact envelope의 representative uncompressed corpus가
+  아니므로 이를 근거로 production cap을 임의 축소하지 않는다. Writer가 자신이 만든
+  artifact를 reader가 거부하지 않도록, 실제 long-paper uncompressed size/RSS 측정과
+  save-side 동일 cap을 함께 설계한 뒤 `ARCH-014`에서 별도 변경한다.
+- `d1fc0c2`는 Pro review의 writer/read semantic-validity gap을 닫았다.
+  `Vm::try_restore`의 context-independent root-scope, muskip cursor, primitive-name
+  validation을 writer와 공유한다. 따라서 exact capability header를 가진 문서라도
+  root scope가 없거나 cursor가 256 미만이거나 unknown primitive를 참조하면 canonical
+  document serializer가 첫 byte 전에 실패하고, 이를 감싼 slot/checkpoint preflight도
+  같은 판정을 사용한다. Reader의 기존 decode→fallible restore 두 단계와 error type은
+  유지된다. Tex-vm 전체(document contract 24), tex-checkpoint 전체, latexd lib 237,
+  workspace check/Clippy/fmt와 exact `00c8ee3` matrix가 green이다.
 
 다음 순서는 (1) 실제 reader fleet 선배포와 rollback floor를 확인하고, bounded
 failure/resource observability 및 exact production feature/profile gate를 닫은 뒤,
