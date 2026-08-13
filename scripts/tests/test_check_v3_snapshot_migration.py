@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.check_v3_snapshot_migration import validate_pre_reader_results
+from scripts.check_v3_snapshot_migration import cargo_build_command, validate_pre_reader_results
 
 
 EXPECTED_RESULTS = {
@@ -73,6 +73,31 @@ EXPECTED_RESULTS = {
 
 
 class V3SnapshotMigrationBaselineTests(unittest.TestCase):
+    def test_release_build_command_pins_profile_and_target(self) -> None:
+        command = cargo_build_command(
+            "/tmp/harness/Cargo.toml",
+            features=["candidate"],
+            cargo_profile="release",
+            target="x86_64-unknown-linux-gnu",
+        )
+
+        self.assertEqual(
+            command,
+            [
+                "cargo",
+                "build",
+                "--quiet",
+                "--locked",
+                "--release",
+                "--target",
+                "x86_64-unknown-linux-gnu",
+                "--manifest-path",
+                "/tmp/harness/Cargo.toml",
+                "--features",
+                "candidate",
+            ],
+        )
+
     def test_accepts_exact_pre_reader_characterization(self) -> None:
         self.assertEqual(validate_pre_reader_results(EXPECTED_RESULTS), [])
 

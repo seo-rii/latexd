@@ -24,6 +24,7 @@ jobs:
         run: >-
           python3 -m unittest
           scripts.tests.test_checkpoint_reuse_boundary
+          scripts.tests.test_check_snapshot_release_contract
           scripts.tests.test_check_v3_independence
           scripts.tests.test_check_v3_snapshot_migration
           scripts.tests.test_vm_restore_boundary
@@ -49,7 +50,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.94.0
           components: clippy
+          targets: x86_64-unknown-linux-gnu
 
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
@@ -66,6 +69,15 @@ jobs:
 
       - name: Run Rust test suite
         run: cargo test -q
+
+      - name: Verify native snapshot release contract
+        run: python3 scripts/check_snapshot_release_contract.py
+
+      - name: Upload native snapshot release contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-release-contract
+          path: target/snapshot-release-contract.json
 
   web:
     name: Web Test

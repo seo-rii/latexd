@@ -377,6 +377,26 @@ def _resolve_revision(repo: Path, revision: str) -> str:
     return completed.stdout.strip()
 
 
+def cargo_build_command(
+    manifest: str | Path,
+    *,
+    features: list[str],
+    cargo_profile: str,
+    target: str | None,
+) -> list[str]:
+    command = ["cargo", "build", "--quiet", "--locked"]
+    if cargo_profile == "release":
+        command.append("--release")
+    elif cargo_profile != "dev":
+        command.extend(["--profile", cargo_profile])
+    if target is not None:
+        command.extend(["--target", target])
+    command.extend(["--manifest-path", str(manifest)])
+    if features:
+        command.extend(["--features", ",".join(features)])
+    return command
+
+
 def _write_harness(root: Path, source_root: Path, package_name: str) -> Path:
     harness = root / package_name
     (harness / "src").mkdir(parents=True)
@@ -399,6 +419,10 @@ tex-vm = {{ path = "{source_root / 'crates/tex-vm'}" }}
 candidate = []
 
 [profile.dev]
+debug = 0
+incremental = false
+
+[profile.release]
 debug = 0
 incremental = false
 '''
@@ -436,7 +460,13 @@ def _write_wrapped_payload(
     )
 
 
-def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
+def characterize_pre_reader(
+    repo: Path,
+    baseline: str,
+    *,
+    cargo_profile: str = "dev",
+    target: str | None = None,
+) -> dict[str, Any]:
     baseline_commit = _resolve_revision(repo, baseline)
     with tempfile.TemporaryDirectory(prefix="latexd-v3-snapshot-migration-") as temp:
         temp_root = Path(temp)
@@ -461,11 +491,31 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
                 }
             )
             _run(
-                ["cargo", "build", "--quiet", "--manifest-path", str(manifest)],
+                [
+                    "cargo",
+                    "generate-lockfile",
+                    "--quiet",
+                    "--manifest-path",
+                    str(manifest),
+                ],
                 cwd=repo,
                 env=baseline_cargo_env,
             )
-            binary = baseline_target_dir / "debug" / baseline_package
+            _run(
+                cargo_build_command(
+                    manifest,
+                    features=[],
+                    cargo_profile=cargo_profile,
+                    target=target,
+                ),
+                cwd=repo,
+                env=baseline_cargo_env,
+            )
+            profile_directory = "debug" if cargo_profile == "dev" else cargo_profile
+            binary_root = baseline_target_dir
+            if target is not None:
+                binary_root /= target
+            binary = binary_root / profile_directory / baseline_package
 
             candidate_package = "v3-snapshot-migration-candidate"
             candidate_manifest = _write_harness(temp_root, repo, candidate_package)
@@ -482,17 +532,30 @@ def characterize_pre_reader(repo: Path, baseline: str) -> dict[str, Any]:
             _run(
                 [
                     "cargo",
-                    "build",
+                    "generate-lockfile",
                     "--quiet",
                     "--manifest-path",
                     str(candidate_manifest),
-                    "--features",
-                    "candidate",
                 ],
                 cwd=repo,
                 env=candidate_cargo_env,
             )
-            candidate_binary = candidate_target_dir / "debug" / candidate_package
+            _run(
+                cargo_build_command(
+                    candidate_manifest,
+                    features=["candidate"],
+                    cargo_profile=cargo_profile,
+                    target=target,
+                ),
+                cwd=repo,
+                env=candidate_cargo_env,
+            )
+            candidate_binary_root = candidate_target_dir
+            if target is not None:
+                candidate_binary_root /= target
+            candidate_binary = (
+                candidate_binary_root / profile_directory / candidate_package
+            )
 
             raw_path = temp_root / "raw.json"
             _run([str(binary), "produce-raw", str(raw_path)], cwd=repo)
@@ -780,9 +843,20 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path(__file__).resolve().parent.parent,
     )
+    parser.add_argument(
+        "--cargo-profile",
+        choices=("dev", "release"),
+        default="dev",
+    )
+    parser.add_argument("--target")
     args = parser.parse_args(argv)
 
-    results = characterize_pre_reader(args.repo.resolve(), args.baseline)
+    results = characterize_pre_reader(
+        args.repo.resolve(),
+        args.baseline,
+        cargo_profile=args.cargo_profile,
+        target=args.target,
+    )
     print(json.dumps(results, sort_keys=True))
     violations = validate_pre_reader_results(results)
     if violations:
