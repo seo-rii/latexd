@@ -23,9 +23,13 @@ pub const VM_SNAPSHOT_DOCUMENT_FORMAT: &str = "latexd.vm-snapshot";
 pub const VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION: u32 = 1;
 pub const VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 pub const VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
+pub const VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-v1";
+pub const VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
+    VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
+    VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -97,6 +101,25 @@ impl Serialize for VmSnapshotDocument {
             return Err(serde::ser::Error::custom(
                 "legacy VM snapshot collides with reserved field next_muskip_register",
             ));
+        }
+        for (name, code_table_state) in [
+            ("mathcode_state", self.state.mathcode_state.as_ref()),
+            ("delcode_state", self.state.delcode_state.as_ref()),
+        ] {
+            let Some(code_table_state) = code_table_state else {
+                continue;
+            };
+            if state_fields
+                .insert(
+                    name.to_string(),
+                    serde_json::to_value(code_table_state).map_err(serde::ser::Error::custom)?,
+                )
+                .is_some()
+            {
+                return Err(serde::ser::Error::custom(format!(
+                    "legacy VM snapshot collides with reserved field {name}"
+                )));
+            }
         }
 
         VmSnapshotDocumentWriteWire {
@@ -349,6 +372,16 @@ pub fn decode_vm_snapshot_document(
         .transpose()
         .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?
         .unwrap_or_else(default_next_muskip_register);
+    let mathcode_state = state_fields
+        .remove("mathcode_state")
+        .map(|raw| serde_json::from_str::<VmCodeTableStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let delcode_state = state_fields
+        .remove("delcode_state")
+        .map(|raw| serde_json::from_str::<VmCodeTableStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
     let mut legacy_fields = serde_json::Map::new();
     for (name, raw) in state_fields {
         let value = serde_json::from_str(raw.get())
@@ -358,7 +391,23 @@ pub fn decode_vm_snapshot_document(
     let legacy =
         serde_json::from_value::<LegacyVmSnapshotV1>(serde_json::Value::Object(legacy_fields))
             .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
-    let state = VmSnapshot::from_parts(legacy, muskip_registers, next_muskip_register);
+    if let Some(state) = &mathcode_state {
+        state
+            .validate_mathcode(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
+    if let Some(state) = &delcode_state {
+        state
+            .validate_delcode(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
+    let state = VmSnapshot::from_parts(
+        legacy,
+        muskip_registers,
+        next_muskip_register,
+        mathcode_state,
+        delcode_state,
+    );
     let derived_capabilities = state.required_capabilities();
     if declared_capabilities != derived_capabilities {
         return Err(VmSnapshotDocumentError::InvalidState(format!(
@@ -1893,11 +1942,75 @@ pub struct LegacyVmSnapshotV1 {
     pub text_script_wrapper_depth: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmCodeTableAssignmentV1 {
+    pub character: u8,
+    pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmCodeTableStateV1 {
+    pub layers: Vec<Vec<VmCodeTableAssignmentV1>>,
+}
+
+impl VmCodeTableStateV1 {
+    pub(crate) fn validate_mathcode(&self, expected_layers: usize) -> Result<(), String> {
+        self.validate_with(expected_layers, "mathcode", |value| {
+            (0..=32_768).contains(&value)
+        })
+    }
+
+    pub(crate) fn validate_delcode(&self, expected_layers: usize) -> Result<(), String> {
+        self.validate_with(expected_layers, "delcode", |value| {
+            (-2_147_483_647..=16_777_215).contains(&value)
+        })
+    }
+
+    fn validate_with(
+        &self,
+        expected_layers: usize,
+        family: &str,
+        value_is_valid: impl Fn(i32) -> bool,
+    ) -> Result<(), String> {
+        if self.layers.len() != expected_layers {
+            return Err(format!(
+                "{family} layer count {} does not match VM scope depth {expected_layers}",
+                self.layers.len()
+            ));
+        }
+        if !self.layers.iter().any(|layer| !layer.is_empty()) {
+            return Err(format!("{family} state must not be empty"));
+        }
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            let mut previous = None;
+            for assignment in layer {
+                if previous.is_some_and(|character| character >= assignment.character) {
+                    return Err(format!(
+                        "{family} layer {layer_index} character entries must be strictly increasing"
+                    ));
+                }
+                if !value_is_valid(assignment.value) {
+                    return Err(format!(
+                        "{family} value {} for character {} is outside the V1 domain",
+                        assignment.value, assignment.character
+                    ));
+                }
+                previous = Some(assignment.character);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmSnapshot {
     legacy: LegacyVmSnapshotV1,
     pub muskip_registers: BTreeMap<u32, i32>,
     pub next_muskip_register: u32,
+    pub mathcode_state: Option<VmCodeTableStateV1>,
+    pub delcode_state: Option<VmCodeTableStateV1>,
 }
 
 impl VmSnapshot {
@@ -1905,11 +2018,15 @@ impl VmSnapshot {
         legacy: LegacyVmSnapshotV1,
         muskip_registers: BTreeMap<u32, i32>,
         next_muskip_register: u32,
+        mathcode_state: Option<VmCodeTableStateV1>,
+        delcode_state: Option<VmCodeTableStateV1>,
     ) -> Self {
         Self {
             legacy,
             muskip_registers,
             next_muskip_register,
+            mathcode_state,
+            delcode_state,
         }
     }
 
@@ -1920,6 +2037,16 @@ impl VmSnapshot {
         {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
+            ));
+        }
+        if self.mathcode_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
+            ));
+        }
+        if self.delcode_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
             ));
         }
         let token_requires_muskip_alias = |token: &SnapshotToken| {
@@ -2059,6 +2186,8 @@ impl<'de> Deserialize<'de> for VmSnapshot {
             legacy: LegacyVmSnapshotV1::deserialize(deserializer)?,
             muskip_registers: BTreeMap::new(),
             next_muskip_register: default_next_muskip_register(),
+            mathcode_state: None,
+            delcode_state: None,
         };
         let capabilities = snapshot.required_capabilities();
         if !capabilities.is_empty() {

@@ -77,27 +77,29 @@ use semantic_text::SemanticTextState;
 pub use snapshot::{
     LegacyVmSnapshotV1, SnapshotCapability, SnapshotMeaning, SnapshotToken, SnapshotTokenKind,
     VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
-    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VmActiveBibliographyCaptureSnapshot,
+    VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
+    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
+    VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
     VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
     VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
     VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
-    VmBibliographyNestedSemanticSnapshot, VmContinuationBlocker, VmContinuationSafety,
-    VmEventExecutionAnchorSnapshot, VmExecutedInlineEventMarkSnapshot,
-    VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot, VmExecutedTableSnapshot,
-    VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot, VmExecutionAnchor,
-    VmExecutionAuthorityRangeSnapshot, VmExecutionOccurrenceSnapshot, VmExpansionContextSnapshot,
-    VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot, VmGraphicInvocationRangeSnapshot,
-    VmInputContinuationSnapshot, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
-    VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
-    VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
-    VmSemanticBibliographySnapshot, VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot,
-    VmSemanticEnvironmentSnapshot, VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot,
-    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
-    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
-    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
-    VmSnapshotDocument, VmSnapshotDocumentError, VmSuppressedSourceRangeSnapshot,
-    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
+    VmBibliographyNestedSemanticSnapshot, VmCodeTableAssignmentV1, VmCodeTableStateV1,
+    VmContinuationBlocker, VmContinuationSafety, VmEventExecutionAnchorSnapshot,
+    VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
+    VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot,
+    VmExecutionAnchor, VmExecutionAuthorityRangeSnapshot, VmExecutionOccurrenceSnapshot,
+    VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
+    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
+    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
+    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
+    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticBibliographySnapshot,
+    VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
+    VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot, VmSemanticGraphicSnapshot,
+    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
+    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
+    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSnapshotDocument,
+    VmSnapshotDocumentError, VmSuppressedSourceRangeSnapshot, decode_vm_snapshot_document,
+    normalize_legacy_vm_snapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_muskip_register,
@@ -114,6 +116,7 @@ pub enum VmRestoreError {
     MissingRootControlSequenceScope,
     UnknownPrimitive(String),
     InvalidMuskipCursor(u32),
+    InvalidCodeTableState(String),
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -133,6 +136,9 @@ impl std::fmt::Display for VmRestoreError {
                 "VM snapshot muskip cursor {cursor} is below the dynamic register base {}",
                 default_next_muskip_register()
             ),
+            Self::InvalidCodeTableState(error) => {
+                write!(formatter, "invalid VM snapshot code-table state: {error}")
+            }
         }
     }
 }
@@ -147,6 +153,16 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
         return Err(VmRestoreError::InvalidMuskipCursor(
             snapshot.next_muskip_register,
         ));
+    }
+    if let Some(state) = &snapshot.mathcode_state {
+        state
+            .validate_mathcode(snapshot.scopes.len())
+            .map_err(VmRestoreError::InvalidCodeTableState)?;
+    }
+    if let Some(state) = &snapshot.delcode_state {
+        state
+            .validate_delcode(snapshot.scopes.len())
+            .map_err(VmRestoreError::InvalidCodeTableState)?;
     }
     for scope in &snapshot.scopes {
         for meaning in scope.values() {
@@ -16751,7 +16767,13 @@ impl<'i> Vm<'i> {
             legacy_text_script_boundary_pending: self.legacy_text_script_boundary_pending,
             text_script_wrapper_depth: self.text_script_wrapper_depth,
         };
-        VmSnapshot::from_parts(legacy, self.eqtb.muskip_values(), self.next_muskip_register)
+        VmSnapshot::from_parts(
+            legacy,
+            self.eqtb.muskip_values(),
+            self.next_muskip_register,
+            None,
+            None,
+        )
     }
 
     fn continuation_safety(&self, input_continuation_captured: bool) -> VmContinuationSafety {

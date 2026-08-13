@@ -9,6 +9,8 @@ use tex_vm::{
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
+const MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-v1";
+const DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
 
 fn muskip_snapshot() -> VmSnapshot {
     let mut interner = ControlSequenceInterner::new();
@@ -97,6 +99,195 @@ fn legacy_snapshot_normalizer_preserves_state_without_claiming_capabilities() {
 
     let future = SnapshotCapability::new("future.capability-v1");
     assert_eq!(future.as_str(), "future.capability-v1");
+}
+
+#[test]
+fn passive_code_table_reader_round_trips_math_del_and_combined_documents() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let snapshot = vm.snapshot();
+    let fixtures = [
+        (
+            "mathcode_state",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            json!({"layers": [[{"character": 65, "value": 123}]]}),
+        ),
+        (
+            "delcode_state",
+            vec![DELCODE_TABLE_V1_CAPABILITY],
+            json!({"layers": [[{"character": 46, "value": -2}]]}),
+        ),
+    ];
+
+    for (field, capabilities, code_state) in fixtures {
+        let mut state = versioned_state(&snapshot);
+        state[field] = code_state.clone();
+        let encoded = encoded_document_with_capabilities(&capabilities, state);
+
+        let decoded = decode_vm_snapshot_document(&encoded)
+            .unwrap_or_else(|error| panic!("decode {field}: {error}"));
+        let reencoded = serde_json::to_vec(&decoded)
+            .unwrap_or_else(|error| panic!("reencode {field}: {error}"));
+        let wire: serde_json::Value =
+            serde_json::from_slice(&reencoded).expect("inspect code-table document");
+        let mut legacy_output = Vec::new();
+        let legacy_error = serde_json::to_writer(&mut legacy_output, &decoded.state)
+            .expect_err("code-table state must not enter the legacy wire");
+
+        assert_eq!(wire["state"][field], code_state);
+        assert_eq!(
+            decoded.required_capabilities,
+            capabilities
+                .into_iter()
+                .map(SnapshotCapability::new)
+                .collect()
+        );
+        assert!(legacy_error.to_string().contains("table-v1"));
+        assert!(legacy_output.is_empty());
+        assert_eq!(
+            decode_vm_snapshot_document(&reencoded)
+                .expect("decode canonical code-table document")
+                .state,
+            decoded.state
+        );
+    }
+
+    let mut combined_state = versioned_state(&snapshot);
+    combined_state["mathcode_state"] = json!({"layers": [[{"character": 65, "value": 32768}]]});
+    combined_state["delcode_state"] = json!({"layers": [[{"character": 46, "value": 16777215}]]});
+    let combined = decode_vm_snapshot_document(&encoded_document_with_capabilities(
+        &[MATHCODE_TABLE_V1_CAPABILITY, DELCODE_TABLE_V1_CAPABILITY],
+        combined_state,
+    ))
+    .expect("decode combined code-table document");
+
+    assert_eq!(combined.required_capabilities.len(), 2);
+}
+
+#[test]
+fn code_table_document_writer_revalidates_mutated_state_before_output() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let snapshot = vm.snapshot();
+    let mut state = versioned_state(&snapshot);
+    state["mathcode_state"] = json!({"layers": [[{"character": 65, "value": 123}]]});
+    let encoded = encoded_document_with_capabilities(&[MATHCODE_TABLE_V1_CAPABILITY], state);
+    let mut document = decode_vm_snapshot_document(&encoded).expect("decode valid mathcode state");
+    document
+        .state
+        .mathcode_state
+        .as_mut()
+        .expect("mathcode state")
+        .layers[0][0]
+        .value = 32_769;
+    let mut output = Vec::new();
+
+    let error = serde_json::to_writer(&mut output, &document)
+        .expect_err("writer must reject a mutated out-of-range mathcode");
+
+    assert!(error.to_string().contains("mathcode value"));
+    assert!(output.is_empty());
+}
+
+#[test]
+fn passive_code_table_reader_rejects_noncanonical_or_mismatched_state() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let snapshot = vm.snapshot();
+    let legacy = versioned_state(&snapshot);
+    let cases = [
+        (
+            "empty mathcode state",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[]]}),
+        ),
+        (
+            "missing root layer",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": []}),
+        ),
+        (
+            "duplicate character",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[
+                {"character": 65, "value": 1},
+                {"character": 65, "value": 2}
+            ]]}),
+        ),
+        (
+            "unordered characters",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[
+                {"character": 66, "value": 1},
+                {"character": 65, "value": 2}
+            ]]}),
+        ),
+        (
+            "mathcode value above active sentinel",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[{"character": 65, "value": 32769}]]}),
+        ),
+        (
+            "delcode value below TeX integer minimum",
+            vec![DELCODE_TABLE_V1_CAPABILITY],
+            "delcode_state",
+            json!({"layers": [[{"character": 65, "value": -2147483648_i64}]]}),
+        ),
+        (
+            "delcode value above packed maximum",
+            vec![DELCODE_TABLE_V1_CAPABILITY],
+            "delcode_state",
+            json!({"layers": [[{"character": 65, "value": 16777216}]]}),
+        ),
+        (
+            "character above V1 domain",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[{"character": 256, "value": 1}]]}),
+        ),
+        (
+            "unknown assignment field",
+            vec![MATHCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[{"character": 65, "value": 1, "future": true}]]}),
+        ),
+        (
+            "math state with del capability",
+            vec![DELCODE_TABLE_V1_CAPABILITY],
+            "mathcode_state",
+            json!({"layers": [[{"character": 65, "value": 1}]]}),
+        ),
+        (
+            "math state without capability",
+            vec![],
+            "mathcode_state",
+            json!({"layers": [[{"character": 65, "value": 1}]]}),
+        ),
+    ];
+
+    for (name, capabilities, field, code_state) in cases {
+        let mut state = legacy.clone();
+        state[field] = code_state;
+        assert!(
+            decode_vm_snapshot_document(&encoded_document_with_capabilities(&capabilities, state))
+                .is_err(),
+            "accepted {name}"
+        );
+    }
+
+    assert!(
+        decode_vm_snapshot_document(&encoded_document_with_capabilities(
+            &[MATHCODE_TABLE_V1_CAPABILITY],
+            legacy,
+        ))
+        .is_err(),
+        "accepted math capability without state"
+    );
 }
 
 #[test]
@@ -391,7 +582,12 @@ fn versioned_document_decodes_legacy_state_for_exact_restore() {
 fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
     assert_eq!(
         VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
-        [MUSKIP_ALIAS_V1_CAPABILITY, MUSKIP_SCALAR_V1_CAPABILITY]
+        [
+            MUSKIP_ALIAS_V1_CAPABILITY,
+            MUSKIP_SCALAR_V1_CAPABILITY,
+            MATHCODE_TABLE_V1_CAPABILITY,
+            DELCODE_TABLE_V1_CAPABILITY,
+        ]
     );
     let mut source_interner = ControlSequenceInterner::new();
     let mut source = Vm::new(&mut source_interner);

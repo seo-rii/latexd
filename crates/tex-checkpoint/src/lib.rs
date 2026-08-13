@@ -1156,6 +1156,18 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     );
     fingerprint.update(&muskip_json);
     fingerprint.update(&snapshot.next_muskip_register.to_le_bytes());
+    for state in [&snapshot.mathcode_state, &snapshot.delcode_state]
+        .into_iter()
+        .flatten()
+    {
+        let state_json = serde_json::to_vec(state)?;
+        fingerprint.update(
+            &u64::try_from(state_json.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(&state_json);
+    }
     Ok(fingerprint.finalize().to_hex().to_string())
 }
 
@@ -1593,8 +1605,8 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        SnapshotCapability, Vm, VmContinuationBlocker, VmModuleCheckpointKind, VmReplayFrame,
-        compile_format_snapshot,
+        SnapshotCapability, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1, VmContinuationBlocker,
+        VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
     use super::{
@@ -2655,6 +2667,49 @@ mod tests {
             production.checkpoints[0].meta.vm_state_hash,
             candidate.checkpoints[0].meta.vm_state_hash,
             "writer routing changed semantic identity"
+        );
+    }
+
+    #[test]
+    fn vm_semantic_hash_distinguishes_passive_code_table_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut first = Vm::new(&mut interner).snapshot();
+        first.mathcode_state = Some(VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }]],
+        });
+        first.delcode_state = Some(VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'.',
+                value: -1,
+            }]],
+        });
+
+        let mut math_changed = first.clone();
+        math_changed
+            .mathcode_state
+            .as_mut()
+            .expect("mathcode state")
+            .layers[0][0]
+            .value += 1;
+        let mut del_changed = first.clone();
+        del_changed
+            .delcode_state
+            .as_mut()
+            .expect("delcode state")
+            .layers[0][0]
+            .value -= 1;
+
+        let first_hash = super::checkpoint_vm_semantic_hash(&first).expect("hash code tables");
+        assert_ne!(
+            first_hash,
+            super::checkpoint_vm_semantic_hash(&math_changed).expect("hash changed mathcode")
+        );
+        assert_ne!(
+            first_hash,
+            super::checkpoint_vm_semantic_hash(&del_changed).expect("hash changed delcode")
         );
     }
 
