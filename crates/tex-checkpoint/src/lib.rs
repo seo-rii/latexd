@@ -275,6 +275,61 @@ pub enum SnapshotWritePolicy {
     LegacyOnly,
 }
 
+/// A forward-compatible report of the writer policy recorded in artifacts.
+///
+/// This value is observation only. Checkpoint builders and save functions do
+/// not accept it, so an [`Other`](Self::Other) value cannot authorize a lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotWritePolicyObservation {
+    LegacyOnly,
+    Other(String),
+}
+
+impl Default for SnapshotWritePolicyObservation {
+    fn default() -> Self {
+        Self::LegacyOnly
+    }
+}
+
+impl SnapshotWritePolicyObservation {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::LegacyOnly => "legacy_only",
+            Self::Other(value) => value,
+        }
+    }
+}
+
+impl From<SnapshotWritePolicy> for SnapshotWritePolicyObservation {
+    fn from(policy: SnapshotWritePolicy) -> Self {
+        match policy {
+            SnapshotWritePolicy::LegacyOnly => Self::LegacyOnly,
+        }
+    }
+}
+
+impl Serialize for SnapshotWritePolicyObservation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for SnapshotWritePolicyObservation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "legacy_only" => Self::LegacyOnly,
+            _ => Self::Other(value),
+        })
+    }
+}
+
 impl SnapshotWritePolicy {
     fn allows(
         self,
@@ -1303,8 +1358,8 @@ mod tests {
         CheckpointBundleWriteWithPolicy, CheckpointCacheMissReason, CheckpointKind, CheckpointPage,
         CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
         ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode, SnapshotWritePolicy,
-        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
-        build_checkpoint_bundle_with_shipouts,
+        SnapshotWritePolicyObservation, StoredSnapshotAttachment, VersionedSnapshotSlot,
+        build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
         build_checkpoint_bundle_with_shipouts_and_policy_and_stats,
         build_checkpoint_bundle_with_shipouts_and_stats, build_checkpoint_bundle_with_snapshots,
         can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
@@ -1327,6 +1382,22 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&SNAPSHOT_WRITE_POLICY).expect("serialize production policy"),
             r#""legacy_only""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SnapshotWritePolicyObservation::from(SNAPSHOT_WRITE_POLICY))
+                .expect("serialize production policy observation"),
+            r#""legacy_only""#
+        );
+        let future: SnapshotWritePolicyObservation =
+            serde_json::from_str(r#""future_versioned_muskip""#)
+                .expect("decode future writer policy observation");
+        assert_eq!(
+            future,
+            SnapshotWritePolicyObservation::Other("future_versioned_muskip".to_string())
+        );
+        assert_eq!(
+            serde_json::to_string(&future).expect("re-encode future policy observation"),
+            r#""future_versioned_muskip""#
         );
     }
 

@@ -25,9 +25,10 @@ use tex_bootstrap::{
 use tex_checkpoint::{
     CheckpointAttachmentCounts, CheckpointBundle, CheckpointBundleReuse, CheckpointKind,
     CheckpointPage, CheckpointSuppressionCounts, InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY,
-    ShipoutCheckpoint, StoredCheckpoint, build_checkpoint_bundle_with_shipouts_and_stats,
-    checkpoint_is_replay_safe, find_unchanged_tail, load_checkpoint_bundle_for_reuse,
-    preamble_key_for_source, save_checkpoint_bundle, select_reusable_preamble,
+    ShipoutCheckpoint, SnapshotWritePolicyObservation, StoredCheckpoint,
+    build_checkpoint_bundle_with_shipouts_and_stats, checkpoint_is_replay_safe,
+    find_unchanged_tail, load_checkpoint_bundle_for_reuse, preamble_key_for_source,
+    save_checkpoint_bundle, select_reusable_preamble,
 };
 use tex_pdf::{
     render_display_list_pdf_with_materialized_assets_and_tex_fonts,
@@ -1297,7 +1298,7 @@ struct BuildMeta {
     semantic_fixpoint_reached: bool,
     semantic_aux_backdated: bool,
     #[serde(default)]
-    checkpoint_writer_policy: tex_checkpoint::SnapshotWritePolicy,
+    checkpoint_writer_policy: SnapshotWritePolicyObservation,
     #[serde(default)]
     checkpoint_attachment_counts: CheckpointAttachmentCounts,
     #[serde(default)]
@@ -2766,7 +2767,7 @@ impl CompilerDriver {
                 semantic_rerun_count: semantic_pass_count.saturating_sub(1),
                 semantic_fixpoint_reached,
                 semantic_aux_backdated,
-                checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
+                checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY.into(),
                 checkpoint_attachment_counts: checkpoint_bundle.attachment_counts(),
                 checkpoint_suppression_counts,
             };
@@ -3098,7 +3099,7 @@ impl CompilerDriver {
             semantic_rerun_count: 0,
             semantic_fixpoint_reached: false,
             semantic_aux_backdated: false,
-            checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
+            checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY.into(),
             checkpoint_attachment_counts: CheckpointAttachmentCounts::default(),
             checkpoint_suppression_counts: CheckpointSuppressionCounts::default(),
         };
@@ -4564,9 +4565,10 @@ mod tests {
         CheckpointSuppressionCounts, CompileRequest, CompilerDriver, DepTrace, PageArtifactMeta,
         PageSyncMapArtifact, PreparedAssetCacheStats, PreviousInternalBuild,
         ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
-        StoredModuleCheckpoint, StoredModuleTrace, StoredSourceTexts, UnchangedTail,
-        annotate_display_list_image_diagnostics, build_renderer_page_state,
-        capture_internal_render_ir, capture_internal_render_ir_from_project_root,
+        SnapshotWritePolicyObservation, StoredModuleCheckpoint, StoredModuleTrace,
+        StoredSourceTexts, UnchangedTail, annotate_display_list_image_diagnostics,
+        build_renderer_page_state, capture_internal_render_ir,
+        capture_internal_render_ir_from_project_root,
         capture_internal_render_ir_from_project_run_with_asset_cache,
         copy_previous_external_aux_files, earliest_changed_offset,
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
@@ -5590,6 +5592,16 @@ mod tests {
                 "unsupported_capabilities": first_checkpoints.checkpoints.len(),
             })
         );
+        let mut future_policy_build_meta = first_build_meta.clone();
+        future_policy_build_meta["checkpoint_writer_policy"] =
+            serde_json::json!("future_versioned_muskip");
+        let future_policy_build_meta: BuildMeta = serde_json::from_value(future_policy_build_meta)
+            .expect("decode future checkpoint writer policy observation");
+        assert_eq!(
+            serde_json::to_value(future_policy_build_meta.checkpoint_writer_policy)
+                .expect("re-encode future policy observation"),
+            serde_json::json!("future_versioned_muskip")
+        );
         let mut legacy_build_meta = first_build_meta.clone();
         legacy_build_meta
             .as_object_mut()
@@ -5607,7 +5619,7 @@ mod tests {
             .expect("decode build metadata written before checkpoint observability");
         assert_eq!(
             legacy_build_meta.checkpoint_writer_policy,
-            tex_checkpoint::SnapshotWritePolicy::LegacyOnly
+            SnapshotWritePolicyObservation::LegacyOnly
         );
         assert_eq!(
             legacy_build_meta.checkpoint_attachment_counts,
@@ -6079,7 +6091,7 @@ mod tests {
         assert!(!build_meta.semantic_aux_backdated);
         assert_eq!(
             build_meta.checkpoint_writer_policy,
-            tex_checkpoint::SnapshotWritePolicy::LegacyOnly
+            SnapshotWritePolicyObservation::LegacyOnly
         );
         assert!(build_meta.checkpoint_attachment_counts.legacy > 0);
         assert_eq!(build_meta.checkpoint_attachment_counts.versioned, 0);
