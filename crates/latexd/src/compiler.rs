@@ -24,10 +24,10 @@ use tex_bootstrap::{
 };
 use tex_checkpoint::{
     CheckpointBundle, CheckpointBundleReuse, CheckpointKind, CheckpointPage,
-    InputBoundaryCheckpoint, ShipoutCheckpoint, StoredCheckpoint,
-    build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe, find_unchanged_tail,
-    load_checkpoint_bundle_for_reuse, preamble_key_for_source, save_checkpoint_bundle,
-    select_reusable_preamble,
+    InputBoundaryCheckpoint, SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment,
+    StoredCheckpoint, build_checkpoint_bundle_with_shipouts, checkpoint_is_replay_safe,
+    find_unchanged_tail, load_checkpoint_bundle_for_reuse, preamble_key_for_source,
+    save_checkpoint_bundle, select_reusable_preamble,
 };
 use tex_pdf::{
     render_display_list_pdf_with_materialized_assets_and_tex_fonts,
@@ -1296,6 +1296,17 @@ struct BuildMeta {
     semantic_rerun_count: usize,
     semantic_fixpoint_reached: bool,
     semantic_aux_backdated: bool,
+    #[serde(default)]
+    checkpoint_writer_policy: tex_checkpoint::SnapshotWritePolicy,
+    #[serde(default)]
+    checkpoint_attachment_counts: CheckpointAttachmentCounts,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct CheckpointAttachmentCounts {
+    none: usize,
+    legacy: usize,
+    versioned: usize,
 }
 
 const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
@@ -2758,6 +2769,36 @@ impl CompilerDriver {
                 semantic_rerun_count: semantic_pass_count.saturating_sub(1),
                 semantic_fixpoint_reached,
                 semantic_aux_backdated,
+                checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
+                checkpoint_attachment_counts: CheckpointAttachmentCounts {
+                    none: checkpoint_bundle
+                        .checkpoints
+                        .iter()
+                        .filter(|checkpoint| {
+                            matches!(checkpoint.snapshot_attachment(), SnapshotAttachment::None)
+                        })
+                        .count(),
+                    legacy: checkpoint_bundle
+                        .checkpoints
+                        .iter()
+                        .filter(|checkpoint| {
+                            matches!(
+                                checkpoint.snapshot_attachment(),
+                                SnapshotAttachment::Legacy(_)
+                            )
+                        })
+                        .count(),
+                    versioned: checkpoint_bundle
+                        .checkpoints
+                        .iter()
+                        .filter(|checkpoint| {
+                            matches!(
+                                checkpoint.snapshot_attachment(),
+                                SnapshotAttachment::Versioned(_)
+                            )
+                        })
+                        .count(),
+                },
             };
             let serialized_build_meta =
                 serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -3087,6 +3128,8 @@ impl CompilerDriver {
             semantic_rerun_count: 0,
             semantic_fixpoint_reached: false,
             semantic_aux_backdated: false,
+            checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY,
+            checkpoint_attachment_counts: CheckpointAttachmentCounts::default(),
         };
         let serialized_build_meta =
             serde_json::to_vec_pretty(&build_meta).map_err(|error| CompileFailure {
@@ -4546,10 +4589,10 @@ mod tests {
     };
 
     use super::{
-        ArtifactSourceSpan, BuildMeta, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
-        PageArtifactMeta, PageSyncMapArtifact, PreparedAssetCacheStats, PreviousInternalBuild,
-        ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
-        StoredModuleCheckpoint, StoredModuleTrace, StoredSourceTexts, UnchangedTail,
+        ArtifactSourceSpan, BuildMeta, CheckpointAttachmentCounts, CheckpointPage, CompileRequest,
+        CompilerDriver, DepTrace, PageArtifactMeta, PageSyncMapArtifact, PreparedAssetCacheStats,
+        PreviousInternalBuild, ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter,
+        SemanticAux, StoredModuleCheckpoint, StoredModuleTrace, StoredSourceTexts, UnchangedTail,
         annotate_display_list_image_diagnostics, build_renderer_page_state,
         capture_internal_render_ir, capture_internal_render_ir_from_project_root,
         capture_internal_render_ir_from_project_run_with_asset_cache,
@@ -5552,6 +5595,41 @@ mod tests {
         assert!(first_checkpoints.checkpoints.iter().all(|checkpoint| {
             !checkpoint.meta.snapshot_attached && checkpoint.snapshot_for_restore().is_none()
         }));
+        let first_build_meta: serde_json::Value = serde_json::from_slice(
+            &fs::read(build_root.join("rev-1/build-meta.json")).expect("read first build meta"),
+        )
+        .expect("decode first build meta");
+        assert_eq!(
+            first_build_meta["checkpoint_writer_policy"],
+            serde_json::json!("legacy_only")
+        );
+        assert_eq!(
+            first_build_meta["checkpoint_attachment_counts"],
+            serde_json::json!({
+                "none": first_checkpoints.checkpoints.len(),
+                "legacy": 0,
+                "versioned": 0,
+            })
+        );
+        let mut legacy_build_meta = first_build_meta.clone();
+        legacy_build_meta
+            .as_object_mut()
+            .expect("build meta object")
+            .remove("checkpoint_writer_policy");
+        legacy_build_meta
+            .as_object_mut()
+            .expect("build meta object")
+            .remove("checkpoint_attachment_counts");
+        let legacy_build_meta: BuildMeta = serde_json::from_value(legacy_build_meta)
+            .expect("decode build metadata written before checkpoint observability");
+        assert_eq!(
+            legacy_build_meta.checkpoint_writer_policy,
+            tex_checkpoint::SnapshotWritePolicy::LegacyOnly
+        );
+        assert_eq!(
+            legacy_build_meta.checkpoint_attachment_counts,
+            CheckpointAttachmentCounts::default()
+        );
 
         fs::write(root.join("main.tex"), format!("{source}% revision two"))
             .expect("update main tex");
@@ -6012,6 +6090,12 @@ mod tests {
         assert_eq!(build_meta.start_page_index, 0);
         assert!(build_meta.semantic_fixpoint_reached);
         assert!(!build_meta.semantic_aux_backdated);
+        assert_eq!(
+            build_meta.checkpoint_writer_policy,
+            tex_checkpoint::SnapshotWritePolicy::LegacyOnly
+        );
+        assert!(build_meta.checkpoint_attachment_counts.legacy > 0);
+        assert_eq!(build_meta.checkpoint_attachment_counts.versioned, 0);
 
         let events = serde_json::from_slice::<RenderEventStream>(
             &fs::read(build_root.join("rev-2/render-ir/events.json")).expect("read render events"),

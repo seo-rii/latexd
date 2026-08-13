@@ -258,7 +258,8 @@ impl<'a> SnapshotForRestore<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 /// The production checkpoint writer policy intentionally exposes no versioned
 /// selection surface.
 ///
@@ -270,6 +271,7 @@ impl<'a> SnapshotForRestore<'a> {
 /// };
 /// ```
 pub enum SnapshotWritePolicy {
+    #[default]
     LegacyOnly,
 }
 
@@ -327,7 +329,7 @@ enum SnapshotWriteLane {
     Versioned,
 }
 
-const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;
+pub const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StoredSnapshotAttachment {
@@ -1221,13 +1223,13 @@ mod tests {
     use super::{
         CheckpointBundle, CheckpointBundleReuse, CheckpointBundleWriteWithPolicy,
         CheckpointCacheMissReason, CheckpointKind, CheckpointPage, InputBoundaryCheckpoint,
-        ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode, SnapshotWritePolicy,
-        StoredSnapshotAttachment, VersionedSnapshotSlot, build_checkpoint_bundle,
-        build_checkpoint_bundle_with_shipouts, build_checkpoint_bundle_with_shipouts_and_policy,
-        build_checkpoint_bundle_with_snapshots, can_reuse_preamble, find_unchanged_tail,
-        load_checkpoint_bundle, load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble,
-        preamble_key_for_source, save_checkpoint_bundle, save_checkpoint_bundle_with_policy,
-        select_reusable_preamble,
+        SNAPSHOT_WRITE_POLICY, ShipoutCheckpoint, SnapshotAttachment, SnapshotWriteMode,
+        SnapshotWritePolicy, StoredSnapshotAttachment, VersionedSnapshotSlot,
+        build_checkpoint_bundle, build_checkpoint_bundle_with_shipouts,
+        build_checkpoint_bundle_with_shipouts_and_policy, build_checkpoint_bundle_with_snapshots,
+        can_reuse_preamble, find_unchanged_tail, load_checkpoint_bundle,
+        load_checkpoint_bundle_for_reuse, load_latest_reusable_preamble, preamble_key_for_source,
+        save_checkpoint_bundle, save_checkpoint_bundle_with_policy, select_reusable_preamble,
     };
 
     const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -1241,6 +1243,10 @@ mod tests {
         assert!(
             !SnapshotWritePolicy::LegacyOnly.allows(&required_capabilities),
             "capability-bearing state must not enter the legacy lane"
+        );
+        assert_eq!(
+            serde_json::to_string(&SNAPSHOT_WRITE_POLICY).expect("serialize production policy"),
+            r#""legacy_only""#
         );
     }
 
