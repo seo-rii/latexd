@@ -134,14 +134,14 @@ incremental semantic/page reuse -- requires V7-V8
 TeX math layout ------------------ requires V8 plus MathList/font metrics
 ```
 
-### Current State Matrix (2026-08-13)
+### Current State Matrix (2026-08-14)
 
 | Phase | Implemented slices | Phase exit | Blocking evidence |
 | --- | --- | --- | --- |
 | V0 | extensive divergence, continuation, event, IR, and corpus characterization | open | the complete V0 fixture/expected-failure map has not been re-audited against this plan |
 | V1 | command/input/Eqtb/SaveStack/snapshot/sink/family modules and a bounded control-sequence Eqtb owner exist | open | `tex-vm/src/lib.rs` remains about 52,200 lines and owns major execution/state paths |
 | V2 event contract and reconciliation baseline | serialized build-local `sequence`, producer/confidence metadata, typed origin validation and static guards for a closed first-party writer taxonomy, schema-v5 producer-tag compatibility fixtures, zero public raw-constructor paths, shared source-location overlap for seven reconciliation families, producer-independent unmatched insertion anchors for five families, explicit scanner recovery, manual-writer ownership with repeated-input/replay evidence, and sequence-independent current semantic IDs exist | open | diagnostic subtype characterization and bounded graphic/bibliography mixed-macro isolation are complete; exact macro-generated raw-fallback isolation remains open under `ARCH-007`, while public event identity and shared diagnostic architecture belong to later or separate streams |
-| V3 | Count/Dimen/Skip/MuSkip/Toks/CatCode plus control-sequence meanings use Eqtb/SaveStack; muskip has a strict readers-first capability boundary, source primitives, and a compiled private-policy writer; legacy `scopes` snapshots are projected from that state | open | mathcode/delcode/font/box/remaining parameters and persistent root/hash are absent; production muskip versioned writing remains disabled pending fleet/observability activation gates |
+| V3 | Count/Dimen/Skip/MuSkip/Toks/CatCode, mathcode/delcode, and control-sequence meanings use Eqtb/SaveStack; muskip and both code tables have strict readers-first capability boundaries and source primitives; legacy `scopes` snapshots are projected from that state | open | font/box/remaining parameters and persistent root/hash are absent; production versioned checkpoint writing remains disabled pending fleet/observability activation gates |
 | V4 | streaming Mouth/cursor and continuation slices | open | source identity semantics/registry, file/revision-aware lexical origins, scoped command identity, interned expansion arena, snapshot capability, and validated `ExecutedSourceSlice` are absent |
 | V5 | macro parameter/prefix/protection slices | open | unified `EngineState` and explicit `NestFrame` are absent |
 | V6 | many execution-owned semantic-family vertical slices | open | whole-source scanner entry, remaining recovery families, and final identity separation remain |
@@ -1377,20 +1377,55 @@ checkpoint bundle VM semantic epoch is also advanced. Epoch 1 was already
 emitted by the epoch-mechanism-only commit `79b6515`, so mathcode activation uses
 epoch 2 and rejects absent or epoch-1 bundles for reuse while retaining
 inspection loads. A rollback that removes this primitive or the shared radix
-scanner semantics must issue a distinct epoch 3 or later and disable, purge, or
-isolate older bundles; it must never restore the accepted epoch to 1. The
+scanner semantics must issue an epoch above the currently accepted epoch and
+disable, purge, or isolate older bundles; it must never restore an older
+accepted epoch. The
 current Mouth performs neither `^^` translation nor superscript remapping, and
 a resume regression proves that `\\math^^63ode` does not reach mathcode state.
 Any future lexer support for alternate spellings must update capability
 classification and fail-closed attachment suppression atomically.
 Pre-commit Pro review `6a7df349-1a08-83e8-9fa2-781ed76f57eb` returned
 `REVISE`; this unit closes its historical-reuse, stable-wire, hidden-owner,
-restore/reassign/unwind, and non-goal findings. Delcode remains unreachable from
-source and its activation is the next separate rollback unit. Remediation review
+restore/reassign/unwind, and non-goal findings. Remediation review
 `6a7e8140-ef6c-83ee-b331-bdf5c4c77f87` identified the already-published epoch-1
 collision, the serialized CharacterSource lexical boundary, and source-only
 latent production suppression; epoch 2 and the final regression matrix close
 those findings.
+
+Delcode source activation is also complete as its own rollback unit.
+`\delcode` assignment and `\the\delcode`/`\number\delcode` queries preserve the
+fresh defaults (`'.'` is 0 and every other character is -1), the
+-2147483647-through-16777215 value domain, signed decimal/octal/hex scans,
+backtick character scans, optional `=`, and local/global/nested/`\globaldefs`
+semantics fixed by the oracle. Invalid characters diagnose and recover to
+character 0; invalid RHS values diagnose and store delcode 0. Stable primitive
+wire naming, explicit redefinition precedence, hidden scope layers, every
+serialized pending token owner, latent CharacterSource commands, and versioned
+restore/reassign/unwind have independent regressions. Production LegacyOnly
+checkpoints suppress preamble, shipout, and input-boundary attachments for both
+materialized delcode state and source-only latent commands. Because mathcode
+epoch 2 was already emitted, delcode activation advances the checkpoint VM
+semantic epoch to 3 and rejects epoch 2 and earlier for reuse. Future rollback
+of either code-table primitive or their shared scanner semantics must issue
+epoch 4 or later and disable, purge, or isolate older bundles. A resume
+regression also fixes the current lexical boundary: without Mouth `^^`
+translation, `\del^^63ode` cannot reach delcode state. Mathcode and delcode
+assignments remain independent from each other and from rendering semantics.
+Pre-commit Pro review `6a7e9728-8784-83e8-9411-95010e38a47c` returned `REVISE`
+because composed dynamic-name construction and mid-primitive input-boundary
+snapshots lacked discriminating evidence. A continuation built from an aliased
+`\csname` plus individual `delcode` character tokens now proves that both
+independent code-table capabilities are derived before execution, the
+versioned restore performs the assignment, and every LegacyOnly checkpoint
+category is suppressed. The review also exposed a real unsafe checkpoint: an
+included file could end during a delcode assignment or query after the
+primitive spelling had been consumed. The VM now records the module boundary
+and trace but does not capture an exit checkpoint while a token is executing;
+the primitive call stack is therefore never represented as a resumable
+snapshot. Normal module exits still capture their checkpoints. Reuse rejects a
+future epoch as well as absent and epoch-1/2 bundles. Current dynamic-name
+mechanisms are `csname`, `ifcsname`, and `@nameuse`; no `scantokens` character
+retokenizer is implemented.
 
 Current migration evidence through `cd64df6`:
 

@@ -233,6 +233,7 @@ pub(crate) enum Primitive {
     CharDef,
     CatCode,
     MathCode,
+    DelCode,
     NeedsTeXFormat,
     ProvidesFile,
     ProvidesPackage,

@@ -105,6 +105,44 @@ fn reuse_rejects_the_epoch_enabled_pre_mathcode_bundle_regime() {
 }
 
 #[test]
+fn reuse_rejects_the_epoch_two_pre_delcode_bundle_regime() {
+    let mut pre_delcode_wire = legacy_bundle_json();
+    pre_delcode_wire["vm_semantic_epoch"] = json!(2);
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("epoch-2-pre-delcode.json"))
+        .expect("UTF-8 checkpoint path");
+    fs::write(
+        &path,
+        serde_json::to_vec(&pre_delcode_wire).expect("encode epoch-2 checkpoint bundle"),
+    )
+    .expect("write epoch-2 checkpoint bundle");
+
+    assert_eq!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    );
+}
+
+#[test]
+fn reuse_rejects_a_future_vm_semantic_epoch() {
+    let mut future_wire = legacy_bundle_json();
+    future_wire["vm_semantic_epoch"] = json!(CHECKPOINT_VM_SEMANTIC_EPOCH + 1);
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("future-epoch.json"))
+        .expect("UTF-8 checkpoint path");
+    fs::write(
+        &path,
+        serde_json::to_vec(&future_wire).expect("encode future checkpoint bundle"),
+    )
+    .expect("write future checkpoint bundle");
+
+    assert_eq!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    );
+}
+
+#[test]
 fn production_capture_suppresses_muskip_state_in_every_checkpoint_category() {
     let snapshot = muskip_snapshot();
     let pages = [CheckpointPage {

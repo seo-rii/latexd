@@ -1238,6 +1238,7 @@ pub struct Vm<'i> {
     module_traces: Vec<VmModuleTrace>,
     module_boundaries: Vec<VmModuleBoundary>,
     module_checkpoints: Vec<VmModuleCheckpoint>,
+    token_execution_active: bool,
     output: String,
     render_event_capture: bool,
     render_events: SemanticEventBuffer,
@@ -1324,6 +1325,7 @@ impl<'i> Vm<'i> {
             module_traces: Vec::new(),
             module_boundaries: Vec::new(),
             module_checkpoints: Vec::new(),
+            token_execution_active: false,
             output: String::new(),
             render_event_capture: false,
             render_events: SemanticEventBuffer::default(),
@@ -16395,7 +16397,9 @@ impl<'i> Vm<'i> {
                     self.at_end_document_hooks.clear();
                     break 'execution;
                 }
+                self.token_execution_active = true;
                 self.execute_token(token, &mut queue);
+                self.token_execution_active = false;
             }
             if self.at_end_document_hooks.is_empty() {
                 break;
@@ -19858,6 +19862,55 @@ impl<'i> Vm<'i> {
                 );
                 self.transcript
                     .push(format!("mathcode{character}={}", value.raw()));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::DelCode => {
+                let requested_global = mem::take(&mut self.global_prefix);
+                let Some(character) = self.read_code_table_character_v1(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let Some(raw_value) = self.read_number_expression(queue) else {
+                    return;
+                };
+                let value = DelimiterCodeV1::try_from_raw(raw_value).unwrap_or_else(|| {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!(
+                            "delcode value {raw_value} is outside -2147483647..=16777215"
+                        ),
+                    });
+                    DelimiterCodeV1::try_from_raw(0).expect("zero must be a valid delcode")
+                });
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                self.eqtb.assign_delcode(
+                    character,
+                    value,
+                    assignment_scope,
+                    self.save_stack.group_level(),
+                    &mut self.save_stack,
+                );
+                self.transcript
+                    .push(format!("delcode{character}={}", value.raw()));
                 if let Some(token) = self.after_assignment_token.take() {
                     self.push_token_front(queue, token);
                 }
@@ -23888,16 +23941,18 @@ impl<'i> Vm<'i> {
                     continuation_stack: checkpoint.continuation_stack.clone(),
                     output_start_utf8: self.output.len() as u32,
                 });
-                let snapshot = self.snapshot_with_input_queue(Some(queue));
-                self.module_checkpoints.push(VmModuleCheckpoint {
-                    kind: VmModuleCheckpointKind::Exit,
-                    module_path: path,
-                    resume_path: checkpoint.resume_path,
-                    source_offset_utf8: checkpoint.source_offset_utf8,
-                    continuation_stack: checkpoint.continuation_stack,
-                    output_start_utf8: self.output.len() as u32,
-                    snapshot,
-                });
+                if !self.token_execution_active {
+                    let snapshot = self.snapshot_with_input_queue(Some(queue));
+                    self.module_checkpoints.push(VmModuleCheckpoint {
+                        kind: VmModuleCheckpointKind::Exit,
+                        module_path: path,
+                        resume_path: checkpoint.resume_path,
+                        source_offset_utf8: checkpoint.source_offset_utf8,
+                        continuation_stack: checkpoint.continuation_stack,
+                        output_start_utf8: self.output.len() as u32,
+                        snapshot,
+                    });
+                }
             }
         }
     }
@@ -25152,6 +25207,10 @@ impl<'i> Vm<'i> {
                     Some(Meaning::Primitive(Primitive::MathCode)) => {
                         let character = self.read_code_table_character_v1(queue)?;
                         Some(self.eqtb.mathcode(character).raw())
+                    }
+                    Some(Meaning::Primitive(Primitive::DelCode)) => {
+                        let character = self.read_code_table_character_v1(queue)?;
+                        Some(self.eqtb.delcode(character).raw())
                     }
                     _ => None,
                 }
@@ -27144,6 +27203,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "chardef" => Some(Primitive::CharDef),
         "catcode" => Some(Primitive::CatCode),
         "mathcode" => Some(Primitive::MathCode),
+        "delcode" => Some(Primitive::DelCode),
         "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
         "ProvidesFile" => Some(Primitive::ProvidesFile),
         "ProvidesPackage" => Some(Primitive::ProvidesPackage),
@@ -27676,6 +27736,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::CharDef => "chardef",
         Primitive::CatCode => "catcode",
         Primitive::MathCode => "mathcode",
+        Primitive::DelCode => "delcode",
         Primitive::NeedsTeXFormat => "NeedsTeXFormat",
         Primitive::ProvidesFile => "ProvidesFile",
         Primitive::ProvidesPackage => "ProvidesPackage",

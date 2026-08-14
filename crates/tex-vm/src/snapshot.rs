@@ -2075,6 +2075,15 @@ impl VmSnapshot {
         };
         let tokens_require_mathcode =
             |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_mathcode);
+        let token_requires_delcode = |token: &SnapshotToken| {
+            matches!(
+                &token.kind,
+                SnapshotTokenKind::ControlSequence { name }
+                    if matches!(name.as_str(), "delcode" | "csname" | "ifcsname" | "@nameuse")
+            )
+        };
+        let tokens_require_delcode =
+            |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_delcode);
         let scopes_require_muskip_alias = self.scopes.iter().any(|scope| {
             scope.values().any(|meaning| match meaning {
                 SnapshotMeaning::Macro {
@@ -2119,6 +2128,29 @@ impl VmSnapshot {
                     )
                 }
                 SnapshotMeaning::Token { token } => token_requires_mathcode(token),
+            })
+        });
+        let scopes_require_delcode = self.scopes.iter().any(|scope| {
+            scope.values().any(|meaning| match meaning {
+                SnapshotMeaning::Macro {
+                    parameter_text,
+                    optional_first_argument_default,
+                    body,
+                    ..
+                } => {
+                    tokens_require_delcode(parameter_text)
+                        || optional_first_argument_default
+                            .as_deref()
+                            .is_some_and(&tokens_require_delcode)
+                        || tokens_require_delcode(body)
+                }
+                SnapshotMeaning::Primitive { name } => {
+                    matches!(
+                        name.as_str(),
+                        "delcode" | "csname" | "ifcsname" | "@nameuse"
+                    )
+                }
+                SnapshotMeaning::Token { token } => token_requires_delcode(token),
             })
         });
         let continuation_requires_muskip_alias =
@@ -2221,6 +2253,58 @@ impl VmSnapshot {
         {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
+            ));
+        }
+        let continuation_requires_delcode =
+            self.input_continuation
+                .as_ref()
+                .is_some_and(|continuation| {
+                    continuation.queue.iter().any(|item| match item {
+                        VmQueueItemSnapshot::Token { token } => token_requires_delcode(token),
+                        VmQueueItemSnapshot::CharacterSource { mouth } => {
+                            ["delcode", "csname", "ifcsname", "@nameuse"]
+                                .iter()
+                                .any(|name| mouth.input().contains(name))
+                        }
+                        VmQueueItemSnapshot::ModuleEnd { .. } => false,
+                    }) || continuation.source_stack.iter().any(|frame| {
+                        frame
+                            .end_hooks
+                            .iter()
+                            .any(|tokens| tokens_require_delcode(tokens))
+                            || frame.module_options.as_ref().is_some_and(|options| {
+                                options
+                                    .declared_options
+                                    .values()
+                                    .any(|tokens| tokens_require_delcode(tokens))
+                                    || options
+                                        .default_option_body
+                                        .as_deref()
+                                        .is_some_and(&tokens_require_delcode)
+                            })
+                    })
+                });
+        if scopes_require_delcode
+            || self
+                .token_registers
+                .values()
+                .any(|tokens| tokens_require_delcode(tokens))
+            || self
+                .aftergroup_tokens
+                .iter()
+                .any(|tokens| tokens_require_delcode(tokens))
+            || self
+                .after_assignment_token
+                .as_ref()
+                .is_some_and(&token_requires_delcode)
+            || self
+                .at_end_document_hooks
+                .iter()
+                .any(|tokens| tokens_require_delcode(tokens))
+            || continuation_requires_delcode
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
             ));
         }
         capabilities

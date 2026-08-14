@@ -465,9 +465,10 @@ expected failure로 고정한 뒤 다음 batch에서 제거한다.
   SaveStack을 공통 owner로 사용한다 (`c640efb`, `775cc22`). Borrowed-name hot
   path를 위해 Eqtb 내부 map은 분리하되 assignment/restore 의미는 하나이며,
   interner-local `ControlSequenceId` lifetime은 바꾸지 않았다.
-- 기존 `ControlSequenceScopes` production owner는 제거됐다. 다만
-  mathcode/delcode, font/box/remaining parameter, persistent root/state
-  hash가 남아 있어 phase exit는 계속 열려 있다.
+- 기존 `ControlSequenceScopes` production owner는 제거됐다. Mathcode/delcode도
+  typed Eqtb/SaveStack owner, source primitive, strict snapshot capability와
+  checkpoint suppression까지 이전됐다. 다만 font/box/remaining parameter,
+  persistent root/state hash가 남아 있어 phase exit는 계속 열려 있다.
 - production owner 이전용 독립성 gate는 green이다. CI diff guard가 V3 owner
   file 변경을 감지하면 허용 경로 밖 production diff와 신규
   identity/provenance/persistence symbol을 거부한다 (`2289907`). VM continuation
@@ -931,7 +932,7 @@ checkpoint에서는 attachment를 fail-closed suppress하여 source rebuild 경�
 도입한 `79b6515`가 이미 발행했으므로 mathcode activation은 epoch 2를 사용하고,
 epoch가 없거나 1인 과거 bundle은 inspection용 load는 가능하지만 reuse에서는
 `Unreadable` miss가 된다. 이 primitive 또는 공용 radix scanner 의미를 rollback할
-때도 epoch 1로 되돌리지 않고 새로운 epoch 3 이상을 발행하며, 기존 bundle을
+때도 과거 epoch로 되돌리지 않고 현재 accepted epoch보다 큰 새 epoch를 발행하며, 기존 bundle을
 disable/purge/isolate한 뒤에만 reuse를 허용한다. 현재 Mouth는 `^^` translation이나
 superscript remap을 수행하지 않으므로 `\math^^63ode`가 mathcode에 도달하지 않는다는
 resume regression을 고정했다. 미래 lexer가 alternate spelling을 지원하면 capability
@@ -942,8 +943,36 @@ stable primitive wire, hidden restorable owner, restore/reassign/unwind와 non-g
 guard를 이 단위에서 해소했다. Remediation review
 `6a7e8140-ef6c-83ee-b331-bdf5c4c77f87`에서 지적한 이미 발행된 epoch 1 충돌,
 serialized CharacterSource lexical boundary, source-only latent production suppression도
-epoch 2와 최종 regression matrix로 보완했다. Delcode source activation은 아직 도달
-불가능하며 다음 별도 rollback 단위다.
+epoch 2와 최종 regression matrix로 보완했다.
+
+Delcode source activation도 별도 rollback 단위로 완료됐다. `\delcode` assignment과
+`\the\delcode`/`\number\delcode` query는 fresh default (`'.'`만 0, 나머지 -1),
+-2147483647..=16777215 value domain, 음수·8/10/16진수·backtick character,
+optional `=`, local/global/nested/`\globaldefs`를 oracle과 동일하게 처리한다. 범위 밖
+character는 진단 뒤 character 0으로 복구하고, 범위 밖 RHS는 진단 뒤 delcode 0을
+저장한다. Stable primitive wire name, explicit redefinition 우선순위, hidden scope,
+macro/token-register/hook/continuation/module-option owner, CharacterSource latent command,
+versioned restore/reassign/unwind를 독립 regression으로 고정했다. Production LegacyOnly
+checkpoint는 materialized state와 latent CharacterSource 모두에서 preamble/shipout/input
+attachment를 suppress한다. Delcode activation은 이미 발행된 mathcode epoch 2와 의미가
+다르므로 checkpoint VM semantic epoch 3을 사용하고 epoch 2 이하를 reuse에서 거부한다.
+이제 두 primitive나 공용 scanner 의미를 rollback할 때는 epoch 4 이상을 발행하고 기존
+bundle을 disable/purge/isolate해야 한다. 현재 Mouth가 `^^` translation을 지원하지 않아
+`\del^^63ode`가 delcode state에 도달하지 않는 경계도 resume regression으로 고정했다.
+Mathcode assignment은 delcode를, delcode assignment은 mathcode나 rendering 의미를
+활성화하지 않는다. Pre-commit Pro review
+`6a7e9728-8784-83e8-9411-95010e38a47c`는 composed dynamic builder와 primitive
+중간 input-boundary snapshot 증거가 부족하다는 `REVISE`를 냈다. Alias된 `\csname`과
+개별 character token으로 조립한 `delcode` continuation은 실행 전부터 mathcode와
+delcode의 독립 capability를 모두 파생하고, versioned restore 뒤 실제 delcode assignment를
+수행하며 모든 LegacyOnly checkpoint category를 suppress한다. 반면 포함 파일이
+delcode assignment/query scanner 중간에서 끝나는 경우에는 primitive call stack을
+직렬화할 수 없다는 실제 반례가 재현됐다. VM은 이제 한 token의 실행 중 module-end를
+통과하면 exit boundary/trace만 기록하고 exit checkpoint snapshot은 만들지 않으며,
+다음 안전한 checkpoint에서만 재사용 상태를 캡처한다. Epoch absent/1/2뿐 아니라 future
+epoch도 reuse에서 거부한다. 현재 name constructor는 `csname`/`ifcsname`/`@nameuse`이고
+character retokenizer인 `scantokens`는 구현돼 있지 않다. 다음 M13.3 source activation
+단위는 code table 바깥의 별도 assignment class다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
