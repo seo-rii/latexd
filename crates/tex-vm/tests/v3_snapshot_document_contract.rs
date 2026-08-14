@@ -4,9 +4,10 @@ use tex_vm::{
     IntegerParameterId, SnapshotCapability, SnapshotMeaning, VM_SNAPSHOT_DOCUMENT_FORMAT,
     VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
-    Vm, VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1, VmRestoreError, VmSnapshot,
-    VmSnapshotDocument, VmSnapshotDocumentError, VmSnapshotDocumentRestoreError,
-    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
+    VmIntegerParameterStateV1, VmRestoreError, VmSnapshot, VmSnapshotDocument,
+    VmSnapshotDocumentError, VmSnapshotDocumentRestoreError, decode_vm_snapshot_document,
+    normalize_legacy_vm_snapshot,
 };
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -958,6 +959,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             MATHCODE_TABLE_V1_CAPABILITY,
             DELCODE_TABLE_V1_CAPABILITY,
             INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+            VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
         ]
     );
     let mut source_interner = ControlSequenceInterner::new();

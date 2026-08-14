@@ -1,0 +1,66 @@
+{
+  "capability": "eqtb.layout-integer-parameter-state.v1",
+  "allowed_ids": [
+    "adjdemerits",
+    "binoppenalty",
+    "brokenpenalty",
+    "clubpenalty",
+    "displaywidowpenalty",
+    "doublehyphendemerits",
+    "exhyphenpenalty",
+    "finalhyphendemerits",
+    "hangafter",
+    "hyphenpenalty",
+    "interlinepenalty",
+    "linepenalty",
+    "looseness",
+    "postdisplaypenalty",
+    "predisplaypenalty",
+    "pretolerance",
+    "relpenalty",
+    "widowpenalty"
+  ],
+  "defaults": {
+    "adjdemerits": 0,
+    "binoppenalty": 0,
+    "brokenpenalty": 0,
+    "clubpenalty": 0,
+    "displaywidowpenalty": 0,
+    "doublehyphendemerits": 0,
+    "exhyphenpenalty": 0,
+    "finalhyphendemerits": 0,
+    "hangafter": 1,
+    "hyphenpenalty": 0,
+    "interlinepenalty": 0,
+    "linepenalty": 0,
+    "looseness": 0,
+    "postdisplaypenalty": 0,
+    "predisplaypenalty": 0,
+    "pretolerance": 0,
+    "relpenalty": 0,
+    "widowpenalty": 0
+  },
+  "root_default_encoding": "omitted",
+  "future_ids_require": "new-capability-version",
+  "document_envelope": {
+    "format": "latexd.vm-snapshot",
+    "schema_version": 1,
+    "required_capabilities": [
+      "eqtb.layout-integer-parameter-state.v1"
+    ],
+    "layout_integer_parameter_state": {
+      "layers": [
+        [
+          {
+            "parameter": "adjdemerits",
+            "value": 123
+          },
+          {
+            "parameter": "hangafter",
+            "value": 2
+          }
+        ]
+      ]
+    }
+  }
+}

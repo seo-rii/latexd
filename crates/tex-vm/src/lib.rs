@@ -75,11 +75,13 @@ use semantic_sink::SemanticEventBuffer;
 use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
-    IntegerParameterId, LegacyVmSnapshotV1, SnapshotCapability, SnapshotMeaning, SnapshotToken,
-    SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
-    VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
-    VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    IntegerParameterId, LayoutIntegerParameterId, LegacyVmSnapshotV1, SnapshotCapability,
+    SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
+    VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
+    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
     VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
     VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
@@ -91,7 +93,8 @@ pub use snapshot::{
     VmExecutionAnchor, VmExecutionAuthorityRangeSnapshot, VmExecutionOccurrenceSnapshot,
     VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
     VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmIntegerParameterAssignmentV1,
-    VmIntegerParameterStateV1, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmIntegerParameterStateV1, VmLayoutIntegerParameterAssignmentV1,
+    VmLayoutIntegerParameterStateV1, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
     VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
     VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
     VmSemanticBibliographySnapshot, VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot,
@@ -125,6 +128,8 @@ pub enum VmRestoreError {
     InvalidMuskipCursor(u32),
     InvalidCodeTableState(String),
     InvalidIntegerParameterState(String),
+    InvalidLayoutIntegerParameterState(String),
+    UnsupportedLayoutIntegerParameterState,
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -152,6 +157,13 @@ impl std::fmt::Display for VmRestoreError {
                     formatter,
                     "invalid VM snapshot integer-parameter state: {error}"
                 )
+            }
+            Self::InvalidLayoutIntegerParameterState(error) => write!(
+                formatter,
+                "invalid VM snapshot layout-integer-parameter state: {error}"
+            ),
+            Self::UnsupportedLayoutIntegerParameterState => {
+                formatter.write_str("VM snapshot layout-integer-parameter state is not executable")
             }
         }
     }
@@ -183,6 +195,12 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             state
                 .validate(snapshot.scopes.len())
                 .map_err(VmRestoreError::InvalidIntegerParameterState)?;
+        }
+        if let Some(state) = &snapshot.layout_integer_parameter_state {
+            state
+                .validate(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidLayoutIntegerParameterState)?;
+            return Err(VmRestoreError::UnsupportedLayoutIntegerParameterState);
         }
     }
     for scope in &snapshot.scopes {
@@ -16799,6 +16817,7 @@ impl<'i> Vm<'i> {
             self.eqtb.mathcode_snapshot_state(&self.save_stack),
             self.eqtb.delcode_snapshot_state(&self.save_stack),
             self.eqtb.integer_parameter_snapshot_state(&self.save_stack),
+            None,
         )
     }
 

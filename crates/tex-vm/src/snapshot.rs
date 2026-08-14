@@ -27,6 +27,8 @@ pub const VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-
 pub const VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
 pub const VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
     "eqtb.integer-parameter-state.v1";
+pub const VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
+    "eqtb.layout-integer-parameter-state.v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
@@ -40,6 +42,7 @@ pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -412,6 +415,11 @@ pub fn decode_vm_snapshot_document(
         .map(|raw| serde_json::from_str::<VmIntegerParameterStateV1>(raw.get()))
         .transpose()
         .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let layout_integer_parameter_state = state_fields
+        .remove("layout_integer_parameter_state")
+        .map(|raw| serde_json::from_str::<VmLayoutIntegerParameterStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
     let mut legacy_fields = serde_json::Map::new();
     for (name, raw) in state_fields {
         let value = serde_json::from_str(raw.get())
@@ -436,6 +444,11 @@ pub fn decode_vm_snapshot_document(
             .validate(legacy.scopes.len())
             .map_err(VmSnapshotDocumentError::InvalidState)?;
     }
+    if let Some(state) = &layout_integer_parameter_state {
+        state
+            .validate(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
     let state = VmSnapshot::from_parts(
         legacy,
         muskip_registers,
@@ -443,6 +456,7 @@ pub fn decode_vm_snapshot_document(
         mathcode_state,
         delcode_state,
         integer_parameter_state,
+        layout_integer_parameter_state,
     );
     let derived_capabilities = state.required_capabilities();
     if declared_capabilities != derived_capabilities {
@@ -2059,6 +2073,102 @@ impl VmIntegerParameterStateV1 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutIntegerParameterId {
+    AdjDemerits,
+    BinOpPenalty,
+    BrokenPenalty,
+    ClubPenalty,
+    DisplayWidowPenalty,
+    DoubleHyphenDemerits,
+    ExHyphenPenalty,
+    FinalHyphenDemerits,
+    HangAfter,
+    HyphenPenalty,
+    InterlinePenalty,
+    LinePenalty,
+    Looseness,
+    PostDisplayPenalty,
+    PreDisplayPenalty,
+    PreTolerance,
+    RelPenalty,
+    WidowPenalty,
+}
+
+impl LayoutIntegerParameterId {
+    pub(crate) const fn default_value(self) -> i32 {
+        match self {
+            Self::HangAfter => 1,
+            Self::AdjDemerits
+            | Self::BinOpPenalty
+            | Self::BrokenPenalty
+            | Self::ClubPenalty
+            | Self::DisplayWidowPenalty
+            | Self::DoubleHyphenDemerits
+            | Self::ExHyphenPenalty
+            | Self::FinalHyphenDemerits
+            | Self::HyphenPenalty
+            | Self::InterlinePenalty
+            | Self::LinePenalty
+            | Self::Looseness
+            | Self::PostDisplayPenalty
+            | Self::PreDisplayPenalty
+            | Self::PreTolerance
+            | Self::RelPenalty
+            | Self::WidowPenalty => 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmLayoutIntegerParameterAssignmentV1 {
+    pub parameter: LayoutIntegerParameterId,
+    pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmLayoutIntegerParameterStateV1 {
+    pub layers: Vec<Vec<VmLayoutIntegerParameterAssignmentV1>>,
+}
+
+impl VmLayoutIntegerParameterStateV1 {
+    pub(crate) fn validate(&self, expected_layers: usize) -> Result<(), String> {
+        if self.layers.len() != expected_layers {
+            return Err(format!(
+                "layout-integer-parameter layer count {} does not match VM scope depth {expected_layers}",
+                self.layers.len()
+            ));
+        }
+        if !self.layers.iter().any(|layer| !layer.is_empty()) {
+            return Err("layout-integer-parameter state must not be empty".to_string());
+        }
+        if self.layers[0]
+            .iter()
+            .any(|assignment| assignment.value == assignment.parameter.default_value())
+        {
+            return Err(
+                "layout-integer-parameter root assignments equal to their defaults must be omitted"
+                    .to_string(),
+            );
+        }
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            let mut previous = None;
+            for assignment in layer {
+                if previous.is_some_and(|parameter| parameter >= assignment.parameter) {
+                    return Err(format!(
+                        "layout-integer-parameter layer {layer_index} entries must be strictly increasing"
+                    ));
+                }
+                previous = Some(assignment.parameter);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl VmCodeTableStateV1 {
     pub(crate) fn validate_mathcode(&self, expected_layers: usize) -> Result<(), String> {
         self.validate_with(expected_layers, "mathcode", |value| {
@@ -2116,6 +2226,7 @@ pub struct VmSnapshot {
     pub mathcode_state: Option<VmCodeTableStateV1>,
     pub delcode_state: Option<VmCodeTableStateV1>,
     pub integer_parameter_state: Option<VmIntegerParameterStateV1>,
+    pub layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
 }
 
 impl VmSnapshot {
@@ -2126,6 +2237,7 @@ impl VmSnapshot {
         mathcode_state: Option<VmCodeTableStateV1>,
         delcode_state: Option<VmCodeTableStateV1>,
         integer_parameter_state: Option<VmIntegerParameterStateV1>,
+        layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
     ) -> Self {
         Self {
             legacy,
@@ -2134,6 +2246,7 @@ impl VmSnapshot {
             mathcode_state,
             delcode_state,
             integer_parameter_state,
+            layout_integer_parameter_state,
         }
     }
 
@@ -2159,6 +2272,11 @@ impl VmSnapshot {
         if self.integer_parameter_state.is_some() {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+        }
+        if self.layout_integer_parameter_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             ));
         }
         let token_requires_muskip_alias = |token: &SnapshotToken| {
@@ -2512,6 +2630,7 @@ impl VmSnapshot {
         self.mathcode_state.is_some()
             || self.delcode_state.is_some()
             || self.integer_parameter_state.is_some()
+            || self.layout_integer_parameter_state.is_some()
     }
 }
 
@@ -2561,6 +2680,7 @@ impl<'de> Deserialize<'de> for VmSnapshot {
             mathcode_state: None,
             delcode_state: None,
             integer_parameter_state: None,
+            layout_integer_parameter_state: None,
         };
         let capabilities = snapshot.required_capabilities();
         if !capabilities.is_empty() {

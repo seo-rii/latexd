@@ -11,9 +11,11 @@ use tex_checkpoint::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    IntegerParameterId, VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
-    VmIntegerParameterStateV1, VmSnapshot,
+    IntegerParameterId, LayoutIntegerParameterId, VM_SNAPSHOT_DOCUMENT_FORMAT,
+    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
+    VmIntegerParameterStateV1, VmLayoutIntegerParameterAssignmentV1,
+    VmLayoutIntegerParameterStateV1, VmSnapshot,
 };
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -454,6 +456,51 @@ fn legacy_only_writer_suppresses_test_constructed_dormant_integer_parameter_stat
         layers: vec![vec![VmIntegerParameterAssignmentV1 {
             parameter: IntegerParameterId::Tolerance,
             value: 12_000,
+        }]],
+    });
+
+    let bundle = build_checkpoint_bundle(1, &snapshot, "preamble", &[])
+        .expect("build production-policy bundle");
+    let checkpoint = &bundle.checkpoints[0];
+    assert!(!checkpoint.meta.snapshot_attached);
+    assert!(matches!(
+        checkpoint.snapshot_attachment(),
+        SnapshotAttachment::None
+    ));
+}
+
+#[test]
+fn passive_layout_integer_parameter_attachment_is_inspectable_but_not_replay_safe() {
+    let mut bundle_json = legacy_bundle_json();
+    let mut snapshot = bundle_json["checkpoints"][0]["snapshot"].take();
+    snapshot["layout_integer_parameter_state"] = json!({
+        "layers": [[{"parameter": "pretolerance", "value": 123}]]
+    });
+    let mut slot = versioned_slot(snapshot);
+    slot["document"]["required_capabilities"] =
+        json!([VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY]);
+    bundle_json["checkpoints"][0]["versioned_snapshot"] = slot;
+    bundle_json["checkpoints"][0]["snapshot"] = Value::Null;
+
+    let bundle = serde_json::from_value::<CheckpointBundle>(bundle_json)
+        .expect("decode passive layout-parameter attachment for inspection");
+    let checkpoint = &bundle.checkpoints[0];
+    let SnapshotAttachment::Versioned(document) = checkpoint.snapshot_attachment() else {
+        panic!("passive layout state must retain its versioned attachment");
+    };
+
+    assert!(document.state.layout_integer_parameter_state.is_some());
+    assert!(!checkpoint_is_replay_safe(checkpoint));
+}
+
+#[test]
+fn legacy_only_writer_suppresses_test_constructed_passive_layout_integer_state() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut snapshot = Vm::new(&mut interner).snapshot();
+    snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+        layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
+            parameter: LayoutIntegerParameterId::PreTolerance,
+            value: 123,
         }]],
     });
 

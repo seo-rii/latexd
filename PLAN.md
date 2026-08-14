@@ -1094,6 +1094,25 @@ explicit redefinition, overflow/missing-number recovery를 tolerance와 같은 T
 checkpoint epoch를 바꾸지 않는다. 동결된 tolerance V1 ID 집합에는 이름을 추가하지
 않고, 다음 passive-reader gate에서 별도 capability의 정확한 wire 경계를 먼저 정한다.
 
+그 passive-reader gate는 `eqtb.layout-integer-parameter-state.v1`을 tolerance 전용
+`eqtb.integer-parameter-state.v1`과 분리해 추가했다. Wire ID 집합은 characterization의
+18개 이름과 정확히 같고, 값은 signed `i32`, `hangafter` root default는 1, 나머지 root
+default는 0이며 모두 wire에서 생략한다. Layer 수는 legacy control-sequence scope depth와
+정확히 같아야 하고, state는 비어 있을 수 없으며 각 layer의 ID는 canonical 순서로
+strictly increasing이어야 한다. Unknown/future ID, duplicate/out-of-order ID, unknown
+field, out-of-domain integer, redundant root default, capability-state 불일치는 runtime
+mutation 전에 거부된다.
+
+새 capability는 readable 목록에만 있고 executable/writable supported 목록에는 없다.
+따라서 valid document는 inspection에서 DTO를 보존하지만 raw legacy serialization,
+versioned rewrite, `Vm::try_restore_document`를 모두 fail-closed하며 prefilled writer와
+non-empty interner를 바꾸지 않는다. 수동 versioned checkpoint attachment는 inspection에
+남지만 replay-unsafe이고, production `LegacyOnly` capture는 constructed passive state도
+attachment 없이 source rebuild로 보낸다. Capability-free snapshot의 exact legacy shape,
+tolerance V1 contract, source primitive set, checkpoint semantic epoch 4는 그대로다. 다음
+dormant-owner gate가 lossless project/restore/unwind와 semantic hash를 제공할 때만 이
+capability를 supported 목록으로 승격한다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
 project/restore/project property, restore time/RSS 측정 뒤 별도 versioned

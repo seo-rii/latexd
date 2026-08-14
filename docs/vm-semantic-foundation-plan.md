@@ -1574,6 +1574,29 @@ Eqtb, Primitive, snapshot capabilities, or the checkpoint epoch. The frozen
 tolerance V1 ID set is not extended; the next passive-reader gate will first
 define the exact wire boundary for a separate capability.
 
+That passive-reader gate adds
+`eqtb.layout-integer-parameter-state.v1` separately from the tolerance-only
+`eqtb.integer-parameter-state.v1`. Its wire ID set is exactly the 18
+characterized names. Values are signed `i32`; the `hangafter` root default is
+1 and every other root default is zero, and all root defaults are omitted from
+the wire. The layer count must exactly equal the legacy control-sequence scope
+depth, the state must be nonempty, and IDs in each layer must be strictly
+increasing in canonical order. Unknown or future IDs, duplicate or out-of-order
+IDs, unknown fields, out-of-domain integers, redundant root defaults, and
+capability/state mismatches fail before runtime mutation.
+
+The new capability is readable but not in the executable/writable supported
+set. A valid document therefore preserves its DTO for inspection while raw
+legacy serialization, versioned rewrite, and `Vm::try_restore_document` all
+fail closed without changing a prefilled writer or nonempty interner. A manual
+versioned checkpoint attachment remains inspectable but is replay-unsafe, and
+production `LegacyOnly` capture suppresses even a test-constructed passive
+state so reuse falls back to source rebuild. Capability-free exact legacy
+shape, the tolerance V1 contract, source primitives, and checkpoint semantic
+epoch 4 remain unchanged. Only the next dormant-owner gate may promote this
+capability to the supported set, after it provides lossless
+project/restore/unwind and semantic hashing.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
