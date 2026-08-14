@@ -119,7 +119,6 @@ pub enum VmRestoreError {
     InvalidMuskipCursor(u32),
     InvalidCodeTableState(String),
     InvalidIntegerParameterState(String),
-    UnsupportedIntegerParameterState,
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -148,9 +147,6 @@ impl std::fmt::Display for VmRestoreError {
                     "invalid VM snapshot integer-parameter state: {error}"
                 )
             }
-            Self::UnsupportedIntegerParameterState => {
-                formatter.write_str("VM snapshot integer-parameter state is not executable")
-            }
         }
     }
 }
@@ -166,21 +162,22 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             snapshot.next_muskip_register,
         ));
     }
-    if let Some(state) = &snapshot.mathcode_state {
-        state
-            .validate_mathcode(snapshot.scopes.len())
-            .map_err(VmRestoreError::InvalidCodeTableState)?;
-    }
-    if let Some(state) = &snapshot.delcode_state {
-        state
-            .validate_delcode(snapshot.scopes.len())
-            .map_err(VmRestoreError::InvalidCodeTableState)?;
-    }
-    if let Some(state) = &snapshot.integer_parameter_state {
-        state
-            .validate(snapshot.scopes.len())
-            .map_err(VmRestoreError::InvalidIntegerParameterState)?;
-        return Err(VmRestoreError::UnsupportedIntegerParameterState);
+    if snapshot.has_nonlegacy_layered_eqtb_state() {
+        if let Some(state) = &snapshot.mathcode_state {
+            state
+                .validate_mathcode(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidCodeTableState)?;
+        }
+        if let Some(state) = &snapshot.delcode_state {
+            state
+                .validate_delcode(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidCodeTableState)?;
+        }
+        if let Some(state) = &snapshot.integer_parameter_state {
+            state
+                .validate(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidIntegerParameterState)?;
+        }
     }
     for scope in &snapshot.scopes {
         for meaning in scope.values() {
@@ -16795,7 +16792,7 @@ impl<'i> Vm<'i> {
             self.next_muskip_register,
             self.eqtb.mathcode_snapshot_state(&self.save_stack),
             self.eqtb.delcode_snapshot_state(&self.save_stack),
-            None,
+            self.eqtb.integer_parameter_snapshot_state(&self.save_stack),
         )
     }
 
@@ -16872,11 +16869,10 @@ impl<'i> Vm<'i> {
             snapshot.catcodes.clone(),
         );
         vm.save_stack = SaveStack::default();
-        let has_code_table_state =
-            snapshot.mathcode_state.is_some() || snapshot.delcode_state.is_some();
+        let has_nonlegacy_layered_eqtb_state = snapshot.has_nonlegacy_layered_eqtb_state();
         for (group_level, layer) in control_sequence_layers.into_iter().enumerate() {
             if group_level > 0 {
-                if has_code_table_state {
+                if has_nonlegacy_layered_eqtb_state {
                     vm.save_stack.begin_group();
                 } else {
                     vm.save_stack.begin_legacy_control_sequence_group();
@@ -16914,6 +16910,17 @@ impl<'i> Vm<'i> {
                         assignment.character,
                         DelimiterCodeV1::try_from_raw(assignment.value)
                             .expect("validated snapshot delcode must be in range"),
+                        scope,
+                        group_level,
+                        &mut vm.save_stack,
+                    );
+                }
+            }
+            if let Some(state) = &snapshot.integer_parameter_state {
+                for assignment in &state.layers[group_level] {
+                    vm.eqtb.assign_integer_parameter(
+                        assignment.parameter,
+                        assignment.value,
                         scope,
                         group_level,
                         &mut vm.save_stack,
@@ -34541,9 +34548,291 @@ mod tests {
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
-        MAX_PENDING_QUEUE_ITEMS, Vm, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
+        IntegerParameterId, MAX_PENDING_QUEUE_ITEMS, Vm, VmCodeTableAssignmentV1,
+        VmCodeTableStateV1, VmDiagnosticKind, VmIntegerParameterAssignmentV1,
+        VmIntegerParameterStateV1, VmModuleCheckpointKind, VmReplayFrame, VmSnapshotDocument,
         compile_format_snapshot,
     };
+
+    #[test]
+    fn restored_tolerance_layers_match_live_value_presence_and_level() {
+        let tolerance = IntegerParameterId::Tolerance;
+        let mut source_interner = ControlSequenceInterner::new();
+        let mut source = Vm::new(&mut source_interner);
+        let outcome = source.run_plain("{{{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut snapshot = source.snapshot();
+        snapshot.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: tolerance,
+                    value: 37,
+                }],
+                vec![],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: tolerance,
+                    value: 10_000,
+                }],
+            ],
+        });
+        let document = serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot))
+            .expect("serialize dormant integer-parameter document");
+        drop(source);
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::try_restore_document(&mut restored_interner, &document)
+            .expect("restore dormant integer-parameter layers");
+        let expected = [
+            (Some((10_000, 3)), Some((3, 10_000))),
+            (Some((37, 1)), Some((1, 37))),
+            (Some((37, 1)), Some((1, 37))),
+            (None, None),
+        ];
+        for (step, (owner, projected)) in expected.into_iter().enumerate() {
+            assert_eq!(restored.eqtb.integer_parameter_owner(tolerance), owner);
+            let state = restored.snapshot().integer_parameter_state;
+            match projected {
+                Some((level, value)) => {
+                    let state = state.expect("materialized owner must project");
+                    assert_eq!(state.layers[level][0].value, value);
+                }
+                None => assert_eq!(state, None),
+            }
+            if step + 1 < expected.len() {
+                let outcome = restored.run_plain("}");
+                assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+            }
+        }
+
+        let mut rooted_interner = ControlSequenceInterner::new();
+        let mut rooted_source = Vm::new(&mut rooted_interner);
+        let outcome = rooted_source.run_plain("{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut rooted_snapshot = rooted_source.snapshot();
+        rooted_snapshot.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: tolerance,
+                    value: 17,
+                }],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: tolerance,
+                    value: 31,
+                }],
+            ],
+        });
+        let rooted_document =
+            serde_json::to_vec(&VmSnapshotDocument::from_snapshot(rooted_snapshot))
+                .expect("serialize rooted integer-parameter document");
+        drop(rooted_source);
+        let mut rooted_restore_interner = ControlSequenceInterner::new();
+        let mut rooted = Vm::try_restore_document(&mut rooted_restore_interner, &rooted_document)
+            .expect("restore rooted integer-parameter layers");
+        assert_eq!(
+            rooted.eqtb.integer_parameter_owner(tolerance),
+            Some((31, 1))
+        );
+        let outcome = rooted.run_plain("}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        assert_eq!(
+            rooted.eqtb.integer_parameter_owner(tolerance),
+            Some((17, 0))
+        );
+    }
+
+    #[test]
+    fn mixed_nonlegacy_owners_share_one_exact_restore_group_lattice() {
+        let tolerance = IntegerParameterId::Tolerance;
+        let mut source_interner = ControlSequenceInterner::new();
+        let mut source = Vm::new(&mut source_interner);
+        let outcome = source.run_plain(r"\def\groot{R}{\def\gouter{O}{{\def\ginner{I}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let base = source.snapshot();
+        assert_eq!(base.scopes.len(), 4);
+        drop(source);
+
+        for owner_mask in 1_u8..8 {
+            let has_mathcode = owner_mask & 1 != 0;
+            let has_delcode = owner_mask & 2 != 0;
+            let has_integer = owner_mask & 4 != 0;
+            let mut snapshot = base.clone();
+            snapshot.mathcode_state = has_mathcode.then_some(VmCodeTableStateV1 {
+                layers: vec![
+                    vec![VmCodeTableAssignmentV1 {
+                        character: b'A',
+                        value: 111,
+                    }],
+                    vec![],
+                    vec![],
+                    vec![],
+                ],
+            });
+            snapshot.delcode_state = has_delcode.then_some(VmCodeTableStateV1 {
+                layers: vec![
+                    vec![],
+                    vec![],
+                    vec![VmCodeTableAssignmentV1 {
+                        character: b'.',
+                        value: 222,
+                    }],
+                    vec![],
+                ],
+            });
+            snapshot.integer_parameter_state = has_integer.then_some(VmIntegerParameterStateV1 {
+                layers: vec![
+                    vec![],
+                    vec![VmIntegerParameterAssignmentV1 {
+                        parameter: tolerance,
+                        value: 37,
+                    }],
+                    vec![],
+                    vec![VmIntegerParameterAssignmentV1 {
+                        parameter: tolerance,
+                        value: 10_000,
+                    }],
+                ],
+            });
+            let document = serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot))
+                .expect("serialize mixed-owner document");
+            let mut restored_interner = ControlSequenceInterner::new();
+            let mut restored = Vm::try_restore_document(&mut restored_interner, &document)
+                .expect("restore mixed-owner document");
+
+            for step in 0..=3 {
+                assert_eq!(
+                    restored.eqtb.mathcode(b'A').raw(),
+                    if has_mathcode { 111 } else { 28_993 },
+                    "owner_mask={owner_mask}, step={step}"
+                );
+                assert_eq!(
+                    restored.eqtb.delcode(b'.').raw(),
+                    if has_delcode && step <= 1 { 222 } else { 0 },
+                    "owner_mask={owner_mask}, step={step}"
+                );
+                let expected_integer = if has_integer {
+                    match step {
+                        0 => Some((10_000, 3)),
+                        1 | 2 => Some((37, 1)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                assert_eq!(
+                    restored.eqtb.integer_parameter_owner(tolerance),
+                    expected_integer,
+                    "owner_mask={owner_mask}, step={step}"
+                );
+                assert!(restored.eqtb.control_sequence("groot").is_some());
+                assert_eq!(
+                    restored.eqtb.control_sequence("gouter").is_some(),
+                    step <= 2,
+                    "owner_mask={owner_mask}, step={step}"
+                );
+                assert_eq!(
+                    restored.eqtb.control_sequence("ginner").is_some(),
+                    step == 0,
+                    "owner_mask={owner_mask}, step={step}"
+                );
+
+                let projected = restored.snapshot();
+                assert_eq!(projected.mathcode_state.is_some(), has_mathcode);
+                assert_eq!(projected.delcode_state.is_some(), has_delcode && step <= 1);
+                assert_eq!(
+                    projected.integer_parameter_state.is_some(),
+                    has_integer && step <= 2
+                );
+                if step < 3 {
+                    let outcome = restored.run_plain("}");
+                    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_tolerance_layer_matrices_restore_and_unwind_against_model() {
+        let tolerance = IntegerParameterId::Tolerance;
+        for group_count in 0_usize..=8 {
+            let mut source_interner = ControlSequenceInterner::new();
+            let mut source = Vm::new(&mut source_interner);
+            let outcome = source.run_plain(&"{".repeat(group_count));
+            assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+            let base = source.snapshot();
+            drop(source);
+
+            for root_present in [false, true] {
+                for local_mask in 0_usize..(1_usize << group_count) {
+                    let mut layers = vec![Vec::new(); group_count + 1];
+                    if root_present {
+                        layers[0].push(VmIntegerParameterAssignmentV1 {
+                            parameter: tolerance,
+                            value: 17,
+                        });
+                    }
+                    for level in 1..=group_count {
+                        if local_mask & (1 << (level - 1)) != 0 {
+                            let value = match level % 4 {
+                                0 => i32::MIN,
+                                1 => 10_000,
+                                2 => i32::MAX,
+                                _ => -(level as i32),
+                            };
+                            layers[level].push(VmIntegerParameterAssignmentV1 {
+                                parameter: tolerance,
+                                value,
+                            });
+                        }
+                    }
+                    let has_state = layers.iter().any(|layer| !layer.is_empty());
+                    let mut snapshot = base.clone();
+                    snapshot.integer_parameter_state =
+                        has_state.then(|| VmIntegerParameterStateV1 {
+                            layers: layers.clone(),
+                        });
+                    let document = serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot))
+                        .expect("serialize canonical tolerance matrix");
+                    let mut restored_interner = ControlSequenceInterner::new();
+                    let mut restored = Vm::try_restore_document(&mut restored_interner, &document)
+                        .expect("restore canonical tolerance matrix");
+
+                    for remaining_groups in (0..=group_count).rev() {
+                        let expected_owner = (0..=remaining_groups).rev().find_map(|level| {
+                            layers[level]
+                                .first()
+                                .map(|assignment| (assignment.value, level))
+                        });
+                        assert_eq!(
+                            restored.eqtb.integer_parameter_owner(tolerance),
+                            expected_owner,
+                            "group_count={group_count}, root_present={root_present}, local_mask={local_mask:#x}, remaining_groups={remaining_groups}"
+                        );
+                        let expected_layers = layers[..=remaining_groups].to_vec();
+                        let expected_state = expected_layers
+                            .iter()
+                            .any(|layer| !layer.is_empty())
+                            .then_some(VmIntegerParameterStateV1 {
+                                layers: expected_layers,
+                            });
+                        assert_eq!(
+                            restored.snapshot().integer_parameter_state,
+                            expected_state,
+                            "group_count={group_count}, root_present={root_present}, local_mask={local_mask:#x}, remaining_groups={remaining_groups}"
+                        );
+                        if remaining_groups > 0 {
+                            let outcome = restored.run_plain("}");
+                            assert!(
+                                outcome.diagnostics.is_empty(),
+                                "group_count={group_count}, root_present={root_present}, local_mask={local_mask:#x}: {:#?}",
+                                outcome.diagnostics
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn visible_render_event_text(events: &[RenderEventEnvelope]) -> String {
         events

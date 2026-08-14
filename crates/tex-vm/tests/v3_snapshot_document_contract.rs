@@ -14,6 +14,8 @@ const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 const MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-v1";
 const DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
 const INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str = "eqtb.integer-parameter-state.v1";
+const INTEGER_PARAMETER_STATE_V1_CONTRACT: &str =
+    include_str!("fixtures/integer-parameter-state-v1-contract.json");
 
 fn muskip_snapshot() -> VmSnapshot {
     let mut interner = ControlSequenceInterner::new();
@@ -390,7 +392,7 @@ fn passive_code_table_restore_keeps_fresh_defaults_implicit() {
 }
 
 #[test]
-fn passive_integer_parameter_reader_preserves_state_but_rejects_executable_restore() {
+fn dormant_integer_parameter_reader_rewrites_and_restores_state() {
     let mut source_interner = ControlSequenceInterner::new();
     let source = Vm::new(&mut source_interner);
     let mut state = versioned_state(&source.snapshot());
@@ -415,7 +417,7 @@ fn passive_integer_parameter_reader_preserves_state_but_rejects_executable_resto
         capability.as_str() == VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY
     }));
 
-    let mut legacy_output = Vec::new();
+    let mut legacy_output = b"sentinel".to_vec();
     let legacy_error = serde_json::to_writer(&mut legacy_output, &decoded.state)
         .expect_err("passive integer-parameter state must not enter the legacy wire");
     assert!(
@@ -423,25 +425,95 @@ fn passive_integer_parameter_reader_preserves_state_but_rejects_executable_resto
             .to_string()
             .contains(INTEGER_PARAMETER_STATE_V1_CAPABILITY)
     );
-    assert!(legacy_output.is_empty());
+    assert_eq!(legacy_output, b"sentinel");
 
     let mut document_output = Vec::new();
-    let document_error = serde_json::to_writer(&mut document_output, &decoded)
-        .expect_err("passive state must not be rewritten before dormant restore exists");
-    assert!(
-        document_error
-            .to_string()
-            .contains(INTEGER_PARAMETER_STATE_V1_CAPABILITY)
+    serde_json::to_writer(&mut document_output, &decoded)
+        .expect("dormant state must be writable after lossless restore exists");
+    assert_eq!(
+        decode_vm_snapshot_document(&document_output).expect("decode rewritten document"),
+        decoded
     );
-    assert!(document_output.is_empty());
 
     let mut restored_interner = ControlSequenceInterner::new();
-    assert!(matches!(
-        Vm::try_restore_document(&mut restored_interner, &encoded),
-        Err(VmSnapshotDocumentRestoreError::Restore(
-            VmRestoreError::UnsupportedIntegerParameterState
-        ))
-    ));
+    let restored = Vm::try_restore_document(&mut restored_interner, &encoded)
+        .expect("restore dormant integer-parameter state");
+    assert_eq!(
+        restored.snapshot().integer_parameter_state,
+        decoded.state.integer_parameter_state
+    );
+}
+
+#[test]
+fn integer_parameter_state_v1_contract_is_frozen_to_tolerance() {
+    let expected = serde_json::from_str::<serde_json::Value>(INTEGER_PARAMETER_STATE_V1_CONTRACT)
+        .expect("integer-parameter V1 contract fixture");
+    let mut interner = ControlSequenceInterner::new();
+    let mut snapshot = Vm::new(&mut interner).snapshot();
+    snapshot.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+        layers: vec![vec![VmIntegerParameterAssignmentV1 {
+            parameter: IntegerParameterId::Tolerance,
+            value: 123,
+        }]],
+    });
+    let document = serde_json::to_value(VmSnapshotDocument::from_snapshot(snapshot))
+        .expect("serialize integer-parameter V1 document");
+    let actual = json!({
+        "capability": VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+        "allowed_ids": [serde_json::to_value(IntegerParameterId::Tolerance)
+            .expect("serialize tolerance ID")],
+        "defaults": {"tolerance": 10_000},
+        "root_default_encoding": "omitted",
+        "future_ids_require": "new-capability-version",
+        "document_envelope": {
+            "format": document["format"],
+            "schema_version": document["schema_version"],
+            "required_capabilities": document["required_capabilities"],
+            "integer_parameter_state": document["state"]["integer_parameter_state"],
+        },
+    });
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn dormant_same_default_local_owner_survives_restore_and_unwind() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    let outcome = source.run_plain("{");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let mut state = versioned_state(&source.snapshot());
+    state["integer_parameter_state"] = json!({
+        "layers": [[], [{"parameter": "tolerance", "value": 10_000}]]
+    });
+    let encoded =
+        encoded_document_with_capabilities(&[INTEGER_PARAMETER_STATE_V1_CAPABILITY], state);
+    drop(source);
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore_document(&mut restored_interner, &encoded)
+        .expect("restore same-default scoped owner");
+    let restored_snapshot = restored.snapshot();
+    assert_eq!(
+        restored_snapshot
+            .integer_parameter_state
+            .as_ref()
+            .expect("scoped owner remains materialized")
+            .layers[1][0]
+            .value,
+        10_000
+    );
+
+    let outcome = restored.run_plain("}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let unwound = restored.snapshot();
+    assert_eq!(unwound.integer_parameter_state, None);
+    assert!(
+        unwound
+            .required_capabilities()
+            .iter()
+            .all(|capability| capability.as_str() != INTEGER_PARAMETER_STATE_V1_CAPABILITY)
+    );
 }
 
 #[test]
@@ -489,6 +561,10 @@ fn passive_integer_parameter_reader_rejects_noncanonical_state() {
             "layer count beyond scope depth",
             json!({"layers": [[], [{"parameter": "tolerance", "value": 1}]]}),
         ),
+        (
+            "redundant root default",
+            json!({"layers": [[{"parameter": "tolerance", "value": 10_000}]]}),
+        ),
     ];
 
     for (name, parameter_state) in cases {
@@ -503,6 +579,29 @@ fn passive_integer_parameter_reader_rejects_noncanonical_state() {
             "accepted {name}"
         );
     }
+}
+
+#[test]
+fn malformed_integer_parameter_document_emits_no_rewrite_bytes() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut invalid_root_default = Vm::new(&mut interner).snapshot();
+    invalid_root_default.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+        layers: vec![vec![VmIntegerParameterAssignmentV1 {
+            parameter: IntegerParameterId::Tolerance,
+            value: 10_000,
+        }]],
+    });
+    let invalid_root_default = VmSnapshotDocument::from_snapshot(invalid_root_default);
+    let mut output = b"sentinel".to_vec();
+    serde_json::to_writer(&mut output, &invalid_root_default)
+        .expect_err("redundant root default must fail before writing");
+    assert_eq!(output, b"sentinel");
+
+    let mut mismatched = invalid_root_default;
+    mismatched.required_capabilities.clear();
+    serde_json::to_writer(&mut output, &mismatched)
+        .expect_err("capability/state mismatch must fail before writing");
+    assert_eq!(output, b"sentinel");
 }
 
 #[test]
@@ -848,6 +947,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             MUSKIP_SCALAR_V1_CAPABILITY,
             MATHCODE_TABLE_V1_CAPABILITY,
             DELCODE_TABLE_V1_CAPABILITY,
+            INTEGER_PARAMETER_STATE_V1_CAPABILITY,
         ]
     );
     assert_eq!(

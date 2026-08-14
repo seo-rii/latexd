@@ -1009,9 +1009,37 @@ bytes, document schema 1, semantic capture schema, checkpoint epoch 3은 바뀌�
 다음 dormant-owner gate가 layered restore/hash를 제공할 때만 이 capability를 writable
 지원 목록으로 승격한다.
 
-후속 순서는 strict passive DTO boundary → source-unreachable typed Eqtb/SaveStack
-owner와 layered restore/hash/legacy suppression → `\tolerance` source activation이다.
-Planned state capability는 complete TeX82 지원을 뜻하지 않는
+Dormant-owner gate는 이 승격을 완료했다. `EqKey::IntegerParameter(Tolerance)`와
+별도 integer-parameter value가 공통 Eqtb/SaveStack을 사용하며, root owner가 없으면
+wire contract default 10000을 가상으로 읽는다. Root/global 10000은 restore record를
+전부 취소하고 owner를 제거하지만 local 10000은 level과 prior presence를 보존한다.
+Snapshot projection은 base-to-inner sparse layer를 만들고, versioned restore는 모든
+layer를 먼저 검증한 뒤 mathcode/delcode/integer owner가 공유하는 group lattice를 한 번만
+재구성한다. `eqtb.integer-parameter-state.v1`은 이제 executable/writable VM document
+capability지만 production checkpoint writer는 계속 `LegacyOnly`라 attachment 전체를
+suppress한다. Raw legacy serialization은 capability-bearing state를 계속 거부한다.
+
+V1 wire contract는 ID set 정확히 `{ "tolerance" }`, omitted root default 정확히 10000,
+signed `i32`, root-default encoding 금지로 동결했다. 다른 integer parameter나 default
+변경은 V2 또는 별도 capability가 필요하다. Dormant gate가 생성한 artifact가 외부로
+나간 뒤의 rollback은 source/generation만 disable할 수 있고 V1 parse/rewrite/restore는
+유지해야 한다. Passive base `de31bab`의 integer state는 parse-only였고 rewrite/restore와
+replay를 명시적으로 거부했으므로 semantic fingerprint의 새 integer domain은 이전
+실행 가능 input의 digest를 바꾸지 않는 supported-domain 확장이다.
+
+G3 Pro review `6a7ebd9a-5fc4-83ee-9e67-d168e72692b0`는 `REVISE`
+(confidence 0.87)로 direct live-owner oracle, nested global cancellation, mixed-owner
+lattice, output atomicity, frozen wire/hash contract 증거를 요구했다. Remediation은 private
+value/presence/level을 각 unwind 뒤 확인하고, global default/nondefault가 모든 restore를
+취소함을 고정하며, 세 nonlegacy owner의 일곱 nonempty 조합과 empty middle group을
+검증한다. Depth 0–8의 canonical sparse matrix는 모델 기반 restore/project/unwind를
+전수 검사하고, malformed rewrite와 raw legacy refusal은 prefilled sink를 한 byte도
+바꾸지 않으며, integer state hash의 layer/default/root golden vector를 고정한다.
+최종 gate는 workspace smoke 758/758을 포함한 전체 `cargo test --workspace`,
+workspace clippy, 52개 Python policy/oracle test를 모두 통과했다.
+
+후속 순서의 passive DTO와 source-unreachable typed Eqtb/SaveStack owner는 완료됐고,
+다음 gate는 `\tolerance` source activation이다. State capability는 complete TeX82 지원을 뜻하지 않는
 `eqtb.integer-parameter-state.v1`이고 stable ID는 canonical string `"tolerance"`만
 허용한다. Fresh/default-quiescent state는 legacy-compatible하게 absent이며, 같은 default의
 local assignment은 future unwind가 달라질 수 있어 scoped presence를 보존한다. Source

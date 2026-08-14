@@ -1174,6 +1174,16 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
         );
         fingerprint.update(&state_json);
     }
+    if let Some(state) = &snapshot.integer_parameter_state {
+        fingerprint.update(b"eqtb.integer-parameter-state.v1\0");
+        let state_json = serde_json::to_vec(state)?;
+        fingerprint.update(
+            &u64::try_from(state_json.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(&state_json);
+    }
     Ok(fingerprint.finalize().to_hex().to_string())
 }
 
@@ -1614,7 +1624,8 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        SnapshotCapability, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1, VmContinuationBlocker,
+        IntegerParameterId, SnapshotCapability, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1,
+        VmContinuationBlocker, VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
         VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
@@ -2721,6 +2732,110 @@ mod tests {
         assert_ne!(
             first_hash,
             super::checkpoint_vm_semantic_hash(&del_changed).expect("hash changed delcode")
+        );
+    }
+
+    #[test]
+    fn vm_semantic_hash_distinguishes_dormant_integer_parameter_layers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain("{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut root = vm.snapshot();
+        root.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 12_000,
+                }],
+                vec![],
+            ],
+        });
+        let mut local = root.clone();
+        local.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 12_000,
+                }],
+            ],
+        });
+        let equivalent = local.clone();
+        let mut changed = local.clone();
+        changed
+            .integer_parameter_state
+            .as_mut()
+            .expect("integer-parameter state")
+            .layers[1][0]
+            .value += 1;
+        let mut local_default = local.clone();
+        local_default
+            .integer_parameter_state
+            .as_mut()
+            .expect("integer-parameter state")
+            .layers[1][0]
+            .value = 10_000;
+        let mut deeper_local_default = local_default.clone();
+        deeper_local_default.scopes.push(Default::default());
+        deeper_local_default.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 10_000,
+                }],
+            ],
+        });
+        let mut same_nondefault_local = root.clone();
+        same_nondefault_local.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 12_000,
+                }],
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 12_000,
+                }],
+            ],
+        });
+
+        let root_hash = super::checkpoint_vm_semantic_hash(&root).expect("hash root owner");
+        let local_hash = super::checkpoint_vm_semantic_hash(&local).expect("hash local owner");
+        let local_default_hash = super::checkpoint_vm_semantic_hash(&local_default)
+            .expect("hash same-default local owner");
+        let deeper_local_default_hash = super::checkpoint_vm_semantic_hash(&deeper_local_default)
+            .expect("hash deeper same-default local owner");
+        let same_nondefault_local_hash = super::checkpoint_vm_semantic_hash(&same_nondefault_local)
+            .expect("hash same-nondefault local owner");
+        assert_eq!(
+            local_hash,
+            super::checkpoint_vm_semantic_hash(&equivalent).expect("hash equivalent owner")
+        );
+        assert_ne!(root_hash, local_hash);
+        assert_ne!(local_default_hash, deeper_local_default_hash);
+        assert_ne!(root_hash, same_nondefault_local_hash);
+        assert_ne!(
+            local_hash,
+            super::checkpoint_vm_semantic_hash(&changed).expect("hash changed owner")
+        );
+        assert_eq!(
+            (
+                root_hash.as_str(),
+                local_hash.as_str(),
+                local_default_hash.as_str(),
+                deeper_local_default_hash.as_str(),
+                same_nondefault_local_hash.as_str(),
+            ),
+            (
+                "a0a4950fc0209156d8e518a06b24d5d8acd0b6bd9b0301308d3a802ec21df10f",
+                "99a7b8cadab0663153a40ce86bc80c7507583ba777b1b1f0c4d383af1c5647c6",
+                "811453c3718da904a6cf4ffdaae38f37ee3b186e5d739c61d6566873bfec101a",
+                "fd639bc0799738bbf96189d62d35e2fd58ad0946c275da5e9c5c0d9d4d028a1f",
+                "4a0d5335e6376b4ce615e95d3edabd6ef950296032587a304a26d44d5ce0b058",
+            )
         );
     }
 

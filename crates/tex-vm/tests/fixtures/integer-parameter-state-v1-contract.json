@@ -1,0 +1,28 @@
+{
+  "capability": "eqtb.integer-parameter-state.v1",
+  "allowed_ids": [
+    "tolerance"
+  ],
+  "defaults": {
+    "tolerance": 10000
+  },
+  "root_default_encoding": "omitted",
+  "future_ids_require": "new-capability-version",
+  "document_envelope": {
+    "format": "latexd.vm-snapshot",
+    "schema_version": 1,
+    "required_capabilities": [
+      "eqtb.integer-parameter-state.v1"
+    ],
+    "integer_parameter_state": {
+      "layers": [
+        [
+          {
+            "parameter": "tolerance",
+            "value": 123
+          }
+        ]
+      ]
+    }
+  }
+}

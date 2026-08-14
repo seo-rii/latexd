@@ -32,6 +32,7 @@ pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
 ];
 pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
@@ -1996,6 +1997,14 @@ pub enum IntegerParameterId {
     Tolerance,
 }
 
+impl IntegerParameterId {
+    pub(crate) const fn default_value(self) -> i32 {
+        match self {
+            Self::Tolerance => 10_000,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmIntegerParameterAssignmentV1 {
@@ -2019,6 +2028,15 @@ impl VmIntegerParameterStateV1 {
         }
         if !self.layers.iter().any(|layer| !layer.is_empty()) {
             return Err("integer-parameter state must not be empty".to_string());
+        }
+        if self.layers[0]
+            .iter()
+            .any(|assignment| assignment.value == assignment.parameter.default_value())
+        {
+            return Err(
+                "integer-parameter root assignments equal to their defaults must be omitted"
+                    .to_string(),
+            );
         }
         for (layer_index, layer) in self.layers.iter().enumerate() {
             let mut previous = None;
@@ -2396,6 +2414,12 @@ impl VmSnapshot {
             ));
         }
         capabilities
+    }
+
+    pub(crate) fn has_nonlegacy_layered_eqtb_state(&self) -> bool {
+        self.mathcode_state.is_some()
+            || self.delcode_state.is_some()
+            || self.integer_parameter_state.is_some()
     }
 }
 

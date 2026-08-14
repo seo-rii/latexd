@@ -11,8 +11,9 @@ use tex_checkpoint::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
-    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmSnapshot,
+    IntegerParameterId, VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
+    VmIntegerParameterStateV1, VmSnapshot,
 };
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
@@ -403,7 +404,7 @@ fn reader_exposes_one_legacy_or_versioned_snapshot_attachment() {
 }
 
 #[test]
-fn passive_integer_parameter_attachment_is_inspectable_but_not_replay_safe() {
+fn dormant_integer_parameter_attachment_is_inspectable_and_replay_safe() {
     let mut bundle_json = legacy_bundle_json();
     let mut snapshot = bundle_json["checkpoints"][0]["snapshot"].take();
     snapshot["integer_parameter_state"] = json!({
@@ -423,7 +424,28 @@ fn passive_integer_parameter_attachment_is_inspectable_but_not_replay_safe() {
     };
 
     assert!(document.state.integer_parameter_state.is_some());
-    assert!(!checkpoint_is_replay_safe(checkpoint));
+    assert!(checkpoint_is_replay_safe(checkpoint));
+}
+
+#[test]
+fn legacy_only_writer_suppresses_test_constructed_dormant_integer_parameter_state() {
+    let mut interner = ControlSequenceInterner::new();
+    let mut snapshot = Vm::new(&mut interner).snapshot();
+    snapshot.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+        layers: vec![vec![VmIntegerParameterAssignmentV1 {
+            parameter: IntegerParameterId::Tolerance,
+            value: 12_000,
+        }]],
+    });
+
+    let bundle = build_checkpoint_bundle(1, &snapshot, "preamble", &[])
+        .expect("build production-policy bundle");
+    let checkpoint = &bundle.checkpoints[0];
+    assert!(!checkpoint.meta.snapshot_attached);
+    assert!(matches!(
+        checkpoint.snapshot_attachment(),
+        SnapshotAttachment::None
+    ));
 }
 
 #[test]

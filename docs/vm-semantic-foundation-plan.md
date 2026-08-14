@@ -1469,9 +1469,42 @@ capture schema, and checkpoint epoch 3 remain unchanged. The dormant-owner
 gate will promote this capability to the writable support list only after
 layered restore and hashing exist.
 
-The next gates are a strict passive DTO boundary, a source-unreachable typed
-Eqtb/SaveStack owner with layered restore/hash/legacy suppression, and finally
-source activation. The planned capability name
+The dormant-owner gate completes that promotion. A distinct
+`EqKey::IntegerParameter(Tolerance)` and integer-parameter value use the common
+Eqtb/SaveStack path, while an absent root owner reads the wire-contract default
+10000 virtually. Root/global 10000 cancels every restore and removes the owner;
+local 10000 retains its level and prior presence. Snapshot projection emits
+base-to-inner sparse layers. Versioned restore validates every layer first and
+then reconstructs the one group lattice shared by mathcode, delcode, and integer
+owners. `eqtb.integer-parameter-state.v1` is now an executable/writable VM
+document capability, but the production checkpoint writer remains
+`LegacyOnly` and suppresses the whole attachment. Raw legacy serialization
+continues to reject capability-bearing state.
+
+The V1 wire contract is frozen to the exact ID set `{ "tolerance" }`, omitted
+root default exactly 10000, signed `i32`, and no explicit root-default encoding.
+Any other integer parameter or default change requires V2 or a distinct
+capability. After a dormant-gate artifact escapes, rollback may disable source
+reachability or generation but must retain V1 parse/rewrite/restore support.
+Integer state at passive base `de31bab` was parse-only and explicitly rejected
+rewrite, restore, and replay, so the new integer fingerprint domain expands the
+supported input domain without changing a previously executable input digest.
+
+G3 Pro review `6a7ebd9a-5fc4-83ee-9e67-d168e72692b0` returned `REVISE`
+with confidence 0.87 and required direct live-owner observation, nested global
+cancellation, a mixed-owner lattice, output atomicity, and frozen wire/hash
+contracts. Remediation checks private value/presence/level after every unwind,
+proves both global default and nondefault cancel all restores, and covers all
+seven nonempty combinations of the three nonlegacy owners with an empty middle
+group. A depth-0-through-8 canonical sparse-matrix model exhaustively checks
+restore/project/unwind. Malformed rewrite and raw-legacy refusal leave a
+prefilled sink byte-identical, and layer/default/root integer hash vectors are
+golden values.
+Final gates pass the complete workspace test suite, including all 758 smoke
+tests, workspace clippy, and all 52 Python policy/oracle tests.
+
+The passive DTO and source-unreachable typed Eqtb/SaveStack owner gates are now
+complete; the next gate is source activation. The capability name
 `eqtb.integer-parameter-state.v1` describes the persistent container rather
 than complete TeX82 parameter support, and initially accepts only the stable
 canonical ID `"tolerance"`. Fresh/default-quiescent state remains absent and

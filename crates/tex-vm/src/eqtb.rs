@@ -6,7 +6,10 @@ use tex_tokens::{CatCode, Token};
 use crate::{
     command::Meaning,
     save_stack::{SaveDisposition, SaveStack},
-    snapshot::{VmCodeTableAssignmentV1, VmCodeTableStateV1},
+    snapshot::{
+        IntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
+        VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +66,7 @@ pub(crate) enum EqKey {
     CatCode(char),
     MathCode(u8),
     DelCode(u8),
+    IntegerParameter(IntegerParameterId),
     ControlSequence(String),
 }
 
@@ -76,6 +80,7 @@ pub(crate) enum EqValue {
     CatCode(CatCode),
     MathCode(MathCodeV1),
     DelCode(DelimiterCodeV1),
+    IntegerParameter(i32),
     ControlSequence(Box<Meaning>),
 }
 
@@ -191,6 +196,7 @@ impl Eqtb {
                 | EqValue::CatCode(_)
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
+                | EqValue::IntegerParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("count entry must contain an integer")
                 }
@@ -209,6 +215,7 @@ impl Eqtb {
                 | EqValue::CatCode(_)
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
+                | EqValue::IntegerParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
@@ -227,6 +234,7 @@ impl Eqtb {
                 | EqValue::CatCode(_)
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
+                | EqValue::IntegerParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
                 }
@@ -245,6 +253,7 @@ impl Eqtb {
                 | EqValue::CatCode(_)
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
+                | EqValue::IntegerParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("muskip entry must contain math glue")
                 }
@@ -263,6 +272,7 @@ impl Eqtb {
                 | EqValue::CatCode(_)
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
+                | EqValue::IntegerParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
@@ -300,6 +310,30 @@ impl Eqtb {
                 } else {
                     DelimiterCodeV1(-1)
                 }
+            })
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn integer_parameter(&self, parameter: IntegerParameterId) -> i32 {
+        self.entries
+            .get(&EqKey::IntegerParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::IntegerParameter(value) => value,
+                _ => unreachable!("integer-parameter entry must contain an integer parameter"),
+            })
+            .unwrap_or_else(|| parameter.default_value())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn integer_parameter_owner(
+        &self,
+        parameter: IntegerParameterId,
+    ) -> Option<(i32, usize)> {
+        self.entries
+            .get(&EqKey::IntegerParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::IntegerParameter(value) => (value, entry.level),
+                _ => unreachable!("integer-parameter entry must contain an integer parameter"),
             })
     }
 
@@ -484,6 +518,31 @@ impl Eqtb {
         );
     }
 
+    pub(crate) fn assign_integer_parameter(
+        &mut self,
+        parameter: IntegerParameterId,
+        value: i32,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        let key = EqKey::IntegerParameter(parameter);
+        if (scope == AssignmentScope::Global || group_level == 0)
+            && value == parameter.default_value()
+        {
+            save_stack.cancel_restore(&key);
+            self.remove_entry(&key);
+            return;
+        }
+        self.assign(
+            key,
+            EqValue::IntegerParameter(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
     pub(crate) fn assign_control_sequence(
         &mut self,
         name: String,
@@ -585,6 +644,77 @@ impl Eqtb {
                 _ => None,
             },
         )
+    }
+
+    pub(crate) fn integer_parameter_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmIntegerParameterStateV1> {
+        let mut working = self
+            .entries
+            .iter()
+            .filter(|(key, _)| matches!(key, EqKey::IntegerParameter(_)))
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut layers = vec![Vec::new(); save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
+            for (key, previous) in restores {
+                let EqKey::IntegerParameter(parameter) = key else {
+                    continue;
+                };
+                let current = working
+                    .remove(key)
+                    .expect("restore record must have a current integer-parameter entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current integer-parameter entry must match its restore group level"
+                );
+                let EqValue::IntegerParameter(value) = current.value else {
+                    unreachable!("integer-parameter key must contain a matching value");
+                };
+                layers[group_level].push(VmIntegerParameterAssignmentV1 {
+                    parameter: *parameter,
+                    value,
+                });
+                if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous integer-parameter entry must precede its restore group level"
+                    );
+                    assert!(matches!(previous.value, EqValue::IntegerParameter(_)));
+                    working.insert(key.clone(), previous.clone());
+                }
+            }
+        }
+
+        layers[0] = working
+            .into_iter()
+            .map(|(key, entry)| {
+                assert_eq!(
+                    entry.level, 0,
+                    "root integer-parameter entry must have level zero"
+                );
+                let EqKey::IntegerParameter(parameter) = key else {
+                    unreachable!("filtered integer-parameter key must contain a parameter");
+                };
+                let EqValue::IntegerParameter(value) = entry.value else {
+                    unreachable!("integer-parameter key must contain a matching value");
+                };
+                assert_ne!(
+                    value,
+                    parameter.default_value(),
+                    "root integer-parameter defaults must be canonicalized away"
+                );
+                VmIntegerParameterAssignmentV1 { parameter, value }
+            })
+            .collect();
+
+        layers
+            .iter()
+            .any(|layer| !layer.is_empty())
+            .then_some(VmIntegerParameterStateV1 { layers })
     }
 
     fn code_table_snapshot_state(
@@ -806,6 +936,7 @@ mod tests {
     use crate::{
         command::{Meaning, Primitive},
         save_stack::SaveStack,
+        snapshot::IntegerParameterId,
     };
     use tex_tokens::{CatCode, Token};
 
@@ -942,6 +1073,137 @@ mod tests {
         assert_eq!(eqtb.mathcode(b'+').raw(), 43);
         assert_eq!(eqtb.delcode(b'A').raw(), -1);
         assert_eq!(eqtb.delcode(b'.').raw(), 0);
+    }
+
+    #[test]
+    fn tolerance_owner_preserves_sparse_defaults_and_nested_group_state() {
+        let tolerance = IntegerParameterId::Tolerance;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        assert_eq!(eqtb.integer_parameter(tolerance), 10_000);
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(
+            tolerance,
+            10_000,
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        let same_default = eqtb
+            .integer_parameter_snapshot_state(&save_stack)
+            .expect("same-default local owner must remain explicit");
+        assert!(same_default.layers[0].is_empty());
+        assert_eq!(same_default.layers[1][0].parameter, tolerance);
+        assert_eq!(same_default.layers[1][0].value, 10_000);
+
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(
+            tolerance,
+            12_000,
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        let nested = eqtb
+            .integer_parameter_snapshot_state(&save_stack)
+            .expect("nested parameter state");
+        assert_eq!(nested.layers.len(), 3);
+        assert!(nested.layers[0].is_empty());
+        assert_eq!(nested.layers[1][0].value, 10_000);
+        assert_eq!(nested.layers[2][0].value, 12_000);
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.integer_parameter(tolerance), 10_000);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.integer_parameter(tolerance), 10_000);
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+
+        eqtb.assign_integer_parameter(
+            tolerance,
+            12_000,
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.integer_parameter(tolerance), 12_000);
+        assert_eq!(
+            eqtb.integer_parameter_snapshot_state(&save_stack)
+                .expect("nondefault root owner")
+                .layers[0][0]
+                .value,
+            12_000
+        );
+        eqtb.assign_integer_parameter(
+            tolerance,
+            10_000,
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+    }
+
+    #[test]
+    fn global_default_cancels_all_tolerance_restores() {
+        let tolerance = IntegerParameterId::Tolerance;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_integer_parameter(tolerance, 31, AssignmentScope::Global, 0, &mut save_stack);
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(tolerance, 41, AssignmentScope::Local, 1, &mut save_stack);
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(tolerance, 51, AssignmentScope::Local, 2, &mut save_stack);
+
+        eqtb.assign_integer_parameter(
+            tolerance,
+            10_000,
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.integer_parameter_owner(tolerance), None);
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.integer_parameter_owner(tolerance), None);
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.integer_parameter_owner(tolerance), None);
+        assert_eq!(eqtb.integer_parameter_snapshot_state(&save_stack), None);
+    }
+
+    #[test]
+    fn global_nondefault_cancels_all_tolerance_restores() {
+        let tolerance = IntegerParameterId::Tolerance;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(
+            tolerance,
+            10_000,
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_integer_parameter(tolerance, -7, AssignmentScope::Local, 2, &mut save_stack);
+
+        eqtb.assign_integer_parameter(tolerance, 61, AssignmentScope::Global, 2, &mut save_stack);
+        for expected_depth in [3, 2, 1] {
+            assert_eq!(eqtb.integer_parameter_owner(tolerance), Some((61, 0)));
+            let state = eqtb
+                .integer_parameter_snapshot_state(&save_stack)
+                .expect("global nondefault owner");
+            assert_eq!(state.layers.len(), expected_depth);
+            assert_eq!(state.layers[0][0].value, 61);
+            assert!(state.layers[1..].iter().all(Vec::is_empty));
+            if expected_depth > 1 {
+                eqtb.end_group(&mut save_stack);
+            }
+        }
     }
 
     #[test]
