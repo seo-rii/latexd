@@ -971,8 +971,42 @@ delcode assignment/query scanner 중간에서 끝나는 경우에는 primitive c
 통과하면 exit boundary/trace만 기록하고 exit checkpoint snapshot은 만들지 않으며,
 다음 안전한 checkpoint에서만 재사용 상태를 캡처한다. Epoch absent/1/2뿐 아니라 future
 epoch도 reuse에서 거부한다. 현재 name constructor는 `csname`/`ifcsname`/`@nameuse`이고
-character retokenizer인 `scantokens`는 구현돼 있지 않다. 다음 M13.3 source activation
-단위는 code table 바깥의 별도 assignment class다.
+character retokenizer인 `scantokens`는 구현돼 있지 않다.
+
+다음 M13.3 assignment class는 integer parameter로 정했고, 첫 vertical slice는
+`\tolerance` 하나로 제한한다. 계획 Pro review
+`6a7ead2b-52e8-83e8-bd82-cbb09dc355f4`는 full TeX82 parameter set, 기존
+alias-backed 세 parameter, box, font 순서 대신 이 단일 slice를 권고하는
+`REVISE`(confidence 0.91)를 반환했다. `endlinechar -> \count250`,
+`globaldefs -> \count251`, `escapechar -> \count252`와 그 consumer는 legacy snapshot
+shape와 현재 실행 의미의 일부이므로 이번 migration에서 변경하지 않는다.
+
+첫 characterization 단위는 production Eqtb/Primitive/snapshot/epoch를 바꾸지 않는다.
+`scripts/check_tolerance_oracle.py`가 pdfTeX INITEX binary path/version/SHA-256,
+probe source/hash, normalized observation/diagnostic, exit status를 CI
+`tolerance-oracle` artifact로 보존한다. Fresh default 10000, local/global/positive·negative
+`\globaldefs`, optional `=`, repeated sign, 8/10/16진수와 backtick character,
+`\the`/`\number`/`\ifnum`, `\advance`/`\multiply`/`\divide`,
+`\afterassignment`, primitive alias와 explicit local redefinition을 고정한다. Direct
+numeric scan은 magnitude 2147483647에서 `Number too big`으로 clamp하고,
+missing number는 0으로 복구한다. Addition은 signed 32-bit boundary에서 진단 없이
+wrap하지만 multiplication overflow와 divide-by-zero는 `Arithmetic overflow` 뒤 기존
+값을 보존한다. Arithmetic으로 만든 `i32::MIN`을 -1로 나누면 현재 pdfTeX binary가
+SIGFPE로 종료하므로 이를 compatibility 목표로 만들지 않고 `ARCH-015`에 explicit
+panic-free recovery decision으로 기록했다. Characterization 시점의 VM은
+`\tolerance`를 계속 undefined로 유지한다.
+
+후속 순서는 strict passive DTO boundary → source-unreachable typed Eqtb/SaveStack
+owner와 layered restore/hash/legacy suppression → `\tolerance` source activation이다.
+Planned state capability는 complete TeX82 지원을 뜻하지 않는
+`eqtb.integer-parameter-state.v1`이고 stable ID는 canonical string `"tolerance"`만
+허용한다. Fresh/default-quiescent state는 legacy-compatible하게 absent이며, 같은 default의
+local assignment은 future unwind가 달라질 수 있어 scoped presence를 보존한다. Source
+activation은 latent owner 전체, CharacterSource/dynamic-name suppression, stable primitive
+wire, arithmetic lvalue, versioned restore, 모든 checkpoint category와 함께 들어가고
+semantic epoch를 3에서 4로 원자적으로 올린다. Paragraph line-breaking이 tolerance를
+소비하는 의미, 다른 parameter, font/box, public versioned checkpoint writer는 이
+slice의 non-goal이다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON

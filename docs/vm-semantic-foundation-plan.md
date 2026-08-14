@@ -1427,6 +1427,47 @@ future epoch as well as absent and epoch-1/2 bundles. Current dynamic-name
 mechanisms are `csname`, `ifcsname`, and `@nameuse`; no `scantokens` character
 retokenizer is implemented.
 
+The next M13.3 assignment class is integer parameters, but its first vertical
+slice is restricted to `\tolerance`. Planning review
+`6a7ead2b-52e8-83e8-bd82-cbb09dc355f4` returned `REVISE` with confidence 0.91
+and ranked this one-name slice ahead of the full TeX82 parameter family, the
+existing alias-backed parameters, boxes, and fonts. The current
+`endlinechar -> \count250`, `globaldefs -> \count251`, and
+`escapechar -> \count252` definitions and their consumers remain unchanged
+because they are already part of legacy snapshot structure and execution.
+
+The first characterization unit changes no production Eqtb owner, primitive,
+snapshot capability, or checkpoint epoch. `scripts/check_tolerance_oracle.py`
+records the pdfTeX INITEX binary path/version/SHA-256, probe source/hash,
+normalized observations and diagnostics, and exit status in the CI
+`tolerance-oracle` artifact. It freezes the default 10000, local/global and
+positive/negative `\globaldefs` scope, optional equals, repeated signs,
+decimal/octal/hexadecimal/backtick scans, `\the`, `\number`, `\ifnum`,
+`\advance`, `\multiply`, `\divide`, `\afterassignment`, primitive aliasing, and
+local explicit redefinition. Direct number scanning clamps a magnitude above
+2147483647 after `Number too big`; a missing number recovers to zero. Addition
+wraps at the signed 32-bit boundary without a diagnostic, while multiplication
+overflow and division by zero report `Arithmetic overflow` and preserve the
+old value. The observed pdfTeX binary terminates with SIGFPE when an
+arithmetic-created `i32::MIN` is divided by -1. That host crash is deliberately
+not a compatibility target; `ARCH-015` requires an explicit panic-free recovery
+contract before source activation. The VM regression keeps `\tolerance`
+undefined throughout characterization.
+
+The next gates are a strict passive DTO boundary, a source-unreachable typed
+Eqtb/SaveStack owner with layered restore/hash/legacy suppression, and finally
+source activation. The planned capability name
+`eqtb.integer-parameter-state.v1` describes the persistent container rather
+than complete TeX82 parameter support, and initially accepts only the stable
+canonical ID `"tolerance"`. Fresh/default-quiescent state remains absent and
+legacy compatible, while a scoped assignment equal to the logical default must
+preserve its future unwind behavior. Source activation must add arithmetic
+lvalue behavior, stable primitive wire identity, all latent and dynamic owner
+classification, versioned restore, and every LegacyOnly checkpoint suppression
+category atomically with checkpoint semantic epoch 4. Paragraph line-breaking
+consumption, any second parameter, font/box state, and the public versioned
+checkpoint writer remain non-goals.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
