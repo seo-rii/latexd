@@ -24,6 +24,7 @@ jobs:
         run: >-
           python3 -m unittest
           scripts.tests.test_checkpoint_reuse_boundary
+          scripts.tests.test_check_layout_integer_parameters_oracle
           scripts.tests.test_check_mathcode_delcode_oracle
           scripts.tests.test_check_tolerance_oracle
           scripts.tests.test_check_snapshot_release_contract
@@ -90,6 +91,17 @@ jobs:
         with:
           name: tolerance-oracle
           path: target/tolerance-oracle.json
+
+      - name: Verify TeX82 layout integer parameters oracle
+        run: >-
+          python3 scripts/check_layout_integer_parameters_oracle.py
+          --report target/layout-integer-parameters-oracle.json
+
+      - name: Upload TeX82 layout integer parameters oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-integer-parameters-oracle
+          path: target/layout-integer-parameters-oracle.json
 
       - name: Run Rust test suite
         run: cargo test -q

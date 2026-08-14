@@ -1554,6 +1554,26 @@ The final remediation gate passes the complete workspace test suite including
 all 758 smoke cases, canonical workspace clippy, all 53 Python
 migration/release/policy/oracle tests, rustfmt, and the diff check.
 
+The characterization gate for the next integer-parameter batch freezes 18
+names that are not consumed by the current layout algorithms: `adjdemerits`,
+`binoppenalty`, `brokenpenalty`, `clubpenalty`, `displaywidowpenalty`,
+`doublehyphendemerits`, `exhyphenpenalty`, `finalhyphendemerits`, `hangafter`,
+`hyphenpenalty`, `interlinepenalty`, `linepenalty`, `looseness`,
+`postdisplaypenalty`, `predisplaypenalty`, `pretolerance`, `relpenalty`, and
+`widowpenalty`. `scripts/check_layout_integer_parameters_oracle.py` records the
+pdfTeX INITEX binary path/version/SHA-256, probe source/hash, normalized
+observations and diagnostics, and exit status in the CI
+`layout-integer-parameters-oracle` artifact. Fresh INITEX defaults are
+`hangafter=1` and zero for every other name. The oracle checks local
+assignment/unwind and the direct numeric domain for every name, plus
+representative `pretolerance` global/`globaldefs`, radix/backtick/repeated-sign
+scanning, query/conditional, arithmetic, `afterassignment`, alias and explicit
+redefinition, and overflow/missing-number recovery against the same TeX82
+contract as tolerance. This gate records a planned source set without changing
+Eqtb, Primitive, snapshot capabilities, or the checkpoint epoch. The frozen
+tolerance V1 ID set is not extended; the next passive-reader gate will first
+define the exact wire boundary for a separate capability.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use

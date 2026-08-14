@@ -1078,6 +1078,22 @@ safe/unsafe 순서에서 안전한 boundary만 attachment를 유지하는 wire �
 clippy, 53개 Python migration/release/policy/oracle test, rustfmt와 diff check를 모두
 통과했다.
 
+다음 integer-parameter batch의 characterization gate는 layout 알고리즘이 아직 소비하지
+않는 18개 이름으로 범위를 고정한다: `adjdemerits`, `binoppenalty`, `brokenpenalty`,
+`clubpenalty`, `displaywidowpenalty`, `doublehyphendemerits`, `exhyphenpenalty`,
+`finalhyphendemerits`, `hangafter`, `hyphenpenalty`, `interlinepenalty`, `linepenalty`,
+`looseness`, `postdisplaypenalty`, `predisplaypenalty`, `pretolerance`, `relpenalty`,
+`widowpenalty`. `scripts/check_layout_integer_parameters_oracle.py`는 pdfTeX INITEX
+binary path/version/SHA-256과 probe source/hash, normalized observation/diagnostic,
+exit status를 CI `layout-integer-parameters-oracle` artifact로 보존한다. Fresh default는
+`hangafter=1`이고 나머지는 모두 0이다. 모든 이름의 local assignment/unwind와 direct
+numeric domain을 검사하고, representative `pretolerance`로 global/`globaldefs`,
+radix/backtick/repeated-sign scan, query/conditional, arithmetic, `afterassignment`, alias와
+explicit redefinition, overflow/missing-number recovery를 tolerance와 같은 TeX82 계약으로
+고정한다. 이 gate는 planned source set만 기록하며 Eqtb/Primitive/snapshot capability나
+checkpoint epoch를 바꾸지 않는다. 동결된 tolerance V1 ID 집합에는 이름을 추가하지
+않고, 다음 passive-reader gate에서 별도 capability의 정확한 wire 경계를 먼저 정한다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
 project/restore/project property, restore time/RSS 측정 뒤 별도 versioned
