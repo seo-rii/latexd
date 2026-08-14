@@ -1358,9 +1358,39 @@ explicit root/local assignments and pending SaveStack restores. Restore rebuilds
 those layers root-to-leaf, so ending a restored open group reveals the explicit
 prior value or the implicit default exactly. Raw legacy serialization remains
 fail-closed for capability-bearing state, and the checkpoint semantic hash now
-includes both tables' actual contents. No source primitive is registered yet,
-so ordinary TeX input cannot create this state. Mathcode source activation is
-the next rollback unit; delcode activation remains separate and follows it.
+includes both tables' actual contents.
+
+Mathcode source activation is complete. `\mathcode` assignment and
+`\the\mathcode`/`\number\mathcode` queries accept decimal, octal, hexadecimal,
+and backtick character scans, optional `=`, the active sentinel 32768, and the
+specified local/global/nested/`\globaldefs` behavior. An out-of-range character
+diagnoses and recovers to character 0; an out-of-range RHS diagnoses and stores
+mathcode 0. Macros, token registers, hooks, continuations, and module options
+that retain a pending `\mathcode` token also derive the capability. Source-made
+state round-trips through a versioned document with its pending group unwind.
+Untokenized serialized character sources are conservatively scanned for
+`mathcode` and dynamic control-sequence construction primitives. Primitive
+aliases serialize the stable `"mathcode"` name rather than an enum ordinal, so
+older readers fail strictly on an unknown primitive. Production LegacyOnly
+checkpoints suppress the attachment and retain the source-rebuild path. The
+checkpoint bundle VM semantic epoch is also advanced. Epoch 1 was already
+emitted by the epoch-mechanism-only commit `79b6515`, so mathcode activation uses
+epoch 2 and rejects absent or epoch-1 bundles for reuse while retaining
+inspection loads. A rollback that removes this primitive or the shared radix
+scanner semantics must issue a distinct epoch 3 or later and disable, purge, or
+isolate older bundles; it must never restore the accepted epoch to 1. The
+current Mouth performs neither `^^` translation nor superscript remapping, and
+a resume regression proves that `\\math^^63ode` does not reach mathcode state.
+Any future lexer support for alternate spellings must update capability
+classification and fail-closed attachment suppression atomically.
+Pre-commit Pro review `6a7df349-1a08-83e8-9fa2-781ed76f57eb` returned
+`REVISE`; this unit closes its historical-reuse, stable-wire, hidden-owner,
+restore/reassign/unwind, and non-goal findings. Delcode remains unreachable from
+source and its activation is the next separate rollback unit. Remediation review
+`6a7e8140-ef6c-83ee-b331-bdf5c4c77f87` identified the already-published epoch-1
+collision, the serialized CharacterSource lexical boundary, and source-only
+latent production suppression; epoch 2 and the final regression matrix close
+those findings.
 
 Current migration evidence through `cd64df6`:
 

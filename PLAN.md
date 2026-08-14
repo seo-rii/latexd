@@ -915,9 +915,35 @@ fresh default를 펼치지 않고 명시적 root/local assignment와 SaveStack p
 투영한다. 복원은 이 layer를 root-to-leaf로 다시 할당하므로 열린 group을 종료했을 때
 이전 값 또는 암묵 default로 정확히 되감긴다. Capability-bearing raw legacy write는
 계속 fail-closed이고 checkpoint semantic hash는 두 table의 실제 state를 포함한다.
-아직 source primitive는 등록하지 않았으므로 일반 TeX 입력은 이 상태를 만들 수 없다.
-다음 rollback 단위는 mathcode source activation이며 delcode activation은 그 뒤의 별도
-단위다.
+
+Mathcode source activation도 완료됐다. `\mathcode` assignment과
+`\the\mathcode`/`\number\mathcode` query는 8/10/16진수와 backtick character,
+optional `=`, active sentinel 32768, local/global/nested/`\globaldefs`를 위 계약대로
+처리한다. 범위 밖 character는 진단 뒤 0으로 복구하고, 범위 밖
+RHS는 진단 뒤 mathcode 0을 저장한다. 실행 대기 `\mathcode` token을
+가진 macro, token register, hook, continuation, module option도 capability를 파생한다.
+아직 token화되지 않은 serialized character source는 `mathcode`와 동적 control-sequence
+구성 primitive 흔적을 보수적으로 검사한다. Primitive alias는 ordinal이 아니라 안정적인
+`"mathcode"` 이름으로 직렬화되므로 이전 reader는 unknown primitive를 엄격히 거부한다.
+Source-created state는 versioned document로 계층 복원되며 production LegacyOnly
+checkpoint에서는 attachment를 fail-closed suppress하여 source rebuild 경로를
+유지한다. Checkpoint bundle의 VM semantic epoch도 함께 올렸다. Epoch 1은 epoch 장치만 먼저
+도입한 `79b6515`가 이미 발행했으므로 mathcode activation은 epoch 2를 사용하고,
+epoch가 없거나 1인 과거 bundle은 inspection용 load는 가능하지만 reuse에서는
+`Unreadable` miss가 된다. 이 primitive 또는 공용 radix scanner 의미를 rollback할
+때도 epoch 1로 되돌리지 않고 새로운 epoch 3 이상을 발행하며, 기존 bundle을
+disable/purge/isolate한 뒤에만 reuse를 허용한다. 현재 Mouth는 `^^` translation이나
+superscript remap을 수행하지 않으므로 `\math^^63ode`가 mathcode에 도달하지 않는다는
+resume regression을 고정했다. 미래 lexer가 alternate spelling을 지원하면 capability
+분류와 fail-closed attachment suppression을 같은 변경 단위에서 함께 갱신해야 한다.
+Source activation pre-commit Pro review
+`6a7df349-1a08-83e8-9fa2-781ed76f57eb`의 `REVISE` 항목 가운데 historical reuse,
+stable primitive wire, hidden restorable owner, restore/reassign/unwind와 non-goal
+guard를 이 단위에서 해소했다. Remediation review
+`6a7e8140-ef6c-83ee-b331-bdf5c4c77f87`에서 지적한 이미 발행된 epoch 1 충돌,
+serialized CharacterSource lexical boundary, source-only latent production suppression도
+epoch 2와 최종 regression matrix로 보완했다. Delcode source activation은 아직 도달
+불가능하며 다음 별도 rollback 단위다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON

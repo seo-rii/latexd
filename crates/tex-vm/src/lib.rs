@@ -19815,6 +19815,53 @@ impl<'i> Vm<'i> {
                     self.push_token_front(queue, token);
                 }
             }
+            Primitive::MathCode => {
+                let requested_global = mem::take(&mut self.global_prefix);
+                let Some(character) = self.read_code_table_character_v1(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let Some(raw_value) = self.read_number_expression(queue) else {
+                    return;
+                };
+                let value = MathCodeV1::try_from_raw(raw_value).unwrap_or_else(|| {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!("mathcode value {raw_value} is outside 0..=32768"),
+                    });
+                    MathCodeV1::try_from_raw(0).expect("zero must be a valid mathcode")
+                });
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                self.eqtb.assign_mathcode(
+                    character,
+                    value,
+                    assignment_scope,
+                    self.save_stack.group_level(),
+                    &mut self.save_stack,
+                );
+                self.transcript
+                    .push(format!("mathcode{character}={}", value.raw()));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::NeedsTeXFormat => {
                 let _ = self.read_argument_text(queue);
             }
@@ -25067,10 +25114,6 @@ impl<'i> Vm<'i> {
         match next.kind {
             TokenKind::ControlSequence { name } => {
                 let name = self.interner.resolve(name).unwrap_or("").to_string();
-                if name == "count" {
-                    let index = self.read_integer(queue)? as u32;
-                    return Some(self.eqtb.count(index).unwrap_or(0));
-                }
                 if let Some(index) = self.resolve_count_register_name(&name) {
                     return Some(self.eqtb.count(index).unwrap_or(0));
                 }
@@ -25101,6 +25144,14 @@ impl<'i> Vm<'i> {
                     }
                     Some(Meaning::Primitive(Primitive::Number)) => {
                         self.read_number_expression(queue)
+                    }
+                    Some(Meaning::Primitive(Primitive::Count)) => {
+                        let index = self.read_integer(queue)? as u32;
+                        Some(self.eqtb.count(index).unwrap_or(0))
+                    }
+                    Some(Meaning::Primitive(Primitive::MathCode)) => {
+                        let character = self.read_code_table_character_v1(queue)?;
+                        Some(self.eqtb.mathcode(character).raw())
                     }
                     _ => None,
                 }
@@ -25456,6 +25507,47 @@ impl<'i> Vm<'i> {
             return Some(sign * value);
         }
 
+        let radix = match self.peek_next_token(queue) {
+            Some(Token {
+                kind:
+                    TokenKind::Character {
+                        ch: '\'',
+                        catcode: CatCode::Other,
+                    },
+                ..
+            }) => Some(8),
+            Some(Token {
+                kind:
+                    TokenKind::Character {
+                        ch: '"',
+                        catcode: CatCode::Other,
+                    },
+                ..
+            }) => Some(16),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            self.pop_next_token(queue);
+            let mut digits = String::new();
+            while let Some(Token {
+                kind:
+                    TokenKind::Character {
+                        ch,
+                        catcode: CatCode::Other | CatCode::Letter,
+                    },
+                ..
+            }) = self.peek_next_token(queue)
+            {
+                if !ch.is_digit(radix) {
+                    break;
+                }
+                digits.push(ch);
+                self.pop_next_token(queue);
+            }
+            let value = i32::from_str_radix(&digits, radix).ok()?;
+            return Some(sign * value);
+        }
+
         let mut value = String::new();
         if sign < 0 {
             value.push('-');
@@ -25481,6 +25573,17 @@ impl<'i> Vm<'i> {
         }
 
         value.parse().ok()
+    }
+
+    fn read_code_table_character_v1(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u8> {
+        let raw_character = self.read_integer(queue)?;
+        Some(u8::try_from(raw_character).unwrap_or_else(|_| {
+            self.diagnostics.push(VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: format!("character code {raw_character} is outside 0..=255"),
+            });
+            0
+        }))
     }
 
     fn read_count_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
@@ -27040,6 +27143,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "newif" => Some(Primitive::NewIf),
         "chardef" => Some(Primitive::CharDef),
         "catcode" => Some(Primitive::CatCode),
+        "mathcode" => Some(Primitive::MathCode),
         "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
         "ProvidesFile" => Some(Primitive::ProvidesFile),
         "ProvidesPackage" => Some(Primitive::ProvidesPackage),
@@ -27571,6 +27675,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::NewIf => "newif",
         Primitive::CharDef => "chardef",
         Primitive::CatCode => "catcode",
+        Primitive::MathCode => "mathcode",
         Primitive::NeedsTeXFormat => "NeedsTeXFormat",
         Primitive::ProvidesFile => "ProvidesFile",
         Primitive::ProvidesPackage => "ProvidesPackage",

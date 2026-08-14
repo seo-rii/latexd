@@ -86,6 +86,25 @@ fn reuse_rejects_a_bundle_without_the_current_vm_semantic_epoch() {
 }
 
 #[test]
+fn reuse_rejects_the_epoch_enabled_pre_mathcode_bundle_regime() {
+    let mut pre_mathcode_wire = legacy_bundle_json();
+    pre_mathcode_wire["vm_semantic_epoch"] = json!(1);
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("epoch-1-pre-mathcode.json"))
+        .expect("UTF-8 checkpoint path");
+    fs::write(
+        &path,
+        serde_json::to_vec(&pre_mathcode_wire).expect("encode epoch-1 checkpoint bundle"),
+    )
+    .expect("write epoch-1 checkpoint bundle");
+
+    assert_eq!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    );
+}
+
+#[test]
 fn production_capture_suppresses_muskip_state_in_every_checkpoint_category() {
     let snapshot = muskip_snapshot();
     let pages = [CheckpointPage {

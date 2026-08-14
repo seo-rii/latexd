@@ -2066,6 +2066,15 @@ impl VmSnapshot {
         };
         let tokens_require_muskip_alias =
             |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_muskip_alias);
+        let token_requires_mathcode = |token: &SnapshotToken| {
+            matches!(
+                &token.kind,
+                SnapshotTokenKind::ControlSequence { name }
+                    if matches!(name.as_str(), "mathcode" | "csname" | "ifcsname" | "@nameuse")
+            )
+        };
+        let tokens_require_mathcode =
+            |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_mathcode);
         let scopes_require_muskip_alias = self.scopes.iter().any(|scope| {
             scope.values().any(|meaning| match meaning {
                 SnapshotMeaning::Macro {
@@ -2087,6 +2096,29 @@ impl VmSnapshot {
                     )
                 }
                 SnapshotMeaning::Token { token } => token_requires_muskip_alias(token),
+            })
+        });
+        let scopes_require_mathcode = self.scopes.iter().any(|scope| {
+            scope.values().any(|meaning| match meaning {
+                SnapshotMeaning::Macro {
+                    parameter_text,
+                    optional_first_argument_default,
+                    body,
+                    ..
+                } => {
+                    tokens_require_mathcode(parameter_text)
+                        || optional_first_argument_default
+                            .as_deref()
+                            .is_some_and(&tokens_require_mathcode)
+                        || tokens_require_mathcode(body)
+                }
+                SnapshotMeaning::Primitive { name } => {
+                    matches!(
+                        name.as_str(),
+                        "mathcode" | "csname" | "ifcsname" | "@nameuse"
+                    )
+                }
+                SnapshotMeaning::Token { token } => token_requires_mathcode(token),
             })
         });
         let continuation_requires_muskip_alias =
@@ -2137,6 +2169,58 @@ impl VmSnapshot {
         {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
+            ));
+        }
+        let continuation_requires_mathcode =
+            self.input_continuation
+                .as_ref()
+                .is_some_and(|continuation| {
+                    continuation.queue.iter().any(|item| match item {
+                        VmQueueItemSnapshot::Token { token } => token_requires_mathcode(token),
+                        VmQueueItemSnapshot::CharacterSource { mouth } => {
+                            ["mathcode", "csname", "ifcsname", "@nameuse"]
+                                .iter()
+                                .any(|name| mouth.input().contains(name))
+                        }
+                        VmQueueItemSnapshot::ModuleEnd { .. } => false,
+                    }) || continuation.source_stack.iter().any(|frame| {
+                        frame
+                            .end_hooks
+                            .iter()
+                            .any(|tokens| tokens_require_mathcode(tokens))
+                            || frame.module_options.as_ref().is_some_and(|options| {
+                                options
+                                    .declared_options
+                                    .values()
+                                    .any(|tokens| tokens_require_mathcode(tokens))
+                                    || options
+                                        .default_option_body
+                                        .as_deref()
+                                        .is_some_and(&tokens_require_mathcode)
+                            })
+                    })
+                });
+        if scopes_require_mathcode
+            || self
+                .token_registers
+                .values()
+                .any(|tokens| tokens_require_mathcode(tokens))
+            || self
+                .aftergroup_tokens
+                .iter()
+                .any(|tokens| tokens_require_mathcode(tokens))
+            || self
+                .after_assignment_token
+                .as_ref()
+                .is_some_and(&token_requires_mathcode)
+            || self
+                .at_end_document_hooks
+                .iter()
+                .any(|tokens| tokens_require_mathcode(tokens))
+            || continuation_requires_mathcode
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
             ));
         }
         capabilities

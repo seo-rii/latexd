@@ -232,6 +232,7 @@ pub(crate) enum Primitive {
     NewIf,
     CharDef,
     CatCode,
+    MathCode,
     NeedsTeXFormat,
     ProvidesFile,
     ProvidesPackage,
