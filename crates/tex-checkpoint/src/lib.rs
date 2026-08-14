@@ -19,6 +19,7 @@ use tex_vm::{
 };
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
+pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 1;
 
 const CHECKPOINT_DISK_SCHEMA_VERSION: u32 = 2;
 const CHECKPOINT_DISK_ENCODING: &str = "gzip+base64";
@@ -696,6 +697,8 @@ impl StoredCheckpoint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CheckpointBundle {
+    #[serde(default)]
+    pub vm_semantic_epoch: u32,
     pub checkpoints: Vec<StoredCheckpoint>,
     #[serde(default)]
     pub pages: Vec<CheckpointPage>,
@@ -710,6 +713,7 @@ pub struct CheckpointAttachmentCounts {
 
 #[derive(Serialize)]
 struct CheckpointBundleWriteWire<'a> {
+    vm_semantic_epoch: u32,
     checkpoints: Vec<StoredCheckpointWriteWire<'a>>,
     pages: &'a [CheckpointPage],
 }
@@ -735,6 +739,7 @@ impl Serialize for CheckpointBundleWriteWithPolicy<'_> {
             .collect::<Result<Vec<_>>>()
             .map_err(serde::ser::Error::custom)?;
         CheckpointBundleWriteWire {
+            vm_semantic_epoch: self.bundle.vm_semantic_epoch,
             checkpoints,
             pages: &self.bundle.pages,
         }
@@ -1113,6 +1118,7 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
 
     Ok(CheckpointBundleBuild {
         bundle: CheckpointBundle {
+            vm_semantic_epoch: CHECKPOINT_VM_SEMANTIC_EPOCH,
             checkpoints,
             pages: pages.to_vec(),
         },
@@ -1415,7 +1421,10 @@ pub fn load_checkpoint_bundle_for_reuse(path: &Utf8Path) -> CheckpointBundleReus
         return CheckpointBundleReuse::Miss(CheckpointCacheMissReason::NotFound);
     }
     match load_checkpoint_bundle(path) {
-        Ok(bundle) => CheckpointBundleReuse::Hit(bundle),
+        Ok(bundle) if bundle.vm_semantic_epoch == CHECKPOINT_VM_SEMANTIC_EPOCH => {
+            CheckpointBundleReuse::Hit(bundle)
+        }
+        Ok(_) => CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable),
         Err(_) => CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable),
     }
 }
@@ -2124,6 +2133,7 @@ mod tests {
         assert!(checkpoint_output.is_empty());
 
         let bundle = CheckpointBundle {
+            vm_semantic_epoch: super::CHECKPOINT_VM_SEMANTIC_EPOCH,
             checkpoints: vec![
                 normal_bundle.checkpoints[0].clone(),
                 unauthorized,
@@ -2201,6 +2211,7 @@ mod tests {
         .remove(0);
         checkpoint.attachment = StoredSnapshotAttachment::Versioned(slot);
         let bundle = CheckpointBundle {
+            vm_semantic_epoch: super::CHECKPOINT_VM_SEMANTIC_EPOCH,
             checkpoints: vec![checkpoint],
             pages: Vec::new(),
         };

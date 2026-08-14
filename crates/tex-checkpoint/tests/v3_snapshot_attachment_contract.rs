@@ -2,12 +2,12 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use camino::Utf8PathBuf;
 use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
-use std::io::Write;
+use std::{fs, io::Write};
 use tex_checkpoint::{
-    CheckpointBundle, CheckpointBundleReuse, CheckpointCacheMissReason, CheckpointPage,
-    InputBoundaryCheckpoint, SnapshotAttachment, build_checkpoint_bundle,
-    build_checkpoint_bundle_with_snapshots, checkpoint_is_replay_safe,
-    load_checkpoint_bundle_for_reuse, save_checkpoint_bundle,
+    CHECKPOINT_VM_SEMANTIC_EPOCH, CheckpointBundle, CheckpointBundleReuse,
+    CheckpointCacheMissReason, CheckpointPage, InputBoundaryCheckpoint, SnapshotAttachment,
+    build_checkpoint_bundle, build_checkpoint_bundle_with_snapshots, checkpoint_is_replay_safe,
+    load_checkpoint_bundle, load_checkpoint_bundle_for_reuse, save_checkpoint_bundle,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm, VmSnapshot};
@@ -49,8 +49,40 @@ fn legacy_only_writer_keeps_the_existing_checkpoint_shape() {
     let bundle = legacy_bundle_json();
     let checkpoint = &bundle["checkpoints"][0];
 
+    assert_eq!(
+        bundle["vm_semantic_epoch"],
+        json!(CHECKPOINT_VM_SEMANTIC_EPOCH)
+    );
     assert!(checkpoint["snapshot"].is_object());
     assert!(checkpoint.get("versioned_snapshot").is_none());
+}
+
+#[test]
+fn reuse_rejects_a_bundle_without_the_current_vm_semantic_epoch() {
+    let mut legacy_wire = legacy_bundle_json();
+    legacy_wire
+        .as_object_mut()
+        .expect("checkpoint bundle object")
+        .remove("vm_semantic_epoch");
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("pre-activation.json"))
+        .expect("UTF-8 checkpoint path");
+    fs::write(
+        &path,
+        serde_json::to_vec(&legacy_wire).expect("encode pre-activation checkpoint bundle"),
+    )
+    .expect("write pre-activation checkpoint bundle");
+
+    assert_eq!(
+        load_checkpoint_bundle(&path)
+            .expect("pre-activation bundle remains readable for inspection")
+            .vm_semantic_epoch,
+        0
+    );
+    assert_eq!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    );
 }
 
 #[test]
