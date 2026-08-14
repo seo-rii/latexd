@@ -32,6 +32,7 @@ V3_MIGRATION_MARKERS = frozenset(
         "crates/tex-vm/src/save_stack.rs",
     }
 )
+V3_OWNER_SYMBOL_MARKERS = ("ControlSequence", "control_sequence")
 FORBIDDEN_IDENTIFIERS = (
     "DependencyId",
     "DepTrace",
@@ -130,15 +131,25 @@ def check_patch(patch: str) -> list[str]:
 
 
 def check_migration_patch(patch: str) -> list[str]:
-    """Check a complete commit only when it contains a V3 owner migration."""
+    """Check a commit only when it changes V3 control-sequence owner symbols."""
 
-    touched_paths = {
-        path
-        for line in patch.splitlines()
-        if line.startswith("diff --git ")
-        if (path := _diff_path(line)) is not None
-    }
-    if touched_paths.isdisjoint(V3_MIGRATION_MARKERS):
+    current_path: str | None = None
+    touches_v3_owner = False
+    for line in patch.splitlines():
+        if line.startswith("diff --git "):
+            current_path = _diff_path(line)
+            if current_path == "crates/tex-vm/src/control_sequence_scopes.rs":
+                touches_v3_owner = True
+            continue
+        if (
+            current_path in V3_MIGRATION_MARKERS
+            and line[:1] in {"+", "-"}
+            and not line.startswith(("+++", "---"))
+            and any(marker in line[1:] for marker in V3_OWNER_SYMBOL_MARKERS)
+        ):
+            touches_v3_owner = True
+
+    if not touches_v3_owner:
         return []
     return check_patch(patch)
 
@@ -162,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only-if-v3-touched",
         action="store_true",
-        help="skip commits that do not touch a V3 ownership marker",
+        help="skip commits that do not change V3 control-sequence ownership symbols",
     )
     args = parser.parse_args(argv)
 

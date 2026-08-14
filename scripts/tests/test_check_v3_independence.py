@@ -21,7 +21,7 @@ diff --git a/crates/tex-vm/src/eqtb.rs b/crates/tex-vm/src/eqtb.rs
 --- a/crates/tex-vm/src/eqtb.rs
 +++ b/crates/tex-vm/src/eqtb.rs
 @@ -1,0 +2 @@
-+enum Owner {}
++enum ControlSequenceOwner {}
 diff --git a/crates/tex-vm/src/snapshot.rs b/crates/tex-vm/src/snapshot.rs
 --- a/crates/tex-vm/src/snapshot.rs
 +++ b/crates/tex-vm/src/snapshot.rs
@@ -34,6 +34,27 @@ diff --git a/crates/tex-vm/src/snapshot.rs b/crates/tex-vm/src/snapshot.rs
 
         self.assertEqual(len(violations), 1)
         self.assertIn("path is outside", violations[0])
+
+    def test_conditional_guard_skips_sibling_eqtb_owner_migrations(self) -> None:
+        patch = """\
+diff --git a/crates/tex-vm/src/eqtb.rs b/crates/tex-vm/src/eqtb.rs
+--- a/crates/tex-vm/src/eqtb.rs
++++ b/crates/tex-vm/src/eqtb.rs
+@@ -1,0 +2 @@
++enum IntegerParameterOwner {}
+diff --git a/crates/tex-vm/src/snapshot.rs b/crates/tex-vm/src/snapshot.rs
+--- a/crates/tex-vm/src/snapshot.rs
++++ b/crates/tex-vm/src/snapshot.rs
+@@ -1,0 +2 @@
++const INTEGER_PARAMETER_CAPABILITY: &str = "eqtb.integer-parameter-state.v1";
+diff --git a/crates/tex-checkpoint/src/lib.rs b/crates/tex-checkpoint/src/lib.rs
+--- a/crates/tex-checkpoint/src/lib.rs
++++ b/crates/tex-checkpoint/src/lib.rs
+@@ -1,0 +2 @@
++const INTEGER_PARAMETER_HASH_DOMAIN: &[u8] = b"integer-parameter";
+"""
+
+        self.assertEqual(check_migration_patch(patch), [])
 
     def test_accepts_bounded_v3_ownership_and_test_changes(self) -> None:
         patch = """\
