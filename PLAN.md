@@ -1113,11 +1113,76 @@ tolerance V1 contract, source primitive set, checkpoint semantic epoch 4는 그�
 dormant-owner gate가 lossless project/restore/unwind와 semantic hash를 제공할 때만 이
 capability를 supported 목록으로 승격한다.
 
-Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
-restore의 non-empty interner와 deep-layer atomicity test, generated public JSON
-project/restore/project property, restore time/RSS 측정 뒤 별도 versioned
-resource-limit 결정이다. Production `Vm::restore` 정적 guard는 완료됐다. 남은
-항목들은 M13.3의 다음 assignment-class migration과 독립적으로 수행할 수 있다.
+Dormant-owner gate는 이 승격을 완료했다. 별도
+`EqKey::LayoutIntegerParameter(LayoutIntegerParameterId)`가 tolerance V1 enum을
+확장하지 않고 공통 Eqtb/SaveStack의 save-once/global-cancellation 경로를 사용한다.
+18개 fresh 값은 wire default를 가상으로 읽고 owner를 만들지 않는다. Root/global
+default assignment은 pending restore를 모두 취소하고 entry를 제거하지만 local default는
+현재 level과 이전 presence를 보존한다. Snapshot projection은 ID canonical 순서의 sparse
+root-to-inner layer를 만들고, versioned restore는 mathcode/delcode/tolerance/layout state가
+공유하는 control-sequence group lattice를 한 번만 재구성한다. Mixed four-owner restore,
+15개 non-legacy owner presence mask, inner/outer unwind와 root/local/default owner가
+exact projection으로 되돌아오는 회귀를 고정했다. 독립 reference model은 18개 ID 전체를
+depth 0..=8에서 default/nondefault/negative/`i32::{MIN,MAX}`, repeated local write,
+same-parent write, empty group, global cancellation과 stepwise unwind에 대조한다. Tolerance와
+layout family가 같은 numeric value를 가져도 서로 alias되지 않고 각 family의 ID를 다른
+wire field가 거부한다.
+
+이 capability는 이제 versioned document의 executable/writable supported 목록에도 있고
+decode→rewrite→decode 및 restore→project가 lossless다. Malformed root default와
+capability mismatch는 prefilled output을 바꾸지 않는다. Checkpoint semantic fingerprint는
+`eqtb.layout-integer-parameter-state.v1` family domain과 canonical JSON의 fixed-width `u64`
+length/payload를 포함하며 root/local/depth/value/default/ID 및 tolerance와 같은 numeric
+payload 차이를 구분하는 golden vector를 고정했다. Capability declaration은 `BTreeSet`
+membership이라 입력 중복과 순서는 canonical sorted unique output으로 정규화하지만 raw
+state member 중복은 value collapse 전에 거부한다.
+
+`checkpoint_is_replay_safe`는 attachment snapshot에서 complete semantic hash를 다시
+계산해 `meta.vm_state_hash`와 비교하고 그 hash로 `checkpoint_id`도 다시 계산한다. 따라서
+passive-reader 시절 epoch 4 checkpoint에 layout attachment만 수동 삽입해도 지원 목록
+승격만으로 replay-safe가 되지 않으며, 현재 hash와 ID로 명시적으로 rekey한 attachment만
+허용된다. 이 identity 검증 때문에 dormant gate에서는 epoch 4를 유지한다. Production
+writer는 계속 `LegacyOnly`이므로 local default를 포함한 layout owner가 있으면 attachment를
+억제한다. Attachment가 없는 checkpoint는 `checkpoint_is_replay_safe`와 compiler의
+`replay_checkpoint_from_stored`에서 선택되지 않으므로 그 지점부터 primitive-free source를
+재생하지 않고, 다음 compile은 checkpoint를 사용하지 않는 full source execution으로
+돌아간다. Source-unreachable root layout owner를 production capture한 실제 compiler 소비
+회귀가 이 fail-closed 경계를 고정한다. Restored owner가 완전히 unwind되면 legacy
+attachment eligibility가 돌아온다. Deepest invalid layout owner와 그 뒤의 unknown
+primitive도 VM construction 전에 거부되어 non-empty interner의 길이와 기존 ID 해석을
+바꾸지 않는다. 성공적인 typed restore 뒤에도 18개 source 이름 전체가 undefined임을
+별도 회귀로 확인하며, owner assignment API는 `pub(crate)`이고 restore 외 production
+call site가 없다.
+
+Hash/ID 검증은 canonical snapshot의 self-consistent semantic identity를 확인할 뿐
+provenance authentication이나 wire-byte integrity가 아니다. Rekey 뒤 semantic state
+mutation은 거부되지만 duplicate capability, JSON whitespace/order처럼 계약상 같은
+상태로 canonicalize되는 bytes는 같은 identity를 가질 수 있다. 현재 closed capability
+vocabulary 뒤 새 family를 추가할 때는 capability sequence/family framing injectivity를
+exhaustive test로 증명하거나 total-length/terminator를 넣은 새 domain/epoch를 검토한다.
+
+Dormant-owner Pro remediation review
+`6a7f3d84-99b4-83e9-9ecd-e7a79283d9f2`는 VM owner, shared lattice, restore
+atomicity, family isolation, hash framing, epoch-4 revalidation과 rollback ratchet을
+closed로 판정하고, source-unreachable owner의 suppressed checkpoint가 production에서
+실제로 재생되지 않는 증거만 추가로 요구했다. 실제 compiler 경로는 attachment 없는
+checkpoint를 `replay_checkpoint_from_stored`에서 거부하며, root nondefault owner의
+production capture 회귀가 이 경계를 고정한다. Candidate 전체
+`cargo test --workspace --quiet`(758-test smoke 포함), Python policy/oracle 60개,
+canonical workspace Clippy, `cargo fmt --all -- --check`와 diff check가 green이다.
+
+이 supported versioned-document API는 source activation 전이라도 compatibility ratchet이다.
+배포 뒤 rollback은 capability의 parse/rewrite/hash/restore를 제거하거나 의미를 바꾸면 안
+되고, 필요하면 새 source generation과 checkpoint admission만 disable해야 한다. Raw legacy
+wire, tolerance V1 ID 집합, source primitive set과 checkpoint epoch 4는 바뀌지 않았고 18개
+source 이름은 계속 undefined다. 다음 gate에서 source activation, 모든 latent owner
+capability와 epoch 전환을 한 rollback 단위로 처리한다.
+
+Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
+project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit
+결정이다. Production `Vm::restore` 정적 guard와 non-empty interner/deep-layer malformed
+restore atomicity 회귀는 완료됐다. 남은 항목들은 M13.3의 다음 assignment-class
+migration과 독립적으로 수행할 수 있다.
 
 이전된 assignment는 공통 Eqtb `assign()` 경로에서 local 이전 값을
 SaveStack에 한 번 저장하고 global assignment 시 pending restore를 취소한다.

@@ -1184,6 +1184,16 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
         );
         fingerprint.update(&state_json);
     }
+    if let Some(state) = &snapshot.layout_integer_parameter_state {
+        fingerprint.update(b"eqtb.layout-integer-parameter-state.v1\0");
+        let state_json = serde_json::to_vec(state)?;
+        fingerprint.update(
+            &u64::try_from(state_json.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(&state_json);
+    }
     Ok(fingerprint.finalize().to_hex().to_string())
 }
 
@@ -1473,7 +1483,8 @@ pub fn checkpoint_is_replay_safe(checkpoint: &StoredCheckpoint) -> bool {
         && checkpoint.snapshot_for_restore().is_some_and(|restore| {
             let snapshot = restore.state();
             let mut interner = ControlSequenceInterner::new();
-            snapshot.continuation_safety.is_safe()
+            checkpoint_identity_matches_snapshot(checkpoint, snapshot)
+                && snapshot.continuation_safety.is_safe()
                 && (checkpoint.meta.kind != CheckpointKind::InputBoundary
                     || snapshot
                         .input_continuation
@@ -1481,6 +1492,24 @@ pub fn checkpoint_is_replay_safe(checkpoint: &StoredCheckpoint) -> bool {
                         .is_none_or(tex_vm::VmInputContinuationSnapshot::is_restorable))
                 && Vm::try_restore(&mut interner, snapshot).is_ok()
         })
+}
+
+fn checkpoint_identity_matches_snapshot(
+    checkpoint: &StoredCheckpoint,
+    snapshot: &VmSnapshot,
+) -> bool {
+    let Ok(vm_state_hash) = checkpoint_vm_semantic_hash(snapshot) else {
+        return false;
+    };
+    checkpoint.meta.vm_state_hash == vm_state_hash
+        && checkpoint.meta.checkpoint_id
+            == checkpoint_id(
+                checkpoint.meta.kind.clone(),
+                checkpoint.meta.rev,
+                checkpoint.meta.page_index_after,
+                &checkpoint.meta.boundary_hash,
+                &vm_state_hash,
+            )
 }
 
 pub fn checkpoint_reuse_diagnostic(
@@ -1624,8 +1653,10 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        IntegerParameterId, SnapshotCapability, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1,
-        VmContinuationBlocker, VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
+        IntegerParameterId, LayoutIntegerParameterId, SnapshotCapability, Vm,
+        VmCodeTableAssignmentV1, VmCodeTableStateV1, VmContinuationBlocker,
+        VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
+        VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
         VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
@@ -2836,6 +2867,227 @@ mod tests {
                 "fd639bc0799738bbf96189d62d35e2fd58ad0946c275da5e9c5c0d9d4d028a1f",
                 "4a0d5335e6376b4ce615e95d3edabd6ef950296032587a304a26d44d5ce0b058",
             )
+        );
+    }
+
+    #[test]
+    fn vm_semantic_hash_distinguishes_dormant_layout_integer_parameter_layers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain("{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut root = vm.snapshot();
+        root.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![
+                vec![VmLayoutIntegerParameterAssignmentV1 {
+                    parameter: LayoutIntegerParameterId::PreTolerance,
+                    value: 123,
+                }],
+                vec![],
+            ],
+        });
+        let mut local = root.clone();
+        local.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![VmLayoutIntegerParameterAssignmentV1 {
+                    parameter: LayoutIntegerParameterId::PreTolerance,
+                    value: 123,
+                }],
+            ],
+        });
+        let equivalent = local.clone();
+        let mut changed = local.clone();
+        changed
+            .layout_integer_parameter_state
+            .as_mut()
+            .expect("layout state")
+            .layers[1][0]
+            .value += 1;
+        let mut local_default = local.clone();
+        local_default
+            .layout_integer_parameter_state
+            .as_mut()
+            .expect("layout state")
+            .layers[1][0]
+            .value = 0;
+        let mut other_default = local.clone();
+        other_default.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![VmLayoutIntegerParameterAssignmentV1 {
+                    parameter: LayoutIntegerParameterId::HangAfter,
+                    value: 1,
+                }],
+            ],
+        });
+        let mut tolerance_same_numeric = root.clone();
+        tolerance_same_numeric.layout_integer_parameter_state = None;
+        tolerance_same_numeric.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![
+                vec![VmIntegerParameterAssignmentV1 {
+                    parameter: IntegerParameterId::Tolerance,
+                    value: 123,
+                }],
+                vec![],
+            ],
+        });
+
+        let root_hash = super::checkpoint_vm_semantic_hash(&root).expect("hash root owner");
+        let local_hash = super::checkpoint_vm_semantic_hash(&local).expect("hash local owner");
+        let changed_hash =
+            super::checkpoint_vm_semantic_hash(&changed).expect("hash changed value");
+        let local_default_hash =
+            super::checkpoint_vm_semantic_hash(&local_default).expect("hash pretolerance default");
+        let other_default_hash =
+            super::checkpoint_vm_semantic_hash(&other_default).expect("hash hangafter default");
+        let tolerance_same_numeric_hash =
+            super::checkpoint_vm_semantic_hash(&tolerance_same_numeric)
+                .expect("hash tolerance with same numeric value");
+        assert_ne!(root_hash, local_hash);
+        assert_eq!(
+            local_hash,
+            super::checkpoint_vm_semantic_hash(&equivalent).expect("hash equivalent owner")
+        );
+        assert_ne!(local_hash, changed_hash);
+        assert_ne!(local_hash, local_default_hash);
+        assert_ne!(
+            local_default, other_default,
+            "fixture states must differ before comparing hashes"
+        );
+        assert_ne!(local_default_hash, other_default_hash);
+        assert_ne!(root_hash, tolerance_same_numeric_hash);
+        assert_eq!(
+            (
+                root_hash.as_str(),
+                local_hash.as_str(),
+                changed_hash.as_str(),
+                local_default_hash.as_str(),
+                other_default_hash.as_str(),
+            ),
+            (
+                "307b870461c4ec8c346ec85a913611cfc5e0fcd9f25800cec23a30446cddfa95",
+                "41aa20dbfb9aad79185b91b2cedeba1d07908cf92a84223849b45113793b06b7",
+                "14a01c0295bb29086b89e8acacfb5d89ff757c334ace7a06fb65a65d73d718a2",
+                "41bfc985e87108f9393bf72d7bf5d9171e26b25c0ad326ef5f767a167b039ae0",
+                "87ec1c828e09b597fdfb713d21979d8318f1e61ef28beeed98947954d799e858",
+            )
+        );
+    }
+
+    #[test]
+    fn complete_vm_hash_framing_uses_fixed_width_lengths_and_family_tags() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut snapshot = Vm::new(&mut interner).snapshot();
+        snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
+                parameter: LayoutIntegerParameterId::PreTolerance,
+                value: 123,
+            }]],
+        });
+
+        let legacy: &tex_vm::LegacyVmSnapshotV1 = &snapshot;
+        let legacy_json = serde_json::to_vec(
+            &serde_json::to_value(legacy).expect("serialize legacy projection value"),
+        )
+        .expect("serialize legacy projection bytes");
+        let muskip_json = serde_json::to_vec(
+            &serde_json::to_value(&snapshot.muskip_registers).expect("serialize muskip value"),
+        )
+        .expect("serialize muskip bytes");
+        let layout_json = serde_json::to_vec(
+            snapshot
+                .layout_integer_parameter_state
+                .as_ref()
+                .expect("layout state"),
+        )
+        .expect("serialize layout bytes");
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
+        expected.update(&(legacy_json.len() as u64).to_le_bytes());
+        expected.update(&legacy_json);
+        for capability in snapshot.required_capabilities() {
+            expected.update(&(capability.as_str().len() as u64).to_le_bytes());
+            expected.update(capability.as_str().as_bytes());
+        }
+        expected.update(&(muskip_json.len() as u64).to_le_bytes());
+        expected.update(&muskip_json);
+        expected.update(&snapshot.next_muskip_register.to_le_bytes());
+        expected.update(b"eqtb.layout-integer-parameter-state.v1\0");
+        expected.update(&(layout_json.len() as u64).to_le_bytes());
+        expected.update(&layout_json);
+
+        assert_eq!(
+            super::checkpoint_vm_semantic_hash(&snapshot).expect("hash framed layout state"),
+            expected.finalize().to_hex().to_string()
+        );
+    }
+
+    #[test]
+    fn prepromotion_epoch_four_layout_attachment_requires_verified_rekey() {
+        let mut interner = ControlSequenceInterner::new();
+        let fresh = Vm::new(&mut interner).snapshot();
+        let mut layout = fresh.clone();
+        layout.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
+                parameter: LayoutIntegerParameterId::PreTolerance,
+                value: 123,
+            }]],
+        });
+        let mut bundle = build_checkpoint_bundle(7, &fresh, "preamble", &[])
+            .expect("build pre-promotion identity");
+        assert_eq!(
+            bundle.vm_semantic_epoch,
+            super::CHECKPOINT_VM_SEMANTIC_EPOCH
+        );
+        let checkpoint = &mut bundle.checkpoints[0];
+        let legacy_hash = checkpoint.meta.vm_state_hash.clone();
+        let legacy_id = checkpoint.meta.checkpoint_id.clone();
+        checkpoint.attachment = StoredSnapshotAttachment::Versioned(
+            VersionedSnapshotSlot::from_snapshot(layout.clone()),
+        );
+
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "old identity must not become replayable from capability support alone"
+        );
+        let layout_hash = super::checkpoint_vm_semantic_hash(&layout).expect("hash layout state");
+        assert_ne!(layout_hash, legacy_hash);
+        let layout_id = super::checkpoint_id(
+            checkpoint.meta.kind.clone(),
+            checkpoint.meta.rev,
+            checkpoint.meta.page_index_after,
+            &checkpoint.meta.boundary_hash,
+            &layout_hash,
+        );
+        checkpoint.meta.checkpoint_id = layout_id.clone();
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "rekeying only the checkpoint ID must not excuse a stale VM hash"
+        );
+        checkpoint.meta.checkpoint_id = legacy_id.clone();
+        checkpoint.meta.vm_state_hash = layout_hash.clone();
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "rehashing only the VM state must not excuse a stale checkpoint ID"
+        );
+        checkpoint.meta.checkpoint_id = layout_id;
+        assert_ne!(checkpoint.meta.checkpoint_id, legacy_id);
+        assert!(super::checkpoint_is_replay_safe(checkpoint));
+
+        let StoredSnapshotAttachment::Versioned(slot) = &mut checkpoint.attachment else {
+            panic!("versioned layout attachment");
+        };
+        slot.document
+            .state
+            .layout_integer_parameter_state
+            .as_mut()
+            .expect("layout state")
+            .layers[0][0]
+            .value += 1;
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "state mutation after rekey must invalidate replay identity"
         );
     }
 

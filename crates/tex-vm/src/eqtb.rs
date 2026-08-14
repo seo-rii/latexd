@@ -7,8 +7,9 @@ use crate::{
     command::Meaning,
     save_stack::{SaveDisposition, SaveStack},
     snapshot::{
-        IntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
+        IntegerParameterId, LayoutIntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
         VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
+        VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
     },
 };
 
@@ -67,6 +68,7 @@ pub(crate) enum EqKey {
     MathCode(u8),
     DelCode(u8),
     IntegerParameter(IntegerParameterId),
+    LayoutIntegerParameter(LayoutIntegerParameterId),
     ControlSequence(String),
 }
 
@@ -324,6 +326,19 @@ impl Eqtb {
     }
 
     #[cfg(test)]
+    pub(crate) fn layout_integer_parameter(&self, parameter: LayoutIntegerParameterId) -> i32 {
+        self.entries
+            .get(&EqKey::LayoutIntegerParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::IntegerParameter(value) => value,
+                _ => {
+                    unreachable!("layout-integer-parameter entry must contain an integer parameter")
+                }
+            })
+            .unwrap_or_else(|| parameter.default_value())
+    }
+
+    #[cfg(test)]
     pub(crate) fn integer_parameter_owner(
         &self,
         parameter: IntegerParameterId,
@@ -333,6 +348,21 @@ impl Eqtb {
             .map(|entry| match entry.value {
                 EqValue::IntegerParameter(value) => (value, entry.level),
                 _ => unreachable!("integer-parameter entry must contain an integer parameter"),
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_integer_parameter_owner(
+        &self,
+        parameter: LayoutIntegerParameterId,
+    ) -> Option<(i32, usize)> {
+        self.entries
+            .get(&EqKey::LayoutIntegerParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::IntegerParameter(value) => (value, entry.level),
+                _ => {
+                    unreachable!("layout-integer-parameter entry must contain an integer parameter")
+                }
             })
     }
 
@@ -542,6 +572,31 @@ impl Eqtb {
         );
     }
 
+    pub(crate) fn assign_layout_integer_parameter(
+        &mut self,
+        parameter: LayoutIntegerParameterId,
+        value: i32,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        let key = EqKey::LayoutIntegerParameter(parameter);
+        if (scope == AssignmentScope::Global || group_level == 0)
+            && value == parameter.default_value()
+        {
+            save_stack.cancel_restore(&key);
+            self.remove_entry(&key);
+            return;
+        }
+        self.assign(
+            key,
+            EqValue::IntegerParameter(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
     pub(crate) fn assign_control_sequence(
         &mut self,
         name: String,
@@ -714,6 +769,77 @@ impl Eqtb {
             .iter()
             .any(|layer| !layer.is_empty())
             .then_some(VmIntegerParameterStateV1 { layers })
+    }
+
+    pub(crate) fn layout_integer_parameter_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmLayoutIntegerParameterStateV1> {
+        let mut working = self
+            .entries
+            .iter()
+            .filter(|(key, _)| matches!(key, EqKey::LayoutIntegerParameter(_)))
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut layers = vec![Vec::new(); save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
+            for (key, previous) in restores {
+                let EqKey::LayoutIntegerParameter(parameter) = key else {
+                    continue;
+                };
+                let current = working
+                    .remove(key)
+                    .expect("restore record must have a current layout-integer-parameter entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current layout-integer-parameter entry must match its restore group level"
+                );
+                let EqValue::IntegerParameter(value) = current.value else {
+                    unreachable!("layout-integer-parameter key must contain a matching value");
+                };
+                layers[group_level].push(VmLayoutIntegerParameterAssignmentV1 {
+                    parameter: *parameter,
+                    value,
+                });
+                if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous layout-integer-parameter entry must precede its restore group level"
+                    );
+                    assert!(matches!(previous.value, EqValue::IntegerParameter(_)));
+                    working.insert(key.clone(), previous.clone());
+                }
+            }
+        }
+
+        layers[0] = working
+            .into_iter()
+            .map(|(key, entry)| {
+                assert_eq!(
+                    entry.level, 0,
+                    "root layout-integer-parameter entry must have level zero"
+                );
+                let EqKey::LayoutIntegerParameter(parameter) = key else {
+                    unreachable!("filtered layout-integer-parameter key must contain a parameter");
+                };
+                let EqValue::IntegerParameter(value) = entry.value else {
+                    unreachable!("layout-integer-parameter key must contain a matching value");
+                };
+                assert_ne!(
+                    value,
+                    parameter.default_value(),
+                    "root layout-integer-parameter defaults must be canonicalized away"
+                );
+                VmLayoutIntegerParameterAssignmentV1 { parameter, value }
+            })
+            .collect();
+
+        layers
+            .iter()
+            .any(|layer| !layer.is_empty())
+            .then_some(VmLayoutIntegerParameterStateV1 { layers })
     }
 
     fn code_table_snapshot_state(
@@ -935,7 +1061,7 @@ mod tests {
     use crate::{
         command::{Meaning, Primitive},
         save_stack::SaveStack,
-        snapshot::IntegerParameterId,
+        snapshot::{IntegerParameterId, LayoutIntegerParameterId},
     };
     use tex_tokens::{CatCode, Token};
 
@@ -951,9 +1077,390 @@ mod tests {
         DelCode(DelimiterCodeV1),
     }
 
+    #[derive(Debug, Clone)]
+    struct LayoutParameterReference {
+        default: i32,
+        root: Option<i32>,
+        locals: Vec<Option<i32>>,
+    }
+
+    impl LayoutParameterReference {
+        fn new(default: i32) -> Self {
+            Self {
+                default,
+                root: None,
+                locals: Vec::new(),
+            }
+        }
+
+        fn depth(&self) -> usize {
+            self.locals.len()
+        }
+
+        fn read(&self) -> i32 {
+            self.locals
+                .iter()
+                .rev()
+                .find_map(|value| *value)
+                .or(self.root)
+                .unwrap_or(self.default)
+        }
+
+        fn begin_group(&mut self) {
+            self.locals.push(None);
+        }
+
+        fn end_group(&mut self) {
+            self.locals.pop().expect("reference group");
+        }
+
+        fn assign(&mut self, value: i32, scope: AssignmentScope) {
+            if scope == AssignmentScope::Global || self.locals.is_empty() {
+                self.locals.fill(None);
+                self.root = (value != self.default).then_some(value);
+            } else {
+                *self.locals.last_mut().expect("current reference group") = Some(value);
+            }
+        }
+
+        fn projected_state(
+            &self,
+            parameter: LayoutIntegerParameterId,
+        ) -> Option<crate::snapshot::VmLayoutIntegerParameterStateV1> {
+            let mut layers = vec![Vec::new(); self.depth() + 1];
+            if let Some(value) = self.root {
+                layers[0].push(crate::snapshot::VmLayoutIntegerParameterAssignmentV1 {
+                    parameter,
+                    value,
+                });
+            }
+            for (index, value) in self.locals.iter().enumerate() {
+                if let Some(value) = value {
+                    layers[index + 1].push(crate::snapshot::VmLayoutIntegerParameterAssignmentV1 {
+                        parameter,
+                        value: *value,
+                    });
+                }
+            }
+            layers
+                .iter()
+                .any(|layer| !layer.is_empty())
+                .then_some(crate::snapshot::VmLayoutIntegerParameterStateV1 { layers })
+        }
+    }
+
     #[test]
     fn control_sequence_values_do_not_inflate_register_entries() {
         assert_eq!(size_of::<super::EqValue>(), size_of::<RegisterEqValue>());
+    }
+
+    #[test]
+    fn layout_integer_parameters_preserve_virtual_defaults_and_nested_owners() {
+        let parameters = [
+            (LayoutIntegerParameterId::AdjDemerits, 0),
+            (LayoutIntegerParameterId::BinOpPenalty, 0),
+            (LayoutIntegerParameterId::BrokenPenalty, 0),
+            (LayoutIntegerParameterId::ClubPenalty, 0),
+            (LayoutIntegerParameterId::DisplayWidowPenalty, 0),
+            (LayoutIntegerParameterId::DoubleHyphenDemerits, 0),
+            (LayoutIntegerParameterId::ExHyphenPenalty, 0),
+            (LayoutIntegerParameterId::FinalHyphenDemerits, 0),
+            (LayoutIntegerParameterId::HangAfter, 1),
+            (LayoutIntegerParameterId::HyphenPenalty, 0),
+            (LayoutIntegerParameterId::InterlinePenalty, 0),
+            (LayoutIntegerParameterId::LinePenalty, 0),
+            (LayoutIntegerParameterId::Looseness, 0),
+            (LayoutIntegerParameterId::PostDisplayPenalty, 0),
+            (LayoutIntegerParameterId::PreDisplayPenalty, 0),
+            (LayoutIntegerParameterId::PreTolerance, 0),
+            (LayoutIntegerParameterId::RelPenalty, 0),
+            (LayoutIntegerParameterId::WidowPenalty, 0),
+        ];
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        for (parameter, default) in parameters {
+            assert_eq!(eqtb.layout_integer_parameter(parameter), default);
+            assert_eq!(eqtb.layout_integer_parameter_owner(parameter), None);
+        }
+        assert_eq!(
+            eqtb.layout_integer_parameter_snapshot_state(&save_stack),
+            None
+        );
+
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::AdjDemerits,
+            9,
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::AdjDemerits,
+            0,
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.layout_integer_parameter_owner(LayoutIntegerParameterId::AdjDemerits),
+            None
+        );
+
+        save_stack.begin_group();
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::HangAfter,
+            1,
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.layout_integer_parameter_owner(LayoutIntegerParameterId::HangAfter),
+            Some((1, 1))
+        );
+
+        save_stack.begin_group();
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::PreTolerance,
+            7,
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::HangAfter,
+            2,
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_layout_integer_parameter(
+            LayoutIntegerParameterId::PreTolerance,
+            0,
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+
+        assert_eq!(
+            eqtb.layout_integer_parameter_owner(LayoutIntegerParameterId::HangAfter),
+            Some((2, 0))
+        );
+        assert_eq!(
+            eqtb.layout_integer_parameter_owner(LayoutIntegerParameterId::PreTolerance),
+            None
+        );
+        let state = eqtb
+            .layout_integer_parameter_snapshot_state(&save_stack)
+            .expect("global nondefault owner");
+        assert_eq!(state.layers.len(), 3);
+        assert_eq!(state.layers[0].len(), 1);
+        assert_eq!(
+            state.layers[0][0].parameter,
+            LayoutIntegerParameterId::HangAfter
+        );
+        assert_eq!(state.layers[0][0].value, 2);
+        assert!(state.layers[1].is_empty());
+        assert!(state.layers[2].is_empty());
+
+        eqtb.end_group(&mut save_stack);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(
+            eqtb.layout_integer_parameter_owner(LayoutIntegerParameterId::HangAfter),
+            Some((2, 0))
+        );
+        assert_eq!(
+            eqtb.layout_integer_parameter_snapshot_state(&save_stack)
+                .expect("global owner")
+                .layers
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn layout_integer_parameter_owner_matches_reference_model_depth_zero_through_eight() {
+        let parameters = [
+            (LayoutIntegerParameterId::AdjDemerits, 0),
+            (LayoutIntegerParameterId::BinOpPenalty, 0),
+            (LayoutIntegerParameterId::BrokenPenalty, 0),
+            (LayoutIntegerParameterId::ClubPenalty, 0),
+            (LayoutIntegerParameterId::DisplayWidowPenalty, 0),
+            (LayoutIntegerParameterId::DoubleHyphenDemerits, 0),
+            (LayoutIntegerParameterId::ExHyphenPenalty, 0),
+            (LayoutIntegerParameterId::FinalHyphenDemerits, 0),
+            (LayoutIntegerParameterId::HangAfter, 1),
+            (LayoutIntegerParameterId::HyphenPenalty, 0),
+            (LayoutIntegerParameterId::InterlinePenalty, 0),
+            (LayoutIntegerParameterId::LinePenalty, 0),
+            (LayoutIntegerParameterId::Looseness, 0),
+            (LayoutIntegerParameterId::PostDisplayPenalty, 0),
+            (LayoutIntegerParameterId::PreDisplayPenalty, 0),
+            (LayoutIntegerParameterId::PreTolerance, 0),
+            (LayoutIntegerParameterId::RelPenalty, 0),
+            (LayoutIntegerParameterId::WidowPenalty, 0),
+        ];
+
+        for (parameter, default) in parameters {
+            for maximum_depth in 0..=8 {
+                let mut eqtb = Eqtb::default();
+                let mut save_stack = SaveStack::default();
+                let mut reference = LayoutParameterReference::new(default);
+                let assert_matches =
+                    |eqtb: &Eqtb, save_stack: &SaveStack, reference: &LayoutParameterReference| {
+                        assert_eq!(
+                            eqtb.layout_integer_parameter(parameter),
+                            reference.read(),
+                            "value mismatch for {parameter:?} at depth {}",
+                            reference.depth()
+                        );
+                        assert_eq!(
+                            eqtb.layout_integer_parameter_snapshot_state(save_stack),
+                            reference.projected_state(parameter),
+                            "projection mismatch for {parameter:?} at depth {}",
+                            reference.depth()
+                        );
+                    };
+
+                for (value, scope) in [
+                    (i32::MIN, AssignmentScope::Global),
+                    (default, AssignmentScope::Local),
+                    (i32::MAX, AssignmentScope::Global),
+                    (-17, AssignmentScope::Local),
+                ] {
+                    eqtb.assign_layout_integer_parameter(
+                        parameter,
+                        value,
+                        scope,
+                        0,
+                        &mut save_stack,
+                    );
+                    reference.assign(value, scope);
+                    assert_matches(&eqtb, &save_stack, &reference);
+                }
+
+                for level in 1..=maximum_depth {
+                    save_stack.begin_group();
+                    reference.begin_group();
+                    assert_matches(&eqtb, &save_stack, &reference);
+                    let operations: &[(i32, AssignmentScope)] = match level {
+                        1 => &[(default, AssignmentScope::Local)],
+                        2 => &[(reference.read(), AssignmentScope::Local)],
+                        3 => &[
+                            (default, AssignmentScope::Local),
+                            (default.wrapping_add(1), AssignmentScope::Local),
+                            (-31, AssignmentScope::Local),
+                        ],
+                        4 => &[],
+                        5 => &[
+                            (i32::MAX, AssignmentScope::Global),
+                            (default, AssignmentScope::Local),
+                        ],
+                        6 => &[(i32::MIN, AssignmentScope::Local)],
+                        7 => &[(default, AssignmentScope::Global)],
+                        8 => &[(-17, AssignmentScope::Local)],
+                        _ => unreachable!(),
+                    };
+                    for &(value, scope) in operations {
+                        eqtb.assign_layout_integer_parameter(
+                            parameter,
+                            value,
+                            scope,
+                            level,
+                            &mut save_stack,
+                        );
+                        reference.assign(value, scope);
+                        assert_matches(&eqtb, &save_stack, &reference);
+                    }
+                }
+
+                let projected = eqtb.layout_integer_parameter_snapshot_state(&save_stack);
+                let mut restored = Eqtb::default();
+                let mut restored_stack = SaveStack::default();
+                if let Some(state) = &projected {
+                    for (level, layer) in state.layers.iter().enumerate() {
+                        if level > 0 {
+                            restored_stack.begin_group();
+                        }
+                        let scope = if level == 0 {
+                            AssignmentScope::Global
+                        } else {
+                            AssignmentScope::Local
+                        };
+                        for assignment in layer {
+                            restored.assign_layout_integer_parameter(
+                                assignment.parameter,
+                                assignment.value,
+                                scope,
+                                level,
+                                &mut restored_stack,
+                            );
+                        }
+                    }
+                } else {
+                    for _ in 0..maximum_depth {
+                        restored_stack.begin_group();
+                    }
+                }
+                assert_matches(&restored, &restored_stack, &reference);
+                assert_eq!(
+                    restored.layout_integer_parameter_snapshot_state(&restored_stack),
+                    projected
+                );
+
+                while reference.depth() > 0 {
+                    eqtb.end_group(&mut save_stack);
+                    restored.end_group(&mut restored_stack);
+                    reference.end_group();
+                    assert_matches(&eqtb, &save_stack, &reference);
+                    assert_matches(&restored, &restored_stack, &reference);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn layout_integer_parameter_global_assignment_cancels_every_reference_restore() {
+        let parameter = LayoutIntegerParameterId::HangAfter;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        let mut reference = LayoutParameterReference::new(1);
+
+        for (level, value) in [(1, 2), (2, 1), (3, -7), (4, i32::MIN)] {
+            save_stack.begin_group();
+            reference.begin_group();
+            eqtb.assign_layout_integer_parameter(
+                parameter,
+                value,
+                AssignmentScope::Local,
+                level,
+                &mut save_stack,
+            );
+            reference.assign(value, AssignmentScope::Local);
+        }
+        eqtb.assign_layout_integer_parameter(
+            parameter,
+            i32::MAX,
+            AssignmentScope::Global,
+            4,
+            &mut save_stack,
+        );
+        reference.assign(i32::MAX, AssignmentScope::Global);
+        assert_eq!(
+            eqtb.layout_integer_parameter_snapshot_state(&save_stack),
+            reference.projected_state(parameter)
+        );
+
+        while reference.depth() > 0 {
+            eqtb.end_group(&mut save_stack);
+            reference.end_group();
+            assert_eq!(eqtb.layout_integer_parameter(parameter), reference.read());
+            assert_eq!(
+                eqtb.layout_integer_parameter_snapshot_state(&save_stack),
+                reference.projected_state(parameter)
+            );
+        }
     }
 
     #[test]

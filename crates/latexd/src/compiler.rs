@@ -4614,8 +4614,9 @@ mod tests {
     };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
-        compile_format_snapshot,
+        LayoutIntegerParameterId, Vm, VmDiagnostic, VmDiagnosticKind,
+        VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
+        VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
     use super::{
@@ -7090,6 +7091,36 @@ mod tests {
                 path: Utf8PathBuf::from("main.tex"),
                 source_offset_utf8: 44,
             }]
+        );
+    }
+
+    #[test]
+    fn production_replay_rejects_a_suppressed_source_unreachable_layout_owner() {
+        let mut source_interner = ControlSequenceInterner::new();
+        let mut snapshot = Vm::new(&mut source_interner).snapshot();
+        snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
+                parameter: LayoutIntegerParameterId::PreTolerance,
+                value: 123,
+            }]],
+        });
+        let mut restore_interner = ControlSequenceInterner::new();
+        let restored =
+            Vm::try_restore(&mut restore_interner, &snapshot).expect("restore dormant root owner");
+        let bundle = build_checkpoint_bundle(
+            7,
+            &restored.snapshot(),
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("capture production checkpoint metadata");
+        let checkpoint = &bundle.checkpoints[0];
+
+        assert!(checkpoint.meta.continuation_safety.is_safe());
+        assert!(!checkpoint.meta.snapshot_attached);
+        assert!(
+            replay_checkpoint_from_stored(checkpoint, Utf8Path::new("main.tex")).is_none(),
+            "suppressed state must make the production checkpoint unusable, not source-replayable"
         );
     }
 

@@ -1597,6 +1597,84 @@ epoch 4 remain unchanged. Only the next dormant-owner gate may promote this
 capability to the supported set, after it provides lossless
 project/restore/unwind and semantic hashing.
 
+The dormant-owner gate completes that promotion. A separate
+`EqKey::LayoutIntegerParameter(LayoutIntegerParameterId)` leaves the frozen
+tolerance V1 enum untouched while using the common Eqtb/SaveStack save-once and
+global-cancellation path. All 18 fresh values read their wire defaults
+virtually without materializing owners. A root or global default assignment
+cancels every pending restore and removes the entry, while a local default
+preserves its current level and prior presence. Snapshot projection emits
+canonical-ID sparse layers from root to inner scope. Versioned restore rebuilds
+the control-sequence group lattice once for the combined
+mathcode/delcode/tolerance/layout state. Regressions pin mixed four-owner
+restore, all 15 non-legacy owner-presence masks, inner/outer unwind, and exact
+root/local/default projections. An independent reference model compares all 18
+IDs at depths 0 through 8 across defaults, nondefaults, negative and `i32`
+extreme values, repeated and same-parent local writes, empty groups, global
+cancellation, and stepwise unwind. Equal numeric values in the tolerance and
+layout families do not alias, and each wire field rejects IDs from the other
+family.
+
+The capability is now in the executable/writable versioned-document supported
+set, and both decode/rewrite/decode and restore/project are lossless. Malformed
+root defaults and capability mismatches leave a prefilled output unchanged.
+The checkpoint semantic fingerprint includes an
+`eqtb.layout-integer-parameter-state.v1` family domain plus fixed-width `u64`
+lengths and canonical JSON payloads. Golden vectors distinguish root, local,
+depth, value, default, ID, and equal numeric payloads in different families.
+Capability declarations have `BTreeSet` membership semantics, so duplicate and
+noncanonical input order rewrites as a sorted unique set; duplicate raw state
+members are rejected before value collapse.
+
+`checkpoint_is_replay_safe` recomputes the attachment's complete semantic hash,
+compares `meta.vm_state_hash`, and recomputes `checkpoint_id` from that hash.
+Merely injecting a layout attachment into a passive-reader-era epoch-4
+checkpoint therefore cannot become replay-safe because support was promoted;
+only an attachment explicitly rehashed and rekeyed with the current identity is
+eligible. This identity verification is why the dormant gate retains epoch 4.
+Production still uses `LegacyOnly`, so a layout owner, including a local default,
+suppresses attachment. An unattached checkpoint fails
+`checkpoint_is_replay_safe`, and the compiler's `replay_checkpoint_from_stored`
+declines it; it never resumes from that point using primitive-free source. The
+next compile instead performs full source execution without that checkpoint. A
+production-consumer regression captures a source-unreachable root layout owner
+and pins this fail-closed result. Fully unwinding a restored owner returns legacy
+attachment eligibility. A deepest invalid layout owner and a later unknown
+primitive both fail before VM construction without changing a nonempty
+interner's length or existing ID resolution. A successful typed restore also
+leaves all 18 source names undefined; the owner assignment API is `pub(crate)`
+and has no production call site outside restore.
+
+Hash/ID verification establishes self-consistent semantic identity for a
+canonical snapshot, not provenance authentication or wire-byte integrity. A
+semantic state mutation after rekey is rejected, while duplicate capabilities,
+JSON whitespace, or member ordering that canonically represents the same state
+may retain the same identity. Before adding a family beyond the current closed
+capability vocabulary, prove capability-sequence/family framing injectivity
+exhaustively or introduce a total-length/terminator under a new domain and
+semantic epoch.
+
+The dormant-owner Pro remediation review
+`6a7f3d84-99b4-83e9-9ecd-e7a79283d9f2` marked the VM owner, shared lattice,
+restore atomicity, family isolation, hash framing, epoch-4 revalidation, and
+rollback ratchet closed. Its sole remaining evidence request was to prove that
+a suppressed checkpoint containing a source-unreachable owner cannot replay in
+production. The compiler path rejects every unattached checkpoint in
+`replay_checkpoint_from_stored`, and the root-nondefault production-capture
+regression now pins that boundary. The candidate passes full
+`cargo test --workspace --quiet`, including the 758-test smoke suite, all 60
+Python policy/oracle tests, canonical workspace Clippy,
+`cargo fmt --all -- --check`, and the diff check.
+
+The supported versioned-document API is a compatibility ratchet even before
+source activation. A post-release rollback must retain its parse, rewrite,
+hash, and restore behavior; it may disable only new source generation and
+checkpoint admission. The raw legacy wire, tolerance V1 ID set, source
+primitive set, and checkpoint epoch 4 are unchanged, and all 18 source names
+remain undefined. The next gate must combine source activation, complete
+latent-owner capability derivation, and the epoch transition in one rollback
+unit.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
@@ -1638,8 +1716,6 @@ Non-blocking follow-up hardening for this closed slice:
 
 - prevent future production-crate calls to the asserting `Vm::restore` wrapper
   with a compiler-assisted or CI source guard;
-- extend malformed-restore atomicity coverage to a non-empty sentinel interner
-  and an unknown primitive in a deep layer;
 - route generated owner states through public serialization, restore, and
   projection, shrinking any mismatch into a deterministic fixture;
 - measure restore duration and peak RSS by input bytes, scope depth, and binding

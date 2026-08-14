@@ -129,7 +129,6 @@ pub enum VmRestoreError {
     InvalidCodeTableState(String),
     InvalidIntegerParameterState(String),
     InvalidLayoutIntegerParameterState(String),
-    UnsupportedLayoutIntegerParameterState,
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -162,9 +161,6 @@ impl std::fmt::Display for VmRestoreError {
                 formatter,
                 "invalid VM snapshot layout-integer-parameter state: {error}"
             ),
-            Self::UnsupportedLayoutIntegerParameterState => {
-                formatter.write_str("VM snapshot layout-integer-parameter state is not executable")
-            }
         }
     }
 }
@@ -200,7 +196,6 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             state
                 .validate(snapshot.scopes.len())
                 .map_err(VmRestoreError::InvalidLayoutIntegerParameterState)?;
-            return Err(VmRestoreError::UnsupportedLayoutIntegerParameterState);
         }
     }
     for scope in &snapshot.scopes {
@@ -16817,7 +16812,8 @@ impl<'i> Vm<'i> {
             self.eqtb.mathcode_snapshot_state(&self.save_stack),
             self.eqtb.delcode_snapshot_state(&self.save_stack),
             self.eqtb.integer_parameter_snapshot_state(&self.save_stack),
-            None,
+            self.eqtb
+                .layout_integer_parameter_snapshot_state(&self.save_stack),
         )
     }
 
@@ -16944,6 +16940,17 @@ impl<'i> Vm<'i> {
             if let Some(state) = &snapshot.integer_parameter_state {
                 for assignment in &state.layers[group_level] {
                     vm.eqtb.assign_integer_parameter(
+                        assignment.parameter,
+                        assignment.value,
+                        scope,
+                        group_level,
+                        &mut vm.save_stack,
+                    );
+                }
+            }
+            if let Some(state) = &snapshot.layout_integer_parameter_state {
+                for assignment in &state.layers[group_level] {
+                    vm.eqtb.assign_layout_integer_parameter(
                         assignment.parameter,
                         assignment.value,
                         scope,

@@ -35,6 +35,7 @@ pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
 ];
 pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
@@ -140,6 +141,21 @@ impl Serialize for VmSnapshotDocument {
                 .insert(
                     name.to_string(),
                     serde_json::to_value(integer_parameter_state)
+                        .map_err(serde::ser::Error::custom)?,
+                )
+                .is_some()
+            {
+                return Err(serde::ser::Error::custom(format!(
+                    "legacy VM snapshot collides with reserved field {name}"
+                )));
+            }
+        }
+        if let Some(layout_integer_parameter_state) = &self.state.layout_integer_parameter_state {
+            let name = "layout_integer_parameter_state";
+            if state_fields
+                .insert(
+                    name.to_string(),
+                    serde_json::to_value(layout_integer_parameter_state)
                         .map_err(serde::ser::Error::custom)?,
                 )
                 .is_some()

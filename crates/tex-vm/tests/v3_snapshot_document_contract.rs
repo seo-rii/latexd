@@ -537,6 +537,10 @@ fn passive_integer_parameter_reader_rejects_noncanonical_state() {
             json!({"layers": [[{"parameter": "futureparameter", "value": 1}]]}),
         ),
         (
+            "layout-family parameter",
+            json!({"layers": [[{"parameter": "hangafter", "value": 1}]]}),
+        ),
+        (
             "unknown assignment field",
             json!({"layers": [[{
                 "parameter": "tolerance",
@@ -949,6 +953,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             MATHCODE_TABLE_V1_CAPABILITY,
             DELCODE_TABLE_V1_CAPABILITY,
             INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+            VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
         ]
     );
     assert_eq!(

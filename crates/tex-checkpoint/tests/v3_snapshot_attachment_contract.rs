@@ -425,7 +425,7 @@ fn reader_exposes_one_legacy_or_versioned_snapshot_attachment() {
 }
 
 #[test]
-fn dormant_integer_parameter_attachment_is_inspectable_and_replay_safe() {
+fn manually_injected_integer_parameter_attachment_requires_semantic_rekey() {
     let mut bundle_json = legacy_bundle_json();
     let mut snapshot = bundle_json["checkpoints"][0]["snapshot"].take();
     snapshot["integer_parameter_state"] = json!({
@@ -445,7 +445,7 @@ fn dormant_integer_parameter_attachment_is_inspectable_and_replay_safe() {
     };
 
     assert!(document.state.integer_parameter_state.is_some());
-    assert!(checkpoint_is_replay_safe(checkpoint));
+    assert!(!checkpoint_is_replay_safe(checkpoint));
 }
 
 #[test]
@@ -470,7 +470,7 @@ fn legacy_only_writer_suppresses_test_constructed_dormant_integer_parameter_stat
 }
 
 #[test]
-fn passive_layout_integer_parameter_attachment_is_inspectable_but_not_replay_safe() {
+fn prepromotion_epoch_four_layout_attachment_requires_current_semantic_rekey() {
     let mut bundle_json = legacy_bundle_json();
     let mut snapshot = bundle_json["checkpoints"][0]["snapshot"].take();
     snapshot["layout_integer_parameter_state"] = json!({
@@ -490,7 +490,10 @@ fn passive_layout_integer_parameter_attachment_is_inspectable_but_not_replay_saf
     };
 
     assert!(document.state.layout_integer_parameter_state.is_some());
-    assert!(!checkpoint_is_replay_safe(checkpoint));
+    assert!(
+        !checkpoint_is_replay_safe(checkpoint),
+        "capability support alone must not trust the pre-promotion VM hash"
+    );
 }
 
 #[test]
@@ -512,6 +515,49 @@ fn legacy_only_writer_suppresses_test_constructed_passive_layout_integer_state()
         checkpoint.snapshot_attachment(),
         SnapshotAttachment::None
     ));
+}
+
+#[test]
+fn local_layout_default_suppresses_legacy_attachment_until_restored_owner_unwinds() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    let outcome = source.run_plain("{");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let mut snapshot = source.snapshot();
+    drop(source);
+    snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+        layers: vec![
+            vec![],
+            vec![VmLayoutIntegerParameterAssignmentV1 {
+                parameter: LayoutIntegerParameterId::PreTolerance,
+                value: 0,
+            }],
+        ],
+    });
+
+    let mut restore_interner = ControlSequenceInterner::new();
+    let mut restored =
+        Vm::try_restore(&mut restore_interner, &snapshot).expect("restore local default owner");
+    let suppressed = build_checkpoint_bundle(1, &restored.snapshot(), "preamble", &[])
+        .expect("build suppressed local-default checkpoint");
+    assert!(!suppressed.checkpoints[0].meta.snapshot_attached);
+    assert!(matches!(
+        suppressed.checkpoints[0].snapshot_attachment(),
+        SnapshotAttachment::None
+    ));
+
+    let outcome = restored.run_plain("}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let unwound = restored.snapshot();
+    assert!(unwound.layout_integer_parameter_state.is_none());
+    let eligible = build_checkpoint_bundle(2, &unwound, "preamble", &[])
+        .expect("build attachment-eligible unwound checkpoint");
+    assert!(eligible.checkpoints[0].meta.snapshot_attached);
+    assert!(matches!(
+        eligible.checkpoints[0].snapshot_attachment(),
+        SnapshotAttachment::Legacy(_)
+    ));
+    assert!(checkpoint_is_replay_safe(&eligible.checkpoints[0]));
 }
 
 #[test]
@@ -597,7 +643,7 @@ fn reader_rejects_unsupported_versioned_capability_before_state() {
 }
 
 #[test]
-fn reader_accepts_replay_safe_versioned_muskip_checkpoint() {
+fn manually_injected_versioned_muskip_checkpoint_requires_semantic_rekey() {
     let mut source_interner = ControlSequenceInterner::new();
     let mut source = Vm::new(&mut source_interner);
     source.run_plain(r"\newmuskip\first\first=2.5mu");
@@ -623,7 +669,7 @@ fn reader_accepts_replay_safe_versioned_muskip_checkpoint() {
     let bundle = serde_json::from_value::<CheckpointBundle>(bundle_json)
         .expect("decode versioned muskip checkpoint");
     let checkpoint = &bundle.checkpoints[0];
-    assert!(checkpoint_is_replay_safe(checkpoint));
+    assert!(!checkpoint_is_replay_safe(checkpoint));
     let restore = checkpoint
         .snapshot_for_restore()
         .expect("versioned muskip restore state");
