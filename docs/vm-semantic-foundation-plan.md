@@ -1454,6 +1454,21 @@ not a compatibility target; `ARCH-015` requires an explicit panic-free recovery
 contract before source activation. The VM regression keeps `\tolerance`
 undefined throughout characterization.
 
+The passive DTO gate reads `eqtb.integer-parameter-state.v1` structurally
+without advertising executable support. `VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES`
+adds it to the four existing executable capabilities, while
+`VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES` remains the original four-item
+writer/restore boundary. Only non-empty layered state with the canonical
+`"tolerance"` ID, signed 32-bit values, and an exact legacy scope-depth match is
+accepted; unknown, duplicate, or out-of-order IDs, unknown fields, empty state,
+and capability/state disagreement are rejected. A decoded DTO remains
+inspectable, but legacy serialization, versioned-document rewriting, and VM
+restore fail, and a checkpoint carrying it is not replay safe. Exact legacy
+bytes for capability-free fresh snapshots, document schema 1, the semantic
+capture schema, and checkpoint epoch 3 remain unchanged. The dormant-owner
+gate will promote this capability to the writable support list only after
+layered restore and hashing exist.
+
 The next gates are a strict passive DTO boundary, a source-unreachable typed
 Eqtb/SaveStack owner with layered restore/hash/legacy suppression, and finally
 source activation. The planned capability name

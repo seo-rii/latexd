@@ -25,11 +25,20 @@ pub const VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 pub const VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 pub const VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-v1";
 pub const VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
+pub const VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
+    "eqtb.integer-parameter-state.v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+];
+pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
+    VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
+    VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
+    VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
+    VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -113,6 +122,21 @@ impl Serialize for VmSnapshotDocument {
                 .insert(
                     name.to_string(),
                     serde_json::to_value(code_table_state).map_err(serde::ser::Error::custom)?,
+                )
+                .is_some()
+            {
+                return Err(serde::ser::Error::custom(format!(
+                    "legacy VM snapshot collides with reserved field {name}"
+                )));
+            }
+        }
+        if let Some(integer_parameter_state) = &self.state.integer_parameter_state {
+            let name = "integer_parameter_state";
+            if state_fields
+                .insert(
+                    name.to_string(),
+                    serde_json::to_value(integer_parameter_state)
+                        .map_err(serde::ser::Error::custom)?,
                 )
                 .is_some()
             {
@@ -342,7 +366,7 @@ pub fn decode_vm_snapshot_document(
         ));
     }
     if let Some(capability) = document.required_capabilities.iter().find(|capability| {
-        !VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES.contains(&capability.as_str())
+        !VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES.contains(&capability.as_str())
     }) {
         return Err(VmSnapshotDocumentError::UnsupportedCapability(
             capability.clone(),
@@ -382,6 +406,11 @@ pub fn decode_vm_snapshot_document(
         .map(|raw| serde_json::from_str::<VmCodeTableStateV1>(raw.get()))
         .transpose()
         .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let integer_parameter_state = state_fields
+        .remove("integer_parameter_state")
+        .map(|raw| serde_json::from_str::<VmIntegerParameterStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
     let mut legacy_fields = serde_json::Map::new();
     for (name, raw) in state_fields {
         let value = serde_json::from_str(raw.get())
@@ -401,12 +430,18 @@ pub fn decode_vm_snapshot_document(
             .validate_delcode(legacy.scopes.len())
             .map_err(VmSnapshotDocumentError::InvalidState)?;
     }
+    if let Some(state) = &integer_parameter_state {
+        state
+            .validate(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
     let state = VmSnapshot::from_parts(
         legacy,
         muskip_registers,
         next_muskip_register,
         mathcode_state,
         delcode_state,
+        integer_parameter_state,
     );
     let derived_capabilities = state.required_capabilities();
     if declared_capabilities != derived_capabilities {
@@ -1955,6 +1990,51 @@ pub struct VmCodeTableStateV1 {
     pub layers: Vec<Vec<VmCodeTableAssignmentV1>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IntegerParameterId {
+    Tolerance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmIntegerParameterAssignmentV1 {
+    pub parameter: IntegerParameterId,
+    pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmIntegerParameterStateV1 {
+    pub layers: Vec<Vec<VmIntegerParameterAssignmentV1>>,
+}
+
+impl VmIntegerParameterStateV1 {
+    pub(crate) fn validate(&self, expected_layers: usize) -> Result<(), String> {
+        if self.layers.len() != expected_layers {
+            return Err(format!(
+                "integer-parameter layer count {} does not match VM scope depth {expected_layers}",
+                self.layers.len()
+            ));
+        }
+        if !self.layers.iter().any(|layer| !layer.is_empty()) {
+            return Err("integer-parameter state must not be empty".to_string());
+        }
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            let mut previous = None;
+            for assignment in layer {
+                if previous.is_some_and(|parameter| parameter >= assignment.parameter) {
+                    return Err(format!(
+                        "integer-parameter layer {layer_index} entries must be strictly increasing"
+                    ));
+                }
+                previous = Some(assignment.parameter);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl VmCodeTableStateV1 {
     pub(crate) fn validate_mathcode(&self, expected_layers: usize) -> Result<(), String> {
         self.validate_with(expected_layers, "mathcode", |value| {
@@ -2011,6 +2091,7 @@ pub struct VmSnapshot {
     pub next_muskip_register: u32,
     pub mathcode_state: Option<VmCodeTableStateV1>,
     pub delcode_state: Option<VmCodeTableStateV1>,
+    pub integer_parameter_state: Option<VmIntegerParameterStateV1>,
 }
 
 impl VmSnapshot {
@@ -2020,6 +2101,7 @@ impl VmSnapshot {
         next_muskip_register: u32,
         mathcode_state: Option<VmCodeTableStateV1>,
         delcode_state: Option<VmCodeTableStateV1>,
+        integer_parameter_state: Option<VmIntegerParameterStateV1>,
     ) -> Self {
         Self {
             legacy,
@@ -2027,6 +2109,7 @@ impl VmSnapshot {
             next_muskip_register,
             mathcode_state,
             delcode_state,
+            integer_parameter_state,
         }
     }
 
@@ -2047,6 +2130,11 @@ impl VmSnapshot {
         if self.delcode_state.is_some() {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+            ));
+        }
+        if self.integer_parameter_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             ));
         }
         let token_requires_muskip_alias = |token: &SnapshotToken| {
@@ -2356,6 +2444,7 @@ impl<'de> Deserialize<'de> for VmSnapshot {
             next_muskip_register: default_next_muskip_register(),
             mathcode_state: None,
             delcode_state: None,
+            integer_parameter_state: None,
         };
         let capabilities = snapshot.required_capabilities();
         if !capabilities.is_empty() {

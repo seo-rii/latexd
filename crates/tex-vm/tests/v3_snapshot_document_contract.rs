@@ -1,16 +1,19 @@
 use serde_json::json;
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    SnapshotCapability, SnapshotMeaning, VM_SNAPSHOT_DOCUMENT_FORMAT,
-    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, Vm,
-    VmRestoreError, VmSnapshot, VmSnapshotDocument, VmSnapshotDocumentError,
-    VmSnapshotDocumentRestoreError, decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
+    IntegerParameterId, SnapshotCapability, SnapshotMeaning, VM_SNAPSHOT_DOCUMENT_FORMAT,
+    VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    Vm, VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1, VmRestoreError, VmSnapshot,
+    VmSnapshotDocument, VmSnapshotDocumentError, VmSnapshotDocumentRestoreError,
+    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
 const MATHCODE_TABLE_V1_CAPABILITY: &str = "eqtb.mathcode.table-v1";
 const DELCODE_TABLE_V1_CAPABILITY: &str = "eqtb.delcode.table-v1";
+const INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str = "eqtb.integer-parameter-state.v1";
 
 fn muskip_snapshot() -> VmSnapshot {
     let mut interner = ControlSequenceInterner::new();
@@ -387,6 +390,168 @@ fn passive_code_table_restore_keeps_fresh_defaults_implicit() {
 }
 
 #[test]
+fn passive_integer_parameter_reader_preserves_state_but_rejects_executable_restore() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source = Vm::new(&mut source_interner);
+    let mut state = versioned_state(&source.snapshot());
+    state["integer_parameter_state"] = json!({
+        "layers": [[{"parameter": "tolerance", "value": 123}]]
+    });
+    let encoded =
+        encoded_document_with_capabilities(&[INTEGER_PARAMETER_STATE_V1_CAPABILITY], state);
+
+    let decoded = decode_vm_snapshot_document(&encoded)
+        .expect("decode structurally valid passive integer-parameter state");
+    assert_eq!(
+        decoded.state.integer_parameter_state,
+        Some(VmIntegerParameterStateV1 {
+            layers: vec![vec![VmIntegerParameterAssignmentV1 {
+                parameter: IntegerParameterId::Tolerance,
+                value: 123,
+            }]],
+        })
+    );
+    assert!(decoded.required_capabilities.iter().any(|capability| {
+        capability.as_str() == VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY
+    }));
+
+    let mut legacy_output = Vec::new();
+    let legacy_error = serde_json::to_writer(&mut legacy_output, &decoded.state)
+        .expect_err("passive integer-parameter state must not enter the legacy wire");
+    assert!(
+        legacy_error
+            .to_string()
+            .contains(INTEGER_PARAMETER_STATE_V1_CAPABILITY)
+    );
+    assert!(legacy_output.is_empty());
+
+    let mut document_output = Vec::new();
+    let document_error = serde_json::to_writer(&mut document_output, &decoded)
+        .expect_err("passive state must not be rewritten before dormant restore exists");
+    assert!(
+        document_error
+            .to_string()
+            .contains(INTEGER_PARAMETER_STATE_V1_CAPABILITY)
+    );
+    assert!(document_output.is_empty());
+
+    let mut restored_interner = ControlSequenceInterner::new();
+    assert!(matches!(
+        Vm::try_restore_document(&mut restored_interner, &encoded),
+        Err(VmSnapshotDocumentRestoreError::Restore(
+            VmRestoreError::UnsupportedIntegerParameterState
+        ))
+    ));
+}
+
+#[test]
+fn passive_integer_parameter_reader_rejects_noncanonical_state() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source = Vm::new(&mut source_interner);
+    let legacy = versioned_state(&source.snapshot());
+    let cases = [
+        ("empty state", json!({"layers": [[]]})),
+        ("missing root layer", json!({"layers": []})),
+        (
+            "duplicate parameter",
+            json!({"layers": [[
+                {"parameter": "tolerance", "value": 1},
+                {"parameter": "tolerance", "value": 2}
+            ]]}),
+        ),
+        (
+            "unknown parameter",
+            json!({"layers": [[{"parameter": "futureparameter", "value": 1}]]}),
+        ),
+        (
+            "unknown assignment field",
+            json!({"layers": [[{
+                "parameter": "tolerance",
+                "value": 1,
+                "future": true
+            }]]}),
+        ),
+        (
+            "unknown state field",
+            json!({
+                "layers": [[{"parameter": "tolerance", "value": 1}]],
+                "future": true
+            }),
+        ),
+        (
+            "integer above the snapshot domain",
+            json!({"layers": [[{
+                "parameter": "tolerance",
+                "value": 2_147_483_648_i64
+            }]]}),
+        ),
+        (
+            "layer count beyond scope depth",
+            json!({"layers": [[], [{"parameter": "tolerance", "value": 1}]]}),
+        ),
+    ];
+
+    for (name, parameter_state) in cases {
+        let mut state = legacy.clone();
+        state["integer_parameter_state"] = parameter_state;
+        assert!(
+            decode_vm_snapshot_document(&encoded_document_with_capabilities(
+                &[INTEGER_PARAMETER_STATE_V1_CAPABILITY],
+                state,
+            ))
+            .is_err(),
+            "accepted {name}"
+        );
+    }
+}
+
+#[test]
+fn passive_integer_parameter_reader_requires_exact_capability_equality() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let source = Vm::new(&mut source_interner);
+    let legacy = versioned_state(&source.snapshot());
+    let parameter_state = json!({
+        "layers": [[{"parameter": "tolerance", "value": 123}]]
+    });
+
+    let mut missing_capability = legacy.clone();
+    missing_capability["integer_parameter_state"] = parameter_state;
+    assert!(
+        decode_vm_snapshot_document(&encoded_document(missing_capability)).is_err(),
+        "accepted parameter state without its capability"
+    );
+    assert!(
+        decode_vm_snapshot_document(&encoded_document_with_capabilities(
+            &[INTEGER_PARAMETER_STATE_V1_CAPABILITY],
+            legacy,
+        ))
+        .is_err(),
+        "accepted parameter capability without state"
+    );
+}
+
+#[test]
+fn passive_integer_parameter_field_is_absent_from_capability_free_legacy_state() {
+    let mut interner = ControlSequenceInterner::new();
+    let vm = Vm::new(&mut interner);
+    let snapshot = vm.snapshot();
+    let legacy_projection =
+        serde_json::to_vec(&*snapshot).expect("serialize exact legacy projection");
+    let legacy_snapshot = serde_json::to_vec(&snapshot).expect("serialize legacy snapshot");
+    let document = serde_json::to_value(VmSnapshotDocument::from_snapshot(snapshot))
+        .expect("serialize capability-free document");
+
+    assert_eq!(legacy_snapshot, legacy_projection);
+    assert!(document["state"].get("integer_parameter_state").is_none());
+    assert!(
+        document["required_capabilities"]
+            .as_array()
+            .expect("capability array")
+            .is_empty()
+    );
+}
+
+#[test]
 fn complete_muskip_snapshot_restores_values_and_independent_cursor() {
     let snapshot = muskip_snapshot();
     let mut interner = ControlSequenceInterner::new();
@@ -683,6 +848,16 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             MUSKIP_SCALAR_V1_CAPABILITY,
             MATHCODE_TABLE_V1_CAPABILITY,
             DELCODE_TABLE_V1_CAPABILITY,
+        ]
+    );
+    assert_eq!(
+        VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
+        [
+            MUSKIP_ALIAS_V1_CAPABILITY,
+            MUSKIP_SCALAR_V1_CAPABILITY,
+            MATHCODE_TABLE_V1_CAPABILITY,
+            DELCODE_TABLE_V1_CAPABILITY,
+            INTEGER_PARAMETER_STATE_V1_CAPABILITY,
         ]
     );
     let mut source_interner = ControlSequenceInterner::new();

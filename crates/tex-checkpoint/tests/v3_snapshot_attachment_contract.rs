@@ -10,7 +10,10 @@ use tex_checkpoint::{
     load_checkpoint_bundle, load_checkpoint_bundle_for_reuse, save_checkpoint_bundle,
 };
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, Vm, VmSnapshot};
+use tex_vm::{
+    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmSnapshot,
+};
 
 const MUSKIP_ALIAS_V1_CAPABILITY: &str = "eqtb.muskip.alias-v1";
 const MUSKIP_SCALAR_V1_CAPABILITY: &str = "eqtb.muskip.scalar-v1";
@@ -397,6 +400,30 @@ fn reader_exposes_one_legacy_or_versioned_snapshot_attachment() {
     assert!(restore.is_versioned());
     assert_eq!(restore.required_capabilities().count(), 0);
     assert!(checkpoint_is_replay_safe(versioned_checkpoint));
+}
+
+#[test]
+fn passive_integer_parameter_attachment_is_inspectable_but_not_replay_safe() {
+    let mut bundle_json = legacy_bundle_json();
+    let mut snapshot = bundle_json["checkpoints"][0]["snapshot"].take();
+    snapshot["integer_parameter_state"] = json!({
+        "layers": [[{"parameter": "tolerance", "value": 123}]]
+    });
+    let mut slot = versioned_slot(snapshot);
+    slot["document"]["required_capabilities"] =
+        json!([VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY]);
+    bundle_json["checkpoints"][0]["versioned_snapshot"] = slot;
+    bundle_json["checkpoints"][0]["snapshot"] = Value::Null;
+
+    let bundle = serde_json::from_value::<CheckpointBundle>(bundle_json)
+        .expect("decode passive integer-parameter attachment for inspection");
+    let checkpoint = &bundle.checkpoints[0];
+    let SnapshotAttachment::Versioned(document) = checkpoint.snapshot_attachment() else {
+        panic!("passive state must retain its versioned attachment");
+    };
+
+    assert!(document.state.integer_parameter_state.is_some());
+    assert!(!checkpoint_is_replay_safe(checkpoint));
 }
 
 #[test]

@@ -996,6 +996,19 @@ SIGFPE로 종료하므로 이를 compatibility 목표로 만들지 않고 `ARCH-
 panic-free recovery decision으로 기록했다. Characterization 시점의 VM은
 `\tolerance`를 계속 undefined로 유지한다.
 
+Passive DTO gate는 `eqtb.integer-parameter-state.v1`을 실행 지원과 분리해
+구조적으로만 읽는다. `VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES`는 기존 네
+실행 capability에 이 capability를 더하지만,
+`VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES`는 기존 네 항목을 그대로 유지한다.
+따라서 canonical `"tolerance"`/signed 32-bit 값과 legacy scope depth에 정확히 맞는
+비어 있지 않은 layered state만 decode되며, unknown/duplicate/out-of-order ID,
+unknown field, empty state, capability-state 불일치는 거부된다. 읽힌 DTO는 inspection
+중 보존되지만 legacy serialization, versioned document rewrite, VM restore는 실패하고
+checkpoint attachment도 replay-unsafe다. Capability-free fresh snapshot의 exact legacy
+bytes, document schema 1, semantic capture schema, checkpoint epoch 3은 바뀌지 않았다.
+다음 dormant-owner gate가 layered restore/hash를 제공할 때만 이 capability를 writable
+지원 목록으로 승격한다.
+
 후속 순서는 strict passive DTO boundary → source-unreachable typed Eqtb/SaveStack
 owner와 layered restore/hash/legacy suppression → `\tolerance` source activation이다.
 Planned state capability는 complete TeX82 지원을 뜻하지 않는

@@ -75,10 +75,11 @@ use semantic_sink::SemanticEventBuffer;
 use semantic_table::SemanticTableState;
 use semantic_text::SemanticTextState;
 pub use snapshot::{
-    LegacyVmSnapshotV1, SnapshotCapability, SnapshotMeaning, SnapshotToken, SnapshotTokenKind,
-    VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
+    IntegerParameterId, LegacyVmSnapshotV1, SnapshotCapability, SnapshotMeaning, SnapshotToken,
+    SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION, VM_SEMANTIC_CAPTURE_SCHEMA_VERSION,
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
-    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
+    VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
     VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
     VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
@@ -89,17 +90,17 @@ pub use snapshot::{
     VmExecutedTableSnapshot, VmExecutedTextCaptureSnapshot, VmExecutedTextFlowMarkSnapshot,
     VmExecutionAnchor, VmExecutionAuthorityRangeSnapshot, VmExecutionOccurrenceSnapshot,
     VmExpansionContextSnapshot, VmExpansionMarkerActionSnapshot, VmExpansionMarkerSnapshot,
-    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmModuleBoundary,
-    VmModuleCheckpoint, VmModuleCheckpointKind, VmPendingFootnoteMarkSnapshot,
-    VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot, VmReplayFrame,
-    VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot, VmSemanticBibliographySnapshot,
-    VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot, VmSemanticEnvironmentSnapshot,
-    VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot, VmSemanticGraphicSnapshot,
-    VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot, VmSemanticListSnapshot,
-    VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot, VmSemanticSinkSnapshot,
-    VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot, VmSnapshotDocument,
-    VmSnapshotDocumentError, VmSuppressedSourceRangeSnapshot, decode_vm_snapshot_document,
-    normalize_legacy_vm_snapshot,
+    VmGraphicInvocationRangeSnapshot, VmInputContinuationSnapshot, VmIntegerParameterAssignmentV1,
+    VmIntegerParameterStateV1, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind,
+    VmPendingFootnoteMarkSnapshot, VmPendingModuleCheckpointSnapshot, VmQueueItemSnapshot,
+    VmReplayFrame, VmScannerFootnoteSlotSnapshot, VmScannerTextSlotSnapshot,
+    VmSemanticBibliographySnapshot, VmSemanticCaptionSnapshot, VmSemanticCaptureSnapshot,
+    VmSemanticEnvironmentSnapshot, VmSemanticFootnoteSnapshot, VmSemanticFrontMatterSnapshot,
+    VmSemanticGraphicSnapshot, VmSemanticHeadingSnapshot, VmSemanticInlineSnapshot,
+    VmSemanticListSnapshot, VmSemanticMathInvocationSnapshot, VmSemanticMathSnapshot,
+    VmSemanticSinkSnapshot, VmSemanticTableSnapshot, VmSemanticTextSnapshot, VmSnapshot,
+    VmSnapshotDocument, VmSnapshotDocumentError, VmSuppressedSourceRangeSnapshot,
+    decode_vm_snapshot_document, normalize_legacy_vm_snapshot,
 };
 use snapshot::{
     default_next_count_register, default_next_dimen_register, default_next_muskip_register,
@@ -117,6 +118,8 @@ pub enum VmRestoreError {
     UnknownPrimitive(String),
     InvalidMuskipCursor(u32),
     InvalidCodeTableState(String),
+    InvalidIntegerParameterState(String),
+    UnsupportedIntegerParameterState,
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -138,6 +141,15 @@ impl std::fmt::Display for VmRestoreError {
             ),
             Self::InvalidCodeTableState(error) => {
                 write!(formatter, "invalid VM snapshot code-table state: {error}")
+            }
+            Self::InvalidIntegerParameterState(error) => {
+                write!(
+                    formatter,
+                    "invalid VM snapshot integer-parameter state: {error}"
+                )
+            }
+            Self::UnsupportedIntegerParameterState => {
+                formatter.write_str("VM snapshot integer-parameter state is not executable")
             }
         }
     }
@@ -163,6 +175,12 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
         state
             .validate_delcode(snapshot.scopes.len())
             .map_err(VmRestoreError::InvalidCodeTableState)?;
+    }
+    if let Some(state) = &snapshot.integer_parameter_state {
+        state
+            .validate(snapshot.scopes.len())
+            .map_err(VmRestoreError::InvalidIntegerParameterState)?;
+        return Err(VmRestoreError::UnsupportedIntegerParameterState);
     }
     for scope in &snapshot.scopes {
         for meaning in scope.values() {
@@ -16777,6 +16795,7 @@ impl<'i> Vm<'i> {
             self.next_muskip_register,
             self.eqtb.mathcode_snapshot_state(&self.save_stack),
             self.eqtb.delcode_snapshot_state(&self.save_stack),
+            None,
         )
     }
 
