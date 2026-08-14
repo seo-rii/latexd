@@ -1503,18 +1503,56 @@ golden values.
 Final gates pass the complete workspace test suite, including all 758 smoke
 tests, workspace clippy, and all 52 Python policy/oracle tests.
 
-The passive DTO and source-unreachable typed Eqtb/SaveStack owner gates are now
-complete; the next gate is source activation. The capability name
-`eqtb.integer-parameter-state.v1` describes the persistent container rather
-than complete TeX82 parameter support, and initially accepts only the stable
-canonical ID `"tolerance"`. Fresh/default-quiescent state remains absent and
-legacy compatible, while a scoped assignment equal to the logical default must
-preserve its future unwind behavior. Source activation must add arithmetic
-lvalue behavior, stable primitive wire identity, all latent and dynamic owner
-classification, versioned restore, and every LegacyOnly checkpoint suppression
-category atomically with checkpoint semantic epoch 4. Paragraph line-breaking
-consumption, any second parameter, font/box state, and the public versioned
-checkpoint writer remain non-goals.
+Source activation is now complete after the passive DTO and source-unreachable
+typed Eqtb/SaveStack owner gates. `Primitive::IntegerParameter(Tolerance)` uses
+the same stable wire name, `"tolerance"`, for the builtin and `\let` aliases.
+Direct assignment, `\the`, `\number`, `\ifnum`, local/global/`\globaldefs`, and
+`\afterassignment` all operate on the common Eqtb owner. A tolerance-local
+TeX82 scan policy covers optional equals, repeated signs, decimal/octal/hexadecimal
+and backtick constants, the 2147483647 magnitude clamp, and missing-number zero
+recovery. It consumes exactly one trailing space token so the streaming mouth
+does not pre-tokenize the next command under pre-assignment catcodes. Existing
+consumers retain the legacy policy, so direct delcode `-2147483648` keeps its
+table-range recovery and historical standalone VM documents retain their
+execution semantics.
+
+The arithmetic lvalue follows the characterized TeX82 behavior: `\advance`
+uses signed 32-bit wrapping addition, while `\multiply` and `\divide` use
+checked operations. Overflow, division by zero, and an arithmetic-created
+`i32::MIN / -1` all diagnose `Arithmetic overflow`, preserve the previous
+owner, and retain the `\afterassignment` flow. This panic-free rule closes
+`ARCH-015` without adopting the observed pdfTeX host SIGFPE. Applying odd
+negative-sign parity to an internal `i32::MIN` diagnoses `Number too big` and
+clamps to `i32::MAX`; even parity preserves the internal value, making the
+result independent of Rust build profile.
+
+Source state and every serialized latent owner require
+`eqtb.integer-parameter-state.v1`: hidden outer-scope aliases and macros, token
+registers, aftergroup/afterassignment tokens, document and source-end hooks,
+module option bodies, continuation tokens and `CharacterSource`, and aliased
+`csname`/`ifcsname`/`@nameuse` builders. Versioned restore and group unwind now
+apply to source-created state. The production `LegacyOnly` checkpoint writer
+suppresses attachments in the preamble, page, and input-boundary categories,
+and checkpoint VM semantic epoch 4 rejects epoch 3 and earlier for reuse.
+Paragraph line-breaking consumption, any second parameter, font/box state, and
+the public versioned checkpoint writer remain non-goals.
+
+Source-activation Pro review `6a7ed799-ccac-83ee-8076-22c34e6b9396` returned
+`REVISE` with confidence 0.91. Its blocking concerns were the standalone VM
+document boundary of a shared scanner change, signed internal `i32::MIN`, raw
+`^^` source classification, exact failed-arithmetic owner preservation, and
+mixed checkpoint categories. Remediation uses the tolerance-local scan policy
+and proves legacy delcode document replay, MIN sign/hook/token ordering,
+virtual-root and local-default sparse-owner preservation, builtin existence,
+and root/local default materialization. The current Mouth performs no `^^`
+preprocessing, so a directly encoded spelling remains unreachable and legacy
+safe; an obfuscated dynamic form is conservatively versioned-only because
+`\endcsname` itself contains the classifier marker. Checkpoint attachments are
+independently replay-safe per capture boundary rather than bundle-global, and
+mixed safe/unsafe ordering tests pin both in-memory and serialized behavior.
+The final remediation gate passes the complete workspace test suite including
+all 758 smoke cases, canonical workspace clippy, all 53 Python
+migration/release/policy/oracle tests, rustfmt, and the diff check.
 
 Current migration evidence through `cd64df6`:
 

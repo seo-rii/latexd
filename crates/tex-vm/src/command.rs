@@ -1,6 +1,8 @@
 use tex_render_model::{CaptionKind, FootnoteCommandKind, MetadataField, PageBreakKind};
 use tex_tokens::Token;
 
+use crate::snapshot::IntegerParameterId;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MacroFlags {
     pub(crate) long: bool,
@@ -234,6 +236,7 @@ pub(crate) enum Primitive {
     CatCode,
     MathCode,
     DelCode,
+    IntegerParameter(IntegerParameterId),
     NeedsTeXFormat,
     ProvidesFile,
     ProvidesPackage,

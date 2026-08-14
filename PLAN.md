@@ -1038,16 +1038,45 @@ value/presence/level을 각 unwind 뒤 확인하고, global default/nondefault�
 최종 gate는 workspace smoke 758/758을 포함한 전체 `cargo test --workspace`,
 workspace clippy, 52개 Python policy/oracle test를 모두 통과했다.
 
-후속 순서의 passive DTO와 source-unreachable typed Eqtb/SaveStack owner는 완료됐고,
-다음 gate는 `\tolerance` source activation이다. State capability는 complete TeX82 지원을 뜻하지 않는
-`eqtb.integer-parameter-state.v1`이고 stable ID는 canonical string `"tolerance"`만
-허용한다. Fresh/default-quiescent state는 legacy-compatible하게 absent이며, 같은 default의
-local assignment은 future unwind가 달라질 수 있어 scoped presence를 보존한다. Source
-activation은 latent owner 전체, CharacterSource/dynamic-name suppression, stable primitive
-wire, arithmetic lvalue, versioned restore, 모든 checkpoint category와 함께 들어가고
-semantic epoch를 3에서 4로 원자적으로 올린다. Paragraph line-breaking이 tolerance를
-소비하는 의미, 다른 parameter, font/box, public versioned checkpoint writer는 이
-slice의 non-goal이다.
+Passive DTO와 source-unreachable typed Eqtb/SaveStack owner에 이어 `\tolerance`
+source activation gate도 완료됐다. `Primitive::IntegerParameter(Tolerance)`가 builtin과
+`\let` alias에 같은 stable wire name `"tolerance"`를 사용하며, 직접 assignment,
+`\the`/`\number`/`\ifnum`, local/global/`\globaldefs`, `\afterassignment`를 공통
+Eqtb owner에 연결한다. Tolerance 전용 TeX82 scan policy는 optional equals, 반복 부호,
+decimal/octal/hex/backtick, magnitude 2147483647 clamp와 missing-number zero recovery를
+고정하고, 숫자 뒤 space는 streaming mouth가 다음 token을 과거 catcode로 미리 읽지
+않도록 정확히 한 token만 소비한다. 기존 consumer는 legacy policy를 유지하므로
+delcode의 직접 `-2147483648` table-range recovery와 과거 standalone VM document replay
+의미는 바뀌지 않는다.
+
+Arithmetic lvalue는 TeX82 관찰대로 `\advance`를 signed 32-bit wrapping addition으로,
+`\multiply`와 `\divide`를 checked operation으로 실행한다. Overflow, zero divisor,
+arithmetic-created `i32::MIN / -1`은 모두 `Arithmetic overflow` 진단 후 기존 owner와
+`\afterassignment` 흐름을 보존하므로 `ARCH-015`의 host-panic 경계도 닫혔다. Source
+scan에서 internal `i32::MIN`에 홀수 negative sign을 적용하면 `Number too big` 뒤
+`i32::MAX`로 clamp하고, 짝수 sign은 원값을 보존해 build profile과 무관하게 동작한다.
+state, hidden outer-scope alias/macro, token register, aftergroup/afterassignment,
+end-document/source-end hook, module option, continuation token/CharacterSource, aliased
+`csname`/`ifcsname`/`@nameuse`를 포함한 latent owner가
+`eqtb.integer-parameter-state.v1`을 요구한다. Versioned restore와 group unwind가 source
+state에도 적용되고, production `LegacyOnly` writer는 preamble/page/input-boundary 모든
+attachment를 suppress한다. Checkpoint VM semantic epoch는 4로 올라가 epoch 3 이하를
+reuse에서 거부한다. Paragraph line-breaking이 tolerance를 소비하는 의미, 다른
+parameter, font/box, public versioned checkpoint writer는 이 slice의 non-goal로 남는다.
+
+Source-activation Pro review `6a7ed799-ccac-83ee-8076-22c34e6b9396`는 `REVISE`
+(confidence 0.91)로 shared scanner의 standalone-document version 경계, internal
+`i32::MIN` sign, raw `^^` source, 실패 산술 owner 불변성, mixed checkpoint category를
+지적했다. Remediation은 tolerance-local scan policy와 legacy delcode document replay,
+MIN sign/hook/token order, virtual/local-default sparse owner 불변성, builtin existence,
+root/local default materialization을 고정했다. 현재 Mouth는 `^^` preprocessing을 하지
+않아 direct encoded spelling은 실행 불가·legacy-safe이고, dynamic case는
+`\endcsname`의 conservative substring 때문에 versioned-only다. Checkpoint attachment는
+bundle-global transaction이 아니라 boundary별 독립 replay-safety 계약이므로 mixed
+safe/unsafe 순서에서 안전한 boundary만 attachment를 유지하는 wire 결과를 고정했다.
+최종 remediation gate는 758/758 smoke를 포함한 전체 workspace test, canonical workspace
+clippy, 53개 Python migration/release/policy/oracle test, rustfmt와 diff check를 모두
+통과했다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 malformed
 restore의 non-empty interner와 deep-layer atomicity test, generated public JSON

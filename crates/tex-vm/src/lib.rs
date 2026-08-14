@@ -112,6 +112,12 @@ const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
 const MAX_GROUP_DEPTH: usize = 1_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IntegerScanPolicy {
+    Legacy,
+    TeX82Parameter,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmRestoreError {
     MissingRootControlSequenceScope,
@@ -19941,6 +19947,49 @@ impl<'i> Vm<'i> {
                     self.push_token_front(queue, token);
                 }
             }
+            Primitive::IntegerParameter(parameter) => {
+                let requested_global = mem::take(&mut self.global_prefix);
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let value = self
+                    .read_number_expression_with_policy(queue, IntegerScanPolicy::TeX82Parameter)
+                    .unwrap_or_else(|| {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::ExplicitError,
+                            detail: "Missing number, treated as zero".to_string(),
+                        });
+                        0
+                    });
+                let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                    std::cmp::Ordering::Greater => AssignmentScope::Global,
+                    std::cmp::Ordering::Less => AssignmentScope::Local,
+                    std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                    std::cmp::Ordering::Equal => AssignmentScope::Local,
+                };
+                self.eqtb.assign_integer_parameter(
+                    parameter,
+                    value,
+                    assignment_scope,
+                    self.save_stack.group_level(),
+                    &mut self.save_stack,
+                );
+                self.transcript
+                    .push(format!("{}={value}", parameter.as_str()));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
             Primitive::NeedsTeXFormat => {
                 let _ = self.read_argument_text(queue);
             }
@@ -22700,6 +22749,71 @@ impl<'i> Vm<'i> {
             Primitive::Advance => {
                 self.skip_optional_spaces(queue);
                 let mut local_queue = queue.clone();
+                if let Some(parameter) = self.read_integer_parameter_id(&mut local_queue) {
+                    *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(delta) = self.read_number_expression_with_policy(
+                        queue,
+                        IntegerScanPolicy::TeX82Parameter,
+                    ) else {
+                        return;
+                    };
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let next = self.eqtb.integer_parameter(parameter).wrapping_add(delta);
+                    self.eqtb.assign_integer_parameter(
+                        parameter,
+                        next,
+                        assignment_scope,
+                        self.save_stack.group_level(),
+                        &mut self.save_stack,
+                    );
+                    self.transcript
+                        .push(format!("{}+={delta}", parameter.as_str()));
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
                 if let Some(index) = self.read_count_register_index(&mut local_queue) {
                     *queue = local_queue;
                     let requested_global = mem::take(&mut self.global_prefix);
@@ -22989,6 +23103,88 @@ impl<'i> Vm<'i> {
             }
             Primitive::Multiply | Primitive::Divide => {
                 self.skip_optional_spaces(queue);
+                let mut local_queue = queue.clone();
+                if let Some(parameter) = self.read_integer_parameter_id(&mut local_queue) {
+                    *queue = local_queue;
+                    let requested_global = mem::take(&mut self.global_prefix);
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(factor) = self.read_number_expression_with_policy(
+                        queue,
+                        IntegerScanPolicy::TeX82Parameter,
+                    ) else {
+                        return;
+                    };
+                    let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
+                        std::cmp::Ordering::Greater => AssignmentScope::Global,
+                        std::cmp::Ordering::Less => AssignmentScope::Local,
+                        std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
+                        std::cmp::Ordering::Equal => AssignmentScope::Local,
+                    };
+                    let current = self.eqtb.integer_parameter(parameter);
+                    let next = match primitive {
+                        Primitive::Multiply => current.checked_mul(factor),
+                        Primitive::Divide => current.checked_div(factor),
+                        _ => unreachable!(),
+                    };
+                    if let Some(next) = next {
+                        self.eqtb.assign_integer_parameter(
+                            parameter,
+                            next,
+                            assignment_scope,
+                            self.save_stack.group_level(),
+                            &mut self.save_stack,
+                        );
+                        self.transcript.push(match primitive {
+                            Primitive::Multiply => {
+                                format!("{}*={factor}", parameter.as_str())
+                            }
+                            Primitive::Divide => format!("{}/={factor}", parameter.as_str()),
+                            _ => unreachable!(),
+                        });
+                    } else {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::ExplicitError,
+                            detail: "Arithmetic overflow".to_string(),
+                        });
+                    }
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
                 let mut local_queue = queue.clone();
                 if let Some(index) = self.read_count_register_index(&mut local_queue) {
                     *queue = local_queue;
@@ -25190,7 +25386,62 @@ impl<'i> Vm<'i> {
     }
 
     fn read_number_expression(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.read_number_expression_with_policy(queue, IntegerScanPolicy::Legacy)
+    }
+
+    fn read_number_expression_with_policy(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        policy: IntegerScanPolicy,
+    ) -> Option<i32> {
         self.skip_optional_spaces(queue);
+        if policy == IntegerScanPolicy::TeX82Parameter {
+            let mut saw_sign = false;
+            let mut negative = false;
+            loop {
+                match self.peek_next_token(queue) {
+                    Some(Token {
+                        kind:
+                            TokenKind::Character {
+                                ch: '-',
+                                catcode: CatCode::Other,
+                            },
+                        ..
+                    }) => {
+                        saw_sign = true;
+                        negative = !negative;
+                        self.pop_next_token(queue);
+                        self.skip_optional_spaces(queue);
+                    }
+                    Some(Token {
+                        kind:
+                            TokenKind::Character {
+                                ch: '+',
+                                catcode: CatCode::Other,
+                            },
+                        ..
+                    }) => {
+                        saw_sign = true;
+                        self.pop_next_token(queue);
+                        self.skip_optional_spaces(queue);
+                    }
+                    _ => break,
+                }
+            }
+            if saw_sign {
+                let value = self.read_number_expression_with_policy(queue, policy)?;
+                if !negative {
+                    return Some(value);
+                }
+                return Some(value.checked_neg().unwrap_or_else(|| {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: "Number too big".to_string(),
+                    });
+                    i32::MAX
+                }));
+            }
+        }
         let next = self.pop_next_token(queue)?;
         match next.kind {
             TokenKind::ControlSequence { name } => {
@@ -25208,6 +25459,9 @@ impl<'i> Vm<'i> {
                 } {
                     return Some(value);
                 }
+                if let Some(parameter) = self.integer_parameter_id_for_name(&name) {
+                    return Some(self.eqtb.integer_parameter(parameter));
+                }
                 match self
                     .lookup_meaning(&name)
                     .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
@@ -25224,7 +25478,7 @@ impl<'i> Vm<'i> {
                         Some(self.eqtb.count(register_index).unwrap_or(0))
                     }
                     Some(Meaning::Primitive(Primitive::Number)) => {
-                        self.read_number_expression(queue)
+                        self.read_number_expression_with_policy(queue, policy)
                     }
                     Some(Meaning::Primitive(Primitive::Count)) => {
                         let index = self.read_integer(queue)? as u32;
@@ -25251,7 +25505,7 @@ impl<'i> Vm<'i> {
             }
             TokenKind::Character { .. } => {
                 self.push_token_front(queue, next);
-                self.read_integer(queue)
+                self.read_integer_with_policy(queue, policy)
             }
         }
     }
@@ -25542,29 +25796,54 @@ impl<'i> Vm<'i> {
     }
 
     fn read_integer(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.read_integer_with_policy(queue, IntegerScanPolicy::Legacy)
+    }
+
+    fn read_integer_with_policy(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+        policy: IntegerScanPolicy,
+    ) -> Option<i32> {
         self.skip_optional_spaces(queue);
-        let mut sign = 1;
-        if let Some(Token {
-            kind:
-                TokenKind::Character {
-                    ch: '-',
-                    catcode: CatCode::Other,
-                },
-            ..
-        }) = self.peek_next_token(queue)
-        {
-            sign = -1;
-            self.pop_next_token(queue);
-        } else if let Some(Token {
-            kind:
-                TokenKind::Character {
-                    ch: '+',
-                    catcode: CatCode::Other,
-                },
-            ..
-        }) = self.peek_next_token(queue)
-        {
-            self.pop_next_token(queue);
+        let mut negative = false;
+        let sign_limit = if policy == IntegerScanPolicy::Legacy {
+            1
+        } else {
+            usize::MAX
+        };
+        for _ in 0..sign_limit {
+            let consumed = match self.peek_next_token(queue) {
+                Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '-',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) => {
+                    negative = !negative;
+                    self.pop_next_token(queue);
+                    true
+                }
+                Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '+',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) => {
+                    self.pop_next_token(queue);
+                    true
+                }
+                _ => false,
+            };
+            if !consumed {
+                break;
+            }
+            if policy == IntegerScanPolicy::TeX82Parameter {
+                self.skip_optional_spaces(queue);
+            }
         }
 
         if let Some(Token {
@@ -25589,7 +25868,21 @@ impl<'i> Vm<'i> {
                     }
                 }
             };
-            return Some(sign * value);
+            if policy == IntegerScanPolicy::TeX82Parameter {
+                if matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        },
+                        ..
+                    })
+                ) {
+                    self.pop_next_token(queue);
+                }
+            }
+            return Some(if negative { -value } else { value });
         }
 
         let radix = match self.peek_next_token(queue) {
@@ -25600,7 +25893,7 @@ impl<'i> Vm<'i> {
                         catcode: CatCode::Other,
                     },
                 ..
-            }) => Some(8),
+            }) => 8,
             Some(Token {
                 kind:
                     TokenKind::Character {
@@ -25608,11 +25901,14 @@ impl<'i> Vm<'i> {
                         catcode: CatCode::Other,
                     },
                 ..
-            }) => Some(16),
-            _ => None,
+            }) => 16,
+            _ => 10,
         };
-        if let Some(radix) = radix {
+        if radix != 10 {
             self.pop_next_token(queue);
+        }
+
+        if policy == IntegerScanPolicy::Legacy {
             let mut digits = String::new();
             while let Some(Token {
                 kind:
@@ -25623,20 +25919,26 @@ impl<'i> Vm<'i> {
                 ..
             }) = self.peek_next_token(queue)
             {
-                if !ch.is_digit(radix) {
+                if ch.to_digit(radix).is_none() {
                     break;
                 }
                 digits.push(ch);
                 self.pop_next_token(queue);
             }
-            let value = i32::from_str_radix(&digits, radix).ok()?;
-            return Some(sign * value);
+            if digits.is_empty() {
+                return None;
+            }
+            if radix != 10 {
+                let value = i32::from_str_radix(&digits, radix).ok()?;
+                return Some(if negative { -value } else { value });
+            }
+            if negative {
+                digits.insert(0, '-');
+            }
+            return digits.parse().ok();
         }
 
-        let mut value = String::new();
-        if sign < 0 {
-            value.push('-');
-        }
+        let mut digits = Vec::new();
         while let Some(Token {
             kind:
                 TokenKind::Character {
@@ -25646,18 +25948,68 @@ impl<'i> Vm<'i> {
             ..
         }) = self.peek_next_token(queue)
         {
-            if !ch.is_ascii_digit() {
+            let Some(digit) = ch.to_digit(radix) else {
                 break;
-            }
-            value.push(ch);
+            };
+            digits.push(digit as u64);
             self.pop_next_token(queue);
         }
 
-        if value.is_empty() || value == "-" {
+        if digits.is_empty() {
             return None;
         }
 
-        value.parse().ok()
+        let magnitude = digits.into_iter().fold(0u64, |value, digit| {
+            value.saturating_mul(u64::from(radix)).saturating_add(digit)
+        });
+        let value = if magnitude > i32::MAX as u64 {
+            self.diagnostics.push(VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: "Number too big".to_string(),
+            });
+            i32::MAX
+        } else {
+            magnitude as i32
+        };
+        if matches!(
+            self.peek_next_token(queue),
+            Some(Token {
+                kind: TokenKind::Character {
+                    catcode: CatCode::Space,
+                    ..
+                },
+                ..
+            })
+        ) {
+            self.pop_next_token(queue);
+        }
+        Some(if negative { -value } else { value })
+    }
+
+    fn integer_parameter_id_for_name(&self, name: &str) -> Option<IntegerParameterId> {
+        match self
+            .lookup_meaning(name)
+            .or_else(|| builtin_primitive(name).map(Meaning::Primitive))
+        {
+            Some(Meaning::Primitive(Primitive::IntegerParameter(parameter))) => Some(parameter),
+            Some(Meaning::Macro(_))
+            | Some(Meaning::Primitive(_))
+            | Some(Meaning::Token(_))
+            | None => None,
+        }
+    }
+
+    fn read_integer_parameter_id(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<IntegerParameterId> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("");
+        self.integer_parameter_id_for_name(name)
     }
 
     fn read_code_table_character_v1(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u8> {
@@ -27230,6 +27582,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "catcode" => Some(Primitive::CatCode),
         "mathcode" => Some(Primitive::MathCode),
         "delcode" => Some(Primitive::DelCode),
+        "tolerance" => Some(Primitive::IntegerParameter(IntegerParameterId::Tolerance)),
         "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
         "ProvidesFile" => Some(Primitive::ProvidesFile),
         "ProvidesPackage" => Some(Primitive::ProvidesPackage),
@@ -27763,6 +28116,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::CatCode => "catcode",
         Primitive::MathCode => "mathcode",
         Primitive::DelCode => "delcode",
+        Primitive::IntegerParameter(parameter) => parameter.as_str(),
         Primitive::NeedsTeXFormat => "NeedsTeXFormat",
         Primitive::ProvidesFile => "ProvidesFile",
         Primitive::ProvidesPackage => "ProvidesPackage",

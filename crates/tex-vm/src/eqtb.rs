@@ -313,7 +313,6 @@ impl Eqtb {
             })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn integer_parameter(&self, parameter: IntegerParameterId) -> i32 {
         self.entries
             .get(&EqKey::IntegerParameter(parameter))

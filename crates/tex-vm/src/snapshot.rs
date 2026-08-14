@@ -1998,6 +1998,12 @@ pub enum IntegerParameterId {
 }
 
 impl IntegerParameterId {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tolerance => "tolerance",
+        }
+    }
+
     pub(crate) const fn default_value(self) -> i32 {
         match self {
             Self::Tolerance => 10_000,
@@ -2190,6 +2196,15 @@ impl VmSnapshot {
         };
         let tokens_require_delcode =
             |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_delcode);
+        let token_requires_integer_parameter = |token: &SnapshotToken| {
+            matches!(
+                &token.kind,
+                SnapshotTokenKind::ControlSequence { name }
+                    if matches!(name.as_str(), "tolerance" | "csname" | "ifcsname" | "@nameuse")
+            )
+        };
+        let tokens_require_integer_parameter =
+            |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_integer_parameter);
         let scopes_require_muskip_alias = self.scopes.iter().any(|scope| {
             scope.values().any(|meaning| match meaning {
                 SnapshotMeaning::Macro {
@@ -2257,6 +2272,29 @@ impl VmSnapshot {
                     )
                 }
                 SnapshotMeaning::Token { token } => token_requires_delcode(token),
+            })
+        });
+        let scopes_require_integer_parameter = self.scopes.iter().any(|scope| {
+            scope.values().any(|meaning| match meaning {
+                SnapshotMeaning::Macro {
+                    parameter_text,
+                    optional_first_argument_default,
+                    body,
+                    ..
+                } => {
+                    tokens_require_integer_parameter(parameter_text)
+                        || optional_first_argument_default
+                            .as_deref()
+                            .is_some_and(&tokens_require_integer_parameter)
+                        || tokens_require_integer_parameter(body)
+                }
+                SnapshotMeaning::Primitive { name } => {
+                    matches!(
+                        name.as_str(),
+                        "tolerance" | "csname" | "ifcsname" | "@nameuse"
+                    )
+                }
+                SnapshotMeaning::Token { token } => token_requires_integer_parameter(token),
             })
         });
         let continuation_requires_muskip_alias =
@@ -2411,6 +2449,60 @@ impl VmSnapshot {
         {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
+            ));
+        }
+        let continuation_requires_integer_parameter =
+            self.input_continuation
+                .as_ref()
+                .is_some_and(|continuation| {
+                    continuation.queue.iter().any(|item| match item {
+                        VmQueueItemSnapshot::Token { token } => {
+                            token_requires_integer_parameter(token)
+                        }
+                        VmQueueItemSnapshot::CharacterSource { mouth } => {
+                            ["tolerance", "csname", "ifcsname", "@nameuse"]
+                                .iter()
+                                .any(|name| mouth.input().contains(name))
+                        }
+                        VmQueueItemSnapshot::ModuleEnd { .. } => false,
+                    }) || continuation.source_stack.iter().any(|frame| {
+                        frame
+                            .end_hooks
+                            .iter()
+                            .any(|tokens| tokens_require_integer_parameter(tokens))
+                            || frame.module_options.as_ref().is_some_and(|options| {
+                                options
+                                    .declared_options
+                                    .values()
+                                    .any(|tokens| tokens_require_integer_parameter(tokens))
+                                    || options
+                                        .default_option_body
+                                        .as_deref()
+                                        .is_some_and(&tokens_require_integer_parameter)
+                            })
+                    })
+                });
+        if scopes_require_integer_parameter
+            || self
+                .token_registers
+                .values()
+                .any(|tokens| tokens_require_integer_parameter(tokens))
+            || self
+                .aftergroup_tokens
+                .iter()
+                .any(|tokens| tokens_require_integer_parameter(tokens))
+            || self
+                .after_assignment_token
+                .as_ref()
+                .is_some_and(&token_requires_integer_parameter)
+            || self
+                .at_end_document_hooks
+                .iter()
+                .any(|tokens| tokens_require_integer_parameter(tokens))
+            || continuation_requires_integer_parameter
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             ));
         }
         capabilities

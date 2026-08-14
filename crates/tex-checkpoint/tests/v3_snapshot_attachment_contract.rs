@@ -128,6 +128,25 @@ fn reuse_rejects_the_epoch_two_pre_delcode_bundle_regime() {
 }
 
 #[test]
+fn reuse_rejects_the_epoch_three_pre_tolerance_bundle_regime() {
+    let mut pre_tolerance_wire = legacy_bundle_json();
+    pre_tolerance_wire["vm_semantic_epoch"] = json!(3);
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tempdir.path().join("epoch-3-pre-tolerance.json"))
+        .expect("UTF-8 checkpoint path");
+    fs::write(
+        &path,
+        serde_json::to_vec(&pre_tolerance_wire).expect("encode epoch-3 checkpoint bundle"),
+    )
+    .expect("write epoch-3 checkpoint bundle");
+
+    assert_eq!(
+        load_checkpoint_bundle_for_reuse(&path),
+        CheckpointBundleReuse::Miss(CheckpointCacheMissReason::Unreadable)
+    );
+}
+
+#[test]
 fn reuse_rejects_a_future_vm_semantic_epoch() {
     let mut future_wire = legacy_bundle_json();
     future_wire["vm_semantic_epoch"] = json!(CHECKPOINT_VM_SEMANTIC_EPOCH + 1);
