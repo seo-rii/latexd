@@ -1772,11 +1772,13 @@ The next bounded M13.3 owner is the single dimension parameter `\hangindent`,
 as approved for characterization only by Pro plan review
 `6a807f92-8c54-83e8-8e47-21f683454768`. This first gate changes no production
 Eqtb, command, snapshot, checkpoint, rendering, or epoch behavior.
-`scripts/check_hangindent_oracle.py` runs 14 cases for native `\hangindent` and
+`scripts/check_hangindent_oracle.py` runs 15 cases for native `\hangindent` and
 native `\dimen0` in separate `pdftex -ini` processes. The CI
 `hangindent-oracle` artifact records binary path/version/SHA-256, every exact
 source and source hash, raw output, normalized observations/diagnostics, exit
-status, and fixed locale/timezone. The two native owners match throughout.
+status, fixed locale/timezone, and resolved `cmr10.tfm`/TEXMF provenance. It
+asserts that all 30 independent processes ran. The two native owners match
+throughout this exact oracle mode and listed matrix.
 
 The comparison with current VM `\dimen0` proves that its scanner cannot be
 reused unchanged: VM register assignment requires `=`, consumes only one sign,
@@ -1787,13 +1789,25 @@ undefined in both the TeX82 INITEX target and current VM and is excluded from
 DP1 v1. The complete four-column native-parameter/native-register/VM-register/
 decision matrix is in `docs/m13-3-dp1-hangindent.md`.
 
+Gate-1 Pro review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3` returned `PROCEED` at
+0.87 confidence with two corrections. State v1 stores the full signed `i32`
+domain because native advance can wrap beyond the direct scanner interval.
+Command v1 freezes passive command identity and owner linkage only; scanner,
+unit, arithmetic, TeX query/expansion, grouping, diagnostics, hooks, aliases,
+and rendering are not part of W0.
+
 The required follow-up order is: freeze state and command capabilities together
 as passive contracts; add a source-unreachable in-memory owner; promote state
 persistence and hashing independently; then activate a parameter-local scanner,
 arithmetic/recovery path and epoch 6 atomically. Gate 1 must first resolve the
-physical/current-font/true-unit policy and exact error token/hook sequencing.
-Until then `\hangindent` remains undefined, has no renderer consumer, and the VM
-semantic epoch remains 5.
+The passive state uses the canonical full-lattice, root-default-eliding,
+local-default-preserving, strictly ordered grammar already frozen by
+`snapshot.rs:VmLayoutIntegerParameterStateV1::validate`; the neutral ID lives in
+`dimension_parameter.rs`. W0 adds no `Primitive`, Eqtb owner, source registry,
+writer, runtime restore, hash participation, or executable/writable support.
+Physical/current-font/true-unit and error/hook policy remains a W3 blocker.
+Until then `\hangindent` remains undefined, has no renderer consumer, and the
+VM semantic epoch remains 5.
 
 Current migration evidence through `cd64df6`:
 

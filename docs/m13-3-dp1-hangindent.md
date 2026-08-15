@@ -20,11 +20,15 @@ characterization gate. It requires separate later commits for passive wire
 contracts, the dormant in-memory owner, state persistence/hash promotion, and
 source activation with epoch 6.
 
+Gate-1 review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3` returned `PROCEED` with
+0.87 confidence after correcting two boundaries: durable state accepts every
+signed `i32`, while command v1 freezes passive identity and owner linkage only.
+
 ## Authoritative oracle
 
 [`scripts/check_hangindent_oracle.py`](../scripts/check_hangindent_oracle.py)
 runs every case twice in independent `pdftex -ini -interaction=nonstopmode`
-processes: once with `\hangindent` and once with `\dimen0`. The 14-case matrix
+processes: once with `\hangindent` and once with `\dimen0`. The 15-case matrix
 covers defaults, optional equals and repeated signs, fractional-sp rounding,
 all TeX82 physical units, cmr10 `em`/`ex`, true units at `\mag=2000`, internal
 dimensions, `\the`/`\number`/`\ifdim`, grouping and `\globaldefs`, arithmetic,
@@ -36,11 +40,15 @@ diagnostic sequence, exit status, and a trailing sentinel. The CI
 `hangindent-oracle` artifact also records the resolved engine path, full
 version, executable SHA-256, exact source and source SHA-256 for every process,
 raw combined output, invocation, locale, timezone, and normalization rules.
-The two native owners match in every normalized case.
+It also records the `kpsewhich` path, TEXMF search configuration, and the
+lookup/resolved paths and SHA-256 of `cmr10.tfm`. The report asserts that all 30
+expected owner/case processes ran. Under this exact oracle mode and listed
+matrix, the two native owners match in every normalized case.
 
 Notable native facts are:
 
-- the default is 0sp and direct assignment is bounded at 1,073,741,823sp;
+- the default is 0sp and tested direct assignment is bounded at
+  ±1,073,741,823sp;
 - `.5sp` and `-.5sp` both become 0sp;
 - cmr10 `1em` is 655361sp and `1ex` is 282168sp in this INITEX probe;
 - `1truept` at `\mag=2000` is 32768sp;
@@ -56,7 +64,7 @@ Notable native facts are:
 
 | Behavior | Native `\hangindent` | Native `\dimen0` | Current VM `\dimen0` | DP1 decision |
 | --- | --- | --- | --- | --- |
-| Default/scalar | 0sp, signed scaled points | Same | 0sp, `i32` scaled points | Reuse `EqValue::Dimension(i32)` with a distinct key and parameter range validation. |
+| Default/scalar | 0sp, signed scaled points | Same | 0sp, `i32` scaled points | Reuse `EqValue::Dimension(i32)` with a distinct key; durable state accepts `-2,147,483,648..=2,147,483,647`. |
 | Optional `=` and signs | `=` optional; repeated signs accepted | Same | Assignment currently requires `=` and its literal scanner consumes one sign | Parameter-local scanner policy required. |
 | Fractional sp | `.5sp` truncates to 0sp | Same | `.5sp` rounds to 1sp | Do not reuse the register literal conversion unchanged. |
 | Physical units | `pt`, `sp`, `in`, `pc`, `cm`, `mm`, `bp`, `dd`, `cc` | Same | Literal register scanner accepts only `pt` and `sp` | Activation is blocked until v1 either implements the native set locally or explicitly narrows the contract in a reviewed gate. |
@@ -75,15 +83,26 @@ These are observations, not permission to change the existing register path.
 
 ## Next gate
 
-Before production code changes, Gate 1 must review and freeze both passive
-capability contracts:
+The passive W0 commit freezes both capability contracts without adding runtime
+application:
 
 - `eqtb.dimension-parameter-state.v1`, whose v1 ID allowlist is exactly
-  `hangindent`;
-- `primitive.dimension-parameter-command.v1`, still non-executable and
-  non-writable at the passive-reader stage.
+  `hangindent`, whose scalar is exact signed `i32` scaled points, and whose
+  direct-scanner range is deliberately not part of state v1;
+- `primitive.dimension-parameter-command.v1`, whose contract is passive
+  identity and owner linkage only. It specifies no scanner, unit, arithmetic,
+  TeX query/expansion, grouping, diagnostic, hook, alias, or rendering behavior.
 
-The gate must resolve the physical/current-font/true-unit contract and exact
-parameter-local arithmetic/recovery policy. Characterization failure is a
-valid reason to stop; it must not be hidden by changing existing dimension
-register semantics.
+State layers reuse the exact canonical grammar of
+`snapshot.rs:VmLayoutIntegerParameterStateV1` and its `validate` method:
+nonempty state, full scope-depth lattice, strictly increasing owner IDs per
+layer, root-default elision, and preservation of local default-valued shadows.
+The new typed ID should live in neutral `dimension_parameter.rs`; W0 must not
+add a `Primitive` variant, Eqtb key, source registration, writer, runtime
+restore, hash participation, or supported executable/writable capability.
+
+Physical/current-font/true-unit scanning and exact parameter-local arithmetic/
+recovery remain source-activation blockers, not passive identity blockers.
+Characterization failure remains a valid reason to stop W3 and must not be
+hidden by changing existing dimension-register semantics. Epoch stays 5 through
+W0 and the source-unreachable owner; epoch 6 remains atomic with source reachability.

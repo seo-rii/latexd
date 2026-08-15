@@ -30,6 +30,7 @@ CASE_SPECS = {
         "afterassignment, stable aliases, local shadowing, and csname lookup"
     ),
     "dimension_too_large": "maximum-dimension recovery",
+    "negative_dimension_too_large": "negative boundary and oversized recovery",
     "missing_number": "missing-number recovery and afterassignment",
     "illegal_unit": "illegal-unit recovery and trailing-token progress",
     "arithmetic_overflow": "failed multiply preserves the previous value",
@@ -213,6 +214,17 @@ def build_case_source(case_id: str, owner: str) -> str:
                 _observation("sentinel", "1"),
             ]
         )
+    elif case_id == "negative_dimension_too_large":
+        lines.extend(
+            [
+                f"{target}=-16383.99998pt",
+                _observation("min", rf"\number{target}"),
+                rf"\def\mark{{{_observation('afterassignment', '1')}}}",
+                rf"\afterassignment\mark{target}=-16384pt",
+                _observation("value", rf"\number{target}"),
+                _observation("sentinel", "1"),
+            ]
+        )
     elif case_id == "missing_number":
         lines.extend(
             [
@@ -331,6 +343,16 @@ EXPECTED_SEMANTICS = {
         1,
         ["Dimension too large"],
         {"afterassignment": 1, "value": 1073741823, "sentinel": 1},
+    ),
+    "negative_dimension_too_large": (
+        1,
+        ["Dimension too large"],
+        {
+            "min": -1073741823,
+            "afterassignment": 1,
+            "value": -1073741823,
+            "sentinel": 1,
+        },
     ),
     "missing_number": (
         1,
@@ -471,6 +493,29 @@ def main(argv: list[str] | None = None) -> int:
         text=True,
         stdout=subprocess.PIPE,
     ).stdout.strip()
+    kpsewhich_path = shutil.which("kpsewhich")
+    if kpsewhich_path is None:
+        raise RuntimeError("TeX font resolver not found: kpsewhich")
+    process_environment = os.environ.copy()
+    process_environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
+    font_lookup = subprocess.run(
+        [kpsewhich_path, "cmr10.tfm"],
+        check=True,
+        env=process_environment,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.strip()
+    if not font_lookup:
+        raise RuntimeError("TeX font metric not found: cmr10.tfm")
+    font_lookup_path = Path(font_lookup).absolute()
+    font_resolved_path = font_lookup_path.resolve(strict=True)
+    texmf_search_path = subprocess.run(
+        [kpsewhich_path, "--var-value=TEXMF"],
+        check=True,
+        env=process_environment,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.strip()
     report = {
         "format": "latexd.hangindent-oracle",
         "schema_version": 1,
@@ -483,6 +528,17 @@ def main(argv: list[str] | None = None) -> int:
         },
         "invocation": [args.engine, "-ini", "-interaction=nonstopmode"],
         "environment": {"locale": "C.UTF-8", "timezone": "UTC"},
+        "font_metrics": {
+            "requested_name": "cmr10.tfm",
+            "kpsewhich_path": str(Path(kpsewhich_path).resolve()),
+            "lookup_path": str(font_lookup_path),
+            "resolved_path": str(font_resolved_path),
+            "lookup_path_is_symlink": font_lookup_path.is_symlink(),
+            "sha256": hashlib.sha256(font_resolved_path.read_bytes()).hexdigest(),
+            "texmf_search_path": texmf_search_path,
+        },
+        "expected_processes": len(CASE_SPECS) * len(OWNERS),
+        "observed_processes": sum(len(owners) for owners in case_results.values()),
         "normalization": {
             "diagnostics": "lines matching ^! (.+)\\.$",
             "observations": "LATEXD-HANGINDENT:<name>=<signed integer sp>",

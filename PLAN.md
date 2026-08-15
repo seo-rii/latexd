@@ -1255,23 +1255,35 @@ integer oracle, canonical workspace Clippy, rustfmt와 diff check도 green이다
 `6a807f92-8c54-83e8-8e47-21f683454768`가 승인한 단일 dimension parameter
 `\hangindent` characterization으로 제한한다. 첫 gate는 production Eqtb/command/
 snapshot/checkpoint/epoch를 바꾸지 않고, `scripts/check_hangindent_oracle.py`가
-14개 케이스를 native `\hangindent`와 native `\dimen0` 각각의 독립
+15개 케이스를 native `\hangindent`와 native `\dimen0` 각각의 독립
 `pdftex -ini` process에서 비교한다. CI `hangindent-oracle` artifact는 binary
 path/version/SHA-256, 각 source/hash, raw output, normalized diagnostic/observation,
-exit status, locale/timezone을 보존한다. 두 native owner는 모든 케이스에서 같지만,
+exit status, locale/timezone과 `cmr10.tfm` lookup/resolved path/SHA-256 및 TEXMF
+search configuration을 보존하고 30개 process가 모두 실행됐음을 검사한다. 이 정확한
+oracle mode와 matrix 안에서 두 native owner는 모든 케이스에서 같지만,
 현재 VM `\dimen0`는 optional equals, repeated signs, fractional-sp rounding,
 physical/`em`/`ex`/`true` unit, `\number`, overflow/recovery에서 그대로 공유할 수
 없는 차이가 확인됐다. `\dimexpr`는 TeX82 INITEX target과 현재 VM 모두에서
 제외한다. 정확한 결정표와 Gate-1 조건은
 `docs/m13-3-dp1-hangindent.md`에 고정했다.
 
+Gate-1 Pro review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3`는 0.87 confidence의
+`PROCEED`를 반환하되 state와 command 계약을 수정했다. State V1 durable domain은
+direct scanner의 ±1,073,741,823sp가 아니라 arithmetic wrap으로 도달 가능한 전체
+signed `i32`다. Command V1은 실행/query/arithmetic semantics가 아니라 passive
+command identity와 `DimensionParameterId::HangIndent` owner linkage만 동결한다.
+Layer grammar는 `snapshot.rs:VmLayoutIntegerParameterStateV1::validate`의 full scope
+lattice, root-default elision, local-default preservation, per-layer strict ID order를
+그대로 재사용하고 ID는 neutral `dimension_parameter.rs`에 둔다.
+
 따라서 다음 구현 순서는 state와 command capability를 함께 passive contract로
 동결 → source에서 도달 불가능한 in-memory owner → state persistence/hash promotion
 → parameter-local scanner/arithmetic/recovery와 source activation+epoch 6의 atomic
 commit이다. Characterization 단계에서 `\hangindent`는 builtin/owner/consumer가
 아니며 epoch 5와 production rendering은 그대로다. Physical/current-font/true-unit
-정책과 error token/hook 순서를 Gate-1 review가 승인하기 전에는 passive schema에도
-진입하지 않는다.
+정책과 error token/hook 순서는 passive identity의 일부가 아니며 source activation
+전 별도 gate에서 닫는다. W0에는 `Primitive`, Eqtb owner, source registry, writer,
+runtime restore, hash, executable/writable support를 넣지 않는다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit

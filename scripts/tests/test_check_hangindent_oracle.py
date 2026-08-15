@@ -68,6 +68,7 @@ class HangIndentOracleTests(unittest.TestCase):
             "arithmetic_and_odd_division",
             "afterassignment_alias_shadow_dynamic",
             "dimension_too_large",
+            "negative_dimension_too_large",
             "missing_number",
             "illegal_unit",
             "arithmetic_overflow",
@@ -95,6 +96,17 @@ class HangIndentOracleTests(unittest.TestCase):
             ]["advance_wraps"],
             -2147483648,
         )
+
+    def test_gate1_contract_separates_full_i32_state_from_passive_command_identity(
+        self,
+    ) -> None:
+        document = (
+            Path(__file__).parents[2] / "docs/m13-3-dp1-hangindent.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("-2,147,483,648..=2,147,483,647", document)
+        self.assertIn("passive identity and owner linkage only", document)
+        self.assertIn("VmLayoutIntegerParameterStateV1", document)
 
     def test_parser_rejects_duplicate_markers(self) -> None:
         output = "LATEXD-HANGINDENT:value=1 LATEXD-HANGINDENT:value=2"
@@ -143,6 +155,13 @@ class HangIndentOracleTests(unittest.TestCase):
         self.assertEqual(report["invocation"], ["pdftex", "-ini", "-interaction=nonstopmode"])
         self.assertEqual(report["environment"]["locale"], "C.UTF-8")
         self.assertEqual(report["environment"]["timezone"], "UTC")
+        self.assertEqual(report["expected_processes"], len(CASE_SPECS) * 2)
+        self.assertEqual(report["observed_processes"], report["expected_processes"])
+        self.assertEqual(report["font_metrics"]["requested_name"], "cmr10.tfm")
+        self.assertTrue(Path(report["font_metrics"]["lookup_path"]).is_absolute())
+        self.assertTrue(Path(report["font_metrics"]["resolved_path"]).is_absolute())
+        self.assertEqual(len(report["font_metrics"]["sha256"]), 64)
+        self.assertTrue(report["font_metrics"]["texmf_search_path"])
         semantic_results = json.loads(json.dumps(report["case_results"]))
         for case_id, owners in semantic_results.items():
             for owner, result in owners.items():
