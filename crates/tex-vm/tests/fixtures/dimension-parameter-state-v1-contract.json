@@ -1,0 +1,47 @@
+{
+  "state_capability": "eqtb.dimension-parameter-state.v1",
+  "command_capability": "primitive.dimension-parameter-command.v1",
+  "allowed_ids": [
+    "hangindent"
+  ],
+  "durable_domain": {
+    "minimum": -2147483648,
+    "maximum": 2147483647,
+    "unit": "scaled-point"
+  },
+  "virtual_defaults": {
+    "hangindent": 0
+  },
+  "root_default_encoding": "omitted",
+  "local_default_encoding": "preserved",
+  "layer_grammar": "VmLayoutIntegerParameterStateV1",
+  "command_contract": {
+    "identity": "hangindent",
+    "kind": "dimension-parameter",
+    "purpose": "passive-identity-and-owner-linkage-only",
+    "requires_state_capability": true,
+    "executable": false,
+    "writable": false,
+    "restore_supported": false
+  },
+  "canonicality": "semantic-json-data-model",
+  "required_capabilities_semantics": "set-membership",
+  "future_ids_require": "new-capability-version",
+  "document_envelope": {
+    "format": "latexd.vm-snapshot",
+    "schema_version": 1,
+    "required_capabilities": [
+      "eqtb.dimension-parameter-state.v1"
+    ],
+    "dimension_parameter_state": {
+      "layers": [
+        [
+          {
+            "parameter": "hangindent",
+            "value": 2147483647
+          }
+        ]
+      ]
+    }
+  }
+}

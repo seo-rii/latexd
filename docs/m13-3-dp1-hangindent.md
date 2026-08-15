@@ -1,11 +1,13 @@
 # M13.3-DP1 `\hangindent` Characterization
 
-Status: characterization complete; runtime/schema/source activation not started.
+Status: characterization and passive W0 reader complete; runtime owner,
+persistence, and source activation not started.
 
 This unit establishes the next bounded M13.3 assignment owner without changing
 production behavior. `\hangindent` is still absent from builtin lookup, Eqtb,
-the command model, snapshot capabilities, checkpoint state, and rendering. The
-checkpoint VM semantic epoch remains 5.
+the command model, checkpoint state, and rendering. Its two snapshot
+capabilities are inspect-only: readable, but neither supported/writable nor
+restorable. The checkpoint VM semantic epoch remains 5.
 
 ## Why this owner
 
@@ -16,13 +18,25 @@ occur in source heuristics, while box and font state require identity and
 ownership designs larger than one scalar assignment slice.
 
 The plan review `6a807f92-8c54-83e8-8e47-21f683454768` approved only this
-characterization gate. It requires separate later commits for passive wire
-contracts, the dormant in-memory owner, state persistence/hash promotion, and
-source activation with epoch 6.
+characterization gate. The passive wire contract is now complete; it remains
+separate from the dormant in-memory owner, state persistence/hash promotion,
+and source activation with epoch 6.
 
 Gate-1 review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3` returned `PROCEED` with
 0.87 confidence after correcting two boundaries: durable state accepts every
 signed `i32`, while command v1 freezes passive identity and owner linkage only.
+
+W0 implementation review `6a80926f-ab9c-83ee-9115-c0186392de93` then returned
+`REVISE` at 0.91 confidence. It found that V1 could follow future neutral-enum
+growth and that command-only restore depended incidentally on
+`UnknownPrimitive`. W0 now has an explicit V1 ID allowlist, a separate exact
+command-v1 classifier, and typed unsupported-command restore preflight before
+generic primitive resolution or mutation.
+
+Closure review `6a809a1d-a964-83e8-bfd7-a20f038f4a6d` returned `APPROVE` with
+0.94 confidence and closed all three original blockers. The state matrix also
+rejects `parindent`, `hsize`, `HangIndent`, and `hang-indent` as raw V1 IDs.
+The post-change full workspace suite remains the final gate before W1 begins.
 
 ## Authoritative oracle
 
@@ -81,10 +95,9 @@ The current VM characterization also freezes its existing `\dimen0` behavior:
 `1.5pt` becomes 98304sp, `.5sp` rounds to 1sp, and `-5sp/2` truncates to -2sp.
 These are observations, not permission to change the existing register path.
 
-## Next gate
+## Passive W0 contract
 
-The passive W0 commit freezes both capability contracts without adding runtime
-application:
+W0 freezes both capability contracts without adding runtime application:
 
 - `eqtb.dimension-parameter-state.v1`, whose v1 ID allowlist is exactly
   `hangindent`, whose scalar is exact signed `i32` scaled points, and whose
@@ -97,12 +110,47 @@ State layers reuse the exact canonical grammar of
 `snapshot.rs:VmLayoutIntegerParameterStateV1` and its `validate` method:
 nonempty state, full scope-depth lattice, strictly increasing owner IDs per
 layer, root-default elision, and preservation of local default-valued shadows.
-The new typed ID should live in neutral `dimension_parameter.rs`; W0 must not
-add a `Primitive` variant, Eqtb key, source registration, writer, runtime
-restore, hash participation, or supported executable/writable capability.
+The typed ID and raw scaled-point value live in neutral
+`dimension_parameter.rs`. The strict decoder accepts this state and validates
+it before exposing it for inspection. A resolved `SnapshotMeaning::Primitive`
+identity for this owner derives both capabilities, but raw source tokens and
+character-source text do not. Neither capability is in the supported/writable
+set: legacy and document serialization fail before emitting bytes, state
+restore fails before interner mutation, and a passive command identity returns
+typed `UnsupportedDimensionParameterCommand` before generic primitive lookup.
+State plus command content deterministically reports the state error first.
+
+State V1 validates against the exact public contract list
+`DimensionParameterId::SNAPSHOT_V1_ALLOWED_IDS`; command V1 uses a separate
+literal classifier rather than a general neutral-ID lookup. A later neutral ID
+therefore cannot silently widen either V1 boundary. Repository inventory shows
+that `LegacyVmSnapshotV1.scopes` is the only serialized carrier of resolved
+`SnapshotMeaning`, while macros, tokens, queues, hooks and character sources
+remain unresolved data and do not acquire this capability.
+
+The frozen fixture and 12 Rust contract tests cover the complete signed
+`i32` domain, canonical full-scope layers, local zero shadows, duplicate and
+unknown fields/IDs, exact capability equality, identity-only command shape,
+explicit direct/combined restore atomicity, zero-byte write failure, legacy-byte
+projection, and source unreachability. “Canonical” here means the semantic JSON
+data model, not byte-level JSON spelling. Capability headers retain the existing
+set-membership rule: duplicate or noncanonical order is accepted and normalized
+on a later supported rewrite rather than rejected by this W0 reader.
+
+Checkpoint epoch remains 5 and no dimension-state hash frame exists. Production
+snapshots remain capability-free in the existing legacy byte/hash domain;
+manually constructed passive snapshots are lane-suppressed and fail restore
+preflight. W0 adds no `Primitive` variant, Eqtb key, source registration,
+capture attachment, writer, runtime application, dimension-state hash framing,
+or supported executable/writable capability.
+
+## Next gate
 
 Physical/current-font/true-unit scanning and exact parameter-local arithmetic/
 recovery remain source-activation blockers, not passive identity blockers.
 Characterization failure remains a valid reason to stop W3 and must not be
 hidden by changing existing dimension-register semantics. Epoch stays 5 through
-W0 and the source-unreachable owner; epoch 6 remains atomic with source reachability.
+the source-unreachable owner; epoch 6 remains atomic with source reachability.
+The next implementation unit is the dormant owner, with no source registration
+or snapshot attachment promotion. It must use a distinct runtime storage type,
+not the V1 wire layer DTO; only the neutral ID and raw scalar are shared.

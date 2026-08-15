@@ -1276,14 +1276,49 @@ Layer grammar는 `snapshot.rs:VmLayoutIntegerParameterStateV1::validate`의 full
 lattice, root-default elision, local-default preservation, per-layer strict ID order를
 그대로 재사용하고 ID는 neutral `dimension_parameter.rs`에 둔다.
 
-따라서 다음 구현 순서는 state와 command capability를 함께 passive contract로
-동결 → source에서 도달 불가능한 in-memory owner → state persistence/hash promotion
-→ parameter-local scanner/arithmetic/recovery와 source activation+epoch 6의 atomic
-commit이다. Characterization 단계에서 `\hangindent`는 builtin/owner/consumer가
-아니며 epoch 5와 production rendering은 그대로다. Physical/current-font/true-unit
+구현 순서는 state와 command capability를 함께 passive contract로 동결 → source에서
+도달 불가능한 in-memory owner → state persistence/hash promotion → parameter-local
+scanner/arithmetic/recovery와 source activation+epoch 6의 atomic commit이다. 첫 W0
+단계는 완료됐다. `eqtb.dimension-parameter-state.v1`과
+`primitive.dimension-parameter-command.v1`은 readable 목록에만 있고 supported
+목록에는 없으며, strict decoder는 full-`i32` typed state와 resolved primitive
+identity/owner linkage만 inspect할 수 있다. Capability exact equality, raw duplicate
+member, canonical layer grammar, local-zero shadow, legacy/document write-before-byte
+rejection, restore-before-mutation rejection을 contract test로 고정했다.
+
+W0 implementation Pro review `6a80926f-ab9c-83ee-9115-c0186392de93`는 처음
+`REVISE`(confidence 0.91)를 반환했다. 두 blocker를 수용해 neutral enum과 독립적인
+`SNAPSHOT_V1_ALLOWED_IDS` 검증 및 exact command-v1 name classifier를 추가했고,
+command-only/direct restore도 generic `UnknownPrimitive`에 기대지 않고 typed
+`UnsupportedDimensionParameterCommand`로 mutation 전에 닫았다. State+command는
+state 오류가 먼저인 deterministic priority를 유지한다. 보강된 12개 target test는
+future-like ID/name 비확장, direct/combined restore atomicity, nested duplicate JSON,
+semantic-data-model canonicality, unresolved macro/name 비분류와 legacy byte projection도
+검사한다.
+
+Closure review `6a809a1d-a964-83e8-bfd7-a20f038f4a6d`는 blocker 1~3이 모두
+닫혔다며 `APPROVE`(confidence 0.94)를 반환했다. Raw state spelling도 `parindent`,
+`hsize`, `HangIndent`, `hang-indent`를 거부하도록 같은 malformed matrix를 보강했다.
+W0는 이 단위로 commit할 수 있고, W1 진입 전 post-change full workspace suite를
+추가 gate로 둔다.
+
+나머지 review gate는 실제 inventory로 판정했다. 직렬화된 `SnapshotMeaning` carrier는
+`LegacyVmSnapshotV1.scopes` 하나뿐이라 현재 visitor 범위가 exhaustive하고,
+capability header는 기존 `BTreeSet` membership contract가 duplicate/noncanonical order를
+받아 canonical rewrite하도록 이미 별도 회귀로 고정돼 있으므로 W0에서 grammar를
+소급 변경하지 않는다. Checkpoint epoch 상수는 5이고 dimension attachment용 hash framing은
+추가하지 않았다. Production snapshot은 capability-free legacy projection을 유지하며,
+passive snapshot은 lane suppression과 restore preflight 때문에 restorable hash/state로
+승격되지 않는다.
+
+W0의 `DimensionParameterId`와 raw scaled-point DTO는 neutral
+`dimension_parameter.rs`에만 있고, `\hangindent`는 여전히 builtin/Eqtb owner/source
+registry/consumer가 아니다. Snapshot capture는 attachment를 만들지 않으며 writer,
+runtime application, state hash와 epoch 5도 그대로다. Physical/current-font/true-unit
 정책과 error token/hook 순서는 passive identity의 일부가 아니며 source activation
-전 별도 gate에서 닫는다. W0에는 `Primitive`, Eqtb owner, source registry, writer,
-runtime restore, hash, executable/writable support를 넣지 않는다.
+전 별도 gate에서 닫는다. 다음 구현 단위는 이 wire 계약을 소비하지 않는
+source-unreachable in-memory owner다. W1 runtime owner는 wire V1 layer DTO를 storage로
+재사용하지 않고 typed ID/raw scalar만 공유한다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit

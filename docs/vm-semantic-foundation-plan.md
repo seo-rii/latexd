@@ -1796,18 +1796,57 @@ Command v1 freezes passive command identity and owner linkage only; scanner,
 unit, arithmetic, TeX query/expansion, grouping, diagnostics, hooks, aliases,
 and rendering are not part of W0.
 
-The required follow-up order is: freeze state and command capabilities together
-as passive contracts; add a source-unreachable in-memory owner; promote state
+The required order is: freeze state and command capabilities together as
+passive contracts; add a source-unreachable in-memory owner; promote state
 persistence and hashing independently; then activate a parameter-local scanner,
-arithmetic/recovery path and epoch 6 atomically. Gate 1 must first resolve the
+arithmetic/recovery path and epoch 6 atomically. The first W0 step is complete.
+`eqtb.dimension-parameter-state.v1` and
+`primitive.dimension-parameter-command.v1` are readable but deliberately absent
+from the supported/writable set. The strict decoder can inspect the full-`i32`
+typed state and resolved primitive identity/owner linkage only. Contract
+tests freeze exact capability derivation, raw duplicate rejection, canonical
+layers, local-zero shadows, write-before-byte failure, and restore-before-
+mutation failure.
+
+Implementation review `6a80926f-ab9c-83ee-9115-c0186392de93` initially returned
+`REVISE` at 0.91 confidence. Its two applicable blockers are closed: state V1
+validates against a fixed `SNAPSHOT_V1_ALLOWED_IDS` independent of future neutral
+enum growth, command V1 uses its own exact-name classifier, and command-only or
+direct restore now returns typed `UnsupportedDimensionParameterCommand` before
+generic primitive resolution or mutation. Combined state/command content
+deterministically returns the state error first. The expanded 12-test target
+also covers future-like names, direct and combined atomicity, nested duplicate
+JSON, semantic-data-model canonicality, unresolved macro/name exclusion, and
+the unchanged legacy byte projection.
+
+Closure review `6a809a1d-a964-83e8-bfd7-a20f038f4a6d` returned `APPROVE` at
+0.94 confidence and closed the original findings 1–3. The malformed-state
+matrix also rejects the raw spellings `parindent`, `hsize`, `HangIndent`, and
+`hang-indent`, guarding the allowed ID's canonical spelling. W0 may be committed
+as this isolated reader unit; the post-change full workspace suite remains a
+gate before W1 uses it as a baseline.
+
+Repository inventory shows that serialized resolved `SnapshotMeaning` values
+occur only in `LegacyVmSnapshotV1.scopes`, so the W0 visitor is exhaustive while
+token/text carriers remain intentionally unresolved. Capability declarations
+retain the pre-existing set-membership contract: duplicate and noncanonical
+order are accepted and canonicalized on rewrite by an older dedicated test,
+so W0 does not retroactively tighten that grammar. The checkpoint epoch remains
+5, no dimension attachment hash frame was added, production snapshots stay in
+the capability-free legacy hash domain, and unsupported passive snapshots are
+suppressed and rejected before they can be restored.
+
 The passive state uses the canonical full-lattice, root-default-eliding,
 local-default-preserving, strictly ordered grammar already frozen by
-`snapshot.rs:VmLayoutIntegerParameterStateV1::validate`; the neutral ID lives in
-`dimension_parameter.rs`. W0 adds no `Primitive`, Eqtb owner, source registry,
-writer, runtime restore, hash participation, or executable/writable support.
-Physical/current-font/true-unit and error/hook policy remains a W3 blocker.
-Until then `\hangindent` remains undefined, has no renderer consumer, and the
-VM semantic epoch remains 5.
+`snapshot.rs:VmLayoutIntegerParameterStateV1::validate`; the neutral ID and raw
+scaled-point DTO live in `dimension_parameter.rs`. W0 adds no `Primitive`, Eqtb
+owner, source registry, capture attachment, writer, runtime application, hash
+participation, or executable/writable support. Physical/current-font/true-unit
+and error/hook policy remains a W3 blocker. Until then `\hangindent` remains
+undefined, has no renderer consumer, and the VM semantic epoch remains 5. The
+next implementation unit is the source-unreachable in-memory owner. That owner
+must not reuse the versioned wire layer DTO as runtime storage; only the neutral
+typed ID and raw scalar may be shared.
 
 Current migration evidence through `cd64df6`:
 

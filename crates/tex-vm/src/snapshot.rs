@@ -15,7 +15,11 @@ use tex_render_model::{
 };
 use tex_tokens::CatCode;
 
-use crate::{diagnostic::VmDiagnostic, outcome::VmModuleTrace};
+use crate::{
+    diagnostic::VmDiagnostic,
+    dimension_parameter::{DimensionParameterId, VmDimensionParameterStateV1},
+    outcome::VmModuleTrace,
+};
 
 pub const VM_CONTINUATION_SAFETY_SCHEMA_VERSION: u32 = 2;
 pub const VM_SEMANTIC_CAPTURE_SCHEMA_VERSION: u32 = 22;
@@ -31,6 +35,10 @@ pub const VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
     "eqtb.layout-integer-parameter-state.v1";
 pub const VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY: &str =
     "primitive.layout-integer-parameter-command.v1";
+pub const VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY: &str =
+    "eqtb.dimension-parameter-state.v1";
+pub const VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY: &str =
+    "primitive.dimension-parameter-command.v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
@@ -48,6 +56,8 @@ pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
+    VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -440,6 +450,11 @@ pub fn decode_vm_snapshot_document(
         .map(|raw| serde_json::from_str::<VmLayoutIntegerParameterStateV1>(raw.get()))
         .transpose()
         .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let dimension_parameter_state = state_fields
+        .remove("dimension_parameter_state")
+        .map(|raw| serde_json::from_str::<VmDimensionParameterStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
     let mut legacy_fields = serde_json::Map::new();
     for (name, raw) in state_fields {
         let value = serde_json::from_str(raw.get())
@@ -469,6 +484,11 @@ pub fn decode_vm_snapshot_document(
             .validate(legacy.scopes.len())
             .map_err(VmSnapshotDocumentError::InvalidState)?;
     }
+    if let Some(state) = &dimension_parameter_state {
+        state
+            .validate(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
     let state = VmSnapshot::from_parts(
         legacy,
         muskip_registers,
@@ -477,6 +497,7 @@ pub fn decode_vm_snapshot_document(
         delcode_state,
         integer_parameter_state,
         layout_integer_parameter_state,
+        dimension_parameter_state,
     );
     let derived_capabilities = state.required_capabilities();
     if declared_capabilities != derived_capabilities {
@@ -2315,6 +2336,7 @@ pub struct VmSnapshot {
     pub delcode_state: Option<VmCodeTableStateV1>,
     pub integer_parameter_state: Option<VmIntegerParameterStateV1>,
     pub layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
+    pub dimension_parameter_state: Option<VmDimensionParameterStateV1>,
 }
 
 impl VmSnapshot {
@@ -2326,6 +2348,7 @@ impl VmSnapshot {
         delcode_state: Option<VmCodeTableStateV1>,
         integer_parameter_state: Option<VmIntegerParameterStateV1>,
         layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
+        dimension_parameter_state: Option<VmDimensionParameterStateV1>,
     ) -> Self {
         Self {
             legacy,
@@ -2335,6 +2358,7 @@ impl VmSnapshot {
             delcode_state,
             integer_parameter_state,
             layout_integer_parameter_state,
+            dimension_parameter_state,
         }
     }
 
@@ -2365,6 +2389,19 @@ impl VmSnapshot {
         if self.layout_integer_parameter_state.is_some() {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+        }
+        if self.dimension_parameter_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+        }
+        if self.dimension_parameter_command_v1().is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
             ));
         }
         let token_requires_muskip_alias = |token: &SnapshotToken| {
@@ -2806,11 +2843,24 @@ impl VmSnapshot {
         capabilities
     }
 
+    pub(crate) fn dimension_parameter_command_v1(&self) -> Option<DimensionParameterId> {
+        self.scopes.iter().find_map(|scope| {
+            scope.values().find_map(|meaning| match meaning {
+                SnapshotMeaning::Primitive { name } => {
+                    DimensionParameterId::from_snapshot_command_v1_name(name)
+                }
+                SnapshotMeaning::Macro { .. } | SnapshotMeaning::Token { .. } => None,
+            })
+        })
+    }
+
     pub(crate) fn has_nonlegacy_layered_eqtb_state(&self) -> bool {
         self.mathcode_state.is_some()
             || self.delcode_state.is_some()
             || self.integer_parameter_state.is_some()
             || self.layout_integer_parameter_state.is_some()
+            || self.dimension_parameter_state.is_some()
+            || self.dimension_parameter_command_v1().is_some()
             || self.required_capabilities().iter().any(|capability| {
                 capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY
             })
@@ -2864,6 +2914,7 @@ impl<'de> Deserialize<'de> for VmSnapshot {
             delcode_state: None,
             integer_parameter_state: None,
             layout_integer_parameter_state: None,
+            dimension_parameter_state: None,
         };
         let capabilities = snapshot.required_capabilities();
         if !capabilities.is_empty() {

@@ -25,6 +25,7 @@ use tex_world::{normalize_relative_path, read_tex_source_lossy};
 
 mod command;
 mod diagnostic;
+mod dimension_parameter;
 mod eqtb;
 mod input;
 mod outcome;
@@ -55,6 +56,10 @@ use command::{
     TextScriptCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
+pub use dimension_parameter::{
+    DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
+    VmDimensionParameterStateV1,
+};
 use eqtb::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
@@ -79,9 +84,10 @@ pub use snapshot::{
     IntegerParameterId, LayoutIntegerParameterId, LegacyVmSnapshotV1, SnapshotCapability,
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_CONTINUATION_SAFETY_SCHEMA_VERSION,
     VM_SEMANTIC_CAPTURE_SCHEMA_VERSION, VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
-    VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
-    VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
-    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
+    VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
+    VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
+    VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
@@ -131,6 +137,9 @@ pub enum VmRestoreError {
     InvalidCodeTableState(String),
     InvalidIntegerParameterState(String),
     InvalidLayoutIntegerParameterState(String),
+    InvalidDimensionParameterState(String),
+    UnsupportedDimensionParameterState,
+    UnsupportedDimensionParameterCommand(DimensionParameterId),
 }
 
 impl std::fmt::Display for VmRestoreError {
@@ -162,6 +171,17 @@ impl std::fmt::Display for VmRestoreError {
             Self::InvalidLayoutIntegerParameterState(error) => write!(
                 formatter,
                 "invalid VM snapshot layout-integer-parameter state: {error}"
+            ),
+            Self::InvalidDimensionParameterState(error) => write!(
+                formatter,
+                "invalid VM snapshot dimension-parameter state: {error}"
+            ),
+            Self::UnsupportedDimensionParameterState => formatter.write_str(
+                "VM snapshot dimension-parameter state is readable but cannot be restored",
+            ),
+            Self::UnsupportedDimensionParameterCommand(parameter) => write!(
+                formatter,
+                "VM snapshot dimension-parameter command {parameter:?} is readable but cannot be restored"
             ),
         }
     }
@@ -198,6 +218,17 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             state
                 .validate(snapshot.scopes.len())
                 .map_err(VmRestoreError::InvalidLayoutIntegerParameterState)?;
+        }
+        if let Some(state) = &snapshot.dimension_parameter_state {
+            state
+                .validate(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidDimensionParameterState)?;
+            return Err(VmRestoreError::UnsupportedDimensionParameterState);
+        }
+        if let Some(parameter) = snapshot.dimension_parameter_command_v1() {
+            return Err(VmRestoreError::UnsupportedDimensionParameterCommand(
+                parameter,
+            ));
         }
     }
     for scope in &snapshot.scopes {
@@ -16816,6 +16847,7 @@ impl<'i> Vm<'i> {
             self.eqtb.integer_parameter_snapshot_state(&self.save_stack),
             self.eqtb
                 .layout_integer_parameter_snapshot_state(&self.save_stack),
+            None,
         )
     }
 
