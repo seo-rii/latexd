@@ -1251,6 +1251,28 @@ Mouth 경계와 custom catcode-7 serialized/resumed regression을 제시한 clos
 경계도 green이다. Python migration/release/policy/oracle 60/60, `pdftex -ini` layout
 integer oracle, canonical workspace Clippy, rustfmt와 diff check도 green이다.
 
+다음 M13.3 assignment owner는 Pro plan review
+`6a807f92-8c54-83e8-8e47-21f683454768`가 승인한 단일 dimension parameter
+`\hangindent` characterization으로 제한한다. 첫 gate는 production Eqtb/command/
+snapshot/checkpoint/epoch를 바꾸지 않고, `scripts/check_hangindent_oracle.py`가
+14개 케이스를 native `\hangindent`와 native `\dimen0` 각각의 독립
+`pdftex -ini` process에서 비교한다. CI `hangindent-oracle` artifact는 binary
+path/version/SHA-256, 각 source/hash, raw output, normalized diagnostic/observation,
+exit status, locale/timezone을 보존한다. 두 native owner는 모든 케이스에서 같지만,
+현재 VM `\dimen0`는 optional equals, repeated signs, fractional-sp rounding,
+physical/`em`/`ex`/`true` unit, `\number`, overflow/recovery에서 그대로 공유할 수
+없는 차이가 확인됐다. `\dimexpr`는 TeX82 INITEX target과 현재 VM 모두에서
+제외한다. 정확한 결정표와 Gate-1 조건은
+`docs/m13-3-dp1-hangindent.md`에 고정했다.
+
+따라서 다음 구현 순서는 state와 command capability를 함께 passive contract로
+동결 → source에서 도달 불가능한 in-memory owner → state persistence/hash promotion
+→ parameter-local scanner/arithmetic/recovery와 source activation+epoch 6의 atomic
+commit이다. Characterization 단계에서 `\hangindent`는 builtin/owner/consumer가
+아니며 epoch 5와 production rendering은 그대로다. Physical/current-font/true-unit
+정책과 error token/hook 순서를 Gate-1 review가 승인하기 전에는 passive schema에도
+진입하지 않는다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit
 결정이다. Production `Vm::restore` 정적 guard와 non-empty interner/deep-layer malformed

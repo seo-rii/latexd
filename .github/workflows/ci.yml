@@ -24,6 +24,7 @@ jobs:
         run: >-
           python3 -m unittest
           scripts.tests.test_checkpoint_reuse_boundary
+          scripts.tests.test_check_hangindent_oracle
           scripts.tests.test_check_layout_integer_parameters_oracle
           scripts.tests.test_check_mathcode_delcode_oracle
           scripts.tests.test_check_tolerance_oracle
@@ -102,6 +103,17 @@ jobs:
         with:
           name: layout-integer-parameters-oracle
           path: target/layout-integer-parameters-oracle.json
+
+      - name: Verify TeX82 hangindent oracle
+        run: >-
+          python3 scripts/check_hangindent_oracle.py
+          --report target/hangindent-oracle.json
+
+      - name: Upload TeX82 hangindent oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hangindent-oracle
+          path: target/hangindent-oracle.json
 
       - name: Run Rust test suite
         run: cargo test -q

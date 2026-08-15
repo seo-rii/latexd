@@ -1768,6 +1768,33 @@ All 60 Python migration/release/policy/oracle tests, the `pdftex -ini` layout
 integer oracle, canonical workspace Clippy, rustfmt, and the diff check are
 green.
 
+The next bounded M13.3 owner is the single dimension parameter `\hangindent`,
+as approved for characterization only by Pro plan review
+`6a807f92-8c54-83e8-8e47-21f683454768`. This first gate changes no production
+Eqtb, command, snapshot, checkpoint, rendering, or epoch behavior.
+`scripts/check_hangindent_oracle.py` runs 14 cases for native `\hangindent` and
+native `\dimen0` in separate `pdftex -ini` processes. The CI
+`hangindent-oracle` artifact records binary path/version/SHA-256, every exact
+source and source hash, raw output, normalized observations/diagnostics, exit
+status, and fixed locale/timezone. The two native owners match throughout.
+
+The comparison with current VM `\dimen0` proves that its scanner cannot be
+reused unchanged: VM register assignment requires `=`, consumes only one sign,
+rounds `.5sp` to 1sp where TeX82 truncates to 0sp, supports only `pt`/`sp`, has
+no current-font or true-unit context, does not expose native
+`\number\dimen0`, and has different arithmetic/error recovery. `\dimexpr` is
+undefined in both the TeX82 INITEX target and current VM and is excluded from
+DP1 v1. The complete four-column native-parameter/native-register/VM-register/
+decision matrix is in `docs/m13-3-dp1-hangindent.md`.
+
+The required follow-up order is: freeze state and command capabilities together
+as passive contracts; add a source-unreachable in-memory owner; promote state
+persistence and hashing independently; then activate a parameter-local scanner,
+arithmetic/recovery path and epoch 6 atomically. Gate 1 must first resolve the
+physical/current-font/true-unit policy and exact error token/hook sequencing.
+Until then `\hangindent` remains undefined, has no renderer consumer, and the VM
+semantic epoch remains 5.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
