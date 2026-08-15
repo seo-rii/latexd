@@ -325,7 +325,6 @@ impl Eqtb {
             .unwrap_or_else(|| parameter.default_value())
     }
 
-    #[cfg(test)]
     pub(crate) fn layout_integer_parameter(&self, parameter: LayoutIntegerParameterId) -> i32 {
         self.entries
             .get(&EqKey::LayoutIntegerParameter(parameter))

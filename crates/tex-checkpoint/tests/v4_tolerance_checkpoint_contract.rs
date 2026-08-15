@@ -13,17 +13,17 @@ use tex_vm::{
 };
 
 #[test]
-fn tolerance_activation_advances_the_checkpoint_vm_semantic_epoch_to_four() {
-    assert_eq!(CHECKPOINT_VM_SEMANTIC_EPOCH, 4);
+fn tolerance_activation_requires_checkpoint_vm_semantic_epoch_four_or_later() {
+    assert!(CHECKPOINT_VM_SEMANTIC_EPOCH >= 4);
 
     let mut interner = ControlSequenceInterner::new();
     let snapshot = Vm::new(&mut interner).snapshot();
     let bundle =
         build_checkpoint_bundle_with_snapshots(1, &snapshot, "preamble", 0, &[], &[], &[], &[])
-            .expect("build epoch-four checkpoint bundle");
+            .expect("build current checkpoint bundle");
     assert_eq!(
         to_value(bundle).expect("encode bundle")["vm_semantic_epoch"],
-        json!(4)
+        json!(CHECKPOINT_VM_SEMANTIC_EPOCH)
     );
 }
 

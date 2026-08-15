@@ -5,6 +5,7 @@ use tex_vm::{
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
     VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1,
     VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
@@ -657,6 +658,41 @@ fn passive_reader_requires_exact_layout_capability_state_equality() {
         .is_err(),
         "accepted layout capability without state"
     );
+}
+
+#[test]
+fn source_command_capability_separates_activation_from_the_dormant_state_contract() {
+    assert!(
+        VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES
+            .contains(&VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY)
+    );
+    assert!(
+        VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES
+            .contains(&VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY)
+    );
+
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    let outcome = vm.run_plain(r"\def\later{\hangafter=7}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let document = VmSnapshotDocument::from_snapshot(vm.snapshot());
+    assert!(document.required_capabilities.iter().any(|capability| {
+        capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY
+    }));
+    assert!(document.required_capabilities.iter().any(|capability| {
+        capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY
+    }));
+    let encoded = serde_json::to_vec(&document).expect("encode activated source command");
+    assert!(decode_vm_snapshot_document(&encoded).is_ok());
+
+    let mut preactivation_wire = serde_json::to_value(&document).expect("encode document value");
+    preactivation_wire["required_capabilities"] =
+        json!([VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY]);
+    let error = decode_vm_snapshot_document(
+        &serde_json::to_vec(&preactivation_wire).expect("encode preactivation declaration"),
+    )
+    .expect_err("dormant state capability must not authorize activated source commands");
+    assert!(matches!(error, VmSnapshotDocumentError::InvalidState(_)));
 }
 
 #[test]

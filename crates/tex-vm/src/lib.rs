@@ -49,9 +49,10 @@ mod snapshot;
 use command::{
     BibliographyFieldCommand, BibliographyMetadataCommand, BibliographyTextCommand,
     BibliographyWrapperCommand, BoxWrapperCommand, CaptionCommand, EpsfDimension, GraphicCommand,
-    HeadingCommand, LegacyGraphicCommand, LegacyGraphicSyntax, LinkCommand, MacroDefinition,
-    MacroFlags, MathDelimiterCommand, Meaning, NatbibSplitSuffixCommand, PhantomWrapperCommand,
-    Primitive, ReferenceCommand, TextScriptCommand, TextSymbolCommand,
+    HeadingCommand, IntegerParameterCommand, LegacyGraphicCommand, LegacyGraphicSyntax,
+    LinkCommand, MacroDefinition, MacroFlags, MathDelimiterCommand, Meaning,
+    NatbibSplitSuffixCommand, PhantomWrapperCommand, Primitive, ReferenceCommand,
+    TextScriptCommand, TextSymbolCommand,
 };
 pub use diagnostic::{VmDiagnostic, VmDiagnosticKind};
 use eqtb::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
@@ -81,6 +82,7 @@ pub use snapshot::{
     VM_SNAPSHOT_DOCUMENT_FORMAT, VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
     VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION, VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES,
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
     VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
@@ -20003,13 +20005,26 @@ impl<'i> Vm<'i> {
                     std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                     std::cmp::Ordering::Equal => AssignmentScope::Local,
                 };
-                self.eqtb.assign_integer_parameter(
-                    parameter,
-                    value,
-                    assignment_scope,
-                    self.save_stack.group_level(),
-                    &mut self.save_stack,
-                );
+                match parameter {
+                    IntegerParameterCommand::Tolerance(parameter) => {
+                        self.eqtb.assign_integer_parameter(
+                            parameter,
+                            value,
+                            assignment_scope,
+                            self.save_stack.group_level(),
+                            &mut self.save_stack,
+                        );
+                    }
+                    IntegerParameterCommand::Layout(parameter) => {
+                        self.eqtb.assign_layout_integer_parameter(
+                            parameter,
+                            value,
+                            assignment_scope,
+                            self.save_stack.group_level(),
+                            &mut self.save_stack,
+                        );
+                    }
+                }
                 self.transcript
                     .push(format!("{}={value}", parameter.as_str()));
                 if let Some(token) = self.after_assignment_token.take() {
@@ -22823,14 +22838,27 @@ impl<'i> Vm<'i> {
                         std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                         std::cmp::Ordering::Equal => AssignmentScope::Local,
                     };
-                    let next = self.eqtb.integer_parameter(parameter).wrapping_add(delta);
-                    self.eqtb.assign_integer_parameter(
-                        parameter,
-                        next,
-                        assignment_scope,
-                        self.save_stack.group_level(),
-                        &mut self.save_stack,
-                    );
+                    let next = self.integer_parameter_value(parameter).wrapping_add(delta);
+                    match parameter {
+                        IntegerParameterCommand::Tolerance(parameter) => {
+                            self.eqtb.assign_integer_parameter(
+                                parameter,
+                                next,
+                                assignment_scope,
+                                self.save_stack.group_level(),
+                                &mut self.save_stack,
+                            );
+                        }
+                        IntegerParameterCommand::Layout(parameter) => {
+                            self.eqtb.assign_layout_integer_parameter(
+                                parameter,
+                                next,
+                                assignment_scope,
+                                self.save_stack.group_level(),
+                                &mut self.save_stack,
+                            );
+                        }
+                    }
                     self.transcript
                         .push(format!("{}+={delta}", parameter.as_str()));
                     if let Some(token) = self.after_assignment_token.take() {
@@ -23178,20 +23206,33 @@ impl<'i> Vm<'i> {
                         std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                         std::cmp::Ordering::Equal => AssignmentScope::Local,
                     };
-                    let current = self.eqtb.integer_parameter(parameter);
+                    let current = self.integer_parameter_value(parameter);
                     let next = match primitive {
                         Primitive::Multiply => current.checked_mul(factor),
                         Primitive::Divide => current.checked_div(factor),
                         _ => unreachable!(),
                     };
                     if let Some(next) = next {
-                        self.eqtb.assign_integer_parameter(
-                            parameter,
-                            next,
-                            assignment_scope,
-                            self.save_stack.group_level(),
-                            &mut self.save_stack,
-                        );
+                        match parameter {
+                            IntegerParameterCommand::Tolerance(parameter) => {
+                                self.eqtb.assign_integer_parameter(
+                                    parameter,
+                                    next,
+                                    assignment_scope,
+                                    self.save_stack.group_level(),
+                                    &mut self.save_stack,
+                                );
+                            }
+                            IntegerParameterCommand::Layout(parameter) => {
+                                self.eqtb.assign_layout_integer_parameter(
+                                    parameter,
+                                    next,
+                                    assignment_scope,
+                                    self.save_stack.group_level(),
+                                    &mut self.save_stack,
+                                );
+                            }
+                        }
                         self.transcript.push(match primitive {
                             Primitive::Multiply => {
                                 format!("{}*={factor}", parameter.as_str())
@@ -25486,7 +25527,7 @@ impl<'i> Vm<'i> {
                     return Some(value);
                 }
                 if let Some(parameter) = self.integer_parameter_id_for_name(&name) {
-                    return Some(self.eqtb.integer_parameter(parameter));
+                    return Some(self.integer_parameter_value(parameter));
                 }
                 match self
                     .lookup_meaning(&name)
@@ -26012,7 +26053,16 @@ impl<'i> Vm<'i> {
         Some(if negative { -value } else { value })
     }
 
-    fn integer_parameter_id_for_name(&self, name: &str) -> Option<IntegerParameterId> {
+    fn integer_parameter_value(&self, parameter: IntegerParameterCommand) -> i32 {
+        match parameter {
+            IntegerParameterCommand::Tolerance(parameter) => self.eqtb.integer_parameter(parameter),
+            IntegerParameterCommand::Layout(parameter) => {
+                self.eqtb.layout_integer_parameter(parameter)
+            }
+        }
+    }
+
+    fn integer_parameter_id_for_name(&self, name: &str) -> Option<IntegerParameterCommand> {
         match self
             .lookup_meaning(name)
             .or_else(|| builtin_primitive(name).map(Meaning::Primitive))
@@ -26028,7 +26078,7 @@ impl<'i> Vm<'i> {
     fn read_integer_parameter_id(
         &mut self,
         queue: &mut VecDeque<QueueItem>,
-    ) -> Option<IntegerParameterId> {
+    ) -> Option<IntegerParameterCommand> {
         self.skip_optional_spaces(queue);
         let token = self.pop_next_token(queue)?;
         let TokenKind::ControlSequence { name } = token.kind else {
@@ -27403,6 +27453,11 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
     if let Some(command) = builtin_text_symbol(name) {
         return Some(Primitive::TextSymbol(command));
     }
+    if let Some(parameter) = LayoutIntegerParameterId::from_source_name(name) {
+        return Some(Primitive::IntegerParameter(
+            IntegerParameterCommand::Layout(parameter),
+        ));
+    }
     match name {
         "relax" => Some(Primitive::Relax),
         "newblock" => bibliography_text("newblock", " ", true),
@@ -27608,7 +27663,9 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "catcode" => Some(Primitive::CatCode),
         "mathcode" => Some(Primitive::MathCode),
         "delcode" => Some(Primitive::DelCode),
-        "tolerance" => Some(Primitive::IntegerParameter(IntegerParameterId::Tolerance)),
+        "tolerance" => Some(Primitive::IntegerParameter(
+            IntegerParameterCommand::Tolerance(IntegerParameterId::Tolerance),
+        )),
         "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
         "ProvidesFile" => Some(Primitive::ProvidesFile),
         "ProvidesPackage" => Some(Primitive::ProvidesPackage),

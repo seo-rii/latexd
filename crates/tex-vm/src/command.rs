@@ -1,7 +1,22 @@
 use tex_render_model::{CaptionKind, FootnoteCommandKind, MetadataField, PageBreakKind};
 use tex_tokens::Token;
 
-use crate::snapshot::IntegerParameterId;
+use crate::snapshot::{IntegerParameterId, LayoutIntegerParameterId};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntegerParameterCommand {
+    Tolerance(IntegerParameterId),
+    Layout(LayoutIntegerParameterId),
+}
+
+impl IntegerParameterCommand {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tolerance(parameter) => parameter.as_str(),
+            Self::Layout(parameter) => parameter.as_str(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MacroFlags {
@@ -236,7 +251,7 @@ pub(crate) enum Primitive {
     CatCode,
     MathCode,
     DelCode,
-    IntegerParameter(IntegerParameterId),
+    IntegerParameter(IntegerParameterCommand),
     NeedsTeXFormat,
     ProvidesFile,
     ProvidesPackage,

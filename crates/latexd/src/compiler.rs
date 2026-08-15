@@ -4614,9 +4614,8 @@ mod tests {
     };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        LayoutIntegerParameterId, Vm, VmDiagnostic, VmDiagnosticKind,
-        VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
-        VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+        Vm, VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
+        compile_format_snapshot,
     };
 
     use super::{
@@ -7095,33 +7094,41 @@ mod tests {
     }
 
     #[test]
-    fn production_replay_rejects_a_suppressed_source_unreachable_layout_owner() {
-        let mut source_interner = ControlSequenceInterner::new();
-        let mut snapshot = Vm::new(&mut source_interner).snapshot();
-        snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
-            layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
-                parameter: LayoutIntegerParameterId::PreTolerance,
-                value: 123,
-            }]],
-        });
-        let mut restore_interner = ControlSequenceInterner::new();
-        let restored =
-            Vm::try_restore(&mut restore_interner, &snapshot).expect("restore dormant root owner");
-        let bundle = build_checkpoint_bundle(
-            7,
-            &restored.snapshot(),
-            &preamble_key_for_source(r"\documentclass{article}"),
-            &[],
-        )
-        .expect("capture production checkpoint metadata");
-        let checkpoint = &bundle.checkpoints[0];
+    fn production_replay_rejects_suppressed_source_and_latent_layout_semantics() {
+        let mut state_interner = ControlSequenceInterner::new();
+        let mut state_vm = Vm::new(&mut state_interner);
+        let outcome = state_vm.run_plain(r"\pretolerance=123");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let state_snapshot = state_vm.snapshot();
+        assert!(state_snapshot.layout_integer_parameter_state.is_some());
 
-        assert!(checkpoint.meta.continuation_safety.is_safe());
-        assert!(!checkpoint.meta.snapshot_attached);
-        assert!(
-            replay_checkpoint_from_stored(checkpoint, Utf8Path::new("main.tex")).is_none(),
-            "suppressed state must make the production checkpoint unusable, not source-replayable"
-        );
+        let mut latent_interner = ControlSequenceInterner::new();
+        let mut latent_vm = Vm::new(&mut latent_interner);
+        let outcome = latent_vm.run_plain(r"\def\later{\pretolerance=456}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let latent_snapshot = latent_vm.snapshot();
+        assert!(latent_snapshot.layout_integer_parameter_state.is_none());
+
+        for (case, snapshot) in [
+            ("source-created state", state_snapshot),
+            ("latent source command", latent_snapshot),
+        ] {
+            let bundle = build_checkpoint_bundle(
+                7,
+                &snapshot,
+                &preamble_key_for_source(r"\documentclass{article}"),
+                &[],
+            )
+            .unwrap_or_else(|error| panic!("capture {case} checkpoint metadata: {error}"));
+            let checkpoint = &bundle.checkpoints[0];
+
+            assert!(checkpoint.meta.continuation_safety.is_safe(), "{case}");
+            assert!(!checkpoint.meta.snapshot_attached, "{case}");
+            assert!(
+                replay_checkpoint_from_stored(checkpoint, Utf8Path::new("main.tex")).is_none(),
+                "{case} must make the production checkpoint unusable, not source-replayable"
+            );
+        }
     }
 
     #[test]

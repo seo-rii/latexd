@@ -1675,6 +1675,99 @@ remain undefined. The next gate must combine source activation, complete
 latent-owner capability derivation, and the epoch transition in one rollback
 unit.
 
+That source-activation gate is now complete as one rollback unit.
+`Primitive::IntegerParameter(IntegerParameterCommand::Layout(...))` connects
+all 18 names to builtin lookup, stable canonical primitive names for `\let`
+aliases, direct assignment and query, integer expressions, and
+`\advance`/`\multiply`/`\divide` lvalues. Numeric scanning, `global` and
+`globaldefs`, group unwind, `afterassignment`, and overflow or missing-number
+recovery share the existing TeX82 tolerance path, while Eqtb reads and writes
+remain on the distinct layout owner. A source-level root-default assignment is
+therefore still sparse, only a local default materializes an owner, and nested
+source-created state preserves reassignment, unwind, and global cancellation
+after versioned restore. The characterized defaults remain `hangafter=1` and
+zero for the other 17 names. Current layout and line-breaking algorithms still
+do not consume these values.
+
+Capability derivation covers macro parameter/default/body tokens in every
+control-sequence scope layer, primitive aliases and token meanings, token
+registers, aftergroup and afterassignment owners, end-document hooks,
+continuation tokens and character sources, source end hooks, and declared or
+default module options. Materialized owners alone require the existing
+`eqtb.layout-integer-parameter-state.v1`; tokenized source references and
+primitive aliases additionally require
+`primitive.layout-integer-parameter-command.v1`. Strict derived-capability
+equality therefore rejects a dormant-reader document containing a latent layout
+token without the new command capability, while preactivation readers reject
+the new capability as unsupported. Restoring an open group with the command
+capability also reconstructs the complete Eqtb group lattice even when no
+layout owner exists yet, so the first post-restore local assignment through an
+alias unwinds correctly.
+
+Mutable catcodes prevent proving TeX control-word boundaries from ASCII
+character classes in raw `CharacterSource`. That path conservatively searches
+canonical name substrings without a lexical boundary. A tokenized exact
+`pretolerance` reference requires only layout command/state capabilities, while
+raw `pretolerance` also carries the tolerance capability and therefore fails
+closed for legacy attachment. Differential restore/resume fixtures change an
+ASCII letter into a space delimiter or alternate escape and prove that the
+same conservative marker covers the layout command actually executed.
+`csname`, `ifcsname`, and `@nameuse`, including aliases, also require both
+families because they can construct either name. Regressions pin hidden
+outer-scope aliases and macros, split-module assignment and query, and every
+serialized pending owner.
+
+This classification follows the currently executable Mouth semantics.
+`Mouth::peek_normalized` normalizes only CR/CRLF to newline and does not reduce
+catcode-7 superscript characters through `^^`, hexadecimal, one-character, or
+chained translation. A regression persists `!` as `CatCode::Superscript`,
+serializes raw `\hang!!61fter=7` through the legacy shape, restores, and resumes
+it. The source still diagnoses undefined `\hang`, derives no layout capability,
+materializes no layout owner, and leaves `hangafter=1`. The classifier therefore
+does not speculatively suppress checkpoints for a spelling that cannot reach the
+current layout command. Adding superscript translation later is a separate
+semantic activation: make this negative regression fail first, then update raw
+source capability derivation, snapshot compatibility, the checkpoint epoch, and
+rollback documentation together.
+
+Production writing remains `LegacyOnly`. Source-created owners, latent macros
+with no materialized layout state, and pending character sources each suppress
+preamble, page, and input-boundary attachments; an unattached checkpoint is not
+a compiler replay candidate. Because source semantics now differ from the
+epoch-4 dormant regime, checkpoint VM semantic epoch 5 rejects epoch 4 and
+earlier as well as epoch 6 and later future generations for reuse, regardless
+of whether they remain readable for inspection. A production compiler
+regression pins attachment removal and `replay_checkpoint_from_stored`
+rejection for both source-created state and an owner-free latent macro. Any
+later deployment that rolls back or changes these activated semantics must
+publish epoch 6 or later rather than downgrade to 5. The supported versioned
+document state/command capability parse/rewrite/hash/restore compatibility
+ratchet remains in force.
+
+Source-activation Pro review `6a7f5422-6a50-83e8-8adb-e5a9d12dc8f3` initially
+required an independent command-semantic version boundary, fail-closed mutable
+catcode classification, source-created persistence and production replay
+evidence, and the complete validation matrix. The remediation adds the command
+capability and strict declaration equality, restores the complete Eqtb lattice
+for owner-free latent commands, and pins catcode differentials, mixed-family
+restore/cancellation, compiler suppression/replay rejection, and epoch 5. The
+follow-up review `6a8029d7-ada8-83e8-a5b9-0f8c57833957` marked those findings
+resolved and retained only a conditional TeX82 superscript-translation concern.
+After the actual Mouth boundary and custom catcode-7 serialized/resumed
+regression were supplied, closure review
+`6a802f1b-c3d8-83e8-839d-eb656a9bf6a8` returned `APPROVE`: keep the current
+classifier, retain the regression, and treat any future translation as a new
+capability/epoch activation.
+
+The final activation code passes `cargo test --workspace --quiet`, including
+239 latexd library tests, the 758/758 compiler integration target in 2741.17s,
+674/674 VM library tests, and every checkpoint/VM integration target. The
+proof-only superscript addition leaves the complete layout runtime target at
+19/19; lexer 11/11 and the existing tolerance encoded-source boundary also pass.
+All 60 Python migration/release/policy/oracle tests, the `pdftex -ini` layout
+integer oracle, canonical workspace Clippy, rustfmt, and the diff check are
+green.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use

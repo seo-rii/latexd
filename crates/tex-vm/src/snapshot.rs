@@ -29,6 +29,8 @@ pub const VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
     "eqtb.integer-parameter-state.v1";
 pub const VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY: &str =
     "eqtb.layout-integer-parameter-state.v1";
+pub const VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY: &str =
+    "primitive.layout-integer-parameter-command.v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
@@ -36,6 +38,7 @@ pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
 ];
 pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
@@ -44,6 +47,7 @@ pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
     VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -2113,6 +2117,74 @@ pub enum LayoutIntegerParameterId {
 }
 
 impl LayoutIntegerParameterId {
+    pub(crate) const ALL: [Self; 18] = [
+        Self::AdjDemerits,
+        Self::BinOpPenalty,
+        Self::BrokenPenalty,
+        Self::ClubPenalty,
+        Self::DisplayWidowPenalty,
+        Self::DoubleHyphenDemerits,
+        Self::ExHyphenPenalty,
+        Self::FinalHyphenDemerits,
+        Self::HangAfter,
+        Self::HyphenPenalty,
+        Self::InterlinePenalty,
+        Self::LinePenalty,
+        Self::Looseness,
+        Self::PostDisplayPenalty,
+        Self::PreDisplayPenalty,
+        Self::PreTolerance,
+        Self::RelPenalty,
+        Self::WidowPenalty,
+    ];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::AdjDemerits => "adjdemerits",
+            Self::BinOpPenalty => "binoppenalty",
+            Self::BrokenPenalty => "brokenpenalty",
+            Self::ClubPenalty => "clubpenalty",
+            Self::DisplayWidowPenalty => "displaywidowpenalty",
+            Self::DoubleHyphenDemerits => "doublehyphendemerits",
+            Self::ExHyphenPenalty => "exhyphenpenalty",
+            Self::FinalHyphenDemerits => "finalhyphendemerits",
+            Self::HangAfter => "hangafter",
+            Self::HyphenPenalty => "hyphenpenalty",
+            Self::InterlinePenalty => "interlinepenalty",
+            Self::LinePenalty => "linepenalty",
+            Self::Looseness => "looseness",
+            Self::PostDisplayPenalty => "postdisplaypenalty",
+            Self::PreDisplayPenalty => "predisplaypenalty",
+            Self::PreTolerance => "pretolerance",
+            Self::RelPenalty => "relpenalty",
+            Self::WidowPenalty => "widowpenalty",
+        }
+    }
+
+    pub(crate) fn from_source_name(name: &str) -> Option<Self> {
+        match name {
+            "adjdemerits" => Some(Self::AdjDemerits),
+            "binoppenalty" => Some(Self::BinOpPenalty),
+            "brokenpenalty" => Some(Self::BrokenPenalty),
+            "clubpenalty" => Some(Self::ClubPenalty),
+            "displaywidowpenalty" => Some(Self::DisplayWidowPenalty),
+            "doublehyphendemerits" => Some(Self::DoubleHyphenDemerits),
+            "exhyphenpenalty" => Some(Self::ExHyphenPenalty),
+            "finalhyphendemerits" => Some(Self::FinalHyphenDemerits),
+            "hangafter" => Some(Self::HangAfter),
+            "hyphenpenalty" => Some(Self::HyphenPenalty),
+            "interlinepenalty" => Some(Self::InterlinePenalty),
+            "linepenalty" => Some(Self::LinePenalty),
+            "looseness" => Some(Self::Looseness),
+            "postdisplaypenalty" => Some(Self::PostDisplayPenalty),
+            "predisplaypenalty" => Some(Self::PreDisplayPenalty),
+            "pretolerance" => Some(Self::PreTolerance),
+            "relpenalty" => Some(Self::RelPenalty),
+            "widowpenalty" => Some(Self::WidowPenalty),
+            _ => None,
+        }
+    }
+
     pub(crate) const fn default_value(self) -> i32 {
         match self {
             Self::HangAfter => 1,
@@ -2339,6 +2411,16 @@ impl VmSnapshot {
         };
         let tokens_require_integer_parameter =
             |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_integer_parameter);
+        let token_requires_layout_integer_parameter = |token: &SnapshotToken| {
+            matches!(
+                &token.kind,
+                SnapshotTokenKind::ControlSequence { name }
+                    if LayoutIntegerParameterId::from_source_name(name).is_some()
+                        || matches!(name.as_str(), "csname" | "ifcsname" | "@nameuse")
+            )
+        };
+        let tokens_require_layout_integer_parameter =
+            |tokens: &[SnapshotToken]| tokens.iter().any(&token_requires_layout_integer_parameter);
         let scopes_require_muskip_alias = self.scopes.iter().any(|scope| {
             scope.values().any(|meaning| match meaning {
                 SnapshotMeaning::Macro {
@@ -2429,6 +2511,27 @@ impl VmSnapshot {
                     )
                 }
                 SnapshotMeaning::Token { token } => token_requires_integer_parameter(token),
+            })
+        });
+        let scopes_require_layout_integer_parameter = self.scopes.iter().any(|scope| {
+            scope.values().any(|meaning| match meaning {
+                SnapshotMeaning::Macro {
+                    parameter_text,
+                    optional_first_argument_default,
+                    body,
+                    ..
+                } => {
+                    tokens_require_layout_integer_parameter(parameter_text)
+                        || optional_first_argument_default
+                            .as_deref()
+                            .is_some_and(&tokens_require_layout_integer_parameter)
+                        || tokens_require_layout_integer_parameter(body)
+                }
+                SnapshotMeaning::Primitive { name } => {
+                    LayoutIntegerParameterId::from_source_name(name).is_some()
+                        || matches!(name.as_str(), "csname" | "ifcsname" | "@nameuse")
+                }
+                SnapshotMeaning::Token { token } => token_requires_layout_integer_parameter(token),
             })
         });
         let continuation_requires_muskip_alias =
@@ -2594,9 +2697,10 @@ impl VmSnapshot {
                             token_requires_integer_parameter(token)
                         }
                         VmQueueItemSnapshot::CharacterSource { mouth } => {
-                            ["tolerance", "csname", "ifcsname", "@nameuse"]
-                                .iter()
-                                .any(|name| mouth.input().contains(name))
+                            mouth.input().contains("tolerance")
+                                || ["csname", "ifcsname", "@nameuse"]
+                                    .iter()
+                                    .any(|name| mouth.input().contains(name))
                         }
                         VmQueueItemSnapshot::ModuleEnd { .. } => false,
                     }) || continuation.source_stack.iter().any(|frame| {
@@ -2639,6 +2743,66 @@ impl VmSnapshot {
                 VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             ));
         }
+        let continuation_requires_layout_integer_parameter = self
+            .input_continuation
+            .as_ref()
+            .is_some_and(|continuation| {
+                continuation.queue.iter().any(|item| match item {
+                    VmQueueItemSnapshot::Token { token } => {
+                        token_requires_layout_integer_parameter(token)
+                    }
+                    VmQueueItemSnapshot::CharacterSource { mouth } => {
+                        LayoutIntegerParameterId::ALL
+                            .iter()
+                            .any(|parameter| mouth.input().contains(parameter.as_str()))
+                            || ["csname", "ifcsname", "@nameuse"]
+                                .iter()
+                                .any(|name| mouth.input().contains(name))
+                    }
+                    VmQueueItemSnapshot::ModuleEnd { .. } => false,
+                }) || continuation.source_stack.iter().any(|frame| {
+                    frame
+                        .end_hooks
+                        .iter()
+                        .any(|tokens| tokens_require_layout_integer_parameter(tokens))
+                        || frame.module_options.as_ref().is_some_and(|options| {
+                            options
+                                .declared_options
+                                .values()
+                                .any(|tokens| tokens_require_layout_integer_parameter(tokens))
+                                || options
+                                    .default_option_body
+                                    .as_deref()
+                                    .is_some_and(&tokens_require_layout_integer_parameter)
+                        })
+                })
+            });
+        if scopes_require_layout_integer_parameter
+            || self
+                .token_registers
+                .values()
+                .any(|tokens| tokens_require_layout_integer_parameter(tokens))
+            || self
+                .aftergroup_tokens
+                .iter()
+                .any(|tokens| tokens_require_layout_integer_parameter(tokens))
+            || self
+                .after_assignment_token
+                .as_ref()
+                .is_some_and(&token_requires_layout_integer_parameter)
+            || self
+                .at_end_document_hooks
+                .iter()
+                .any(|tokens| tokens_require_layout_integer_parameter(tokens))
+            || continuation_requires_layout_integer_parameter
+        {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
+            ));
+        }
         capabilities
     }
 
@@ -2647,6 +2811,9 @@ impl VmSnapshot {
             || self.delcode_state.is_some()
             || self.integer_parameter_state.is_some()
             || self.layout_integer_parameter_state.is_some()
+            || self.required_capabilities().iter().any(|capability| {
+                capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY
+            })
     }
 }
 

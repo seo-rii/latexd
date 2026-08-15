@@ -4,7 +4,8 @@ use camino::Utf8PathBuf;
 use tex_tokens::{CatCode, ControlSequenceInterner};
 use tex_vm::{
     SnapshotMeaning, SnapshotToken, SnapshotTokenKind, VM_SNAPSHOT_DELCODE_TABLE_V1_CAPABILITY,
-    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmActiveModuleOptionsSnapshot,
+    VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY, Vm, VmActiveModuleOptionsSnapshot,
     VmActiveSourceFrameSnapshot, VmDiagnosticKind, VmInputContinuationSnapshot,
     VmQueueItemSnapshot, VmSnapshot, VmSnapshotDocument,
 };
@@ -203,6 +204,9 @@ fn tolerance_alias_has_a_stable_wire_name_and_survives_restore() {
     );
     assert!(snapshot.required_capabilities().iter().any(|capability| {
         capability.as_str() == VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY
+    }));
+    assert!(!snapshot.required_capabilities().iter().any(|capability| {
+        capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY
     }));
     let document = VmSnapshotDocument::from_snapshot(snapshot);
     let wire = serde_json::to_value(&document).expect("encode tolerance primitive alias");

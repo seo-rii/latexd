@@ -1178,6 +1178,79 @@ wire, tolerance V1 ID 집합, source primitive set과 checkpoint epoch 4는 바�
 source 이름은 계속 undefined다. 다음 gate에서 source activation, 모든 latent owner
 capability와 epoch 전환을 한 rollback 단위로 처리한다.
 
+그 source-activation gate는 이제 하나의 rollback 단위로 완료됐다.
+`Primitive::IntegerParameter(IntegerParameterCommand::Layout(...))`가 18개 이름을 builtin
+lookup, `\let` alias의 안정된 canonical primitive 이름, direct assignment/query,
+`\advance`/`\multiply`/`\divide` lvalue와 integer expression에 연결한다. Numeric scan,
+`global`/`globaldefs`, group unwind, `afterassignment`, overflow/missing-number recovery는 기존
+TeX82 tolerance 경로를 공유하지만 Eqtb 읽기/쓰기는 별도 layout owner를 사용한다. 따라서
+source default assignment은 root에서 계속 sparse하고 local default만 owner를 만들며,
+source에서 만든 nested state도 versioned restore 뒤 재할당, unwind, global cancellation을
+그대로 보존한다. `hangafter=1`, 나머지 17개=0의 characterization default는 바뀌지
+않았고 현재 layout/line-breaking 알고리즘은 아직 이 값을 소비하지 않는다.
+
+Capability derivation은 모든 control-sequence scope layer의 macro parameter/default/body,
+primitive alias와 token, token register, aftergroup, afterassignment, end-document hook,
+continuation token/character source, source end hook, declared/default module option을 검사한다.
+Materialized owner만 있으면 기존 `eqtb.layout-integer-parameter-state.v1`을 요구하지만,
+tokenized source reference와 primitive alias는 별도
+`primitive.layout-integer-parameter-command.v1`과 state capability를 함께 요구한다. 따라서
+dormant-reader 문서의 latent layout token이 새 command capability 없이 들어오면 strict
+derived-capability equality에서 실행 전에 거부되고, 이전 reader는 새 capability 자체를
+unsupported로 거부한다. Command capability만 있고 owner가 없는 열린 group을 restore할 때도
+complete Eqtb group lattice를 만들므로 restore 뒤 alias를 통한 첫 local assignment가 정확히
+unwind된다.
+
+Raw `CharacterSource`의 TeX control-word 경계는 mutable catcode 때문에 ASCII 문자 경계로
+증명할 수 없다. 이 경로는 canonical 이름 substring을 경계 없이 보수적으로 분류한다.
+따라서 tokenized `pretolerance`는 layout command/state만 요구하지만 raw `pretolerance`는
+`tolerance` 가능성까지 포함해 두 family를 요구하며 attachment를 fail-closed한다. ASCII
+letter를 space delimiter나 alternate escape로 바꿔 `hangafter`를 실행하는 fixture가 이
+결정을 실제 restore/resume 실행과 대조한다. `csname`/`ifcsname`/`@nameuse`와 그 alias도
+동적 이름 생성 때문에 두 family를 모두 요구한다. Hidden outer-scope alias/macro, split
+module assignment/query와 모든 pending owner가 versioned-only 경계를 유지하는 회귀로
+고정됐다.
+
+이 분류는 현재 executable Mouth 의미만 대상으로 한다. `Mouth::peek_normalized`는
+CR/CRLF만 newline으로 정규화하고 catcode-7 superscript character를 `^^`/hex/one-character
+형태로 치환하지 않는다. `!`를 실제 `CatCode::Superscript`로 저장한 뒤 raw
+`\hang!!61fter=7`을 legacy shape로 serialize/restore/resume하는 회귀는 `\hang` undefined
+진단, layout capability/owner 부재와 `hangafter=1` 유지를 함께 고정한다. 따라서 이
+spelling은 현재 layout command에 도달하지 않으며 speculative 분류로 checkpoint를
+불필요하게 suppress하지 않는다. 향후 superscript translation을 구현할 때는 이 negative
+regression을 먼저 RED로 만들고 raw-source capability derivation, snapshot compatibility,
+checkpoint epoch와 rollback 문서를 같은 semantic activation에서 갱신해야 한다.
+
+Production writer는 계속 `LegacyOnly`다. Source-created owner뿐 아니라 상태가 아직 없는
+latent macro와 pending character source도 preamble/page/input-boundary attachment를 각각
+suppress하며, attachment 없는 checkpoint는 compiler replay 후보가 아니다. Source 의미가
+epoch-4 dormant regime과 달라졌으므로 checkpoint VM semantic epoch는 5로 올라갔고 epoch 4
+이하와 epoch 6 이상의 future generation은 inspection 가능 여부와 별개로 reuse miss다.
+Production compiler 회귀는 source-created state와 owner 없는 latent macro의 attachment가
+각각 제거되고 `replay_checkpoint_from_stored`가 둘 다 거부함을 고정한다. 이 활성화를
+rollback하거나 의미를 바꾸는 후속 배포는 5로 낮추지 말고 epoch 6 이상을 발행해야 한다.
+Supported versioned document의 state/command capability parse/rewrite/hash/restore
+compatibility ratchet도 계속 유지한다.
+
+Source-activation Pro review `6a7f5422-6a50-83e8-8adb-e5a9d12dc8f3`는 처음에
+state capability와 새 command 의미의 version 분리, mutable-catcode raw source의
+fail-closed 분류, source-created persistence와 production replay 증거, 전체 validation을
+요구했다. Remediation은 별도 command capability, strict declared/derived equality,
+owner-free latent command의 complete Eqtb lattice, catcode differential, mixed-family
+restore/cancellation, 실제 compiler suppression/replay 거부와 epoch-5 matrix로 이를 닫았다.
+후속 review `6a8029d7-ada8-83e8-a5b9-0f8c57833957`는 그 항목들을 모두 resolved로
+판정하면서 TeX82 superscript translation 가설 하나만 `REVISE`로 남겼다. 저장소의 실제
+Mouth 경계와 custom catcode-7 serialized/resumed regression을 제시한 closure review
+`6a802f1b-c3d8-83e8-839d-eb656a9bf6a8`는 current classifier 유지와 commit/push를
+`APPROVE`했다.
+
+최종 activation code는 `cargo test --workspace --quiet` 전체를 통과했다. 여기에는
+239개 latexd lib test, 2741.17초의 758/758 compiler integration test, 674/674 VM lib와
+모든 checkpoint/VM integration target이 포함된다. 이후 추가한 proof-only superscript
+회귀를 포함한 layout runtime target은 19/19이고 lexer 11/11, tolerance encoded-source
+경계도 green이다. Python migration/release/policy/oracle 60/60, `pdftex -ini` layout
+integer oracle, canonical workspace Clippy, rustfmt와 diff check도 green이다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit
 결정이다. Production `Vm::restore` 정적 guard와 non-empty interner/deep-layer malformed
