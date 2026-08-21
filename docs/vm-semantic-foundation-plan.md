@@ -1981,6 +1981,14 @@ library tests, package and canonical Clippy, rustfmt, and diff checks pass. Its
 implementation-review attempt ended before chat creation because the shared
 browser broker crashed; no verdict or UUID was produced.
 
+Source-level self-review then found that TeX82 treats `np<7` as valid and
+zero-fills absent font parameters. A strict TDD correction in `987cde0` changes
+the former missing-quad rejection into the native contract: cmr10-derived
+`np=5` retains x-height and supplies zero quad, while `np=4` supplies zero for
+both. Fresh pdfTeX INITEX probes independently match both results; the crate now
+passes six tests and both package/canonical Clippy gates remain green. Missing
+TFM files still have no fallback.
+
 The exact metric substrate closes representation and scaling only. W3 remains
 blocked until a separate owner/readiness review binds logical font definition,
 effective scale, and TFM content identity; defines current-font grouping,

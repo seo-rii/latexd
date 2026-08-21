@@ -1458,6 +1458,13 @@ full tex-checkpoint 68 lib와 모든 target, latexd lib 239/239, package/canonic
 Clippy와 fmt/diff check가 green이다. Frozen IntegerParameter V1, command/capability, epoch 5와
 production behavior에는 diff가 없다.
 
+후속 TeX82 source/self-review는 `np<7`인 유효 TFM이 빠진 fontdimen을 0으로 채운다는 점을
+찾았다. 기존 구현은 `np=5`에서 quad 부재를 malformed로 거부했으므로, native 계약으로
+테스트를 먼저 RED로 바꾼 뒤 `987cde0`에서 `np=5`의 quad=0/x-height 유지와 `np=4`의
+quad=x-height=0을 구현했다. 두 synthetic TFM은 fresh pdfTeX INITEX에서도 각각 같은 값을
+출력했고, crate 6/6 및 package/canonical Clippy가 다시 green이다. 이는 missing TFM file의
+no-fallback 정책과 별개다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

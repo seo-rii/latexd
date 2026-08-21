@@ -12,8 +12,8 @@ Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0`
 returned `PROCEED_EXACT_TFM` with confidence 0.93. It selected one further
 owner-neutral prerequisite: exact TFM design-size, x-height, quad, scaling, and
 content identity from caller-supplied bytes. The additive `tex-tfm-metrics`
-crate landed in `927b0dd`; this does not authorize W3 or select a current-font
-owner.
+crate landed in `927b0dd`, with TeX82 short-parameter zero filling corrected in
+`987cde0`; this does not authorize W3 or select a current-font owner.
 
 Two W2.5 implementation-review submissions on 2026-08-22 ended before chat
 creation when the shared browser broker exited during startup (`Browser.close:
@@ -111,9 +111,14 @@ is not stable semantic identity.
 representation with public design-size, SHA-256 content identity, and
 `at_size_sp` projection. It parses only `fontdimen5` and `fontdimen6`; it has no
 filesystem, resolver, Type1, renderer, VM, font-selection, or floating-point
-dependency. Invalid length/table structure, design size, required font
-parameters, fix-word range, or effective size produces a typed error with no
-fallback.
+dependency. Invalid length/table structure, design size, selected fix-word
+range, or effective size produces a typed error with no fallback.
+
+TeX82 accepts parameter tables shorter than seven entries and supplies zero for
+the absent dimensions. Native INITEX and the crate therefore agree that `np=5`
+retains cmr10 x-height but yields a zero quad, while `np=4` yields zero for both
+x-height and quad. Absence is a valid zero-filled TFM state, not a missing-file
+fallback or malformed-input error.
 
 Scaling uses TeX82's nested integer `store_scaled` arithmetic rather than a
 single rational multiplication. The distinction is observable at large odd
@@ -129,7 +134,7 @@ behavior. The original oracle values remain exact:
 | cmr7 natural | 522469sp | 197518sp |
 
 The content identity is lowercase `sha256:` plus the digest of TFM bytes only
-and matches the audited classic-font manifest. Five crate tests, 11 existing
+and matches the audited classic-font manifest. Six crate tests, 11 existing
 `tex-fonts` tests, 681 `tex-vm` library tests and every VM integration target,
 68 `tex-checkpoint` library tests and every checkpoint target, 239 `latexd`
 library tests, package Clippy, canonical workspace Clippy, rustfmt, and diff
