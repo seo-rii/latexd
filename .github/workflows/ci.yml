@@ -27,6 +27,7 @@ jobs:
           scripts.tests.test_check_hangindent_oracle
           scripts.tests.test_check_layout_integer_parameters_oracle
           scripts.tests.test_check_mathcode_delcode_oracle
+          scripts.tests.test_check_tfm_validity_oracle
           scripts.tests.test_check_tolerance_oracle
           scripts.tests.test_check_snapshot_release_contract
           scripts.tests.test_check_v3_independence
@@ -126,6 +127,17 @@ jobs:
         with:
           name: dimension-scan-context-oracle
           path: target/dimension-scan-context-oracle.json
+
+      - name: Verify TeX82 TFM validity oracle
+        run: >-
+          python3 scripts/check_tfm_validity_oracle.py
+          --report target/tfm-validity-oracle.json
+
+      - name: Upload TeX82 TFM validity oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfm-validity-oracle
+          path: target/tfm-validity-oracle.json
 
       - name: Run Rust test suite
         run: cargo test -q

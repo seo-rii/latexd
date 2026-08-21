@@ -1465,6 +1465,25 @@ quad=x-height=0을 구현했다. 두 synthetic TFM은 fresh pdfTeX INITEX에서�
 출력했고, crate 6/6 및 package/canonical Clippy가 다시 green이다. 이는 missing TFM file의
 no-fallback 정책과 별개다.
 
+이어지는 non-production TFM validity gate는 새
+`scripts/check_tfm_validity_oracle.py`와 versioned fixture로 cmr10/cmex10의 15개 exact byte
+mutation을 각각 fresh pdfTeX INITEX process에서 실행한다. Native는 cmr10 control,
+`np=5/4/0`, declared length 뒤 trailing word를 받아들이고, zero width-table count,
+character width index/cycle, width[0]/fix-word, unselected `fontdimen2`, selected
+`fontdimen5`, lig/kern, kern fix-word, extensible recipe 손상을 `Bad metric (TFM) file`로
+거부한다. 모든 case는 exact mutated-TFM/source SHA-256, diagnostic, observation, exit와
+sentinel을 고정하고 CI report는 engine/base-TFM/raw-output/environment/process provenance를
+보존한다. 두 final report는 SHA-256
+`5db4edc5db6269806a8e9171f1c4d549eedc2f15c076db613a2d31eb472a965a`로 byte-identical이고,
+새 policy/oracle 7/7과 전체 repository policy 76/76이 green이다.
+
+이 matrix는 현재 API가 exact DP1 dimension-subset parser이지 full TFM validity validator가
+아님을 명시한다. Unrelated invalid table을 일부 받아들이고 native가 허용하는 trailing word를
+strict length mismatch로 거부하므로 source-visible font load success로 사용할 수 없다. 다음
+implementation/ownership review가 narrow API rename/documentation과 complete TeX82 validator 중
+하나를 선택할 때까지 `ARCH-016`과 W3는 blocked이며, 이 evidence unit은 production crate,
+VM dependency, capability, snapshot, hash, writer, epoch를 바꾸지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

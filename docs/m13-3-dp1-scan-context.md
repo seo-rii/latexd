@@ -145,6 +145,36 @@ This crate closes metric representation and conversion, not production
 provenance. A later owner must still bind a logical font definition and
 effective size to the TFM hash and restore that state deterministically.
 
+## Full TFM validity gate
+
+[`scripts/check_tfm_validity_oracle.py`](../scripts/check_tfm_validity_oracle.py)
+runs 15 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
+results live in
+[`tfm-validity-oracle-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json).
+Every case records the exact mutated TFM SHA-256, source SHA-256, diagnostic,
+observation, exit status, and sentinel; the report additionally preserves the
+engine path/version/SHA-256, base cmr10/cmex10 identities, raw output, locale,
+timezone, and process counts. Two final reports are byte-identical with SHA-256
+`5db4edc5db6269806a8e9171f1c4d549eedc2f15c076db613a2d31eb472a965a`.
+
+The native matrix accepts unmodified cmr10, `np=5`, `np=4`, `np=0`, and one
+complete trailing word after the declared length. It rejects a zero width-table
+count, out-of-range character width index, charlist self-cycle, forbidden width
+or kern fix-word sign, scaled-nonzero width[0], invalid unselected
+`fontdimen2`, invalid selected `fontdimen5`, out-of-range lig/kern instruction,
+and out-of-range extensible recipe. Every rejecting case reaches the sentinel
+with `nullfont` and the exact `Bad metric (TFM) file` diagnostic.
+
+This proves that the current crate is a bounded dimension-subset parser, not a
+full TFM validity oracle. It already rejects the invalid selected
+`fontdimen5`, but it does not inspect several unrelated tables that native font
+loading rejects; conversely, its exact declared-length policy rejects the
+native-accepted trailing word. No source-visible font owner may treat
+`parse_tfm` success as native font-load success until a review chooses either a
+narrowly named/documented subset API or a complete TeX82 validator. This gap is
+tracked as `ARCH-016`, adds no production dependency or behavior, and keeps W3
+blocked.
+
 ## Owner, persistence, and capability decisions
 
 W2.5-SC0 records the following decisions and unresolved gates:
