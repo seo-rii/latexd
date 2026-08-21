@@ -1918,8 +1918,9 @@ Full `tex-vm` passes 681 library tests and all integrations; full
 canonical workspace Clippy passes. The repeated carrier/symbol audit finds only
 projection/capture, versioned document write/restore, and semantic hashing—no
 source, builtin, `Primitive`, scanner, arithmetic, recovery, query, or renderer
-caller. W3 is now the next atomic unit and owns those language semantics,
-source activation, and epoch 6.
+caller. At this W2 checkpoint, W3 was the next proposed atomic unit for those
+language semantics, source activation, and epoch 6; the later readiness review
+below supersedes that proposal.
 
 The clean full workspace immediately before the bounded Pro remediation passed
 239 latexd library tests, the 758/758 compiler integration target in 5931.38
@@ -1954,6 +1955,38 @@ Two remediation closure submissions on 2026-08-21 failed before review because
 the shared browser broker crashed during Playwright startup. They produced no
 new verdict, so the project records neither approval nor rejection and retains
 the prior findings plus the complete local remediation packet as evidence.
+
+W3 readiness review `6a8862e6-12a4-83e8-94ab-2cd2088661bd` subsequently
+returned `REVISE_PLAN` at 0.96 confidence: authoritative `em`/`ex` scanning
+requires durable current-font identity and exact metrics, while true units
+require an operational magnification owner. The non-production W2.5-SC0 gate
+in `ae0858e` freezes those native contexts in 22 independent INITEX processes
+and defines the scanner as a consumer of `DimensionScanContext`; it does not
+select either owner or activate a source command.
+
+Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0` returned
+`PROCEED_EXACT_TFM` at 0.93 confidence. The approved owner-neutral prerequisite
+landed in `927b0dd` as `tex-tfm-metrics`. From caller-provided bytes it parses
+the TFM design size, `fontdimen5` x-height, `fontdimen6` quad, and TFM-only
+SHA-256 identity, then applies exact TeX82 `store_scaled` integer arithmetic at
+an effective size. It has no filesystem/resolver, Type1, renderer, VM,
+font-selection, floating-point, snapshot, capability, hash-frame, writer, or
+epoch coupling.
+
+The crate's exact goldens cover cmr10 natural and 12pt, distinct cmr7, stable
+content hashes, malformed inputs, signed fix words, invalid sizes, and the
+large-odd-size rounding boundary independently confirmed by pdfTeX. Five new
+tests, existing `tex-fonts`, full `tex-vm` and `tex-checkpoint`, 239 `latexd`
+library tests, package and canonical Clippy, rustfmt, and diff checks pass. Its
+implementation-review attempt ended before chat creation because the shared
+browser broker crashed; no verdict or UUID was produced.
+
+The exact metric substrate closes representation and scaling only. W3 remains
+blocked until a separate owner/readiness review binds logical font definition,
+effective scale, and TFM content identity; defines current-font grouping,
+restore, missing-metric behavior, magnification persistence, capabilities, and
+semantic identity; and places the complete source-visible transition. Epoch 5
+and the production `LegacyOnly` writer remain unchanged.
 
 Current migration evidence through `cd64df6`:
 

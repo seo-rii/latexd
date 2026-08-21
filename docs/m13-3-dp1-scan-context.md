@@ -5,7 +5,15 @@
 Pro readiness review `6a8862e6-12a4-83e8-94ab-2cd2088661bd` returned
 `REVISE_PLAN` with confidence 0.96. W3 remains blocked. The approved next unit,
 W2.5-SC0, characterizes the current-font and magnification context required by
-dimension scanning without changing production semantics.
+dimension scanning without changing production semantics. W2.5-SC0 completed
+in `ae0858e`.
+
+Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0`
+returned `PROCEED_EXACT_TFM` with confidence 0.93. It selected one further
+owner-neutral prerequisite: exact TFM design-size, x-height, quad, scaling, and
+content identity from caller-supplied bytes. The additive `tex-tfm-metrics`
+crate landed in `927b0dd`; this does not authorize W3 or select a current-font
+owner.
 
 Two W2.5 implementation-review submissions on 2026-08-22 ended before chat
 creation when the shared browser broker exited during startup (`Browser.close:
@@ -13,9 +21,14 @@ Connection closed while reading from the driver`, then signal 15/broken pipe).
 The live browser/authentication preflight passed between the attempts. No
 implementation-review UUID or verdict was produced, so the failures are
 recorded as review-infrastructure unavailability, not approval or rejection.
+The exact-TFM implementation-review submission on the same date also ended
+before chat creation when the shared broker exited during startup. A following
+session probe reported `prior_exit_type=crashed`; it likewise produced no UUID
+or verdict.
 
-This unit adds no source command, primitive, Eqtb owner, dependency, snapshot
-field, capability, semantic hash frame, writer lane, or layout consumer.
+Neither characterization nor the exact metric substrate adds a source command,
+primitive, Eqtb owner, VM/renderer dependency, snapshot field, capability,
+semantic hash frame, writer lane, or layout consumer.
 `\hangindent`, `\mag`, and font definition/selection remain unavailable as VM
 production primitives. The checkpoint semantic epoch remains epoch 5, the
 production checkpoint writer remains `LegacyOnly`, dimension-parameter state
@@ -92,6 +105,41 @@ the scanner. Any production metric provenance identity must at least bind the
 logical font definition, effective scale, and metric content; a host path alone
 is not stable semantic identity.
 
+## Exact TFM prerequisite
+
+`tex-tfm-metrics` accepts a TFM byte slice and returns a private exact metric
+representation with public design-size, SHA-256 content identity, and
+`at_size_sp` projection. It parses only `fontdimen5` and `fontdimen6`; it has no
+filesystem, resolver, Type1, renderer, VM, font-selection, or floating-point
+dependency. Invalid length/table structure, design size, required font
+parameters, fix-word range, or effective size produces a typed error with no
+fallback.
+
+Scaling uses TeX82's nested integer `store_scaled` arithmetic rather than a
+single rational multiplication. The distinction is observable at large odd
+font sizes: native pdfTeX and the crate both report cmr10 quad `8388632sp` at
+effective size `8388609sp`, while direct multiplication would produce
+`8388633sp`. A signed fix-word boundary test also freezes TeX's negative-floor
+behavior. The original oracle values remain exact:
+
+| TFM and effective size | quad | x-height |
+| --- | ---: | ---: |
+| cmr10 natural | 655361sp | 282168sp |
+| cmr10 at 12pt | 786434sp | 338602sp |
+| cmr7 natural | 522469sp | 197518sp |
+
+The content identity is lowercase `sha256:` plus the digest of TFM bytes only
+and matches the audited classic-font manifest. Five crate tests, 11 existing
+`tex-fonts` tests, 681 `tex-vm` library tests and every VM integration target,
+68 `tex-checkpoint` library tests and every checkpoint target, 239 `latexd`
+library tests, package Clippy, canonical workspace Clippy, rustfmt, and diff
+checks pass. Existing IntegerParameter V1 and epoch/capability contracts remain
+unchanged.
+
+This crate closes metric representation and conversion, not production
+provenance. A later owner must still bind a logical font definition and
+effective size to the TFM hash and restore that state deterministically.
+
 ## Owner, persistence, and capability decisions
 
 W2.5-SC0 records the following decisions and unresolved gates:
@@ -133,7 +181,8 @@ existing register path cannot be reused unchanged.
 W3 remains blocked while any of these conditions is true:
 
 - current-font identity, grouping, or restore is unspecified;
-- quad/x-height provenance is not deterministic;
+- production current-font definition/effective scale is not bound to exact TFM
+  content identity;
 - missing metrics lack exact diagnostics and token progress;
 - magnification owner, persistence, or source epoch is unspecified;
 - a prerequisite would become source-visible at epoch 5;

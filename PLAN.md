@@ -1441,6 +1441,30 @@ hangindent policy/oracle 9/9, canonical Clippy와 fmt/diff check가 green이다.
 guard가 dormant W1/W2 owner를 잘못 거부하던 문제는 source primitive/builtin 금지를 보존한
 별도 test-only `e81ff8c`로 먼저 수정했다.
 
+Post-SC0 architecture Pro review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0`는
+confidence 0.93의 `PROCEED_EXACT_TFM`을 반환했다. 이에 owner-neutral prerequisite인
+`tex-tfm-metrics`를 `927b0dd`로 추가했다. 이 crate는 caller가 제공한 raw TFM bytes에서
+design size, `fontdimen5` x-height, `fontdimen6` quad와 TFM-only SHA-256 identity를 읽고,
+TeX82 `store_scaled`의 nested integer arithmetic로 effective size의 signed scaled-point
+값을 계산한다. Filesystem/resolver, Type1, renderer, VM, current-font, snapshot/capability/
+epoch와 floating point 의존성은 없다.
+
+TDD는 absent API compile RED, SHA-256 golden RED, 큰 홀수 size에서 naive multiply가 native
+결과보다 1sp 큰 `8388633`을 내는 RED 순서로 진행했다. 마지막 케이스는 TeX82 알고리즘으로
+수정한 뒤 pdfTeX의 cmr10-at-8388609sp quad `8388632sp`와 일치한다. cmr10 natural/12pt와
+cmr7 natural quad/x-height golden, signed fix-word, malformed TFM, nonpositive/overflow size도
+고정했다. 새 crate 5/5, 기존 tex-fonts 11/11, full tex-vm 681 lib와 모든 integration,
+full tex-checkpoint 68 lib와 모든 target, latexd lib 239/239, package/canonical workspace
+Clippy와 fmt/diff check가 green이다. Frozen IntegerParameter V1, command/capability, epoch 5와
+production behavior에는 diff가 없다.
+
+Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
+실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
+approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
+커밋했으며, logical font definition/effective scale/TFM hash를 묶는 current-font owner와
+magnification owner의 새 readiness review 전에는 W3, source-visible font/`\mag`, snapshot
+schema/capability, epoch 6을 시작하지 않는다.
+
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지
 못했다. 이를 approval/rejection으로 해석하지 않는다. 다음 gate는 W2.5 evidence를 기반으로
