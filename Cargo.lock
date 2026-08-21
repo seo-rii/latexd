@@ -1730,6 +1730,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-tfm-metrics"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "tex-tokens"
 version = "0.1.0"
 dependencies = [
