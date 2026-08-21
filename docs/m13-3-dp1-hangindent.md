@@ -279,7 +279,17 @@ recovery remain source-activation blockers, not passive identity blockers.
 Characterization failure remains a valid reason to stop W3 and must not be
 hidden by changing existing dimension-register semantics. Epoch stays 5 through
 the source-unreachable owner and persistence promotion; epoch 6 remains atomic
-with source reachability. W2 is complete. The next implementation unit is W3:
+with source reachability. W2 is complete. The pre-readiness W3 proposal bundled
 the parameter-local scanner, arithmetic/recovery behavior, query semantics,
-source activation, and epoch-6 transition as one atomic unit. It must not reuse
+source activation, and epoch-6 transition as one atomic unit, without reusing
 the current register dimension scanner unchanged.
+
+Readiness review `6a8862e6-12a4-83e8-94ab-2cd2088661bd` subsequently returned
+`REVISE_PLAN` (confidence 0.96): W3 is not authorized because the VM has no
+durable current-font/metric context for `em`/`ex` and no operational `\mag`
+context for true units. The intervening W2.5-SC0 characterization and contract
+gate is documented in
+[`m13-3-dp1-scan-context.md`](m13-3-dp1-scan-context.md). It changes no
+production semantics, capability, snapshot, hash, writer, or epoch. Completion
+of that evidence gate does not itself authorize W3; a later review must choose
+the owner, persistence, capability, and epoch plan.

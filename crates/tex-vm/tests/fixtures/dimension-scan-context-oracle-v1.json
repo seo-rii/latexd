@@ -1,0 +1,270 @@
+{
+  "format": "latexd.dimension-scan-context-oracle",
+  "schema_version": 1,
+  "compatibility_target": "TeX82 via pdfTeX INITEX",
+  "required_metric_files": [
+    "cmr10.tfm",
+    "cmr7.tfm"
+  ],
+  "expected_processes": 22,
+  "case_results": {
+    "cmr10_metrics": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "em": 655361,
+        "ex": 282168,
+        "font": "cmr10",
+        "quad": 655361,
+        "x_height": 282168
+      },
+      "source_sha256": "c4deef51e581e8b5d35cc9c4907b7bd36b7f8a9d4b559f3b5a9e11c92e6c216c"
+    },
+    "font_alias_dynamic_lookup": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "alias_em": 655361,
+        "alias_font": "cmr10",
+        "dynamic_em": 522469,
+        "dynamic_font": "cmr7"
+      },
+      "source_sha256": "af7505dc61ff48cf41a07dd60c11feaa71b981067f4d2ef8b01f4fee22816911"
+    },
+    "font_magnification_interaction": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "em": 655361,
+        "ex": 282168,
+        "font": "cmr10",
+        "mag": 2000,
+        "quad": 655361,
+        "x_height": 282168
+      },
+      "source_sha256": "185b535e18a842ce89bae1293a359ed9ced8702c4192dbcecbd5b2dad8e1384c"
+    },
+    "fresh_current_font": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "em": 0,
+        "ex": 0,
+        "font": "nullfont",
+        "quad": 0,
+        "x_height": 0
+      },
+      "source_sha256": "64cbab6c342bd2ed46b6b23e0ea19bcfa9a987187d9e68c7d55c5c471d9aea37"
+    },
+    "grouped_font_switch": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "after_em": 655361,
+        "after_font": "cmr10",
+        "before_em": 655361,
+        "before_font": "cmr10",
+        "inside_em": 522469,
+        "inside_font": "cmr7"
+      },
+      "source_sha256": "690f5bc24432d2553a845e2c323942bf8a67ca2034a2ca23813c2d1409253ce8"
+    },
+    "invalid_font_definition": {
+      "diagnostics": [
+        "Improper `at' size (-1.0pt), replaced by 10pt"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "em": 655361,
+        "font": "cmr10",
+        "sentinel": 1
+      },
+      "source_sha256": "47216e430754d301eb2dfb4e090cb59459ff403965896511711b0c83c8206d0a"
+    },
+    "magnification_afterassignment_error": {
+      "diagnostics": [
+        "Missing number, treated as zero"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "afterassignment": 1,
+        "sentinel": 1,
+        "value": 0
+      },
+      "source_sha256": "5b4e4bb512ca1a47fccea351f2334149e25a1c583ecab6a9f81ba522c824d154"
+    },
+    "magnification_afterassignment_success": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "afterassignment": 1,
+        "sentinel": 1,
+        "value": 2000
+      },
+      "source_sha256": "62dc78d932da60c8e78f8cd49a9c35f96a79b4a4635800727f8b248cd159e1db"
+    },
+    "magnification_alias_dynamic_lookup": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "alias": 1200,
+        "dynamic": 1300
+      },
+      "source_sha256": "fef0e6d9e6005bb527227854da41b5c35c554735a539e9f6cfb08639a7551959"
+    },
+    "magnification_direct_assignments": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "first": 500,
+        "second": 1000,
+        "third": 2000
+      },
+      "source_sha256": "c9b8004c6c31724d9a11a52656482dd507630399a55020ab299f21071d7296c2"
+    },
+    "magnification_fresh_query": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "mag": 1000
+      },
+      "source_sha256": "aecef3ebbb92600260d2d78eba50a88d25f103004bb33baf3855ad64ee9705c3"
+    },
+    "magnification_missing_number": {
+      "diagnostics": [
+        "Missing number, treated as zero",
+        "Illegal magnification has been changed to 1000 (0)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "assigned_value": 0,
+        "sentinel": 1,
+        "truept": 65536,
+        "value_after_use": 1000
+      },
+      "source_sha256": "7a42a5ed409cecdf55d0c9b20bd2fbf647c0fa78907e16174760d762c81e9272"
+    },
+    "magnification_optional_equals_signs": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "with_equals": -1500,
+        "without_equals": 2000
+      },
+      "source_sha256": "9cddcdc381211e4751f5cc756a49d98c1c5fa48e471b55fc1e2b83f45e1369f9"
+    },
+    "magnification_ordinary_vs_true_units": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "inch": 4736286,
+        "mag": 2000,
+        "pt": 65536,
+        "truein": 2368143,
+        "truept": 32768
+      },
+      "source_sha256": "b2a7bd9da6196c0b6e3ece96c086c922d7a37d166f4ec2fd08d2f7814d62471f"
+    },
+    "magnification_range_error": {
+      "diagnostics": [
+        "Illegal magnification has been changed to 1000 (40000)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "assigned_value": 40000,
+        "sentinel": 1,
+        "truept": 65536,
+        "value_after_use": 1000
+      },
+      "source_sha256": "6be20af477869b30857d9739f6f80b24066265c2aa6b498753a15d8b02746dcb"
+    },
+    "magnification_reassignment_after_use": {
+      "diagnostics": [
+        "Incompatible magnification (1000); the previous value will be retained (2000)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "after": 32768,
+        "before": 32768,
+        "retained_mag": 1000,
+        "sentinel": 1
+      },
+      "source_sha256": "2bf2cd33c588f66c37f040121f40b45c6ab51439853f18077fc4c87eb51e15a1"
+    },
+    "magnification_scope_globaldefs": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "global": 1300,
+        "local": 1200,
+        "negative_globaldefs_local": 1400,
+        "negative_globaldefs_restored": 1300,
+        "positive_globaldefs": 1500,
+        "restored": 1000
+      },
+      "source_sha256": "86d34c28aa6b4a454bcefd0926d33f4ec864bc36f60933967361eb27e4c70592"
+    },
+    "magnification_true_units": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "mag": 500,
+        "pt": 65536,
+        "truein": 9472573,
+        "truept": 131072
+      },
+      "source_sha256": "a58935e02a2da1263100158f619755ef9bd7581dfc7e01a40b0922343799bd56"
+    },
+    "missing_metric_file": {
+      "diagnostics": [
+        "I can't find file `latexdmissingmetric'",
+        "Emergency stop",
+        "Font \\missing=latexdmissingmetric not loadable: Metric (TFM) file not found"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "retained_em": 655361,
+        "retained_font": "cmr10",
+        "sentinel": 1
+      },
+      "source_sha256": "0b77b9cd9d93721a504852838c5ad893bcb403bb02790749e1bb873f56660768"
+    },
+    "repeated_font_selection": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "em": 655361,
+        "ex": 282168,
+        "font": "cmr10"
+      },
+      "source_sha256": "b28b4ec5f3cf131076af6c9dda0357d9d4c57291ccdb13f9354938d9be1e00af"
+    },
+    "scaled_font_selection": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "at_em": 786434,
+        "at_ex": 338602,
+        "at_font": "cmr10",
+        "scaled_em": 786434,
+        "scaled_ex": 338602,
+        "scaled_font": "cmr10",
+        "scaled_quad": 786434,
+        "scaled_x_height": 338602
+      },
+      "source_sha256": "0ea2616308023b68c7ecc1408801e65c760b681a1c90874247854e2c8c37fa26"
+    },
+    "second_font_metrics": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "em": 522469,
+        "ex": 197518,
+        "font": "cmr7",
+        "quad": 522469,
+        "x_height": 197518
+      },
+      "source_sha256": "4e23fec8834b3a46d912d3981fef870b72d56704f379e74821583f76764220fb"
+    }
+  }
+}
