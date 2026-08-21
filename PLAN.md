@@ -1411,6 +1411,43 @@ browser broker가 Playwright `Browser.close: Connection closed while reading fro
 기존 `REVISE` findings, remediation evidence와 검증 결과를 이 문서와 보존된 local review
 packet에서 추적한다.
 
+W3 readiness 재검토 `6a8862e6-12a4-83e8-94ab-2cd2088661bd`는 confidence 0.96의
+`REVISE_PLAN`을 반환했다. 기존 15-case native activation matrix가 요구하는 `em`/`ex`에는
+durable current-font identity와 exact quad/x-height metric context가 필요하고, `true*` unit에는
+operational `\mag` owner가 필요하지만 현재 VM에는 둘 다 없다. 이를 W3 scanner 안에서
+hard-code하거나 pt/sp-only로 축소하면 authoritative oracle, passive command identity와 epoch-6
+atomicity가 서로 다른 실행 의미를 가리킨다. 따라서 W3는 source activation을 시작할 수 없고,
+current-font/metric과 magnification의 owner, persistence, capability, semantic identity와 epoch
+배치를 별도 review가 결정할 때까지 blocked다.
+
+승인된 non-production 선행 단위 W2.5-SC0는 `ae0858e`에서 완료했다. 새
+`scripts/check_dimension_scan_context_oracle.py`는 fresh INITEX `nullfont`, cmr10과 distinct
+cmr7, group restore, repeated/scaled/at/alias/dynamic font selection, missing TFM과 invalid at-size,
+font/`\mag` interaction의 10개 case와 `\mag` default/direct/sign/scope/globaldefs/alias/dynamic/
+afterassignment/true-unit/reassignment/error-recovery의 12개 case를 각각 독립 `pdftex -ini`
+process에서 실행한다. Versioned fixture는 exact observation/diagnostic/exit/source hash를
+동결하고 CI artifact는 engine path/version/SHA-256, locale/timezone, `kpsewhich`/TEXMF,
+cmr10.tfm과 cmr7.tfm의 resolved path/SHA-256, exact source/raw output과 process count를 보존한다.
+두 final run의 report bytes는 같고 기존 30-process hangindent oracle도 변하지 않았다.
+
+W2.5 contract는 미래 scanner가 file lookup이나 fallback을 직접 수행하지 않고 논리적
+`DimensionScanContext`에서 magnification, stable current-font identity, `quad_sp`,
+`x_height_sp`, metric provenance를 읽는 consumer여야 함을 고정했다. Production owner type은
+의도적으로 선택하지 않았고 unavailable context는 typed no-fallback이어야 한다. Source-visible
+font/`\mag`를 epoch 5에 추가하지 않으며, state/command capability, snapshot/hash/writer와
+generic `\dimen` behavior도 바꾸지 않았다. Readiness target 5/5, full tex-vm 681 lib와 모든
+integration, full tex-checkpoint 68 lib와 모든 target, standalone latexd lib 239/239, 기존
+hangindent policy/oracle 9/9, canonical Clippy와 fmt/diff check가 green이다. Stale W0 policy
+guard가 dormant W1/W2 owner를 잘못 거부하던 문제는 source primitive/builtin 금지를 보존한
+별도 test-only `e81ff8c`로 먼저 수정했다.
+
+2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
+통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지
+못했다. 이를 approval/rejection으로 해석하지 않는다. 다음 gate는 W2.5 evidence를 기반으로
+source-unreachable prerequisite owners, widened atomic W3, 또는 revised capability/epoch sequence
+중 하나를 고르는 새 plan/readiness review다. 그 판정 전에는 production `\mag`, font owner,
+dimension scanner, `\hangindent` builtin과 epoch 6을 구현하지 않는다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit
 결정이다. Production `Vm::restore` 정적 guard와 non-empty interner/deep-layer malformed
