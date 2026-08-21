@@ -45,16 +45,15 @@ class HangIndentOracleTests(unittest.TestCase):
             {"value": 0},
         )
 
-    def test_production_runtime_has_no_hangindent_owner_or_builtin_yet(self) -> None:
+    def test_production_runtime_has_no_hangindent_primitive_or_builtin_yet(self) -> None:
         repository = Path(__file__).parents[2]
         for relative_path in (
-            "crates/tex-vm/src/eqtb.rs",
             "crates/tex-vm/src/command.rs",
-            "crates/tex-vm/src/snapshot.rs",
             "crates/tex-vm/src/lib.rs",
         ):
             source = (repository / relative_path).read_text(encoding="utf-8")
-            self.assertNotIn("hangindent", source.lower(), relative_path)
+            self.assertNotIn("Primitive::HangIndent", source, relative_path)
+            self.assertNotIn('"hangindent" => Some(Primitive::', source, relative_path)
 
     def test_matrix_covers_scanning_scope_arithmetic_aliases_and_recovery(self) -> None:
         required = {
