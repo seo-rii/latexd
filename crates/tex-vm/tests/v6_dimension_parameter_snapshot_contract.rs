@@ -6,8 +6,8 @@ use tex_vm::{
     VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY, VM_SNAPSHOT_DOCUMENT_FORMAT,
     VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, Vm, VmDimensionParameterAssignmentV1,
-    VmDimensionParameterStateV1, VmRestoreError, VmSnapshot, VmSnapshotDocumentRestoreError,
-    decode_vm_snapshot_document,
+    VmDimensionParameterStateV1, VmRestoreError, VmSnapshot, VmSnapshotDocumentError,
+    VmSnapshotDocumentRestoreError, decode_vm_snapshot_document,
 };
 
 const CONTRACT: &str = include_str!("fixtures/dimension-parameter-state-v1-contract.json");
@@ -54,13 +54,13 @@ fn command_identity_document(name: &str, required_capabilities: &[&str]) -> Vec<
 }
 
 #[test]
-fn passive_state_reader_decodes_but_cannot_rewrite_restore_or_use_legacy_wire() {
+fn state_v1_rewrites_and_restores_but_stays_out_of_the_legacy_wire() {
     assert!(
         VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES
             .contains(&VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY)
     );
     assert!(
-        !VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES
+        VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES
             .contains(&VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY)
     );
 
@@ -94,26 +94,19 @@ fn passive_state_reader_decodes_but_cannot_rewrite_restore_or_use_legacy_wire() 
     );
     assert_eq!(legacy_output, b"sentinel");
 
-    let mut document_output = b"sentinel".to_vec();
-    let rewrite_error = serde_json::to_writer(&mut document_output, &decoded)
-        .expect_err("passive dimension state must not be rewritten");
-    assert!(
-        rewrite_error
-            .to_string()
-            .contains(VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY)
-    );
-    assert_eq!(document_output, b"sentinel");
+    let document_output =
+        serde_json::to_vec(&decoded).expect("rewrite supported dimension state document");
+    let rewritten = decode_vm_snapshot_document(&document_output)
+        .expect("decode rewritten dimension state document");
+    assert_eq!(rewritten, decoded);
 
     let mut restore_interner = ControlSequenceInterner::new();
-    restore_interner.intern("sentinel");
-    let original_len = restore_interner.len();
-    let restore_error = Vm::try_restore_document(&mut restore_interner, &encoded)
-        .expect_err("passive dimension state must not be executable");
+    let restored = Vm::try_restore_document(&mut restore_interner, &encoded)
+        .expect("restore supported dimension state");
     assert_eq!(
-        restore_error,
-        VmSnapshotDocumentRestoreError::Restore(VmRestoreError::UnsupportedDimensionParameterState)
+        restored.snapshot().dimension_parameter_state,
+        decoded.state.dimension_parameter_state
     );
-    assert_eq!(restore_interner.len(), original_len);
 }
 
 #[test]
@@ -318,7 +311,7 @@ fn passive_command_capability_freezes_identity_and_owner_linkage_only() {
     assert!(
         error
             .to_string()
-            .contains(VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY),
+            .contains(VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY),
         "capability validation must reject before emitting the document: {error}"
     );
     assert_eq!(output, b"sentinel");
@@ -429,7 +422,7 @@ fn passive_command_restore_is_explicit_for_direct_and_combined_snapshots() {
     assert!(
         write_error
             .to_string()
-            .contains(VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY)
+            .contains(VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY)
     );
     assert_eq!(combined_output, b"sentinel");
     let mut combined_interner = ControlSequenceInterner::new();
@@ -439,9 +432,138 @@ fn passive_command_restore_is_explicit_for_direct_and_combined_snapshots() {
         .expect_err("combined passive snapshot must fail restore preflight");
     assert_eq!(
         combined_error,
-        VmSnapshotDocumentRestoreError::Restore(VmRestoreError::UnsupportedDimensionParameterState)
+        VmSnapshotDocumentRestoreError::Restore(
+            VmRestoreError::UnsupportedDimensionParameterCommand(DimensionParameterId::HangIndent)
+        )
     );
     assert_eq!(combined_interner.len(), combined_len);
+}
+
+#[test]
+fn deprecated_unsupported_state_error_remains_source_compatible_but_is_not_emitted() {
+    #[allow(deprecated)]
+    let compatibility_error = VmRestoreError::UnsupportedDimensionParameterState;
+    assert_eq!(
+        compatibility_error.to_string(),
+        "VM snapshot dimension-parameter state is readable but cannot be restored"
+    );
+
+    let mut interner = ControlSequenceInterner::new();
+    let restored = Vm::try_restore_document(&mut interner, &canonical_state_document())
+        .expect("supported dimension state must not emit the compatibility error");
+    assert!(restored.snapshot().dimension_parameter_state.is_some());
+}
+
+#[test]
+fn state_validation_precedes_command_rejection_across_the_restore_matrix() {
+    let valid_state = canonical_state_document();
+    let mut valid_interner = ControlSequenceInterner::new();
+    Vm::try_restore_document(&mut valid_interner, &valid_state)
+        .expect("valid state without a command must restore");
+
+    let mut invalid_state =
+        serde_json::from_slice::<Value>(&valid_state).expect("parse valid state document");
+    invalid_state["state"]["dimension_parameter_state"]["layers"][0]
+        .as_array_mut()
+        .expect("root dimension layer")
+        .push(json!({"parameter": "hangindent", "value": 1}));
+    let invalid_state = serde_json::to_vec(&invalid_state).expect("encode invalid state document");
+    assert!(matches!(
+        decode_vm_snapshot_document(&invalid_state),
+        Err(VmSnapshotDocumentError::InvalidState(_))
+    ));
+
+    let mut valid_combined =
+        serde_json::from_slice::<Value>(&valid_state).expect("parse valid combined fixture");
+    valid_combined["required_capabilities"] = json!([
+        VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+        VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
+    ]);
+    valid_combined["state"]["scopes"][0]["savedhangindent"] =
+        serde_json::to_value(SnapshotMeaning::Primitive {
+            name: "hangindent".to_string(),
+        })
+        .expect("encode command identity");
+    let valid_combined =
+        serde_json::to_vec(&valid_combined).expect("encode valid combined document");
+    let mut combined_interner = ControlSequenceInterner::new();
+    combined_interner.intern("sentinel");
+    let combined_len = combined_interner.len();
+    assert_eq!(
+        Vm::try_restore_document(&mut combined_interner, &valid_combined)
+            .expect_err("valid state with a command must fail command preflight"),
+        VmSnapshotDocumentRestoreError::Restore(
+            VmRestoreError::UnsupportedDimensionParameterCommand(DimensionParameterId::HangIndent)
+        )
+    );
+    assert_eq!(combined_interner.len(), combined_len);
+
+    let mut invalid_combined =
+        serde_json::from_slice::<Value>(&valid_combined).expect("parse combined fixture");
+    invalid_combined["state"]["dimension_parameter_state"]["layers"][0]
+        .as_array_mut()
+        .expect("root dimension layer")
+        .push(json!({"parameter": "hangindent", "value": 2}));
+    let invalid_combined =
+        serde_json::to_vec(&invalid_combined).expect("encode invalid combined document");
+    assert!(matches!(
+        decode_vm_snapshot_document(&invalid_combined),
+        Err(VmSnapshotDocumentError::InvalidState(_))
+    ));
+}
+
+#[test]
+fn late_invalid_dimension_layer_fails_before_interner_mutation() {
+    let mut source_interner = ControlSequenceInterner::new();
+    let mut source = Vm::new(&mut source_interner);
+    let outcome = source.run_plain("{");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+    let mut snapshot = source.snapshot();
+    snapshot.dimension_parameter_state = Some(VmDimensionParameterStateV1 {
+        layers: vec![
+            vec![VmDimensionParameterAssignmentV1 {
+                parameter: DimensionParameterId::HangIndent,
+                value: RawDimensionSp::new(7),
+            }],
+            vec![
+                VmDimensionParameterAssignmentV1 {
+                    parameter: DimensionParameterId::HangIndent,
+                    value: RawDimensionSp::new(8),
+                },
+                VmDimensionParameterAssignmentV1 {
+                    parameter: DimensionParameterId::HangIndent,
+                    value: RawDimensionSp::new(9),
+                },
+            ],
+        ],
+    });
+
+    let mut restore_interner = ControlSequenceInterner::new();
+    restore_interner.intern("sentinel");
+    let restore_len = restore_interner.len();
+    let error = Vm::try_restore(&mut restore_interner, &snapshot)
+        .expect_err("duplicate owner in the final layer must fail preflight");
+    assert!(matches!(
+        error,
+        VmRestoreError::InvalidDimensionParameterState(_)
+    ));
+    assert_eq!(restore_interner.len(), restore_len);
+}
+
+#[test]
+fn semantic_json_whitespace_and_assignment_field_order_decode_identically() {
+    let canonical =
+        String::from_utf8(canonical_state_document()).expect("canonical document is UTF-8");
+    let reordered = canonical.replacen(
+        "\"parameter\":\"hangindent\",\"value\":2147483647",
+        "\"value\": 2147483647, \"parameter\": \"hangindent\"",
+        1,
+    );
+    assert_ne!(reordered, canonical, "fixture replacement must take effect");
+    assert_eq!(
+        decode_vm_snapshot_document(reordered.as_bytes()).expect("decode reordered document"),
+        decode_vm_snapshot_document(canonical.as_bytes()).expect("decode canonical document")
+    );
 }
 
 #[test]

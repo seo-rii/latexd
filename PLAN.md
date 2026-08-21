@@ -1351,6 +1351,66 @@ W1 closure Pro review `6a882770-9888-83ee-bba3-77d54be82343`는 confidence
 coupling이므로 W2/W3 review에서 exact `EqKey`/`EqValue` carrier audit와 explicit
 snapshot projection을 반복한다.
 
+W2 state persistence와 semantic hash promotion도 source-unreachable 단위로
+구현했다. Eqtb/SaveStack 상태는 `VmDimensionParameterStateV1`의 full scope lattice로
+projection되어 root zero는 생략하고 local zero shadow는 보존한다. `Vm::snapshot`이 이
+attachment를 capture하며 versioned document writer와 restore가 state capability만
+지원한다. Restore는 전체 validate/preflight 뒤 기존 typed assignment 경로로 root-to-leaf
+owner chain을 재구축한다. Command capability는 계속 readable-only라 latent
+`hangindent` primitive identity는 write/restore 전에 typed unsupported-command 오류로
+거부된다. Legacy snapshot wire도 capability-bearing state를 byte emission 전에 거부한다.
+
+Checkpoint semantic hash는 기존 지원 상태의 complete fingerprint v1을 그대로 보존하고,
+dimension state가 실제로 붙은 snapshot만 명시적 complete fingerprint v2 도메인으로
+rekey한다. v2는 `eqtb.dimension-parameter-state.v1\0` family tag, fixed-width little-endian
+`u64` length와 typed DTO의 canonical JSON bytes를 포함한다. Root owner, local zero owner,
+changed local value의 digest와 pre-W2 incomplete-v1 digest를 golden으로 고정했다. Raw JSON의
+공백/객체 field 순서는 decode 뒤 같은 DTO/hash가 되지만 DTO serialization/framing 자체는
+hash ABI다. Production `LegacyOnly` checkpoint writer는 모든 capture category의 attachment를
+계속 suppress/non-replay-safe 처리하면서 서로 다른 state hash와 checkpoint ID는 보존한다.
+Capability-free legacy hash와 기존 complete-v1 golden, epoch 5는 바뀌지 않았다.
+
+TDD는 missing projection compile RED와 dimension bytes가 빠진 pre-frame hash collision
+RED에서 시작했다. Focused projection/round-trip/unwind/W0-W2 contract/hash/checkpoint-lane
+회귀가 green이고, full `tex-vm`은 681개 lib와 모든 integration target, full
+`tex-checkpoint`는 68개 lib와 모든 compatibility/golden target을 통과했다. Canonical
+workspace Clippy도 green이다. Exact carrier/symbol audit에는 의도한 projection/capture,
+document write/restore, hash path만 있으며 source/builtin/`Primitive`/scanner/arithmetic/
+recovery/query/renderer caller는 없다. 다음 단위 W3는 parameter-local scanner,
+arithmetic/recovery/query, source activation과 epoch 6을 atomic하게 수행한다.
+
+W2 Pro remediation 전 clean full workspace는 239개 latexd lib, 5931.38초의 758/758
+compiler integration, 679/679 VM lib와 나머지 모든 target이 green이었다. Remediation
+후에는 `latexd`를 제외한 workspace 전체, 239개 latexd lib, 681개 VM lib와 모든 VM
+integration, 68개 checkpoint lib와 모든 checkpoint target, canonical Clippy가 green이다.
+Full workspace 병렬 smoke 재실행 두 번은 W2와 무관한 기존 케이스에서 각각 한 번씩
+실패했지만 exact isolated rerun은 같은 binary/target에서 모두 통과했다. 이 cross-test
+flake는 `RISK_REGISTER.md`의 `TEST-005`로 추적하며 W2 성공으로 숨기지 않는다. 기존 대형
+arXiv corpus test는 계속 manual/nightly용으로 명시적으로 ignored다.
+
+W2 Pro review `6a88490b-7640-83e8-aa45-8d9c50fc000c`는 confidence 0.94로
+`REVISE`했다. 지적된 public `VmRestoreError` source compatibility는 deprecated
+`UnsupportedDimensionParameterState` symbol과 기존 display를 보존하되 성공하는 state
+restore에서는 더 이상 emit하지 않는 회귀로 닫았다. Restore priority는 valid state/no
+command 성공, invalid state/no command invalid-state, valid state/command typed
+unsupported-command, invalid state/command invalid-state의 네 칸으로 고정했다. 모든 layered
+state validation은 fresh VM/interner mutation 전에 끝나고 이후 typed assignment는
+infallible하므로 late-invalid deepest layer도 caller interner를 바꾸지 않는다.
+
+같은 group의 반복 local assignment 뒤 nested global nondefault assignment가 모든 pending
+restore를 취소해 정확히 root owner와 빈 local layers만 남기는 projection/restore/unwind
+회귀를 추가했다. Generic checkpoint 소비자는 metadata attachment flag, 정확히 하나의
+restorable attachment, continuation safety, complete VM hash, checkpoint ID, 실제 restore를
+모두 만족해야 replay-safe다. Dimension attachment에 stale metadata를 주입한 회귀는 hash나
+ID 한쪽만 바꿔서는 계속 거부되고 v2 hash와 ID를 함께 rekey한 뒤에만 허용되며, 이후 state
+mutation은 다시 거부됨을 고정한다.
+
+Remediation closure Pro packet은 준비했지만 2026-08-21 두 번의 제출 시도 모두 shared
+browser broker가 Playwright `Browser.close: Connection closed while reading from the driver`
+로 startup 중 종료되어 새 verdict를 받지 못했다. 이는 코드 review rejection이 아니며,
+기존 `REVISE` findings, remediation evidence와 검증 결과를 이 문서와 보존된 local review
+packet에서 추적한다.
+
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit
 결정이다. Production `Vm::restore` 정적 guard와 non-empty interner/deep-layer malformed

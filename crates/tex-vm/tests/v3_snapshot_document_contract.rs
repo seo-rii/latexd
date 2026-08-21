@@ -958,6 +958,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
+            VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
         ]
     );
     assert_eq!(

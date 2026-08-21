@@ -1129,7 +1129,12 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
 // Persisted in checkpoint metadata and folded into checkpoint ids. This is a
 // semantic state identity: write-lane policy and attachment representation must
 // not change it. Capability-free state retains the legacy hash domain, while
-// capability-bearing state uses the complete domain-separated fingerprint.
+// capability-bearing state uses a complete domain-separated fingerprint. The
+// typed DTO JSON bytes below are part of that hash ABI: raw document whitespace
+// and object-field order disappear during decoding, but changing DTO
+// serialization or field framing requires an explicit fingerprint-version
+// decision. Fingerprint v1 remains frozen for pre-W2 supported states; v2 is
+// selected only when persisted dimension-parameter state is present.
 fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     let required_capabilities = snapshot.required_capabilities();
     let legacy: &LegacyVmSnapshotV1 = snapshot;
@@ -1140,7 +1145,11 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
 
     let muskip_json = serde_json::to_vec(&serde_json::to_value(&snapshot.muskip_registers)?)?;
     let mut fingerprint = blake3::Hasher::new();
-    fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
+    if snapshot.dimension_parameter_state.is_some() {
+        fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
+    } else {
+        fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
+    }
     fingerprint.update(
         &u64::try_from(legacy_json.len())
             .unwrap_or(u64::MAX)
@@ -1186,6 +1195,16 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     }
     if let Some(state) = &snapshot.layout_integer_parameter_state {
         fingerprint.update(b"eqtb.layout-integer-parameter-state.v1\0");
+        let state_json = serde_json::to_vec(state)?;
+        fingerprint.update(
+            &u64::try_from(state_json.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(&state_json);
+    }
+    if let Some(state) = &snapshot.dimension_parameter_state {
+        fingerprint.update(b"eqtb.dimension-parameter-state.v1\0");
         let state_json = serde_json::to_vec(state)?;
         fingerprint.update(
             &u64::try_from(state_json.len())
@@ -1653,8 +1672,9 @@ mod tests {
     use tempfile::tempdir;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{
-        IntegerParameterId, LayoutIntegerParameterId, SnapshotCapability, Vm,
-        VmCodeTableAssignmentV1, VmCodeTableStateV1, VmContinuationBlocker,
+        DimensionParameterId, IntegerParameterId, LayoutIntegerParameterId, RawDimensionSp,
+        SnapshotCapability, Vm, VmCodeTableAssignmentV1, VmCodeTableStateV1, VmContinuationBlocker,
+        VmDimensionParameterAssignmentV1, VmDimensionParameterStateV1,
         VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
         VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
         VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
@@ -2976,6 +2996,113 @@ mod tests {
     }
 
     #[test]
+    fn vm_semantic_hash_frames_dimension_parameter_state_by_owner_layer_and_value() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain("{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut local_default = vm.snapshot();
+        local_default.dimension_parameter_state = Some(VmDimensionParameterStateV1 {
+            layers: vec![
+                vec![],
+                vec![VmDimensionParameterAssignmentV1 {
+                    parameter: DimensionParameterId::HangIndent,
+                    value: RawDimensionSp::new(0),
+                }],
+            ],
+        });
+        let mut changed_value = local_default.clone();
+        changed_value
+            .dimension_parameter_state
+            .as_mut()
+            .expect("dimension state")
+            .layers[1][0]
+            .value = RawDimensionSp::new(1);
+        let mut root_owner = local_default.clone();
+        root_owner.dimension_parameter_state = Some(VmDimensionParameterStateV1 {
+            layers: vec![
+                vec![VmDimensionParameterAssignmentV1 {
+                    parameter: DimensionParameterId::HangIndent,
+                    value: RawDimensionSp::new(i32::MAX),
+                }],
+                vec![],
+            ],
+        });
+
+        let local_hash = super::checkpoint_vm_semantic_hash(&local_default)
+            .expect("hash local dimension default");
+        let changed_hash = super::checkpoint_vm_semantic_hash(&changed_value)
+            .expect("hash changed dimension value");
+        let root_hash =
+            super::checkpoint_vm_semantic_hash(&root_owner).expect("hash root dimension owner");
+        assert_ne!(local_hash, changed_hash);
+        assert_ne!(local_hash, root_hash);
+
+        let legacy: &tex_vm::LegacyVmSnapshotV1 = &local_default;
+        let legacy_json = serde_json::to_vec(
+            &serde_json::to_value(legacy).expect("serialize legacy projection value"),
+        )
+        .expect("serialize legacy projection bytes");
+        let muskip_json = serde_json::to_vec(
+            &serde_json::to_value(&local_default.muskip_registers).expect("serialize muskip value"),
+        )
+        .expect("serialize muskip bytes");
+        let dimension_json = serde_json::to_vec(
+            local_default
+                .dimension_parameter_state
+                .as_ref()
+                .expect("dimension state"),
+        )
+        .expect("serialize dimension state bytes");
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
+        expected.update(&(legacy_json.len() as u64).to_le_bytes());
+        expected.update(&legacy_json);
+        for capability in local_default.required_capabilities() {
+            expected.update(&(capability.as_str().len() as u64).to_le_bytes());
+            expected.update(capability.as_str().as_bytes());
+        }
+        expected.update(&(muskip_json.len() as u64).to_le_bytes());
+        expected.update(&muskip_json);
+        expected.update(&local_default.next_muskip_register.to_le_bytes());
+        expected.update(b"eqtb.dimension-parameter-state.v1\0");
+        expected.update(&(dimension_json.len() as u64).to_le_bytes());
+        expected.update(&dimension_json);
+
+        let mut pre_w2_incomplete = blake3::Hasher::new();
+        pre_w2_incomplete.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
+        pre_w2_incomplete.update(&(legacy_json.len() as u64).to_le_bytes());
+        pre_w2_incomplete.update(&legacy_json);
+        for capability in local_default.required_capabilities() {
+            pre_w2_incomplete.update(&(capability.as_str().len() as u64).to_le_bytes());
+            pre_w2_incomplete.update(capability.as_str().as_bytes());
+        }
+        pre_w2_incomplete.update(&(muskip_json.len() as u64).to_le_bytes());
+        pre_w2_incomplete.update(&muskip_json);
+        pre_w2_incomplete.update(&local_default.next_muskip_register.to_le_bytes());
+        let pre_w2_incomplete_hash = pre_w2_incomplete.finalize().to_hex().to_string();
+
+        assert_eq!(local_hash, expected.finalize().to_hex().to_string());
+        assert_eq!(
+            pre_w2_incomplete_hash,
+            "e0a6de20997005a4fefdb25413e7bea7b78cbe9c5dee6000a5aa346a588fa322"
+        );
+        assert_ne!(local_hash, pre_w2_incomplete_hash);
+        assert_eq!(
+            (
+                local_hash.as_str(),
+                changed_hash.as_str(),
+                root_hash.as_str(),
+            ),
+            (
+                "3f31d412595336f1babc94c9c38bad498ca60cbcaf108590d90b2cff26318904",
+                "d26717cc15cd28941d15ea5bdd64e32b344a9b75fbf80a70a3e8b4657756dba5",
+                "98a451e76c5c359de9027e4af7bdb53043bb1efa16ae701abb96c7380ce7591f",
+            )
+        );
+    }
+
+    #[test]
     fn complete_vm_hash_framing_uses_fixed_width_lengths_and_family_tags() {
         let mut interner = ControlSequenceInterner::new();
         let mut snapshot = Vm::new(&mut interner).snapshot();
@@ -3085,6 +3212,71 @@ mod tests {
             .expect("layout state")
             .layers[0][0]
             .value += 1;
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "state mutation after rekey must invalidate replay identity"
+        );
+    }
+
+    #[test]
+    fn dimension_attachment_requires_both_fingerprint_v2_and_checkpoint_rekey() {
+        let mut interner = ControlSequenceInterner::new();
+        let fresh = Vm::new(&mut interner).snapshot();
+        let mut dimension = fresh.clone();
+        dimension.dimension_parameter_state = Some(VmDimensionParameterStateV1 {
+            layers: vec![vec![VmDimensionParameterAssignmentV1 {
+                parameter: DimensionParameterId::HangIndent,
+                value: RawDimensionSp::new(61),
+            }]],
+        });
+        let mut bundle = build_checkpoint_bundle(7, &fresh, "preamble", &[])
+            .expect("build pre-dimension identity");
+        let checkpoint = &mut bundle.checkpoints[0];
+        let legacy_hash = checkpoint.meta.vm_state_hash.clone();
+        let legacy_id = checkpoint.meta.checkpoint_id.clone();
+        checkpoint.attachment = StoredSnapshotAttachment::Versioned(
+            VersionedSnapshotSlot::from_snapshot(dimension.clone()),
+        );
+
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "a newly attached dimension snapshot must not reuse stale metadata"
+        );
+        let dimension_hash =
+            super::checkpoint_vm_semantic_hash(&dimension).expect("hash dimension state");
+        assert_ne!(dimension_hash, legacy_hash);
+        let dimension_id = super::checkpoint_id(
+            checkpoint.meta.kind.clone(),
+            checkpoint.meta.rev,
+            checkpoint.meta.page_index_after,
+            &checkpoint.meta.boundary_hash,
+            &dimension_hash,
+        );
+
+        checkpoint.meta.checkpoint_id = dimension_id.clone();
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "checkpoint ID alone must not excuse a stale VM hash"
+        );
+        checkpoint.meta.checkpoint_id = legacy_id;
+        checkpoint.meta.vm_state_hash = dimension_hash;
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "VM hash alone must not excuse a stale checkpoint ID"
+        );
+        checkpoint.meta.checkpoint_id = dimension_id;
+        assert!(super::checkpoint_is_replay_safe(checkpoint));
+
+        let StoredSnapshotAttachment::Versioned(slot) = &mut checkpoint.attachment else {
+            panic!("versioned dimension attachment");
+        };
+        slot.document
+            .state
+            .dimension_parameter_state
+            .as_mut()
+            .expect("dimension state")
+            .layers[0][0]
+            .value = RawDimensionSp::new(62);
         assert!(
             !super::checkpoint_is_replay_safe(checkpoint),
             "state mutation after rekey must invalidate replay identity"

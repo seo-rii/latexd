@@ -5,7 +5,10 @@ use tex_tokens::{CatCode, Token};
 
 use crate::{
     command::Meaning,
-    dimension_parameter::{DimensionParameterId, RawDimensionSp},
+    dimension_parameter::{
+        DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
+        VmDimensionParameterStateV1,
+    },
     save_stack::{SaveDisposition, SaveStack},
     snapshot::{
         IntegerParameterId, LayoutIntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
@@ -899,6 +902,77 @@ impl Eqtb {
             .then_some(VmLayoutIntegerParameterStateV1 { layers })
     }
 
+    pub(crate) fn dimension_parameter_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmDimensionParameterStateV1> {
+        let mut working = self
+            .entries
+            .iter()
+            .filter(|(key, _)| matches!(key, EqKey::DimensionParameter(_)))
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut layers = vec![Vec::new(); save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
+            for (key, previous) in restores {
+                let EqKey::DimensionParameter(parameter) = key else {
+                    continue;
+                };
+                let current = working
+                    .remove(key)
+                    .expect("restore record must have a current dimension-parameter entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current dimension-parameter entry must match its restore group level"
+                );
+                let EqValue::DimensionParameter(value) = current.value else {
+                    unreachable!("dimension-parameter key must contain a matching value");
+                };
+                layers[group_level].push(VmDimensionParameterAssignmentV1 {
+                    parameter: *parameter,
+                    value,
+                });
+                if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous dimension-parameter entry must precede its restore group level"
+                    );
+                    assert!(matches!(previous.value, EqValue::DimensionParameter(_)));
+                    working.insert(key.clone(), previous.clone());
+                }
+            }
+        }
+
+        layers[0] = working
+            .into_iter()
+            .map(|(key, entry)| {
+                assert_eq!(
+                    entry.level, 0,
+                    "root dimension-parameter entry must have level zero"
+                );
+                let EqKey::DimensionParameter(parameter) = key else {
+                    unreachable!("filtered dimension-parameter key must contain a parameter");
+                };
+                let EqValue::DimensionParameter(value) = entry.value else {
+                    unreachable!("dimension-parameter key must contain a matching value");
+                };
+                assert_ne!(
+                    value,
+                    parameter.default_value(),
+                    "root dimension-parameter defaults must be canonicalized away"
+                );
+                VmDimensionParameterAssignmentV1 { parameter, value }
+            })
+            .collect();
+
+        layers
+            .iter()
+            .any(|layer| !layer.is_empty())
+            .then_some(VmDimensionParameterStateV1 { layers })
+    }
+
     fn code_table_snapshot_state(
         &self,
         save_stack: &SaveStack,
@@ -1117,7 +1191,10 @@ mod tests {
     use super::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
     use crate::{
         command::{Meaning, Primitive},
-        dimension_parameter::{DimensionParameterId, RawDimensionSp},
+        dimension_parameter::{
+            DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
+            VmDimensionParameterStateV1,
+        },
         save_stack::SaveStack,
         snapshot::{IntegerParameterId, LayoutIntegerParameterId},
     };
@@ -1486,6 +1563,138 @@ mod tests {
                 }
             }
             traces = next_traces;
+        }
+    }
+
+    #[test]
+    fn dimension_parameter_snapshot_state_preserves_canonical_owner_layers() {
+        let hangindent = DimensionParameterId::HangIndent;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        assert_eq!(eqtb.dimension_parameter_snapshot_state(&save_stack), None);
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(i32::MAX),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(i32::MIN),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+
+        assert_eq!(
+            eqtb.dimension_parameter_snapshot_state(&save_stack),
+            Some(VmDimensionParameterStateV1 {
+                layers: vec![
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(i32::MAX),
+                    }],
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(0),
+                    }],
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(i32::MIN),
+                    }],
+                ],
+            })
+        );
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(
+            eqtb.dimension_parameter_snapshot_state(&save_stack),
+            Some(VmDimensionParameterStateV1 {
+                layers: vec![
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(i32::MAX),
+                    }],
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(0),
+                    }],
+                ],
+            })
+        );
+
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Global,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.dimension_parameter_snapshot_state(&save_stack), None);
+    }
+
+    #[test]
+    fn global_nondefault_dimension_assignment_cancels_nested_local_owner_layers() {
+        let hangindent = DimensionParameterId::HangIndent;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(41),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        for value in [51, 52] {
+            eqtb.assign_dimension_parameter(
+                hangindent,
+                RawDimensionSp::new(value),
+                AssignmentScope::Local,
+                2,
+                &mut save_stack,
+            );
+        }
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(61),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+
+        for expected_layers in [3, 2, 1] {
+            assert_eq!(
+                eqtb.dimension_parameter_snapshot_state(&save_stack),
+                Some(VmDimensionParameterStateV1 {
+                    layers: std::iter::once(vec![VmDimensionParameterAssignmentV1 {
+                        parameter: hangindent,
+                        value: RawDimensionSp::new(61),
+                    }])
+                    .chain(std::iter::repeat_n(Vec::new(), expected_layers - 1))
+                    .collect(),
+                })
+            );
+            assert_eq!(
+                eqtb.dimension_parameter_owner(hangindent),
+                Some((RawDimensionSp::new(61), 0))
+            );
+            if expected_layers > 1 {
+                eqtb.end_group(&mut save_stack);
+            }
         }
     }
 

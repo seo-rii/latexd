@@ -1,14 +1,15 @@
 # M13.3-DP1 `\hangindent` Characterization
 
-Status: characterization, passive W0 reader, and source-unreachable W1 owner
-complete; persistence and source activation not started.
+Status: characterization, passive W0 reader, source-unreachable W1 owner, and
+W2 state persistence/semantic hashing complete; source activation not started.
 
 This unit establishes the next bounded M13.3 assignment owner without changing
 production behavior. `\hangindent` now has a dormant crate-private Eqtb owner,
-but remains absent from builtin lookup, production command dispatch,
-checkpoint state, and rendering. Its two snapshot capabilities are inspect-only:
-readable, but neither supported/writable nor restorable. The checkpoint VM
-semantic epoch remains 5.
+but remains absent from builtin lookup, production command dispatch, and
+rendering. Its state capability is supported, writable in a versioned snapshot
+document, restorable, and included in semantic identity. Its command capability
+remains inspect-only and unsupported. The production checkpoint writer remains
+`LegacyOnly`, and the checkpoint VM semantic epoch remains 5.
 
 ## Why this owner
 
@@ -22,8 +23,8 @@ slice.
 
 The plan review `6a807f92-8c54-83e8-8e47-21f683454768` approved only this
 characterization gate. The passive wire contract and dormant in-memory owner
-are now complete as separate units; state persistence/hash promotion and source
-activation with epoch 6 remain pending.
+are now joined by a separately tested state persistence/hash unit. Source
+activation with epoch 6 remains pending.
 
 Gate-1 review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3` returned `PROCEED` with
 0.87 confidence after correcting two boundaries: durable state accepts every
@@ -140,8 +141,8 @@ data model, not byte-level JSON spelling. Capability headers retain the existing
 set-membership rule: duplicate or noncanonical order is accepted and normalized
 on a later supported rewrite rather than rejected by this W0 reader.
 
-Checkpoint epoch remains 5 and no dimension-state hash frame exists. Production
-snapshots remain capability-free in the existing legacy byte/hash domain;
+At W0, checkpoint epoch remained 5 and no dimension-state hash frame existed.
+Production snapshots remain capability-free in the existing legacy byte/hash domain;
 manually constructed passive snapshots are lane-suppressed and fail restore
 preflight. W0 adds no `Primitive` variant, Eqtb key, source registration,
 capture attachment, writer, runtime application, dimension-state hash framing,
@@ -149,10 +150,10 @@ or supported executable/writable capability.
 
 ## Dormant W1 owner
 
-W1 adds only `EqKey::DimensionParameter(DimensionParameterId)` and
+At W1, the unit added only `EqKey::DimensionParameter(DimensionParameterId)` and
 `EqValue::DimensionParameter(RawDimensionSp)` plus crate-private Eqtb read and
 assignment methods. The owner remains unreachable from source, is not a
-`Primitive`, and is not captured by `VmSnapshot`. Root/global zero remains a
+`Primitive`, and was not captured by `VmSnapshot`. Root/global zero remains a
 virtual default, local zero is retained as an owned shadow, local assignments
 use the common SaveStack save-once/unwind behavior, and global assignments
 cancel every pending restore for the key.
@@ -187,6 +188,90 @@ unit for an independent commit/push. Its low residual risk is future accidental
 coupling through a generic Eqtb enum consumer, so W2 and W3 must repeat the exact
 `EqKey`/`EqValue` carrier audit and keep explicit snapshot projection.
 
+## W2 persistence and semantic hash
+
+W2 projects the private Eqtb owner and its SaveStack restore chain into
+`VmDimensionParameterStateV1`. The projection keeps the complete scope lattice,
+elides a root zero, preserves local zero shadows, orders owners canonically, and
+returns no attachment when every layer is empty. `Vm::snapshot` now captures
+that projection; versioned document serialization emits
+`dimension_parameter_state`; restore validates all layers before mutation and
+then rebuilds them root-to-leaf through the same typed assignment path.
+
+Only `eqtb.dimension-parameter-state.v1` joins the supported/writable set.
+`primitive.dimension-parameter-command.v1` remains readable-only, so a latent
+command identity still fails document write and restore preflight before any
+state or interner mutation. Legacy `VmSnapshot` serialization still rejects
+capability-bearing state before writing bytes.
+
+Checkpoint semantic identity preserves complete fingerprint v1 for every
+previously supported state and selects an explicit complete fingerprint v2
+domain only when dimension-parameter state is present. V2 appends the family
+tag `eqtb.dimension-parameter-state.v1\0`, a fixed-width little-endian `u64`
+JSON length, and canonical typed-state bytes. Golden hashes distinguish a root
+owner, a local zero owner, and a changed local value; a frozen pre-W2
+incomplete-v1 digest proves that a dimension-bearing snapshot is rekeyed. Raw
+JSON whitespace and object-field order decode to the same semantic DTO, while
+the DTO serialization and framing are themselves hash ABI. The production
+checkpoint writer remains `LegacyOnly`: all capture categories suppress this
+capability-bearing attachment, mark it non-replay-safe, and nevertheless retain
+distinct state hashes and checkpoint IDs. Capability-free legacy hashes,
+existing complete-v1 goldens, and `CHECKPOINT_VM_SEMANTIC_EPOCH` remain
+unchanged.
+
+TDD evidence includes the missing-projection compile RED and the pre-frame hash
+collision RED. Focused projection, versioned round-trip/unwind, frozen W0/W2
+contract, hash framing, and checkpoint-lane tests pass. Full `tex-vm` passes
+681 library tests and every integration target; full `tex-checkpoint` passes 68
+library tests and every compatibility/golden target. Canonical workspace Clippy
+also passes. Exact carrier and symbol inventories show only the intended
+projection/capture, document write/restore, and hash paths; no source, builtin,
+`Primitive`, scanner, arithmetic, recovery, query, or renderer caller exists.
+
+The clean full-workspace run immediately before the bounded Pro remediation
+passed 239 latexd library tests, the 758/758 compiler integration target in
+5931.38 seconds, 679/679 VM library tests, and every remaining target. After
+remediation, the workspace excluding the `latexd` package passes completely,
+the 239-test latexd library target passes independently, and the VM/checkpoint
+counts above pass again. Two parallel full-workspace smoke attempts each hit a
+different unrelated existing case once; both exact tests passed immediately in
+isolation against the same binary and target directory. This cross-test flake
+is tracked as `TEST-005` in the uncommitted risk register rather than reported
+as a W2 success. The existing large arXiv corpus test remains explicitly
+ignored for manual/nightly execution.
+
+W2 Pro review `6a88490b-7640-83e8-aa45-8d9c50fc000c` returned `REVISE` at
+0.94 confidence while finding the persistence architecture coherent and the W3
+boundary intact. Its compatibility and failure-contract findings are closed as
+follows:
+
+- the former public `VmRestoreError::UnsupportedDimensionParameterState`
+  symbol and display text remain as a deprecated source-compatibility shim, but
+  supported dimension-state restore never emits it;
+- restore precedence is an explicit four-cell matrix: valid state without a
+  command restores, invalid state without a command reports invalid state,
+  valid state plus a command reports typed unsupported-command, and invalid
+  state plus a command reports invalid state because complete state validation
+  precedes command preflight;
+- a malformed duplicate in the deepest dimension layer fails before a fresh VM
+  is built or a caller-owned interner is changed. After whole-snapshot
+  validation, typed Eqtb assignments are infallible;
+- repeated same-level locals followed by a nested global nondefault assignment
+  cancel all pending restores. Projection, versioned restore, unwind, and
+  recapture preserve the root owner and exact empty local layers;
+- generic replay eligibility requires the attachment metadata flag, exactly one
+  restorable attachment, continuation safety, matching complete VM hash,
+  matching checkpoint ID, and a successful restore. A stale dimension
+  attachment remains rejected until both its v2 VM hash and checkpoint ID are
+  rekeyed, and any later state mutation invalidates it again.
+
+Two attempts to submit the remediation closure packet on 2026-08-21 ended
+before review when the shared browser broker crashed during Playwright startup
+(`Browser.close: Connection closed while reading from the driver`). No closure
+verdict was produced; this is recorded as review-infrastructure unavailability,
+not as an approval or rejection. The prior findings and their local evidence
+remain preserved in the plan and review packet.
+
 ## Next gate
 
 Physical/current-font/true-unit scanning and exact parameter-local arithmetic/
@@ -194,8 +279,7 @@ recovery remain source-activation blockers, not passive identity blockers.
 Characterization failure remains a valid reason to stop W3 and must not be
 hidden by changing existing dimension-register semantics. Epoch stays 5 through
 the source-unreachable owner and persistence promotion; epoch 6 remains atomic
-with source reachability. The dormant W1 owner is complete. The next
-implementation unit is W2 state persistence and semantic-hash promotion while
-the owner remains source-unreachable. W3 then owns the parameter-local scanner,
-arithmetic/recovery behavior, source activation, and epoch-6 transition as one
-atomic unit. It must not reuse the current register dimension scanner unchanged.
+with source reachability. W2 is complete. The next implementation unit is W3:
+the parameter-local scanner, arithmetic/recovery behavior, query semantics,
+source activation, and epoch-6 transition as one atomic unit. It must not reuse
+the current register dimension scanner unchanged.

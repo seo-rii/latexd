@@ -138,10 +138,14 @@ pub enum VmRestoreError {
     InvalidIntegerParameterState(String),
     InvalidLayoutIntegerParameterState(String),
     InvalidDimensionParameterState(String),
+    #[deprecated(
+        note = "retained for source compatibility; dimension-parameter state restore is supported"
+    )]
     UnsupportedDimensionParameterState,
     UnsupportedDimensionParameterCommand(DimensionParameterId),
 }
 
+#[allow(deprecated)]
 impl std::fmt::Display for VmRestoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -223,7 +227,6 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             state
                 .validate(snapshot.scopes.len())
                 .map_err(VmRestoreError::InvalidDimensionParameterState)?;
-            return Err(VmRestoreError::UnsupportedDimensionParameterState);
         }
         if let Some(parameter) = snapshot.dimension_parameter_command_v1() {
             return Err(VmRestoreError::UnsupportedDimensionParameterCommand(
@@ -16847,7 +16850,8 @@ impl<'i> Vm<'i> {
             self.eqtb.integer_parameter_snapshot_state(&self.save_stack),
             self.eqtb
                 .layout_integer_parameter_snapshot_state(&self.save_stack),
-            None,
+            self.eqtb
+                .dimension_parameter_snapshot_state(&self.save_stack),
         )
     }
 
@@ -16889,6 +16893,10 @@ impl<'i> Vm<'i> {
         interner: &'i mut ControlSequenceInterner,
         snapshot: &VmSnapshot,
     ) -> Result<Self, VmRestoreError> {
+        // Validate the complete layered state before constructing a fresh VM or
+        // interning snapshot names. The typed Eqtb assignments below are
+        // infallible after this preflight, so a late invalid layer is atomic
+        // with respect to the caller-owned interner.
         validate_snapshot_for_restore(snapshot)?;
         let mut vm = Self::new(interner);
         vm.jobname_source_path = snapshot.jobname_source_path.clone();
@@ -16985,6 +16993,17 @@ impl<'i> Vm<'i> {
             if let Some(state) = &snapshot.layout_integer_parameter_state {
                 for assignment in &state.layers[group_level] {
                     vm.eqtb.assign_layout_integer_parameter(
+                        assignment.parameter,
+                        assignment.value,
+                        scope,
+                        group_level,
+                        &mut vm.save_stack,
+                    );
+                }
+            }
+            if let Some(state) = &snapshot.dimension_parameter_state {
+                for assignment in &state.layers[group_level] {
+                    vm.eqtb.assign_dimension_parameter(
                         assignment.parameter,
                         assignment.value,
                         scope,
@@ -35020,19 +35039,16 @@ mod tests {
         AssignmentScope, DimensionParameterId, IntegerParameterId, MAX_PENDING_QUEUE_ITEMS,
         RawDimensionSp, VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
         VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY, Vm, VmCodeTableAssignmentV1,
-        VmCodeTableStateV1, VmDiagnosticKind, VmIntegerParameterAssignmentV1,
-        VmIntegerParameterStateV1, VmModuleCheckpointKind, VmReplayFrame, VmSnapshotDocument,
-        compile_format_snapshot,
+        VmCodeTableStateV1, VmDiagnosticKind, VmDimensionParameterAssignmentV1,
+        VmDimensionParameterStateV1, VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
+        VmModuleCheckpointKind, VmReplayFrame, VmSnapshotDocument, compile_format_snapshot,
     };
 
     #[test]
-    fn dormant_dimension_parameter_owner_is_not_attached_to_production_snapshots() {
+    fn dimension_parameter_owner_round_trips_through_versioned_snapshot_state() {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
-        let snapshot_before = vm.snapshot();
-        let document_before =
-            serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot_before.clone()))
-                .expect("serialize production snapshot before dormant owner mutation");
+        assert!(vm.snapshot().dimension_parameter_state.is_none());
         vm.eqtb.assign_dimension_parameter(
             DimensionParameterId::HangIndent,
             RawDimensionSp::new(i32::MAX),
@@ -35040,26 +35056,132 @@ mod tests {
             0,
             &mut vm.save_stack,
         );
-
-        let snapshot_after = vm.snapshot();
-        let document_after =
-            serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot_after.clone()))
-                .expect("serialize production snapshot after dormant owner mutation");
-        assert_eq!(
-            vm.eqtb
-                .dimension_parameter(DimensionParameterId::HangIndent),
-            RawDimensionSp::new(i32::MAX)
+        let outcome = vm.run_plain("{");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        vm.eqtb.assign_dimension_parameter(
+            DimensionParameterId::HangIndent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Local,
+            1,
+            &mut vm.save_stack,
         );
-        assert_eq!(snapshot_after, snapshot_before);
-        assert_eq!(document_after, document_before);
-        assert!(snapshot_after.dimension_parameter_state.is_none());
-        let required_capabilities = snapshot_after.required_capabilities();
-        assert!(!required_capabilities.iter().any(|capability| {
+
+        let snapshot = vm.snapshot();
+        assert_eq!(
+            snapshot.dimension_parameter_state,
+            Some(VmDimensionParameterStateV1 {
+                layers: vec![
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: DimensionParameterId::HangIndent,
+                        value: RawDimensionSp::new(i32::MAX),
+                    }],
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter: DimensionParameterId::HangIndent,
+                        value: RawDimensionSp::new(0),
+                    }],
+                ],
+            })
+        );
+        let required_capabilities = snapshot.required_capabilities();
+        assert!(required_capabilities.iter().any(|capability| {
             capability.as_str() == VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY
         }));
         assert!(!required_capabilities.iter().any(|capability| {
             capability.as_str() == VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY
         }));
+
+        let document = serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot.clone()))
+            .expect("serialize dimension-parameter state");
+        assert!(String::from_utf8_lossy(&document).contains("\"dimension_parameter_state\""));
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::try_restore_document(&mut restored_interner, &document)
+            .expect("restore dimension-parameter state");
+        assert_eq!(restored.snapshot(), snapshot);
+        assert_eq!(
+            restored
+                .eqtb
+                .dimension_parameter_owner(DimensionParameterId::HangIndent),
+            Some((RawDimensionSp::new(0), 1))
+        );
+        restored.eqtb.end_group(&mut restored.save_stack);
+        assert_eq!(
+            restored
+                .eqtb
+                .dimension_parameter_owner(DimensionParameterId::HangIndent),
+            Some((RawDimensionSp::new(i32::MAX), 0))
+        );
+    }
+
+    #[test]
+    fn globally_reassigned_nested_dimension_owner_round_trips_and_unwinds_canonically() {
+        let parameter = DimensionParameterId::HangIndent;
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        assert!(vm.run_plain("{").diagnostics.is_empty());
+        vm.eqtb.assign_dimension_parameter(
+            parameter,
+            RawDimensionSp::new(41),
+            AssignmentScope::Local,
+            1,
+            &mut vm.save_stack,
+        );
+        assert!(vm.run_plain("{").diagnostics.is_empty());
+        for value in [51, 52] {
+            vm.eqtb.assign_dimension_parameter(
+                parameter,
+                RawDimensionSp::new(value),
+                AssignmentScope::Local,
+                2,
+                &mut vm.save_stack,
+            );
+        }
+        vm.eqtb.assign_dimension_parameter(
+            parameter,
+            RawDimensionSp::new(61),
+            AssignmentScope::Global,
+            2,
+            &mut vm.save_stack,
+        );
+
+        let snapshot = vm.snapshot();
+        assert_eq!(
+            snapshot.dimension_parameter_state,
+            Some(VmDimensionParameterStateV1 {
+                layers: vec![
+                    vec![VmDimensionParameterAssignmentV1 {
+                        parameter,
+                        value: RawDimensionSp::new(61),
+                    }],
+                    vec![],
+                    vec![],
+                ],
+            })
+        );
+        let document = serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot.clone()))
+            .expect("serialize nested global dimension owner");
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::try_restore_document(&mut restored_interner, &document)
+            .expect("restore nested global dimension owner");
+        assert_eq!(restored.snapshot(), snapshot);
+
+        for expected_layers in [2, 1] {
+            restored.eqtb.end_group(&mut restored.save_stack);
+            assert_eq!(
+                restored.snapshot().dimension_parameter_state,
+                Some(VmDimensionParameterStateV1 {
+                    layers: std::iter::once(vec![VmDimensionParameterAssignmentV1 {
+                        parameter,
+                        value: RawDimensionSp::new(61),
+                    }])
+                    .chain(std::iter::repeat_n(Vec::new(), expected_layers - 1))
+                    .collect(),
+                })
+            );
+            assert_eq!(
+                restored.eqtb.dimension_parameter_owner(parameter),
+                Some((RawDimensionSp::new(61), 0))
+            );
+        }
     }
 
     #[test]

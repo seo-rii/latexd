@@ -1883,6 +1883,78 @@ accidental coupling through a generic Eqtb enum consumer. W2 and W3 therefore
 repeat the exact `EqKey`/`EqValue` carrier audit and preserve explicit snapshot
 projection as a review gate.
 
+W2 state persistence and semantic hashing are now implemented as a separate,
+still-source-unreachable unit. Eqtb and SaveStack project the owner into the
+full-scope `VmDimensionParameterStateV1` lattice, eliding root zero while
+preserving local zero shadows. `Vm::snapshot` captures the attachment, the
+versioned document writer emits it, and restore validates the complete document
+before rebuilding its owner chain root-to-leaf through the typed Eqtb assignment
+path.
+
+Only `eqtb.dimension-parameter-state.v1` is now supported, writable, and
+restorable. `primitive.dimension-parameter-command.v1` remains readable-only;
+latent command identities still fail write and restore preflight before state
+or interner mutation. The legacy snapshot wire rejects capability-bearing state
+before emitting bytes.
+
+The complete semantic fingerprint preserves v1 for every previously supported
+state and selects an explicit v2 domain only for a snapshot carrying dimension
+state. V2 frames that state with the
+`eqtb.dimension-parameter-state.v1\0` family tag, a fixed-width little-endian
+`u64` byte length, and canonical typed-state JSON. Golden digests distinguish
+root, local-zero, and changed-value owners, while a frozen pre-W2 incomplete-v1
+digest proves the required rekey. Raw JSON whitespace and object-field order
+decode away; typed DTO serialization and family framing are hash ABI. The
+production checkpoint writer remains `LegacyOnly`, suppressing every such
+attachment and keeping it non-replay-safe while its state hash and checkpoint
+ID still distinguish values. Existing capability-free legacy hashes, complete
+v1 goldens, and checkpoint epoch 5 are unchanged.
+
+The TDD RED evidence is the absent projection API and the pre-frame collision
+between different dimension values. Focused projection, document
+round-trip/unwind, W0/W2 contract, hash framing, and checkpoint-lane tests pass.
+Full `tex-vm` passes 681 library tests and all integrations; full
+`tex-checkpoint` passes 68 library tests and all compatibility/golden targets;
+canonical workspace Clippy passes. The repeated carrier/symbol audit finds only
+projection/capture, versioned document write/restore, and semantic hashing—no
+source, builtin, `Primitive`, scanner, arithmetic, recovery, query, or renderer
+caller. W3 is now the next atomic unit and owns those language semantics,
+source activation, and epoch 6.
+
+The clean full workspace immediately before the bounded Pro remediation passed
+239 latexd library tests, the 758/758 compiler integration target in 5931.38
+seconds, 679/679 VM library tests, and every remaining target. After remediation,
+the workspace excluding the `latexd` package passes completely, the 239-test
+latexd library target passes independently, and the VM/checkpoint counts above
+pass again. Two parallel full-workspace smoke attempts each observed a different
+unrelated existing failure, and each exact test passed immediately in isolation
+against the same binary and target. The cross-test flake is tracked as
+`RISK_REGISTER.md` `TEST-005`; it is not hidden as a W2 pass. The existing large
+arXiv corpus case remains explicitly ignored for manual/nightly execution.
+
+W2 Pro review `6a88490b-7640-83e8-aa45-8d9c50fc000c` returned `REVISE` at
+0.94 confidence while confirming that no W3 source/scanner boundary had been
+crossed. Remediation retains the removed public
+`UnsupportedDimensionParameterState` variant as a deprecated, never-emitted
+compatibility shim; freezes the valid/invalid state × absent/present command
+precedence matrix with state validation first; and proves that a duplicate in a
+late layer fails before caller-interner mutation. Same-level local reassignment
+followed by a nested global nondefault assignment now has exact
+projection/restore/unwind evidence for a root owner plus empty local layers.
+
+The generic checkpoint consumer audit confirms that replay eligibility requires
+the metadata attachment flag, exactly one restorable attachment, continuation
+safety, a matching complete semantic hash, a matching checkpoint ID, and a
+successful VM restore. A dimension attachment with stale metadata remains
+replay-unsafe when only one identity field is updated, becomes eligible only
+after the v2 hash and checkpoint ID are both rekeyed, and becomes unsafe again
+after attachment-state mutation.
+
+Two remediation closure submissions on 2026-08-21 failed before review because
+the shared browser broker crashed during Playwright startup. They produced no
+new verdict, so the project records neither approval nor rejection and retains
+the prior findings plus the complete local remediation packet as evidence.
+
 Current migration evidence through `cd64df6`:
 
 - `EqKey::ControlSequence(String)` and `EqValue::ControlSequence(Box<Meaning>)` use
