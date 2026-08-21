@@ -1,26 +1,29 @@
 # M13.3-DP1 `\hangindent` Characterization
 
-Status: characterization and passive W0 reader complete; runtime owner,
-persistence, and source activation not started.
+Status: characterization, passive W0 reader, and source-unreachable W1 owner
+complete; persistence and source activation not started.
 
 This unit establishes the next bounded M13.3 assignment owner without changing
-production behavior. `\hangindent` is still absent from builtin lookup, Eqtb,
-the command model, checkpoint state, and rendering. Its two snapshot
-capabilities are inspect-only: readable, but neither supported/writable nor
-restorable. The checkpoint VM semantic epoch remains 5.
+production behavior. `\hangindent` now has a dormant crate-private Eqtb owner,
+but remains absent from builtin lookup, production command dispatch,
+checkpoint state, and rendering. Its two snapshot capabilities are inspect-only:
+readable, but neither supported/writable nor restorable. The checkpoint VM
+semantic epoch remains 5.
 
 ## Why this owner
 
-`\hangindent` has a fresh INITEX default of 0sp, uses the ordinary dimension
-scalar already represented by `EqValue::Dimension(i32)`, and has no current
-latexd rendering or source-recovery consumer. `\hsize` and `\parindent` already
-occur in source heuristics, while box and font state require identity and
-ownership designs larger than one scalar assignment slice.
+`\hangindent` has a fresh INITEX default of 0sp and has no current latexd
+rendering or source-recovery consumer. Its dormant owner uses the neutral
+`RawDimensionSp` scalar in a distinct `EqValue::DimensionParameter` variant, so
+indexed dimension registers and the versioned wire-layer DTO remain separate.
+`\hsize` and `\parindent` already occur in source heuristics, while box and font
+state require identity and ownership designs larger than one scalar assignment
+slice.
 
 The plan review `6a807f92-8c54-83e8-8e47-21f683454768` approved only this
-characterization gate. The passive wire contract is now complete; it remains
-separate from the dormant in-memory owner, state persistence/hash promotion,
-and source activation with epoch 6.
+characterization gate. The passive wire contract and dormant in-memory owner
+are now complete as separate units; state persistence/hash promotion and source
+activation with epoch 6 remain pending.
 
 Gate-1 review `6a80898e-c504-83ee-ae9a-aa487dd8e8f3` returned `PROCEED` with
 0.87 confidence after correcting two boundaries: durable state accepts every
@@ -36,7 +39,7 @@ generic primitive resolution or mutation.
 Closure review `6a809a1d-a964-83e8-bfd7-a20f038f4a6d` returned `APPROVE` with
 0.94 confidence and closed all three original blockers. The state matrix also
 rejects `parindent`, `hsize`, `HangIndent`, and `hang-indent` as raw V1 IDs.
-The post-change full workspace suite remains the final gate before W1 begins.
+The post-change full workspace suite passed before W1 began.
 
 ## Authoritative oracle
 
@@ -78,7 +81,7 @@ Notable native facts are:
 
 | Behavior | Native `\hangindent` | Native `\dimen0` | Current VM `\dimen0` | DP1 decision |
 | --- | --- | --- | --- | --- |
-| Default/scalar | 0sp, signed scaled points | Same | 0sp, `i32` scaled points | Reuse `EqValue::Dimension(i32)` with a distinct key; durable state accepts `-2,147,483,648..=2,147,483,647`. |
+| Default/scalar | 0sp, signed scaled points | Same | 0sp, `i32` scaled points | Use distinct `EqKey::DimensionParameter` and `EqValue::DimensionParameter(RawDimensionSp)` runtime storage; durable state accepts `-2,147,483,648..=2,147,483,647`. |
 | Optional `=` and signs | `=` optional; repeated signs accepted | Same | Assignment currently requires `=` and its literal scanner consumes one sign | Parameter-local scanner policy required. |
 | Fractional sp | `.5sp` truncates to 0sp | Same | `.5sp` rounds to 1sp | Do not reuse the register literal conversion unchanged. |
 | Physical units | `pt`, `sp`, `in`, `pc`, `cm`, `mm`, `bp`, `dd`, `cc` | Same | Literal register scanner accepts only `pt` and `sp` | Activation is blocked until v1 either implements the native set locally or explicitly narrows the contract in a reviewed gate. |
@@ -86,10 +89,10 @@ Notable native facts are:
 | Internal dimension | Accepted | Accepted | Accepted for dimension/skip registers and simple macros | Share only the proven internal-value branch through a typed lvalue. |
 | Query/conditional | `\the`, `\number`, and `\ifdim` work | Same | `\the`/`\ifdim` exist, but `\number\dimen0` does not yield the native scaled value | Parameter-local query dispatch required. |
 | `\dimexpr` | Undefined in this TeX82 target | Same | No builtin | Explicitly unsupported in DP1 v1. |
-| Group/global state | Local unwind, global cancellation, both `\globaldefs` polarities | Same | Register Eqtb/SaveStack behavior exists | Reuse common ownership only after the dormant-owner reference model passes. |
+| Group/global state | Local unwind, global cancellation, both `\globaldefs` polarities | Same | Register Eqtb/SaveStack behavior exists | Reuse common ownership; the independent bounded dormant-owner model now passes. |
 | Arithmetic | Advance/multiply/divide; signed odd division truncates; checked failure retains the old value | Same | Advance uses host addition, multiply saturates, divide-by-zero returns silently | Parameter-local arithmetic/error policy required; do not alter register behavior. |
 | Recovery/hooks | TeX diagnostics, defined token progress, `\afterassignment` after scanner errors | Same | Several scanner failures return silently and do not share the native hook sequence | Parameter-local recovery tests are mandatory before source activation. |
-| Layout effect | Native TeX consumes it in paragraph layout | Same scalar owner | No `hangindent` owner or consumer exists | DP1 command v1 will deliberately remain storage/query-only; future layout consumption needs a new behavior capability and epoch. |
+| Layout effect | Native TeX consumes it in paragraph layout | Same scalar owner | No source-reachable `hangindent` owner or consumer exists | DP1 command v1 will deliberately remain storage/query-only; future layout consumption needs a new behavior capability and epoch. |
 
 The current VM characterization also freezes its existing `\dimen0` behavior:
 `1.5pt` becomes 98304sp, `.5sp` rounds to 1sp, and `-5sp/2` truncates to -2sp.
@@ -144,13 +147,55 @@ preflight. W0 adds no `Primitive` variant, Eqtb key, source registration,
 capture attachment, writer, runtime application, dimension-state hash framing,
 or supported executable/writable capability.
 
+## Dormant W1 owner
+
+W1 adds only `EqKey::DimensionParameter(DimensionParameterId)` and
+`EqValue::DimensionParameter(RawDimensionSp)` plus crate-private Eqtb read and
+assignment methods. The owner remains unreachable from source, is not a
+`Primitive`, and is not captured by `VmSnapshot`. Root/global zero remains a
+virtual default, local zero is retained as an owned shadow, local assignments
+use the common SaveStack save-once/unwind behavior, and global assignments
+cancel every pending restore for the key.
+
+Implementation review `6a80ab98-2970-83ee-b698-1ca9ad642367` returned
+`REVISE` at 0.95 confidence while approving the production storage design. Its
+applicable evidence requests are closed in the staged implementation:
+
+- an independent bounded reference model enumerates every valid trace of at
+  most five operations and group depth at most two over begin/end, local/global
+  assignment, and values `-1`, `0`, and `1`, comparing the effective value,
+  exact materialized owner/level, and fully drained unwind;
+- a production VM regression compares the complete `VmSnapshot` value and
+  serialized `VmSnapshotDocument` bytes before and after private owner mutation
+  and proves that neither dimension capability is derived;
+- static carrier and symbol inventories find no serialized/hashable Eqtb enum,
+  production source caller, snapshot attachment, writer, restore application,
+  or hash frame for the dormant owner.
+
+The post-remediation `tex-vm` and `tex-checkpoint` suites, canonical workspace
+Clippy, rustfmt, and diff checks pass. A clean full-workspace run also passes,
+including 239 latexd library tests, the 758/758 compiler integration target in
+4509.05 seconds, 678/678 VM library tests, and every checkpoint/VM integration
+target; the explicitly ignored large arXiv test remains a manual/nightly test.
+Production snapshot and semantic-hash bytes are therefore unchanged, the
+checkpoint epoch remains 5, and the non-test dead-code allowance is specific to
+this deliberately source-unreachable W1 boundary.
+
+Closure review `6a882770-9888-83ee-bba3-77d54be82343` returned `APPROVE` at
+0.96 confidence. It requires no further W1 production change and approves this
+unit for an independent commit/push. Its low residual risk is future accidental
+coupling through a generic Eqtb enum consumer, so W2 and W3 must repeat the exact
+`EqKey`/`EqValue` carrier audit and keep explicit snapshot projection.
+
 ## Next gate
 
 Physical/current-font/true-unit scanning and exact parameter-local arithmetic/
 recovery remain source-activation blockers, not passive identity blockers.
 Characterization failure remains a valid reason to stop W3 and must not be
 hidden by changing existing dimension-register semantics. Epoch stays 5 through
-the source-unreachable owner; epoch 6 remains atomic with source reachability.
-The next implementation unit is the dormant owner, with no source registration
-or snapshot attachment promotion. It must use a distinct runtime storage type,
-not the V1 wire layer DTO; only the neutral ID and raw scalar are shared.
+the source-unreachable owner and persistence promotion; epoch 6 remains atomic
+with source reachability. The dormant W1 owner is complete. The next
+implementation unit is W2 state persistence and semantic-hash promotion while
+the owner remains source-unreachable. W3 then owns the parameter-local scanner,
+arithmetic/recovery behavior, source activation, and epoch-6 transition as one
+atomic unit. It must not reuse the current register dimension scanner unchanged.

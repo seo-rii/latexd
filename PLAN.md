@@ -1316,9 +1316,40 @@ W0의 `DimensionParameterId`와 raw scaled-point DTO는 neutral
 registry/consumer가 아니다. Snapshot capture는 attachment를 만들지 않으며 writer,
 runtime application, state hash와 epoch 5도 그대로다. Physical/current-font/true-unit
 정책과 error token/hook 순서는 passive identity의 일부가 아니며 source activation
-전 별도 gate에서 닫는다. 다음 구현 단위는 이 wire 계약을 소비하지 않는
-source-unreachable in-memory owner다. W1 runtime owner는 wire V1 layer DTO를 storage로
-재사용하지 않고 typed ID/raw scalar만 공유한다.
+전 별도 gate에서 닫는다.
+
+W1 source-unreachable in-memory owner도 완료했다. Runtime storage는 wire V1 layer
+DTO를 재사용하지 않고 `EqKey::DimensionParameter`와
+`EqValue::DimensionParameter(RawDimensionSp)`를 두어 neutral typed ID/raw scalar만
+공유한다. Root/global zero는 sparse default로 제거하고 local zero shadow는 보존하며,
+공통 SaveStack의 save-once/unwind와 global pending-restore cancellation을 그대로
+사용한다. Crate-private API뿐이라 source/builtin/`Primitive`/snapshot attachment/
+restore/writer/hash frame에는 아직 연결되지 않는다.
+
+W1 implementation Pro review `6a80ab98-2970-83ee-b698-1ca9ad642367`는 production
+storage design을 승인하면서 evidence 보강을 요구해 `REVISE`(confidence 0.95)를
+반환했다. 이에 group depth 2와 trace length 5 이하의 모든 유효 begin/end 및
+local/global `{-1, 0, 1}` assignment trace를 독립 reference model과 대조하고, 완전한
+unwind까지 effective value와 exact owner/level을 검증했다. 또한 private owner mutation
+전후 전체 `VmSnapshot`과 serialized `VmSnapshotDocument` bytes가 같고 두 dimension
+capability가 파생되지 않음을 고정했다. Eqtb enum carrier와 새 symbol의 static inventory도
+serialized/hash carrier, production caller, attachment/writer/restore/hash frame이 없음을
+확인했다.
+
+Post-remediation `tex-vm`/`tex-checkpoint`, canonical workspace Clippy, rustfmt와 diff
+check가 green이고, clean full workspace도 239개 latexd lib, 4509.05초의 758/758
+compiler integration, 678/678 VM lib 및 모든 checkpoint/VM integration target을
+통과했다. 명시적으로 ignored인 대형 arXiv manual/nightly test만 실행 대상 밖이다.
+따라서 production snapshot/hash bytes와 epoch 5는 그대로다. 다음 구현 단위 W2는
+source-unreachable 상태에서 state persistence와 semantic hash만 승격한다. W3가
+parameter-local scanner/arithmetic/recovery, source activation과 epoch 6을 atomic하게
+맡으며 현재 register dimension scanner를 그대로 재사용하지 않는다.
+
+W1 closure Pro review `6a882770-9888-83ee-bba3-77d54be82343`는 confidence
+0.96으로 `APPROVE`하고 추가 production 변경 없이 독립 commit/push와 별도 W2 진입을
+승인했다. 낮은 residual risk는 future generic Eqtb enum consumer의 accidental
+coupling이므로 W2/W3 review에서 exact `EqKey`/`EqValue` carrier audit와 explicit
+snapshot projection을 반복한다.
 
 Control-sequence slice closeout 뒤 남은 non-blocking follow-up은 generated public JSON
 project/restore/project property와 restore time/RSS 측정 뒤 별도 versioned resource-limit

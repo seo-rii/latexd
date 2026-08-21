@@ -5,6 +5,7 @@ use tex_tokens::{CatCode, Token};
 
 use crate::{
     command::Meaning,
+    dimension_parameter::{DimensionParameterId, RawDimensionSp},
     save_stack::{SaveDisposition, SaveStack},
     snapshot::{
         IntegerParameterId, LayoutIntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
@@ -69,6 +70,7 @@ pub(crate) enum EqKey {
     DelCode(u8),
     IntegerParameter(IntegerParameterId),
     LayoutIntegerParameter(LayoutIntegerParameterId),
+    DimensionParameter(DimensionParameterId),
     ControlSequence(String),
 }
 
@@ -83,6 +85,7 @@ pub(crate) enum EqValue {
     MathCode(MathCodeV1),
     DelCode(DelimiterCodeV1),
     IntegerParameter(i32),
+    DimensionParameter(RawDimensionSp),
     ControlSequence(Box<Meaning>),
 }
 
@@ -199,6 +202,7 @@ impl Eqtb {
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
+                | EqValue::DimensionParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("count entry must contain an integer")
                 }
@@ -218,6 +222,7 @@ impl Eqtb {
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
+                | EqValue::DimensionParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
@@ -237,6 +242,7 @@ impl Eqtb {
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
+                | EqValue::DimensionParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
                 }
@@ -256,6 +262,7 @@ impl Eqtb {
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
+                | EqValue::DimensionParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("muskip entry must contain math glue")
                 }
@@ -275,6 +282,7 @@ impl Eqtb {
                 | EqValue::MathCode(_)
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
+                | EqValue::DimensionParameter(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
@@ -337,6 +345,17 @@ impl Eqtb {
             .unwrap_or_else(|| parameter.default_value())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn dimension_parameter(&self, parameter: DimensionParameterId) -> RawDimensionSp {
+        self.entries
+            .get(&EqKey::DimensionParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::DimensionParameter(value) => value,
+                _ => unreachable!("dimension-parameter entry must contain a dimension parameter"),
+            })
+            .unwrap_or_else(|| parameter.default_value())
+    }
+
     #[cfg(test)]
     pub(crate) fn integer_parameter_owner(
         &self,
@@ -362,6 +381,19 @@ impl Eqtb {
                 _ => {
                     unreachable!("layout-integer-parameter entry must contain an integer parameter")
                 }
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dimension_parameter_owner(
+        &self,
+        parameter: DimensionParameterId,
+    ) -> Option<(RawDimensionSp, usize)> {
+        self.entries
+            .get(&EqKey::DimensionParameter(parameter))
+            .map(|entry| match entry.value {
+                EqValue::DimensionParameter(value) => (value, entry.level),
+                _ => unreachable!("dimension-parameter entry must contain a dimension parameter"),
             })
     }
 
@@ -590,6 +622,32 @@ impl Eqtb {
         self.assign(
             key,
             EqValue::IntegerParameter(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn assign_dimension_parameter(
+        &mut self,
+        parameter: DimensionParameterId,
+        value: RawDimensionSp,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        let key = EqKey::DimensionParameter(parameter);
+        if (scope == AssignmentScope::Global || group_level == 0)
+            && value == parameter.default_value()
+        {
+            save_stack.cancel_restore(&key);
+            self.remove_entry(&key);
+            return;
+        }
+        self.assign(
+            key,
+            EqValue::DimensionParameter(value),
             scope,
             group_level,
             save_stack,
@@ -1059,6 +1117,7 @@ mod tests {
     use super::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
     use crate::{
         command::{Meaning, Primitive},
+        dimension_parameter::{DimensionParameterId, RawDimensionSp},
         save_stack::SaveStack,
         snapshot::{IntegerParameterId, LayoutIntegerParameterId},
     };
@@ -1151,6 +1210,283 @@ mod tests {
     #[test]
     fn control_sequence_values_do_not_inflate_register_entries() {
         assert_eq!(size_of::<super::EqValue>(), size_of::<RegisterEqValue>());
+    }
+
+    #[test]
+    fn dimension_parameter_owner_preserves_sparse_defaults_and_nested_groups() {
+        let hangindent = DimensionParameterId::HangIndent;
+        let mut eqtb = Eqtb::default();
+        let untouched = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        assert_eq!(eqtb.dimension_parameter(hangindent), RawDimensionSp::new(0));
+        assert_eq!(eqtb.dimension_parameter_owner(hangindent), None);
+
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.dimension_parameter_owner(hangindent),
+            Some((RawDimensionSp::new(0), 1))
+        );
+        assert_eq!(untouched.dimension_parameter_owner(hangindent), None);
+
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(i32::MIN),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.dimension_parameter_owner(hangindent),
+            Some((RawDimensionSp::new(i32::MIN), 2))
+        );
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(
+            eqtb.dimension_parameter_owner(hangindent),
+            Some((RawDimensionSp::new(0), 1))
+        );
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.dimension_parameter_owner(hangindent), None);
+        assert_eq!(eqtb.dimension_parameter(hangindent), RawDimensionSp::new(0));
+
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(i32::MAX),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.dimension_parameter_owner(hangindent),
+            Some((RawDimensionSp::new(i32::MAX), 0))
+        );
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.dimension_parameter_owner(hangindent), None);
+    }
+
+    #[test]
+    fn global_dimension_parameter_assignments_cancel_all_pending_restores() {
+        let hangindent = DimensionParameterId::HangIndent;
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(41),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(-51),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(61),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+        for expected_depth in [2, 1, 0] {
+            assert_eq!(save_stack.group_level(), expected_depth);
+            assert_eq!(
+                eqtb.dimension_parameter_owner(hangindent),
+                Some((RawDimensionSp::new(61), 0))
+            );
+            if expected_depth > 0 {
+                eqtb.end_group(&mut save_stack);
+            }
+        }
+
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(71),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        save_stack.begin_group();
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(81),
+            AssignmentScope::Local,
+            2,
+            &mut save_stack,
+        );
+        eqtb.assign_dimension_parameter(
+            hangindent,
+            RawDimensionSp::new(0),
+            AssignmentScope::Global,
+            2,
+            &mut save_stack,
+        );
+        for expected_depth in [2, 1, 0] {
+            assert_eq!(save_stack.group_level(), expected_depth);
+            assert_eq!(eqtb.dimension_parameter_owner(hangindent), None);
+            if expected_depth > 0 {
+                eqtb.end_group(&mut save_stack);
+            }
+        }
+    }
+
+    #[test]
+    fn dimension_parameter_owner_matches_an_independent_bounded_state_model() {
+        #[derive(Clone, Copy, Debug)]
+        enum Operation {
+            BeginGroup,
+            EndGroup,
+            AssignLocal(i32),
+            AssignGlobal(i32),
+        }
+
+        let operations = [
+            Operation::BeginGroup,
+            Operation::EndGroup,
+            Operation::AssignLocal(0),
+            Operation::AssignLocal(1),
+            Operation::AssignLocal(-1),
+            Operation::AssignGlobal(0),
+            Operation::AssignGlobal(1),
+            Operation::AssignGlobal(-1),
+        ];
+        let hangindent = DimensionParameterId::HangIndent;
+        let default = RawDimensionSp::new(0);
+        let mut traces = vec![(Vec::new(), 0_usize)];
+
+        for trace_length in 0..=5 {
+            for (trace, _) in &traces {
+                let mut eqtb = Eqtb::default();
+                let mut save_stack = SaveStack::default();
+                let mut model_owner = None;
+                let mut model_restores = Vec::<Option<Option<(RawDimensionSp, usize)>>>::new();
+
+                for operation in trace {
+                    match *operation {
+                        Operation::BeginGroup => {
+                            save_stack.begin_group();
+                            model_restores.push(None);
+                        }
+                        Operation::EndGroup => {
+                            eqtb.end_group(&mut save_stack);
+                            if let Some(previous) = model_restores
+                                .pop()
+                                .expect("generated trace must have an open model group")
+                            {
+                                model_owner = previous;
+                            }
+                        }
+                        Operation::AssignLocal(raw) => {
+                            let value = RawDimensionSp::new(raw);
+                            let group_level = model_restores.len();
+                            eqtb.assign_dimension_parameter(
+                                hangindent,
+                                value,
+                                AssignmentScope::Local,
+                                group_level,
+                                &mut save_stack,
+                            );
+                            if group_level == 0 {
+                                model_owner = (value != default).then_some((value, 0));
+                            } else {
+                                let restore = model_restores
+                                    .last_mut()
+                                    .expect("positive model depth must have a group");
+                                if restore.is_none() {
+                                    *restore = Some(model_owner);
+                                }
+                                model_owner = Some((value, group_level));
+                            }
+                        }
+                        Operation::AssignGlobal(raw) => {
+                            let value = RawDimensionSp::new(raw);
+                            eqtb.assign_dimension_parameter(
+                                hangindent,
+                                value,
+                                AssignmentScope::Global,
+                                model_restores.len(),
+                                &mut save_stack,
+                            );
+                            model_restores.fill(None);
+                            model_owner = (value != default).then_some((value, 0));
+                        }
+                    }
+
+                    assert_eq!(
+                        save_stack.group_level(),
+                        model_restores.len(),
+                        "group depth diverged after trace {trace:?}"
+                    );
+                    assert_eq!(
+                        eqtb.dimension_parameter(hangindent),
+                        model_owner.map_or(default, |(value, _)| value),
+                        "effective value diverged after trace {trace:?}"
+                    );
+                    assert_eq!(
+                        eqtb.dimension_parameter_owner(hangindent),
+                        model_owner,
+                        "materialized owner diverged after trace {trace:?}"
+                    );
+                }
+
+                while let Some(previous) = model_restores.pop() {
+                    eqtb.end_group(&mut save_stack);
+                    if let Some(previous) = previous {
+                        model_owner = previous;
+                    }
+                    assert_eq!(
+                        eqtb.dimension_parameter(hangindent),
+                        model_owner.map_or(default, |(value, _)| value),
+                        "drained effective value diverged after trace {trace:?}"
+                    );
+                    assert_eq!(
+                        eqtb.dimension_parameter_owner(hangindent),
+                        model_owner,
+                        "drained materialized owner diverged after trace {trace:?}"
+                    );
+                }
+            }
+
+            if trace_length == 5 {
+                break;
+            }
+            let mut next_traces = Vec::new();
+            for (trace, depth) in &traces {
+                for operation in operations {
+                    let next_depth = match operation {
+                        Operation::BeginGroup if *depth < 2 => depth + 1,
+                        Operation::EndGroup if *depth > 0 => depth - 1,
+                        Operation::AssignLocal(_) | Operation::AssignGlobal(_) => *depth,
+                        Operation::BeginGroup | Operation::EndGroup => continue,
+                    };
+                    let mut next_trace = trace.clone();
+                    next_trace.push(operation);
+                    next_traces.push((next_trace, next_depth));
+                }
+            }
+            traces = next_traces;
+        }
     }
 
     #[test]

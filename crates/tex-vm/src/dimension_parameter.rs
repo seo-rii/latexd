@@ -16,7 +16,7 @@ impl DimensionParameterId {
         }
     }
 
-    const fn default_value(self) -> RawDimensionSp {
+    pub(crate) const fn default_value(self) -> RawDimensionSp {
         match self {
             Self::HangIndent => RawDimensionSp::new(0),
         }

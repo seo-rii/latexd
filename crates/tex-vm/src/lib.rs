@@ -35017,11 +35017,50 @@ mod tests {
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
-        IntegerParameterId, MAX_PENDING_QUEUE_ITEMS, Vm, VmCodeTableAssignmentV1,
+        AssignmentScope, DimensionParameterId, IntegerParameterId, MAX_PENDING_QUEUE_ITEMS,
+        RawDimensionSp, VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
+        VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY, Vm, VmCodeTableAssignmentV1,
         VmCodeTableStateV1, VmDiagnosticKind, VmIntegerParameterAssignmentV1,
         VmIntegerParameterStateV1, VmModuleCheckpointKind, VmReplayFrame, VmSnapshotDocument,
         compile_format_snapshot,
     };
+
+    #[test]
+    fn dormant_dimension_parameter_owner_is_not_attached_to_production_snapshots() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let snapshot_before = vm.snapshot();
+        let document_before =
+            serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot_before.clone()))
+                .expect("serialize production snapshot before dormant owner mutation");
+        vm.eqtb.assign_dimension_parameter(
+            DimensionParameterId::HangIndent,
+            RawDimensionSp::new(i32::MAX),
+            AssignmentScope::Global,
+            0,
+            &mut vm.save_stack,
+        );
+
+        let snapshot_after = vm.snapshot();
+        let document_after =
+            serde_json::to_vec(&VmSnapshotDocument::from_snapshot(snapshot_after.clone()))
+                .expect("serialize production snapshot after dormant owner mutation");
+        assert_eq!(
+            vm.eqtb
+                .dimension_parameter(DimensionParameterId::HangIndent),
+            RawDimensionSp::new(i32::MAX)
+        );
+        assert_eq!(snapshot_after, snapshot_before);
+        assert_eq!(document_after, document_before);
+        assert!(snapshot_after.dimension_parameter_state.is_none());
+        let required_capabilities = snapshot_after.required_capabilities();
+        assert!(!required_capabilities.iter().any(|capability| {
+            capability.as_str() == VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY
+        }));
+        assert!(!required_capabilities.iter().any(|capability| {
+            capability.as_str() == VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY
+        }));
+    }
 
     #[test]
     fn restored_tolerance_layers_match_live_value_presence_and_level() {

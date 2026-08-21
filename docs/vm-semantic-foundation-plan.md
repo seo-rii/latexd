@@ -1843,10 +1843,45 @@ scaled-point DTO live in `dimension_parameter.rs`. W0 adds no `Primitive`, Eqtb
 owner, source registry, capture attachment, writer, runtime application, hash
 participation, or executable/writable support. Physical/current-font/true-unit
 and error/hook policy remains a W3 blocker. Until then `\hangindent` remains
-undefined, has no renderer consumer, and the VM semantic epoch remains 5. The
-next implementation unit is the source-unreachable in-memory owner. That owner
-must not reuse the versioned wire layer DTO as runtime storage; only the neutral
-typed ID and raw scalar may be shared.
+undefined, has no renderer consumer, and the VM semantic epoch remains 5.
+
+The source-unreachable W1 in-memory owner is now complete. Runtime storage does
+not reuse the versioned wire DTO: `EqKey::DimensionParameter` and
+`EqValue::DimensionParameter(RawDimensionSp)` share only the neutral typed ID
+and raw scalar. Root/global zero is sparse, a local zero remains an owned shadow,
+and the common SaveStack provides save-once unwind and global cancellation of
+pending restores. The crate-private API has no source, builtin, `Primitive`,
+capture, writer, restore, or semantic-hash caller.
+
+W1 implementation review `6a80ab98-2970-83ee-b698-1ca9ad642367` returned
+`REVISE` at 0.95 confidence while approving the production storage design. The
+requested evidence is now present: an independent bounded model enumerates
+every valid trace of length at most five and group depth at most two over group
+entry/exit and local/global `{-1, 0, 1}` assignments, checking the effective
+value, exact owner/level, and drained unwind. A VM regression compares the full
+`VmSnapshot` value and serialized `VmSnapshotDocument` bytes before and after a
+private owner mutation and proves that neither dimension capability is derived.
+Static Eqtb-carrier and exact-symbol inventories find no serialized/hashable
+Eqtb enum, production caller, attachment, writer, restore application, or hash
+frame.
+
+The post-remediation `tex-vm` and `tex-checkpoint` suites, canonical workspace
+Clippy, rustfmt, and diff checks pass. A clean full-workspace run passes 239
+latexd library tests, the 758/758 compiler integration target in 4509.05
+seconds, 678/678 VM library tests, and every checkpoint/VM integration target;
+the explicitly ignored large arXiv case remains manual/nightly. Production
+snapshot/hash bytes and checkpoint epoch 5 are unchanged. The next unit, W2,
+promotes state persistence and semantic hashing while the owner remains
+source-unreachable. W3 then owns the parameter-local scanner,
+arithmetic/recovery path, source activation, and epoch-6 transition atomically;
+it must not reuse the current register dimension scanner unchanged.
+
+Closure review `6a882770-9888-83ee-bba3-77d54be82343` returned `APPROVE` at
+0.96 confidence, required no further W1 production change, and approved an
+independent W1 commit/push before W2 begins. Its low residual risk is future
+accidental coupling through a generic Eqtb enum consumer. W2 and W3 therefore
+repeat the exact `EqKey`/`EqValue` carrier audit and preserve explicit snapshot
+projection as a review gate.
 
 Current migration evidence through `cd64df6`:
 
