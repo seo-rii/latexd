@@ -62,22 +62,38 @@ fn malformed_or_incomplete_tfm_data_fails_without_a_fallback() {
         Err(TfmParseError::LengthMismatch { .. })
     ));
 
-    let mut missing_quad = CMR10[..CMR10.len() - 8].to_vec();
-    missing_quad[0..2].copy_from_slice(&322u16.to_be_bytes());
-    missing_quad[22..24].copy_from_slice(&5u16.to_be_bytes());
-    assert_eq!(
-        parse_tfm(&missing_quad),
-        Err(TfmParseError::MissingFontDimension {
-            required: 6,
-            available: 5,
-        })
-    );
-
     let mut zero_design_size = CMR10.to_vec();
     zero_design_size[28..32].fill(0);
     assert_eq!(
         parse_tfm(&zero_design_size),
         Err(TfmParseError::InvalidDesignSize)
+    );
+}
+
+#[test]
+fn valid_short_parameter_tables_zero_fill_missing_dimensions() {
+    let mut missing_quad = CMR10[..CMR10.len() - 8].to_vec();
+    missing_quad[0..2].copy_from_slice(&322u16.to_be_bytes());
+    missing_quad[22..24].copy_from_slice(&5u16.to_be_bytes());
+    let metrics = parse_tfm(&missing_quad).expect("np=5 is valid TeX82 TFM data");
+    assert_eq!(
+        metrics.at_size_sp(metrics.design_size_sp()).unwrap(),
+        tex_tfm_metrics::ExactTfmDimensions {
+            quad_sp: 0,
+            x_height_sp: 282_168,
+        }
+    );
+
+    let mut missing_both = CMR10[..CMR10.len() - 12].to_vec();
+    missing_both[0..2].copy_from_slice(&321u16.to_be_bytes());
+    missing_both[22..24].copy_from_slice(&4u16.to_be_bytes());
+    let metrics = parse_tfm(&missing_both).expect("np=4 is valid TeX82 TFM data");
+    assert_eq!(
+        metrics.at_size_sp(metrics.design_size_sp()).unwrap(),
+        tex_tfm_metrics::ExactTfmDimensions {
+            quad_sp: 0,
+            x_height_sp: 0,
+        }
     );
 }
 

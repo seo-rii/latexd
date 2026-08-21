@@ -48,10 +48,6 @@ pub enum TfmParseError {
     },
     MissingDesignSize,
     InvalidDesignSize,
-    MissingFontDimension {
-        required: usize,
-        available: usize,
-    },
     InvalidFontDimension {
         parameter: usize,
     },
@@ -81,13 +77,6 @@ impl fmt::Display for TfmParseError {
             ),
             Self::MissingDesignSize => formatter.write_str("TFM header omits the design size"),
             Self::InvalidDesignSize => formatter.write_str("TFM design size is below 1pt"),
-            Self::MissingFontDimension {
-                required,
-                available,
-            } => write!(
-                formatter,
-                "TFM requires fontdimen {required} but provides only {available} parameters"
-            ),
             Self::InvalidFontDimension { parameter } => {
                 write!(
                     formatter,
@@ -204,13 +193,6 @@ pub fn parse_tfm(bytes: &[u8]) -> Result<ExactTfmMetrics, TfmParseError> {
     if *lh < 2 {
         return Err(TfmParseError::MissingDesignSize);
     }
-    if *np < 6 {
-        return Err(TfmParseError::MissingFontDimension {
-            required: 6,
-            available: *np,
-        });
-    }
-
     let design_size_fix_word = read_i32(bytes, TFM_PREAMBLE_BYTES + 4)?;
     if design_size_fix_word < MIN_DESIGN_SIZE_FIX_WORD {
         return Err(TfmParseError::InvalidDesignSize);
@@ -224,8 +206,16 @@ pub fn parse_tfm(bytes: &[u8]) -> Result<ExactTfmMetrics, TfmParseError> {
     let parameter_start = parameter_start_words
         .checked_mul(4)
         .ok_or(TfmParseError::ArithmeticOverflow)?;
-    let x_height_fix_word = read_i32(bytes, parameter_start + 4 * 4)?;
-    let quad_fix_word = read_i32(bytes, parameter_start + 5 * 4)?;
+    let x_height_fix_word = if *np >= 5 {
+        read_i32(bytes, parameter_start + 4 * 4)?
+    } else {
+        0
+    };
+    let quad_fix_word = if *np >= 6 {
+        read_i32(bytes, parameter_start + 5 * 4)?
+    } else {
+        0
+    };
     for (parameter, value) in [(5, x_height_fix_word), (6, quad_fix_word)] {
         if !(-MAX_METRIC_FIX_WORD..MAX_METRIC_FIX_WORD).contains(&value) {
             return Err(TfmParseError::InvalidFontDimension { parameter });
