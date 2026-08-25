@@ -61,6 +61,41 @@ pub enum MagnificationPreparationIssue {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmMagnificationStateV1 {
+    pub requested_layers: Vec<Option<i32>>,
+    pub prepared_effective: Option<i32>,
+}
+
+impl VmMagnificationStateV1 {
+    pub(crate) fn validate(&self, expected_layers: usize) -> Result<(), String> {
+        if self.requested_layers.len() != expected_layers {
+            return Err(format!(
+                "magnification layer count {} does not match VM scope depth {expected_layers}",
+                self.requested_layers.len()
+            ));
+        }
+        if !self.requested_layers.iter().any(Option::is_some) && self.prepared_effective.is_none() {
+            return Err("magnification state must not be empty".to_string());
+        }
+        if self.requested_layers.first().copied().flatten()
+            == Some(RequestedMagnification::DEFAULT.get())
+        {
+            return Err("magnification root request equal to 1000 must be omitted".to_string());
+        }
+        if let Some(prepared) = self.prepared_effective
+            && PreparedMagnification::from_requested(RequestedMagnification::new(prepared))
+                .is_none()
+        {
+            return Err(format!(
+                "prepared magnification {prepared} is outside 1..=32768"
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::PreparedMagnification;

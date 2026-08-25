@@ -9,7 +9,10 @@ use crate::{
         DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
         VmDimensionParameterStateV1,
     },
-    magnification::{MagnificationPreparationIssue, PreparedMagnification, RequestedMagnification},
+    magnification::{
+        MagnificationPreparationIssue, PreparedMagnification, RequestedMagnification,
+        VmMagnificationStateV1,
+    },
     save_stack::{SaveDisposition, SaveStack},
     snapshot::{
         IntegerParameterId, LayoutIntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
@@ -758,6 +761,13 @@ impl Eqtb {
         Err(MagnificationPreparationIssue::Illegal { requested })
     }
 
+    pub(crate) fn restore_prepared_magnification(
+        &mut self,
+        prepared: Option<PreparedMagnification>,
+    ) {
+        self.prepared_magnification = prepared;
+    }
+
     pub(crate) fn assign_control_sequence(
         &mut self,
         name: String,
@@ -1072,6 +1082,69 @@ impl Eqtb {
             .iter()
             .any(|layer| !layer.is_empty())
             .then_some(VmDimensionParameterStateV1 { layers })
+    }
+
+    pub(crate) fn magnification_snapshot_state(
+        &self,
+        save_stack: &SaveStack,
+    ) -> Option<VmMagnificationStateV1> {
+        let key = EqKey::MagnificationRequested;
+        let mut working = self.entries.get(&key).cloned();
+        let mut requested_layers = vec![None; save_stack.scope_depth()];
+
+        for (group_index, restores) in save_stack.restore_groups().enumerate().rev() {
+            let group_level = group_index + 1;
+            for (restore_key, previous) in restores {
+                if restore_key != &key {
+                    continue;
+                }
+                let current = working
+                    .take()
+                    .expect("restore record must have a current magnification entry");
+                assert_eq!(
+                    current.level, group_level,
+                    "current magnification entry must match its restore group level"
+                );
+                let EqValue::MagnificationRequested(value) = current.value else {
+                    unreachable!("magnification key must contain a matching value");
+                };
+                requested_layers[group_level] = Some(value.get());
+                if let Some(previous) = previous {
+                    assert!(
+                        previous.level < group_level,
+                        "previous magnification entry must precede its restore group level"
+                    );
+                    assert!(matches!(previous.value, EqValue::MagnificationRequested(_)));
+                    working = Some(previous.clone());
+                }
+            }
+        }
+
+        requested_layers[0] = working.map(|entry| {
+            assert_eq!(
+                entry.level, 0,
+                "root magnification entry must have level zero"
+            );
+            let EqValue::MagnificationRequested(value) = entry.value else {
+                unreachable!("magnification key must contain a matching value");
+            };
+            assert_ne!(
+                value,
+                RequestedMagnification::DEFAULT,
+                "root default magnification must be canonicalized away"
+            );
+            value.get()
+        });
+        let prepared_effective = self
+            .prepared_magnification
+            .map(|prepared| i32::from(prepared.get()));
+
+        (requested_layers.iter().any(Option::is_some) || prepared_effective.is_some()).then_some(
+            VmMagnificationStateV1 {
+                requested_layers,
+                prepared_effective,
+            },
+        )
     }
 
     fn code_table_snapshot_state(

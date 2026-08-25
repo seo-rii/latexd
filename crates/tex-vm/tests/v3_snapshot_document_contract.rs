@@ -7,7 +7,8 @@ use tex_vm::{
     VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES, VM_SNAPSHOT_DOCUMENT_SCHEMA_VERSION,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
-    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
+    VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY, Vm, VmIntegerParameterAssignmentV1,
     VmIntegerParameterStateV1, VmRestoreError, VmSnapshot, VmSnapshotDocument,
     VmSnapshotDocumentError, VmSnapshotDocumentRestoreError, decode_vm_snapshot_document,
     normalize_legacy_vm_snapshot,
@@ -959,6 +960,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
             VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
             VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+            VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY,
         ]
     );
     assert_eq!(
@@ -973,6 +975,7 @@ fn versioned_muskip_capability_reader_restores_values_aliases_and_cursor() {
             VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
             VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
             VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
+            VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY,
         ]
     );
     let mut source_interner = ControlSequenceInterner::new();

@@ -68,6 +68,7 @@ use input::{
 };
 pub use magnification::{
     MagnificationPreparationIssue, PreparedMagnification, RequestedMagnification,
+    VmMagnificationStateV1,
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
@@ -94,10 +95,10 @@ pub use snapshot::{
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
-    VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY, VmActiveBibliographyCaptureSnapshot,
-    VmActiveCaptionCaptureSnapshot, VmActiveFootnoteCaptureSnapshot,
-    VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot, VmActiveModuleKindSnapshot,
-    VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
+    VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY, VM_SNAPSHOT_MATHCODE_TABLE_V1_CAPABILITY,
+    VmActiveBibliographyCaptureSnapshot, VmActiveCaptionCaptureSnapshot,
+    VmActiveFootnoteCaptureSnapshot, VmActiveHeadingCaptureSnapshot, VmActiveLinkCaptureSnapshot,
+    VmActiveModuleKindSnapshot, VmActiveModuleOptionsSnapshot, VmActiveSourceFrameSnapshot,
     VmBibliographyNestedSemanticSnapshot, VmCodeTableAssignmentV1, VmCodeTableStateV1,
     VmContinuationBlocker, VmContinuationSafety, VmEventExecutionAnchorSnapshot,
     VmExecutedInlineEventMarkSnapshot, VmExecutedMathCaptureSnapshot, VmExecutedTableFrameSnapshot,
@@ -142,6 +143,7 @@ pub enum VmRestoreError {
     InvalidIntegerParameterState(String),
     InvalidLayoutIntegerParameterState(String),
     InvalidDimensionParameterState(String),
+    InvalidMagnificationState(String),
     #[deprecated(
         note = "retained for source compatibility; dimension-parameter state restore is supported"
     )]
@@ -184,6 +186,12 @@ impl std::fmt::Display for VmRestoreError {
                 formatter,
                 "invalid VM snapshot dimension-parameter state: {error}"
             ),
+            Self::InvalidMagnificationState(error) => {
+                write!(
+                    formatter,
+                    "invalid VM snapshot magnification state: {error}"
+                )
+            }
             Self::UnsupportedDimensionParameterState => formatter.write_str(
                 "VM snapshot dimension-parameter state is readable but cannot be restored",
             ),
@@ -231,6 +239,11 @@ fn validate_snapshot_for_restore(snapshot: &VmSnapshot) -> Result<(), VmRestoreE
             state
                 .validate(snapshot.scopes.len())
                 .map_err(VmRestoreError::InvalidDimensionParameterState)?;
+        }
+        if let Some(state) = &snapshot.magnification_state {
+            state
+                .validate(snapshot.scopes.len())
+                .map_err(VmRestoreError::InvalidMagnificationState)?;
         }
         if let Some(parameter) = snapshot.dimension_parameter_command_v1() {
             return Err(VmRestoreError::UnsupportedDimensionParameterCommand(
@@ -16856,6 +16869,7 @@ impl<'i> Vm<'i> {
                 .layout_integer_parameter_snapshot_state(&self.save_stack),
             self.eqtb
                 .dimension_parameter_snapshot_state(&self.save_stack),
+            self.eqtb.magnification_snapshot_state(&self.save_stack),
         )
     }
 
@@ -17016,6 +17030,23 @@ impl<'i> Vm<'i> {
                     );
                 }
             }
+            if let Some(state) = &snapshot.magnification_state
+                && let Some(requested) = state.requested_layers[group_level]
+            {
+                vm.eqtb.assign_requested_magnification(
+                    RequestedMagnification::new(requested),
+                    scope,
+                    group_level,
+                    &mut vm.save_stack,
+                );
+            }
+        }
+        if let Some(state) = &snapshot.magnification_state {
+            let prepared = state.prepared_effective.map(|value| {
+                PreparedMagnification::from_requested(RequestedMagnification::new(value))
+                    .expect("validated snapshot prepared magnification must be legal")
+            });
+            vm.eqtb.restore_prepared_magnification(prepared);
         }
         vm.next_count_register = snapshot.next_count_register;
         vm.next_dimen_register = snapshot.next_dimen_register;

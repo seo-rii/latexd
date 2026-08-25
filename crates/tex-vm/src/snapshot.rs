@@ -18,6 +18,7 @@ use tex_tokens::CatCode;
 use crate::{
     diagnostic::VmDiagnostic,
     dimension_parameter::{DimensionParameterId, VmDimensionParameterStateV1},
+    magnification::VmMagnificationStateV1,
     outcome::VmModuleTrace,
 };
 
@@ -39,6 +40,7 @@ pub const VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY: &str =
     "eqtb.dimension-parameter-state.v1";
 pub const VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY: &str =
     "primitive.dimension-parameter-command.v1";
+pub const VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY: &str = "state.magnification.v1";
 pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
     VM_SNAPSHOT_MUSKIP_SCALAR_V1_CAPABILITY,
@@ -48,6 +50,7 @@ pub const VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+    VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY,
 ];
 pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_MUSKIP_ALIAS_V1_CAPABILITY,
@@ -59,6 +62,7 @@ pub const VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES: &[&str] = &[
     VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY,
     VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
     VM_SNAPSHOT_DIMENSION_PARAMETER_COMMAND_V1_CAPABILITY,
+    VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -187,6 +191,20 @@ impl Serialize for VmSnapshotDocument {
                     name.to_string(),
                     serde_json::to_value(dimension_parameter_state)
                         .map_err(serde::ser::Error::custom)?,
+                )
+                .is_some()
+            {
+                return Err(serde::ser::Error::custom(format!(
+                    "legacy VM snapshot collides with reserved field {name}"
+                )));
+            }
+        }
+        if let Some(magnification_state) = &self.state.magnification_state {
+            let name = "magnification_state";
+            if state_fields
+                .insert(
+                    name.to_string(),
+                    serde_json::to_value(magnification_state).map_err(serde::ser::Error::custom)?,
                 )
                 .is_some()
             {
@@ -471,6 +489,11 @@ pub fn decode_vm_snapshot_document(
         .map(|raw| serde_json::from_str::<VmDimensionParameterStateV1>(raw.get()))
         .transpose()
         .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
+    let magnification_state = state_fields
+        .remove("magnification_state")
+        .map(|raw| serde_json::from_str::<VmMagnificationStateV1>(raw.get()))
+        .transpose()
+        .map_err(|error| VmSnapshotDocumentError::InvalidState(error.to_string()))?;
     let mut legacy_fields = serde_json::Map::new();
     for (name, raw) in state_fields {
         let value = serde_json::from_str(raw.get())
@@ -505,6 +528,11 @@ pub fn decode_vm_snapshot_document(
             .validate(legacy.scopes.len())
             .map_err(VmSnapshotDocumentError::InvalidState)?;
     }
+    if let Some(state) = &magnification_state {
+        state
+            .validate(legacy.scopes.len())
+            .map_err(VmSnapshotDocumentError::InvalidState)?;
+    }
     let state = VmSnapshot::from_parts(
         legacy,
         muskip_registers,
@@ -514,6 +542,7 @@ pub fn decode_vm_snapshot_document(
         integer_parameter_state,
         layout_integer_parameter_state,
         dimension_parameter_state,
+        magnification_state,
     );
     let derived_capabilities = state.required_capabilities();
     if declared_capabilities != derived_capabilities {
@@ -2353,6 +2382,7 @@ pub struct VmSnapshot {
     pub integer_parameter_state: Option<VmIntegerParameterStateV1>,
     pub layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
     pub dimension_parameter_state: Option<VmDimensionParameterStateV1>,
+    pub magnification_state: Option<VmMagnificationStateV1>,
 }
 
 impl VmSnapshot {
@@ -2365,6 +2395,7 @@ impl VmSnapshot {
         integer_parameter_state: Option<VmIntegerParameterStateV1>,
         layout_integer_parameter_state: Option<VmLayoutIntegerParameterStateV1>,
         dimension_parameter_state: Option<VmDimensionParameterStateV1>,
+        magnification_state: Option<VmMagnificationStateV1>,
     ) -> Self {
         Self {
             legacy,
@@ -2375,6 +2406,7 @@ impl VmSnapshot {
             integer_parameter_state,
             layout_integer_parameter_state,
             dimension_parameter_state,
+            magnification_state,
         }
     }
 
@@ -2410,6 +2442,11 @@ impl VmSnapshot {
         if self.dimension_parameter_state.is_some() {
             capabilities.insert(SnapshotCapability::new(
                 VM_SNAPSHOT_DIMENSION_PARAMETER_STATE_V1_CAPABILITY,
+            ));
+        }
+        if self.magnification_state.is_some() {
+            capabilities.insert(SnapshotCapability::new(
+                VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY,
             ));
         }
         if self.dimension_parameter_command_v1().is_some() {
@@ -2876,6 +2913,7 @@ impl VmSnapshot {
             || self.integer_parameter_state.is_some()
             || self.layout_integer_parameter_state.is_some()
             || self.dimension_parameter_state.is_some()
+            || self.magnification_state.is_some()
             || self.dimension_parameter_command_v1().is_some()
             || self.required_capabilities().iter().any(|capability| {
                 capability.as_str() == VM_SNAPSHOT_LAYOUT_INTEGER_PARAMETER_COMMAND_V1_CAPABILITY
@@ -2931,6 +2969,7 @@ impl<'de> Deserialize<'de> for VmSnapshot {
             integer_parameter_state: None,
             layout_integer_parameter_state: None,
             dimension_parameter_state: None,
+            magnification_state: None,
         };
         let capabilities = snapshot.required_capabilities();
         if !capabilities.is_empty() {
