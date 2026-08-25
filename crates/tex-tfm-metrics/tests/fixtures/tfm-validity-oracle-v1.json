@@ -56,6 +56,34 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "invalid_at_size_limit": {
+      "diagnostics": [
+        "Improper `at' size (2048.0pt), replaced by 10pt"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "a92cd264a10321b86723f65f69c705f09d250c4c70326339b7efc343de058c03"
+    },
+    "invalid_at_size_zero": {
+      "diagnostics": [
+        "Improper `at' size (0.0pt), replaced by 10pt"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "7061c8b91acbb4b60f2724e02652bd7924d9c44235c9dd77b63509735f421c0f"
+    },
     "invalid_character_depth_index": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
@@ -676,6 +704,18 @@
       },
       "source_sha256": "917a84c5e33f99bd145797c6988357573f76848d6d580d8fc38fa93ae8f9f366"
     },
+    "valid_cmr10_at_max_sp": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 134218095,
+        "sentinel": 1,
+        "xheight": 57788153
+      },
+      "source_sha256": "3b7a64044783dd62dc95415503be8ebe1e2e2b7d07f38e93bc39242fad28ea33"
+    },
     "zero_depth_table_consistent": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
@@ -738,6 +778,8 @@
     "charlist_out_of_range": {"mode": "natural"},
     "charlist_self_cycle": {"mode": "natural"},
     "design_size_below_one_pt": {"mode": "natural"},
+    "invalid_at_size_limit": {"mode": "at_sp", "value": 134217728},
+    "invalid_at_size_zero": {"mode": "at_sp", "value": 0},
     "invalid_character_depth_index": {"mode": "natural"},
     "invalid_character_extensible_index": {"mode": "natural"},
     "invalid_character_height_index": {"mode": "natural"},
@@ -784,6 +826,7 @@
     "valid_cmr10": {"mode": "natural"},
     "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
     "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
+    "valid_cmr10_at_max_sp": {"mode": "at_sp", "value": 134217727},
     "zero_depth_table_consistent": {"mode": "natural"},
     "zero_height_table_consistent": {"mode": "natural"},
     "zero_italic_table_consistent": {"mode": "natural"},

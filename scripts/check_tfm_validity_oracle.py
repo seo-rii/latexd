@@ -43,6 +43,18 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "unmodified cmr10 control at 16sp",
     },
+    "valid_cmr10_at_max_sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "unmodified cmr10 at the largest valid explicit at-size",
+    },
+    "invalid_at_size_zero": {
+        "base_tfm": CMR10_TFM,
+        "description": "zero at-size is corrected before TFM validation",
+    },
+    "invalid_at_size_limit": {
+        "base_tfm": CMR10_TFM,
+        "description": "2^27sp at-size is corrected before TFM validation",
+    },
     "size_field_high_bit": {
         "base_tfm": CMR10_TFM,
         "description": "a TFM size halfword uses the forbidden high bit",
@@ -254,6 +266,9 @@ CASE_SIZES.update(
     {
         "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
         "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
+        "valid_cmr10_at_max_sp": {"mode": "at_sp", "value": (1 << 27) - 1},
+        "invalid_at_size_zero": {"mode": "at_sp", "value": 0},
+        "invalid_at_size_limit": {"mode": "at_sp", "value": 1 << 27},
         "nonzero_width_zero_at_1sp": {"mode": "at_sp", "value": 1},
         "nonzero_width_zero_at_16sp": {"mode": "at_sp", "value": 16},
         "nonzero_height_zero_at_1sp": {"mode": "at_sp", "value": 1},
@@ -326,7 +341,14 @@ def _short_parameter_table(tfm: bytes, parameter_count: int) -> bytes:
 
 
 def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
-    if case_id in {"valid_cmr10", "valid_cmr10_at_1sp", "valid_cmr10_at_16sp"}:
+    if case_id in {
+        "valid_cmr10",
+        "valid_cmr10_at_1sp",
+        "valid_cmr10_at_16sp",
+        "valid_cmr10_at_max_sp",
+        "invalid_at_size_zero",
+        "invalid_at_size_limit",
+    }:
         return bytes(base_tfm)
     if case_id == "short_np5":
         return _short_parameter_table(base_tfm, 5)

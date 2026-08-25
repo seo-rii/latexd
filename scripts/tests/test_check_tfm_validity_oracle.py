@@ -38,6 +38,8 @@ EXPECTED_CASES = {
     "invalid_fontdimen5",
     "invalid_height_fix_word_sign",
     "invalid_italic_fix_word_sign",
+    "invalid_at_size_limit",
+    "invalid_at_size_zero",
     "invalid_kern_fix_word",
     "invalid_ligkern",
     "invalid_ligkern_kern_index",
@@ -68,6 +70,7 @@ EXPECTED_CASES = {
     "valid_cmr10",
     "valid_cmr10_at_1sp",
     "valid_cmr10_at_16sp",
+    "valid_cmr10_at_max_sp",
     "zero_depth_table_consistent",
     "zero_height_table_consistent",
     "zero_italic_table_consistent",
@@ -75,6 +78,8 @@ EXPECTED_CASES = {
 }
 
 EXPLICIT_CASE_SIZES = {
+    "invalid_at_size_zero": {"mode": "at_sp", "value": 0},
+    "invalid_at_size_limit": {"mode": "at_sp", "value": 1 << 27},
     "nonzero_width_zero_at_1sp": {"mode": "at_sp", "value": 1},
     "nonzero_width_zero_at_16sp": {"mode": "at_sp", "value": 16},
     "nonzero_depth_zero_at_1sp": {"mode": "at_sp", "value": 1},
@@ -85,6 +90,7 @@ EXPLICIT_CASE_SIZES = {
     "nonzero_italic_zero_at_16sp": {"mode": "at_sp", "value": 16},
     "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
     "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
+    "valid_cmr10_at_max_sp": {"mode": "at_sp", "value": (1 << 27) - 1},
 }
 
 
