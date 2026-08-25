@@ -1,6 +1,6 @@
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    SnapshotCapability, VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
+    SnapshotCapability, SnapshotTokenKind, VM_SNAPSHOT_DOCUMENT_READABLE_CAPABILITIES,
     VM_SNAPSHOT_DOCUMENT_SUPPORTED_CAPABILITIES, VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY, Vm,
     VmMagnificationStateV1, VmRestoreError, VmSnapshotDocument, VmSnapshotDocumentError,
     decode_vm_snapshot_document,
@@ -120,8 +120,17 @@ fn invalid_magnification_state_fails_before_interner_mutation() {
 #[test]
 fn missing_root_scope_wins_before_magnification_validation_and_interner_mutation() {
     let mut source_interner = ControlSequenceInterner::new();
-    let source = Vm::new(&mut source_interner);
+    let mut source = Vm::new(&mut source_interner);
+    let outcome = source.run_plain(r"\toks0={\magrestoreatomicitywitness}");
+    assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
     let mut snapshot = source.snapshot();
+    assert!(snapshot.token_registers.values().flatten().any(|token| {
+        matches!(
+            &token.kind,
+            SnapshotTokenKind::ControlSequence { name }
+                if name == "magrestoreatomicitywitness"
+        )
+    }));
     snapshot.scopes.clear();
     snapshot.magnification_state = Some(VmMagnificationStateV1 {
         requested_layers: vec![],

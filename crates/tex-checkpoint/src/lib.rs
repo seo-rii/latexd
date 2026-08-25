@@ -3247,6 +3247,58 @@ mod tests {
     }
 
     #[test]
+    fn composite_magnification_v3_fingerprint_vector_is_frozen() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\latentcapabilitywitness{\csname}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut snapshot = vm.snapshot();
+        snapshot.muskip_registers.insert(17, 123);
+        snapshot.mathcode_state = Some(VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }]],
+        });
+        snapshot.delcode_state = Some(VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }]],
+        });
+        snapshot.integer_parameter_state = Some(VmIntegerParameterStateV1 {
+            layers: vec![vec![VmIntegerParameterAssignmentV1 {
+                parameter: IntegerParameterId::Tolerance,
+                value: 12_000,
+            }]],
+        });
+        snapshot.layout_integer_parameter_state = Some(VmLayoutIntegerParameterStateV1 {
+            layers: vec![vec![VmLayoutIntegerParameterAssignmentV1 {
+                parameter: LayoutIntegerParameterId::PreTolerance,
+                value: 123,
+            }]],
+        });
+        snapshot.dimension_parameter_state = Some(VmDimensionParameterStateV1 {
+            layers: vec![vec![VmDimensionParameterAssignmentV1 {
+                parameter: DimensionParameterId::HangIndent,
+                value: RawDimensionSp::new(1),
+            }]],
+        });
+        snapshot.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000)],
+            prepared_effective: Some(2_000),
+        });
+
+        let mut restore_interner = ControlSequenceInterner::new();
+        Vm::try_restore(&mut restore_interner, &snapshot)
+            .expect("composite V3 fixture must remain restorable");
+        assert_eq!(
+            super::checkpoint_vm_semantic_hash(&snapshot).expect("hash composite V3 state"),
+            "9ade96bdeb5ad205d1b0d51e7479eb093f29cd1106d760d110a614e63efea41f"
+        );
+    }
+
+    #[test]
     fn magnification_fingerprint_distinguishes_code_table_family_identity() {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
@@ -3608,6 +3660,9 @@ mod tests {
             .take()
             .expect("mathcode state");
         slot.document.state.delcode_state = Some(shared_state);
+        let mut restore_interner = ControlSequenceInterner::new();
+        Vm::try_restore(&mut restore_interner, &slot.document.state)
+            .expect("family-substituted state must remain independently restorable");
         assert!(
             !super::checkpoint_is_replay_safe(checkpoint),
             "moving identical DTO bytes to another state family must invalidate replay"
