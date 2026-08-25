@@ -183,20 +183,21 @@ effective size to the TFM hash and restore that state deterministically.
 ## Full TFM validity gate
 
 [`scripts/check_tfm_validity_oracle.py`](../scripts/check_tfm_validity_oracle.py)
-runs 44 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
+runs 54 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
 results live in
 [`tfm-validity-oracle-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json).
-Every case records the exact mutated TFM SHA-256, source SHA-256, diagnostic,
-observation, exit status, and sentinel; the report additionally preserves the
-engine path/version/SHA-256, base cmr10/cmex10 identities, raw output, locale,
-timezone, and process counts. The compatibility source is the official
+Every case records its natural/explicit-at size, exact mutated TFM SHA-256,
+source SHA-256, diagnostic, observation, exit status, and sentinel; the report
+additionally preserves the engine path/version/SHA-256, base cmr10/cmex10
+identities, raw output, locale, timezone, and process counts. The compatibility
+source is the official
 `tex.web` `read_font_info` region at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`, pinned as full-source
 SHA-256 `c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324`
 and loader-section SHA-256
 `57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8`.
-Two final 44-process reports are byte-identical with SHA-256
-`faa274a7b1f65bad3cc52f1ec94fe680530fc341eedc79c39e538ef93294976b`.
+Two final 54-process reports are byte-identical with SHA-256
+`b3d764d04cb4dce9f64aa57a13441db92739fe3babe804843f5b8baef7d6f3d9`.
 
 The native matrix accepts unmodified cmr10, `np=5`, `np=4`, `np=0`, and one
 complete trailing word after the declared length. It rejects a zero width-table
@@ -224,9 +225,23 @@ Phase 3 closes the remaining lig/kern instruction and extensible-recipe
 branches. Independent mutations reject an out-of-range next character,
 ligature target, kern-table index, and forward skip as well as invalid top,
 middle, bottom, and required-repeat recipe characters. Together with the
-existing restart-index, kern-fix-word, and repeat-character witnesses, the
-pinned `read_font_info` rejection and acceptance inventory is complete. The
-opaque validator remains a separately reviewed implementation unit.
+existing restart-index, kern-fix-word, and repeat-character witnesses, this
+closes the targeted natural-size rejection-branch corpus. It does not establish
+complete at-size validator compatibility.
+
+Validator readiness review `6a8ddef5-7b84-83e9-a8ff-b24a2c752739` returned
+`REVISE_TFM_PLAN` at confidence 0.96. It confirmed that validation must bind the
+effective font size: the same nonzero table-zero fix word scales to zero and is
+accepted at 1sp, but scales nonzero and is rejected at 16sp. It authorized only
+oracle closure and a pinned source-rule ledger, not Rust validator code or a
+public proof type.
+
+Phase 4 begins that closure with a per-case natural/explicit-at schema, valid
+cmr10 controls at 1sp and 16sp, and paired width/height/depth/italic entry-zero
+mutations. Each pair has identical TFM bytes: all four load at 1sp and reject at
+16sp with the exact bad-TFM recovery. Positive state, EOF/trailing-suffix,
+empty-range, absent-character, extended-parameter, and source-ledger evidence
+remain open before another readiness review.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected

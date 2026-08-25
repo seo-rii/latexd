@@ -1508,10 +1508,26 @@ entry-zero nonzero 조건을 각각 분리했다. 12개 mutation 모두 native e
 Phase 3는 matrix를 44 process로 늘려 lig/kern next character, ligature target, kern index,
 forward skip과 extensible top/middle/bottom character를 독립 mutation으로 고정했다. 기존
 restart index, kern fix-word와 required repeat witness를 합쳐 pinned `read_font_info`의 모든
-accept/reject branch inventory가 닫혔다. 두 final report는 SHA-256
+targeted natural-size rejection branch corpus가 닫혔다. 이는 complete at-size compatibility
+주장이 아니다. 두 final report는 SHA-256
 `faa274a7b1f65bad3cc52f1ec94fe680530fc341eedc79c39e538ef93294976b`로 byte-identical이다.
 이 evidence는 production API를 추가하지 않으며, immutable bytes와 complete validation을 묶는
 opaque validator의 별도 Pro review와 TDD 구현 전까지 source-visible loader와 W3는 계속 blocked다.
+
+후속 validator readiness Pro review `6a8ddef5-7b84-83e9-a8ff-b24a2c752739`는 confidence
+0.96의 `REVISE_TFM_PLAN`을 반환했다. 44개 matrix는 targeted natural-size rejection corpus이지
+complete at-size compatibility가 아니다. 동일한 nonzero table-zero fix word가 1sp에서는 0으로
+scale되어 native load되고 16sp에서는 nonzero가 되어 bad TFM으로 거부되는 반례가 raw-only
+validation을 기각했다. 따라서 지금 허용된 범위는 case-specific size schema, source-rule ledger,
+positive/EOF/state closure뿐이며 Rust `font_load` module이나 public proof type은 금지한다.
+
+Phase 4 첫 단위는 matrix를 54 process로 늘리고 모든 case에 natural/explicit-at size를 고정했다.
+cmr10 1sp/16sp control과 width/height/depth/italic zero-entry의 동일-byte 1sp accept/16sp reject
+pair가 native fixture에 들어갔다. 두 final report SHA-256은
+`b3d764d04cb4dce9f64aa57a13441db92739fe3babe804843f5b8baef7d6f3d9`로 byte-identical이다.
+남은 Phase 4는 empty-range, partial/long suffix, lig/kern positive boundary state, multi-node
+charlist, in-range absent character, extended parameter 및 exact boundary와 source-rule ledger를
+strict TDD로 닫은 뒤 readiness review를 다시 실행한다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
