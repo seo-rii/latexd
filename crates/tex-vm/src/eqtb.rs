@@ -9,6 +9,7 @@ use crate::{
         DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
         VmDimensionParameterStateV1,
     },
+    magnification::{MagnificationPreparationIssue, PreparedMagnification, RequestedMagnification},
     save_stack::{SaveDisposition, SaveStack},
     snapshot::{
         IntegerParameterId, LayoutIntegerParameterId, VmCodeTableAssignmentV1, VmCodeTableStateV1,
@@ -75,6 +76,7 @@ pub(crate) enum EqKey {
     LayoutIntegerParameter(LayoutIntegerParameterId),
     DimensionParameter(DimensionParameterId),
     ControlSequence(String),
+    MagnificationRequested,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +92,7 @@ pub(crate) enum EqValue {
     IntegerParameter(i32),
     DimensionParameter(RawDimensionSp),
     ControlSequence(Box<Meaning>),
+    MagnificationRequested(RequestedMagnification),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +113,7 @@ pub(crate) struct Eqtb {
     control_sequences: BTreeMap<String, EqEntry>,
     base_catcodes: CatCodeTable,
     catcodes: CatCodeTable,
+    prepared_magnification: Option<PreparedMagnification>,
 }
 
 impl Default for Eqtb {
@@ -120,6 +124,7 @@ impl Default for Eqtb {
             control_sequences: BTreeMap::new(),
             catcodes: base_catcodes.clone(),
             base_catcodes,
+            prepared_magnification: None,
         }
     }
 }
@@ -206,6 +211,7 @@ impl Eqtb {
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
                 | EqValue::DimensionParameter(_)
+                | EqValue::MagnificationRequested(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("count entry must contain an integer")
                 }
@@ -226,6 +232,7 @@ impl Eqtb {
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
                 | EqValue::DimensionParameter(_)
+                | EqValue::MagnificationRequested(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("dimen entry must contain a dimension")
                 }
@@ -246,6 +253,7 @@ impl Eqtb {
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
                 | EqValue::DimensionParameter(_)
+                | EqValue::MagnificationRequested(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("skip entry must contain glue")
                 }
@@ -266,6 +274,7 @@ impl Eqtb {
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
                 | EqValue::DimensionParameter(_)
+                | EqValue::MagnificationRequested(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("muskip entry must contain math glue")
                 }
@@ -286,6 +295,7 @@ impl Eqtb {
                 | EqValue::DelCode(_)
                 | EqValue::IntegerParameter(_)
                 | EqValue::DimensionParameter(_)
+                | EqValue::MagnificationRequested(_)
                 | EqValue::ControlSequence(_) => {
                     unreachable!("toks entry must contain a token list")
                 }
@@ -359,6 +369,22 @@ impl Eqtb {
             .unwrap_or_else(|| parameter.default_value())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn requested_magnification(&self) -> RequestedMagnification {
+        self.entries
+            .get(&EqKey::MagnificationRequested)
+            .map(|entry| match entry.value {
+                EqValue::MagnificationRequested(value) => value,
+                _ => unreachable!("magnification key must contain requested magnification"),
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const fn prepared_magnification(&self) -> Option<PreparedMagnification> {
+        self.prepared_magnification
+    }
+
     #[cfg(test)]
     pub(crate) fn integer_parameter_owner(
         &self,
@@ -397,6 +423,16 @@ impl Eqtb {
             .map(|entry| match entry.value {
                 EqValue::DimensionParameter(value) => (value, entry.level),
                 _ => unreachable!("dimension-parameter entry must contain a dimension parameter"),
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn requested_magnification_owner(&self) -> Option<(RequestedMagnification, usize)> {
+        self.entries
+            .get(&EqKey::MagnificationRequested)
+            .map(|entry| match entry.value {
+                EqValue::MagnificationRequested(value) => (value, entry.level),
+                _ => unreachable!("magnification key must contain requested magnification"),
             })
     }
 
@@ -655,6 +691,71 @@ impl Eqtb {
             group_level,
             save_stack,
         );
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn assign_requested_magnification(
+        &mut self,
+        value: RequestedMagnification,
+        scope: AssignmentScope,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) {
+        let key = EqKey::MagnificationRequested;
+        if (scope == AssignmentScope::Global || group_level == 0)
+            && value == RequestedMagnification::DEFAULT
+        {
+            save_stack.cancel_restore(&key);
+            self.remove_entry(&key);
+            return;
+        }
+        self.assign(
+            key,
+            EqValue::MagnificationRequested(value),
+            scope,
+            group_level,
+            save_stack,
+        );
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn prepare_magnification(
+        &mut self,
+        group_level: usize,
+        save_stack: &mut SaveStack,
+    ) -> Result<PreparedMagnification, MagnificationPreparationIssue> {
+        let requested = self.requested_magnification();
+        if let Some(prepared) = self.prepared_magnification {
+            if i32::from(prepared.get()) == requested.get() {
+                return Ok(prepared);
+            }
+            self.assign_requested_magnification(
+                RequestedMagnification::new(i32::from(prepared.get())),
+                AssignmentScope::Global,
+                group_level,
+                save_stack,
+            );
+            return Err(MagnificationPreparationIssue::Incompatible {
+                requested,
+                prepared,
+            });
+        }
+
+        if let Some(prepared) = PreparedMagnification::from_requested(requested) {
+            self.prepared_magnification = Some(prepared);
+            return Ok(prepared);
+        }
+
+        let prepared = PreparedMagnification::from_requested(RequestedMagnification::DEFAULT)
+            .expect("default magnification must be legal");
+        self.assign_requested_magnification(
+            RequestedMagnification::DEFAULT,
+            AssignmentScope::Global,
+            group_level,
+            save_stack,
+        );
+        self.prepared_magnification = Some(prepared);
+        Err(MagnificationPreparationIssue::Illegal { requested })
     }
 
     pub(crate) fn assign_control_sequence(
@@ -1195,6 +1296,7 @@ mod tests {
             DimensionParameterId, RawDimensionSp, VmDimensionParameterAssignmentV1,
             VmDimensionParameterStateV1,
         },
+        magnification::{MagnificationPreparationIssue, RequestedMagnification},
         save_stack::SaveStack,
         snapshot::{IntegerParameterId, LayoutIntegerParameterId},
     };
@@ -2605,5 +2707,90 @@ mod tests {
         );
 
         eqtb.control_sequence_layers(&SaveStack::default());
+    }
+
+    #[test]
+    fn requested_magnification_groups_without_mutating_the_prepared_latch() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        assert_eq!(eqtb.requested_magnification().get(), 1000);
+        assert_eq!(eqtb.prepared_magnification(), None);
+
+        save_stack.begin_group();
+        eqtb.assign_requested_magnification(
+            RequestedMagnification::new(i32::MIN),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(eqtb.requested_magnification().get(), i32::MIN);
+        assert_eq!(
+            eqtb.requested_magnification_owner(),
+            Some((RequestedMagnification::new(i32::MIN), 1))
+        );
+        assert_eq!(eqtb.prepared_magnification(), None);
+
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.requested_magnification().get(), 1000);
+        assert_eq!(eqtb.requested_magnification_owner(), None);
+        assert_eq!(eqtb.prepared_magnification(), None);
+    }
+
+    #[test]
+    fn preparing_magnification_freezes_the_native_range_and_global_corrections() {
+        let mut eqtb = Eqtb::default();
+        let mut save_stack = SaveStack::default();
+        eqtb.assign_requested_magnification(
+            RequestedMagnification::new(32_768),
+            AssignmentScope::Global,
+            0,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.prepare_magnification(0, &mut save_stack)
+                .expect("32768 is the maximum legal first preparation")
+                .get(),
+            32_768
+        );
+
+        save_stack.begin_group();
+        eqtb.assign_requested_magnification(
+            RequestedMagnification::new(1_000),
+            AssignmentScope::Local,
+            1,
+            &mut save_stack,
+        );
+        assert_eq!(
+            eqtb.prepare_magnification(1, &mut save_stack),
+            Err(MagnificationPreparationIssue::Incompatible {
+                requested: RequestedMagnification::new(1_000),
+                prepared: eqtb.prepared_magnification().expect("prepared latch"),
+            })
+        );
+        assert_eq!(eqtb.requested_magnification().get(), 32_768);
+        assert_eq!(eqtb.requested_magnification_owner().unwrap().1, 0);
+        eqtb.end_group(&mut save_stack);
+        assert_eq!(eqtb.requested_magnification().get(), 32_768);
+
+        let mut invalid = Eqtb::default();
+        let mut invalid_save_stack = SaveStack::default();
+        invalid_save_stack.begin_group();
+        invalid.assign_requested_magnification(
+            RequestedMagnification::new(32_769),
+            AssignmentScope::Local,
+            1,
+            &mut invalid_save_stack,
+        );
+        assert_eq!(
+            invalid.prepare_magnification(1, &mut invalid_save_stack),
+            Err(MagnificationPreparationIssue::Illegal {
+                requested: RequestedMagnification::new(32_769),
+            })
+        );
+        assert_eq!(invalid.prepared_magnification().unwrap().get(), 1_000);
+        assert_eq!(invalid.requested_magnification().get(), 1_000);
+        assert_eq!(invalid.requested_magnification_owner(), None);
+        invalid.end_group(&mut invalid_save_stack);
+        assert_eq!(invalid.requested_magnification().get(), 1_000);
     }
 }

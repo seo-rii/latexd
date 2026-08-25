@@ -28,6 +28,7 @@ mod diagnostic;
 mod dimension_parameter;
 mod eqtb;
 mod input;
+mod magnification;
 mod outcome;
 mod save_stack;
 mod semantic_bibliography;
@@ -64,6 +65,9 @@ use eqtb::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
     RestoredInputContinuation,
+};
+pub use magnification::{
+    MagnificationPreparationIssue, PreparedMagnification, RequestedMagnification,
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
 use save_stack::SaveStack;
