@@ -1134,7 +1134,8 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
 // and object-field order disappear during decoding, but changing DTO
 // serialization or field framing requires an explicit fingerprint-version
 // decision. Fingerprint v1 remains frozen for pre-W2 supported states; v2 is
-// selected when persisted dimension-parameter or magnification state is present.
+// selected when persisted dimension-parameter state is present, and v3 is
+// selected for magnification state so every optional family is explicitly tagged.
 fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     let required_capabilities = snapshot.required_capabilities();
     let legacy: &LegacyVmSnapshotV1 = snapshot;
@@ -1145,7 +1146,9 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
 
     let muskip_json = serde_json::to_vec(&serde_json::to_value(&snapshot.muskip_registers)?)?;
     let mut fingerprint = blake3::Hasher::new();
-    if snapshot.dimension_parameter_state.is_some() || snapshot.magnification_state.is_some() {
+    if snapshot.magnification_state.is_some() {
+        fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v3\0");
+    } else if snapshot.dimension_parameter_state.is_some() {
         fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
     } else {
         fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
@@ -1171,17 +1174,40 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     );
     fingerprint.update(&muskip_json);
     fingerprint.update(&snapshot.next_muskip_register.to_le_bytes());
-    for state in [&snapshot.mathcode_state, &snapshot.delcode_state]
-        .into_iter()
-        .flatten()
-    {
-        let state_json = serde_json::to_vec(state)?;
-        fingerprint.update(
-            &u64::try_from(state_json.len())
-                .unwrap_or(u64::MAX)
-                .to_le_bytes(),
-        );
-        fingerprint.update(&state_json);
+    if snapshot.magnification_state.is_some() {
+        if let Some(state) = &snapshot.mathcode_state {
+            fingerprint.update(b"eqtb.mathcode.table-v1\0");
+            let state_json = serde_json::to_vec(state)?;
+            fingerprint.update(
+                &u64::try_from(state_json.len())
+                    .unwrap_or(u64::MAX)
+                    .to_le_bytes(),
+            );
+            fingerprint.update(&state_json);
+        }
+        if let Some(state) = &snapshot.delcode_state {
+            fingerprint.update(b"eqtb.delcode.table-v1\0");
+            let state_json = serde_json::to_vec(state)?;
+            fingerprint.update(
+                &u64::try_from(state_json.len())
+                    .unwrap_or(u64::MAX)
+                    .to_le_bytes(),
+            );
+            fingerprint.update(&state_json);
+        }
+    } else {
+        for state in [&snapshot.mathcode_state, &snapshot.delcode_state]
+            .into_iter()
+            .flatten()
+        {
+            let state_json = serde_json::to_vec(state)?;
+            fingerprint.update(
+                &u64::try_from(state_json.len())
+                    .unwrap_or(u64::MAX)
+                    .to_le_bytes(),
+            );
+            fingerprint.update(&state_json);
+        }
     }
     if let Some(state) = &snapshot.integer_parameter_state {
         fingerprint.update(b"eqtb.integer-parameter-state.v1\0");
@@ -3165,7 +3191,7 @@ mod tests {
         )
         .expect("serialize magnification state bytes");
         let mut expected = blake3::Hasher::new();
-        expected.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
+        expected.update(b"latexd:complete-vm-snapshot-fingerprint:v3\0");
         expected.update(&(legacy_json.len() as u64).to_le_bytes());
         expected.update(&legacy_json);
         for capability in mismatch.required_capabilities() {
@@ -3180,6 +3206,89 @@ mod tests {
         expected.update(&magnification_json);
 
         assert_eq!(mismatch_hash, expected.finalize().to_hex().to_string());
+    }
+
+    #[test]
+    fn magnification_v3_fingerprint_vectors_are_frozen() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let mut root_owner = vm.snapshot();
+        root_owner.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000)],
+            prepared_effective: Some(2_000),
+        });
+        let mut prepared_default = vm.snapshot();
+        prepared_default.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![None],
+            prepared_effective: Some(1_000),
+        });
+        assert!(vm.run_plain("{").diagnostics.is_empty());
+        let mut local_mismatch = vm.snapshot();
+        local_mismatch.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000), Some(1_000)],
+            prepared_effective: Some(2_000),
+        });
+
+        assert_eq!(
+            (
+                super::checkpoint_vm_semantic_hash(&root_owner)
+                    .expect("hash root magnification owner"),
+                super::checkpoint_vm_semantic_hash(&local_mismatch)
+                    .expect("hash local magnification mismatch"),
+                super::checkpoint_vm_semantic_hash(&prepared_default)
+                    .expect("hash prepared default magnification"),
+            ),
+            (
+                "71d051f92ad43c16f7cd2d710f3063adb5f027c53bcd0afd79d567f095e8a6b6".to_owned(),
+                "86dd83dcdd4238eca80e572d2597d2b637929fa64a56db8e3063671bc42825ba".to_owned(),
+                "208a4fc98da523faff4aec746a440b7e6a2e2207a98a230051625605a6849a5f".to_owned(),
+            )
+        );
+    }
+
+    #[test]
+    fn magnification_fingerprint_distinguishes_code_table_family_identity() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\codecapabilitywitness{\mathcode\delcode}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let mut base = vm.snapshot();
+        base.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000)],
+            prepared_effective: Some(2_000),
+        });
+        let shared_state = VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }]],
+        };
+
+        let mut mathcode_owner = base.clone();
+        mathcode_owner.mathcode_state = Some(shared_state.clone());
+        let mut delcode_owner = base;
+        delcode_owner.delcode_state = Some(shared_state);
+        assert_ne!(mathcode_owner, delcode_owner);
+        assert_eq!(
+            mathcode_owner.required_capabilities(),
+            delcode_owner.required_capabilities(),
+            "the legacy witness must make both code-table capabilities identical"
+        );
+        let mathcode_hash =
+            super::checkpoint_vm_semantic_hash(&mathcode_owner).expect("mathcode hash");
+        let delcode_hash =
+            super::checkpoint_vm_semantic_hash(&delcode_owner).expect("delcode hash");
+        assert_ne!(
+            mathcode_hash, delcode_hash,
+            "family-distinct optional state must not share checkpoint identity"
+        );
+        assert_eq!(
+            (mathcode_hash.as_str(), delcode_hash.as_str()),
+            (
+                "535688d6d3c19bba254d5899eb27b1d27e8c5780a05dd98f8ead2f18ac15e4cc",
+                "494b0bfa429cd0ae61cbc0d4ec2928875898a76b9e22344a91522048ade57ea4",
+            )
+        );
     }
 
     #[test]
@@ -3391,7 +3500,7 @@ mod tests {
     }
 
     #[test]
-    fn magnification_attachment_requires_both_fingerprint_v2_and_checkpoint_rekey() {
+    fn magnification_attachment_requires_both_fingerprint_v3_and_checkpoint_rekey() {
         let mut interner = ControlSequenceInterner::new();
         let fresh = Vm::new(&mut interner).snapshot();
         let mut magnification = fresh.clone();
@@ -3449,6 +3558,59 @@ mod tests {
         assert!(
             !super::checkpoint_is_replay_safe(checkpoint),
             "state mutation after rekey must invalidate replay identity"
+        );
+    }
+
+    #[test]
+    fn magnification_replay_rejects_code_table_family_substitution() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\codecapabilitywitness{\mathcode\delcode}");
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
+        let fresh = vm.snapshot();
+        let mut mathcode_owner = fresh.clone();
+        mathcode_owner.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000)],
+            prepared_effective: Some(2_000),
+        });
+        mathcode_owner.mathcode_state = Some(VmCodeTableStateV1 {
+            layers: vec![vec![VmCodeTableAssignmentV1 {
+                character: b'A',
+                value: 100,
+            }]],
+        });
+        let mut bundle = build_checkpoint_bundle(7, &fresh, "preamble", &[])
+            .expect("build pre-magnification identity");
+        let checkpoint = &mut bundle.checkpoints[0];
+        checkpoint.attachment = StoredSnapshotAttachment::Versioned(
+            VersionedSnapshotSlot::from_snapshot(mathcode_owner.clone()),
+        );
+        checkpoint.meta.snapshot_attached = true;
+        let vm_hash = super::checkpoint_vm_semantic_hash(&mathcode_owner)
+            .expect("hash mathcode magnification state");
+        checkpoint.meta.vm_state_hash = vm_hash.clone();
+        checkpoint.meta.checkpoint_id = super::checkpoint_id(
+            checkpoint.meta.kind.clone(),
+            checkpoint.meta.rev,
+            checkpoint.meta.page_index_after,
+            &checkpoint.meta.boundary_hash,
+            &vm_hash,
+        );
+        assert!(super::checkpoint_is_replay_safe(checkpoint));
+
+        let StoredSnapshotAttachment::Versioned(slot) = &mut checkpoint.attachment else {
+            panic!("versioned magnification attachment");
+        };
+        let shared_state = slot
+            .document
+            .state
+            .mathcode_state
+            .take()
+            .expect("mathcode state");
+        slot.document.state.delcode_state = Some(shared_state);
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "moving identical DTO bytes to another state family must invalidate replay"
         );
     }
 
