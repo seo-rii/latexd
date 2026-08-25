@@ -1518,6 +1518,25 @@ artifact, validate/extract TOCTOU 방지와 failure-atomic owner commit을 승�
 `ARCH-016`과 W3는 source loading 관점에서 계속 blocked이고, VM/font owner/`\mag`/snapshot/
 capability/hash/writer/epoch에는 변화가 없다.
 
+2026-08-26 magnification-owner readiness review
+`6a8dbcc6-b010-83ee-8957-5cc4b352f136`는 confidence 0.94의
+`PROCEED_MAG_OWNER`를 반환했다. 선택된 MAG1은 source-unreachable prerequisite만 구현한다.
+Requested magnification은 Eqtb/SaveStack에서 arbitrary `i32`로 group되고, 첫 preparation 때만
+`1..=32768`을 검증한다. Prepared magnification latch는 group되지 않으며, 이후 incompatible
+request는 기존 prepared 값을 유지하고 requested owner를 global correction한다. Epoch은 5,
+writer는 `LegacyOnly`로 유지하고, source `\mag`/true-unit scanner/font owner와 W3 activation은
+계속 금지한다.
+
+Production GREEN 전 native Phase 0는 기존 scan-context oracle을 22개에서 26개 fresh INITEX
+process로 확장했다. 32768의 첫 preparation은 성공해 `1truept=2000sp`, 32769는 첫 use에서
+diagnose 후 1000으로 correction된다. 2000 preparation 뒤 requested 1000의 두 번째 use는
+incompatible diagnostic과 함께 2000을 유지한다. Negative `\globaldefs` 아래 local group에서
+준비한 2000 latch는 group 밖에서도 남고, 다음 group의 correction도 global로 남는다. Exact
+diagnostic/observation/exit/source hash fixture와 readiness 5/5, pinned pdfTeX oracle이 green이다.
+다음 구현은 optional `VmMagnificationStateV1`, `state.magnification.v1`, semantic hash frame,
+atomic reader/restore와 non-default `LegacyOnly` refusal까지로 제한하고, 완료 뒤 mandatory Pro
+implementation review를 통과해야 한다.
+
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지
 못했다. 이를 approval/rejection으로 해석하지 않는다. 다음 gate는 W2.5 evidence를 기반으로

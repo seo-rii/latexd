@@ -1960,9 +1960,20 @@ W3 readiness review `6a8862e6-12a4-83e8-94ab-2cd2088661bd` subsequently
 returned `REVISE_PLAN` at 0.96 confidence: authoritative `em`/`ex` scanning
 requires durable current-font identity and exact metrics, while true units
 require an operational magnification owner. The non-production W2.5-SC0 gate
-in `ae0858e` freezes those native contexts in 22 independent INITEX processes
+in `ae0858e` originally froze those native contexts in 22 independent INITEX processes
 and defines the scanner as a consumer of `DimensionScanContext`; it does not
 select either owner or activate a source command.
+
+The 2026-08-26 owner-readiness review
+`6a8dbcc6-b010-83ee-8957-5cc4b352f136` returned `PROCEED_MAG_OWNER` at 0.94
+confidence. Before production implementation, the oracle was extended to 26
+independent processes and froze the exact 32768/32769 first-preparation
+boundary, incompatible second preparation, non-grouped prepared latch, and
+global corrective assignment under negative `\globaldefs`. MAG1 is limited to
+the dormant requested/prepared owner plus optional durable state, capability,
+semantic hash, atomic restore, and `LegacyOnly` refusal. It does not activate
+`\mag`, true-unit scanning, fonts, W3, or a new epoch, and it requires a final
+implementation review.
 
 Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0` returned
 `PROCEED_EXACT_TFM` at 0.93 confidence. The approved owner-neutral prerequisite

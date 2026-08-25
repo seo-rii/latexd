@@ -6,7 +6,7 @@
     "cmr10.tfm",
     "cmr7.tfm"
   ],
-  "expected_processes": 22,
+  "expected_processes": 26,
   "case_results": {
     "cmr10_metrics": {
       "diagnostics": [],
@@ -122,6 +122,19 @@
       },
       "source_sha256": "c9b8004c6c31724d9a11a52656482dd507630399a55020ab299f21071d7296c2"
     },
+    "magnification_first_illegal_above_maximum": {
+      "diagnostics": [
+        "Illegal magnification has been changed to 1000 (32769)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "first_truept": 65536,
+        "requested_after": 1000,
+        "requested_before": 32769,
+        "sentinel": 1
+      },
+      "source_sha256": "1a9b6943f5a4065175f7a56046cefc5b93122244842eaa58d378bc04d9b57f36"
+    },
     "magnification_fresh_query": {
       "diagnostics": [],
       "exit_status": 0,
@@ -129,6 +142,31 @@
         "mag": 1000
       },
       "source_sha256": "aecef3ebbb92600260d2d78eba50a88d25f103004bb33baf3855ad64ee9705c3"
+    },
+    "magnification_incompatible_second_preparation": {
+      "diagnostics": [
+        "Incompatible magnification (1000); the previous value will be retained (2000)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "first_truept": 32768,
+        "requested_after_second": 2000,
+        "requested_before_second": 1000,
+        "second_truept": 32768,
+        "sentinel": 1
+      },
+      "source_sha256": "16156a0c55dfe8b57f52256d3dfe6cf0e46e64570d3665dae5557f1a6eac601e"
+    },
+    "magnification_maximum_legal_first_preparation": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "observations": {
+        "first_truept": 2000,
+        "requested_after": 32768,
+        "requested_before": 32768,
+        "sentinel": 1
+      },
+      "source_sha256": "ca53aaf9c06239e6983f1479c43ffe740ebd28754e18bdcfe4ac1b42fefe33f7"
     },
     "magnification_missing_number": {
       "diagnostics": [
@@ -164,6 +202,22 @@
         "truept": 32768
       },
       "source_sha256": "b2a7bd9da6196c0b6e3ece96c086c922d7a37d166f4ec2fd08d2f7814d62471f"
+    },
+    "magnification_preparation_group_globaldefs": {
+      "diagnostics": [
+        "Incompatible magnification (1000); the previous value will be retained (2000)"
+      ],
+      "exit_status": 1,
+      "observations": {
+        "corrected_after_group": 2000,
+        "corrected_inside_group": 2000,
+        "corrected_truept": 32768,
+        "prepared_request": 2000,
+        "prepared_truept": 32768,
+        "restored_request": 1000,
+        "sentinel": 1
+      },
+      "source_sha256": "5e3615b21393f69d794af2e87053f050bdb4ce1b846f0b0a616b8082dcbe2fc4"
     },
     "magnification_range_error": {
       "diagnostics": [

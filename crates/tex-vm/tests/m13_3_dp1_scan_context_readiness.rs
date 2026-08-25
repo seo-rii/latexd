@@ -55,6 +55,10 @@ fn dimension_scan_context_fixture_covers_font_and_magnification_prerequisites() 
         "magnification_reassignment_after_use",
         "magnification_missing_number",
         "magnification_range_error",
+        "magnification_maximum_legal_first_preparation",
+        "magnification_first_illegal_above_maximum",
+        "magnification_incompatible_second_preparation",
+        "magnification_preparation_group_globaldefs",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();
@@ -77,6 +81,7 @@ fn dimension_scan_context_fixture_freezes_case_shape_and_source_identity() {
         serde_json::json!(["cmr10.tfm", "cmr7.tfm"])
     );
     assert_eq!(fixture["expected_processes"], cases.len());
+    assert_eq!(fixture["expected_processes"], 26);
     for (case_id, result) in cases {
         assert!(result["diagnostics"].is_array(), "{case_id}");
         assert!(result["exit_status"].is_i64(), "{case_id}");

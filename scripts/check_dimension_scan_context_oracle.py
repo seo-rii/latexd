@@ -43,6 +43,18 @@ CASE_SPECS = {
     "magnification_reassignment_after_use": "mag reassignment after true-unit use",
     "magnification_missing_number": "missing-number recovery and progress",
     "magnification_range_error": "out-of-range mag recovery and progress",
+    "magnification_maximum_legal_first_preparation": (
+        "maximum legal mag on the first true-unit preparation"
+    ),
+    "magnification_first_illegal_above_maximum": (
+        "first true-unit preparation immediately above the legal mag range"
+    ),
+    "magnification_incompatible_second_preparation": (
+        "requested mag correction after a conflicting second true-unit preparation"
+    ),
+    "magnification_preparation_group_globaldefs": (
+        "prepared-mag persistence and correction scope under negative globaldefs"
+    ),
 }
 
 OBSERVATION_PATTERN = re.compile(
@@ -312,6 +324,57 @@ def build_case_source(case_id: str) -> str:
                 _observation("assigned_value", r"\number\mag"),
                 *_dimension_observation("truept", "1truept"),
                 _observation("value_after_use", r"\number\mag"),
+                _observation("sentinel", "1"),
+            ]
+        )
+    elif case_id == "magnification_maximum_legal_first_preparation":
+        lines.extend(
+            [
+                r"\mag=32768",
+                _observation("requested_before", r"\number\mag"),
+                *_dimension_observation("first_truept", "1truept"),
+                _observation("requested_after", r"\number\mag"),
+                _observation("sentinel", "1"),
+            ]
+        )
+    elif case_id == "magnification_first_illegal_above_maximum":
+        lines.extend(
+            [
+                r"\mag=32769",
+                _observation("requested_before", r"\number\mag"),
+                *_dimension_observation("first_truept", "1truept"),
+                _observation("requested_after", r"\number\mag"),
+                _observation("sentinel", "1"),
+            ]
+        )
+    elif case_id == "magnification_incompatible_second_preparation":
+        lines.extend(
+            [
+                r"\mag=2000",
+                *_dimension_observation("first_truept", "1truept"),
+                r"\mag=1000",
+                _observation("requested_before_second", r"\number\mag"),
+                *_dimension_observation("second_truept", "1truept"),
+                _observation("requested_after_second", r"\number\mag"),
+                _observation("sentinel", "1"),
+            ]
+        )
+    elif case_id == "magnification_preparation_group_globaldefs":
+        lines.extend(
+            [
+                r"\globaldefs=-1",
+                r"\begingroup",
+                r"\mag=2000",
+                *_dimension_observation("prepared_truept", "1truept"),
+                _observation("prepared_request", r"\number\mag"),
+                r"\endgroup",
+                _observation("restored_request", r"\number\mag"),
+                r"\begingroup",
+                *_dimension_observation("corrected_truept", "1truept"),
+                _observation("corrected_inside_group", r"\number\mag"),
+                r"\endgroup",
+                _observation("corrected_after_group", r"\number\mag"),
+                r"\globaldefs=0",
                 _observation("sentinel", "1"),
             ]
         )

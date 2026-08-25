@@ -35,6 +35,13 @@ removed because subset extraction must not look like complete font-load
 validation. The reviewed correction is limited to an explicitly named exact
 frame dimension-subset API and does not authorize an owner or W3.
 
+The following owner-readiness review
+`6a8dbcc6-b010-83ee-8957-5cc4b352f136` returned `PROCEED_MAG_OWNER` at
+confidence 0.94. It authorizes only a source-unreachable magnification owner:
+grouped requested state, a non-grouped prepared latch, and optional durable
+state under epoch 5. It does not authorize a `\mag` primitive, true-unit
+scanner activation, font owner, source epoch change, or non-legacy writer.
+
 Neither characterization nor the exact metric substrate adds a source command,
 primitive, Eqtb owner, VM/renderer dependency, snapshot field, capability,
 semantic hash frame, writer lane, or layout consumer.
@@ -52,7 +59,7 @@ behavior capability, oracle, and epoch plan.
 ## Native evidence
 
 [`scripts/check_dimension_scan_context_oracle.py`](../scripts/check_dimension_scan_context_oracle.py)
-runs each of 22 cases in a fresh `pdftex -ini -interaction=nonstopmode`
+runs each of 26 cases in a fresh `pdftex -ini -interaction=nonstopmode`
 process. The versioned expected result is
 [`dimension-scan-context-oracle-v1.json`](../crates/tex-vm/tests/fixtures/dimension-scan-context-oracle-v1.json).
 The report records the engine path, full version and SHA-256, invocation,
@@ -81,6 +88,9 @@ The matrix establishes these facts for the pinned target:
 | True units | At 500, `1truept` = 131072sp and `1truein` = 9472573sp; at 2000 they are 32768sp and 2368143sp. Ordinary units are unchanged. |
 | Invalid magnification | 0 and 40000 can be stored before use; the first true-unit scan diagnoses and changes them to 1000. |
 | Reassignment after use | Assigning 1000 after a true-unit scan under 2000 leaves the visible integer at 1000, but the next true-unit scan diagnoses and retains 2000 for conversion. |
+| Legal preparation boundary | 32768 is accepted on the first true-unit scan and converts `1truept` to 2000sp. |
+| Illegal preparation boundary | 32769 remains visible until first use, then diagnoses and is globally corrected to 1000. |
+| Prepared latch and correction scope | Preparing 2000, requesting 1000, and using a true unit again retains 2000. The latch survives the group that prepared it, and its corrective assignment remains visible outside a later group even under `\globaldefs=-1`. |
 
 The cmr7 cases are the anti-hard-coding witness: a scanner that substitutes
 cmr10 values cannot pass the fixture. The 500/2000 true-unit cases similarly
@@ -217,10 +227,10 @@ W2.5-SC0 records the following decisions and unresolved gates:
 | What owns current-font identity? | No production owner is selected. A future reviewed typed owner must preserve definition identity, effective scale, grouping, and restore. |
 | Who resolves metrics? | An owner/service outside the scanner. The scanner receives resolved `quad_sp`, `x_height_sp`, and provenance only. |
 | Missing metric behavior? | No fallback. Exact VM diagnostic and recovery behavior remains unresolved and blocks W3. |
-| What owns magnification? | No production owner is selected. Native default/query/scope/recovery are frozen by the fixture. |
+| What owns magnification? | The readiness review selected a dormant owner with grouped arbitrary requested integers and a non-grouped prepared value in `1..=32768`; native transitions are frozen by the 26-case fixture. Source activation remains forbidden. |
 | Source-visible before epoch 6? | Neither font selection nor `\mag` may become newly source-visible at epoch 5. |
-| Snapshot state? | Both contexts affect later scanning and therefore must be restored deterministically before becoming source-visible. Their schema and capability are unresolved and block W3. |
-| Source-unreachable prerequisite state? | Possible only after a separate reviewed persistence/hash contract; not authorized here. |
+| Snapshot state? | MAG1 may add optional `VmMagnificationStateV1` plus capability and semantic-hash framing while preserving absent-state legacy identity and making the `LegacyOnly` writer refuse non-default state. Current-font state remains unresolved. |
+| Source-unreachable prerequisite state? | Magnification only is authorized by the owner-readiness review. Current-font state is not. |
 | Wider atomic W3? | Not selected. A later review must choose widened W3, dormant prerequisites, or a revised epoch/capability sequence. |
 | Executable behavior identity? | Passive `primitive.dimension-parameter-command.v1` is identity/owner linkage only. Full execution needs an explicit reviewed behavior-capability decision. |
 | Layout behavior? | Storage/query execution and paragraph-layout consumption remain separate capabilities and epochs. |
@@ -252,13 +262,15 @@ W3 remains blocked while any of these conditions is true:
 - production current-font definition/effective scale is not bound to exact TFM
   content identity;
 - missing metrics lack exact diagnostics and token progress;
-- magnification owner, persistence, or source epoch is unspecified;
+- the reviewed dormant magnification owner and persistence unit is incomplete,
+  or a source epoch remains unspecified;
 - a prerequisite would become source-visible at epoch 5;
 - implementation requires a cmr10 or magnification fallback;
 - pt/sp-only execution is proposed under the current activation identity;
 - generic `\dimen` behavior would change;
 - command execution could be present without the atomic epoch-6 transition.
 
-The next production plan must choose owners, snapshot/capability/hash treatment,
-and epoch placement, then receive a new readiness review. Until then W3 remains
-blocked.
+MAG1 must implement only the reviewed dormant owner and persistence contract,
+then pass an implementation review. A later plan must still choose the
+current-font owner and the atomic source-visible epoch transition. Until then
+W3 remains blocked.
