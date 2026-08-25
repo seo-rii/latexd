@@ -1496,6 +1496,15 @@ SHA-256 `59d521eefac1ffa7e0068262c51ae5d764667015111762ad0b8bd559a5848818`로
 byte-identical이다. 이는 source preamble/header/EOF inventory만 닫으며, character/tag,
 zero-entry, lig/kern, extensible branch expansion과 complete opaque validator는 계속 open이다.
 
+Phase 2는 matrix를 37 process로 늘려 character info의 height/depth/italic index, ligature/
+extensible tag index, out-of-range charlist target과 height/depth/italic fix-word sign 및
+entry-zero nonzero 조건을 각각 분리했다. 12개 mutation 모두 native exact bad-TFM recovery로
+거부되고, 두 report SHA-256은
+`9d5d7174cbd4d30e6bcf67a2dd7a79a51dfe0e950e79c1bfb91fa50538d3643e`로
+일치한다. 이 단계로 character-info와 box-dimension symmetry inventory는 닫혔다. 남은 oracle
+범위는 lig/kern instruction 및 extensible recipe의 개별 branch이고, validator production API는
+여전히 시작하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

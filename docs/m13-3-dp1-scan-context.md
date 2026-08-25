@@ -183,7 +183,7 @@ effective size to the TFM hash and restore that state deterministically.
 ## Full TFM validity gate
 
 [`scripts/check_tfm_validity_oracle.py`](../scripts/check_tfm_validity_oracle.py)
-runs 25 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
+runs 37 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
 results live in
 [`tfm-validity-oracle-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json).
 Every case records the exact mutated TFM SHA-256, source SHA-256, diagnostic,
@@ -195,8 +195,8 @@ timezone, and process counts. The compatibility source is the official
 SHA-256 `c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324`
 and loader-section SHA-256
 `57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8`.
-Two final 25-process reports are byte-identical with SHA-256
-`59d521eefac1ffa7e0068262c51ae5d764667015111762ad0b8bd559a5848818`.
+Two final 37-process reports are byte-identical with SHA-256
+`9d5d7174cbd4d30e6bcf67a2dd7a79a51dfe0e950e79c1bfb91fa50538d3643e`.
 
 The native matrix accepts unmodified cmr10, `np=5`, `np=4`, `np=0`, and one
 complete trailing word after the declared length. It rejects a zero width-table
@@ -212,9 +212,15 @@ length mismatch, zero width/height/depth/italic table counts with compensating
 geometry, a header shorter than two words, design size immediately below 1pt,
 and premature EOF. All are rejected natively. The slant parameter's distinct
 signed pure-number path is an acceptance witness: a sign byte rejected for
-scaled font dimensions remains valid in `fontdimen1`. Later phases must still
-expand the per-character dimension/tag, zero box-entry, lig/kern, and
-extensible-recipe branch inventory before a complete validator is reviewed.
+scaled font dimensions remains valid in `fontdimen1`.
+
+Phase 2 covers the complete character-info index/tag tuple and the remaining
+box-dimension symmetry. Height, depth, and italic indices at their table counts,
+ligature and extensible tags at their table counts, and an out-of-range charlist
+target all reject. Independent height/depth/italic forbidden-sign mutations and
+nonzero entry-zero mutations also reject, matching the existing width witnesses.
+The remaining native inventory before validator review is the full lig/kern
+instruction and extensible-recipe branch matrix.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
