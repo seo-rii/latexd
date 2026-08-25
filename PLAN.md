@@ -1466,7 +1466,7 @@ quad=x-height=0을 구현했다. 두 synthetic TFM은 fresh pdfTeX INITEX에서�
 no-fallback 정책과 별개다.
 
 이어지는 non-production TFM validity gate는 새
-`scripts/check_tfm_validity_oracle.py`와 versioned fixture로 cmr10/cmex10의 15개 exact byte
+`scripts/check_tfm_validity_oracle.py`와 versioned fixture로 cmr10/cmex10의 original 15개 exact byte
 mutation을 각각 fresh pdfTeX INITEX process에서 실행한다. Native는 cmr10 control,
 `np=5/4/0`, declared length 뒤 trailing word를 받아들이고, zero width-table count,
 character width index/cycle, width[0]/fix-word, unselected `fontdimen2`, selected
@@ -1483,6 +1483,18 @@ strict length mismatch로 거부하므로 source-visible font load success로 �
 implementation review가 narrow API와 complete TeX82 validator 중 선행 단위를 고르도록 했고,
 그 판정 전까지 `ARCH-016`과 W3를 blocked로 유지했다. 이 evidence unit은 production crate,
 VM dependency, capability, snapshot, hash, writer, epoch를 바꾸지 않았다.
+
+MAG1 closure 뒤 `ARCH-016` Phase 1은 official `tex.web` full source SHA-256
+`c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324`와
+`read_font_info` loader-section SHA-256
+`57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8`를 oracle report에
+고정하고 matrix를 25 fresh INITEX process로 확장했다. Size halfword high bit, invalid bc/ec,
+aggregate length mismatch, zero width/height/depth/italic counts, short header, sub-1pt design
+size와 premature EOF는 exact bad-TFM diagnostic/nullfont/sentinel로 거부된다. 반대로 slant는
+scaled dimension과 다른 signed pure-number path라 sign byte 1도 받아들인다. 두 report는
+SHA-256 `59d521eefac1ffa7e0068262c51ae5d764667015111762ad0b8bd559a5848818`로
+byte-identical이다. 이는 source preamble/header/EOF inventory만 닫으며, character/tag,
+zero-entry, lig/kern, extensible branch expansion과 complete opaque validator는 계속 open이다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

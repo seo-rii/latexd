@@ -183,14 +183,20 @@ effective size to the TFM hash and restore that state deterministically.
 ## Full TFM validity gate
 
 [`scripts/check_tfm_validity_oracle.py`](../scripts/check_tfm_validity_oracle.py)
-runs 15 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
+runs 25 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
 results live in
 [`tfm-validity-oracle-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json).
 Every case records the exact mutated TFM SHA-256, source SHA-256, diagnostic,
 observation, exit status, and sentinel; the report additionally preserves the
 engine path/version/SHA-256, base cmr10/cmex10 identities, raw output, locale,
-timezone, and process counts. Two final reports are byte-identical with SHA-256
-`5db4edc5db6269806a8e9171f1c4d549eedc2f15c076db613a2d31eb472a965a`.
+timezone, and process counts. The compatibility source is the official
+`tex.web` `read_font_info` region at
+`https://tug.ctan.org/systems/knuth/dist/tex/tex.web`, pinned as full-source
+SHA-256 `c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324`
+and loader-section SHA-256
+`57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8`.
+Two final 25-process reports are byte-identical with SHA-256
+`59d521eefac1ffa7e0068262c51ae5d764667015111762ad0b8bd559a5848818`.
 
 The native matrix accepts unmodified cmr10, `np=5`, `np=4`, `np=0`, and one
 complete trailing word after the declared length. It rejects a zero width-table
@@ -199,6 +205,16 @@ or kern fix-word sign, scaled-nonzero width[0], invalid unselected
 `fontdimen2`, invalid selected `fontdimen5`, out-of-range lig/kern instruction,
 and out-of-range extensible recipe. Every rejecting case reaches the sentinel
 with `nullfont` and the exact `Bad metric (TFM) file` diagnostic.
+
+Phase 1 source-inventory expansion covers every pre-table `read_font_info`
+guard separately: a size-field high bit, invalid character range, aggregate
+length mismatch, zero width/height/depth/italic table counts with compensating
+geometry, a header shorter than two words, design size immediately below 1pt,
+and premature EOF. All are rejected natively. The slant parameter's distinct
+signed pure-number path is an acceptance witness: a sign byte rejected for
+scaled font dimensions remains valid in `fontdimen1`. Later phases must still
+expand the per-character dimension/tag, zero box-entry, lig/kern, and
+extensible-recipe branch inventory before a complete validator is reviewed.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
