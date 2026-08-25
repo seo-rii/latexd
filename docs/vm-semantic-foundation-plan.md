@@ -1985,7 +1985,29 @@ refusal. Requested/prepared mismatch remains a valid durable state, while an
 empty family, root `Some(1000)`, layer-count mismatch, and prepared values
 outside `1..=32768` are rejected before VM/interner mutation. Source behavior,
 the writer lane, epoch 5, W3, and ARCH-016 remain unchanged. The mandatory MAG1
-implementation review is the remaining owner-unit approval gate.
+implementation review `6a8dc94a-1e08-83ee-bf6c-0ca00a8b68d6` returned
+`REVISE_MAG1` at 0.97 confidence because V1/V2 serialized optional mathcode and
+delcode DTOs without distinct family tags. A dormant-token witness kept both
+capabilities identical while moving the same DTO between fields, preserving the
+old hash and replay eligibility despite different restore behavior.
+
+The strict-TDD remediation in `c1db9f8` selects fingerprint V3 only when
+magnification state is present and frames mathcode and delcode with
+`eqtb.mathcode.table-v1` and `eqtb.delcode.table-v1`. Literal V3 vectors freeze
+three requested/latch shapes and both code-table families; a family
+substitution now invalidates replay. Legacy, V1, and dimension-only V2 identity
+remain frozen, with their pre-existing generic ambiguity tracked separately as
+`ARCH-017`. `e4f917c` adds zero-root-scope precedence, nested duplicate/unknown
+field rejection, nonempty-interner atomicity, and the prepared-then-illegal
+request incompatibility branch. Closure review
+`6a8dd287-ca6c-83e8-abf2-4ca5827a8d97` returned `APPROVE_MAG1` at 0.96
+confidence. It confirms that V3 closes the MAG1-specific family collision and
+replay substitution, and that the rootless preflight evidence closes the
+conditional restore finding. Composite V3 vectors, independently restorable
+substitution evidence, a stronger unique-interner witness, and reason-coded
+replay telemetry remain nonblocking hardening before production versioned
+writing. The approval does not authorize source activation, writer activation,
+W3, or a semantic-epoch change.
 
 Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0` returned
 `PROCEED_EXACT_TFM` at 0.93 confidence. The approved owner-neutral prerequisite

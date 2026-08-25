@@ -1552,9 +1552,33 @@ group되지 않는다. `state.magnification.v1`은 family presence에서만 파�
 Absent state는 기존 legacy bytes/hash를 보존하고, present state는 `LegacyOnly` writer에서
 capability를 포함한 lane mismatch로 거부된다. Replay는 새 VM hash와 checkpoint ID를 함께
 rekey한 경우만 안전하며 이후 state mutation은 다시 거부된다. Epoch 5, source nonactivation,
-W3/ARCH-016 block은 유지된다. Full tex-vm package와 full tex-checkpoint 71 lib/all targets,
-각 package Clippy가 green이며, 남은 MAG1 gate는 mandatory Pro implementation review와 최종
-workspace 검증/문서 closure다.
+W3/ARCH-016 block은 유지된다.
+
+Mandatory implementation review `6a8dc94a-1e08-83ee-bf6c-0ca00a8b68d6`는 confidence
+0.97의 `REVISE_MAG1`을 반환했다. 핵심 finding은 optional `mathcode_state`와
+`delcode_state`가 동일한 untagged DTO framing을 공유해, dormant tokens가 capability set을
+동일하게 유지하는 경우 field substitution이 같은 VM hash/checkpoint ID를 가질 수 있다는
+것이다. Strict RED는 동일 DTO를 두 family 사이에 옮긴 뒤 hash와 replay-safe 판정이 모두
+변하지 않는 것을 재현했다.
+
+`c1db9f8`은 magnification-bearing snapshot에만 fingerprint V3을 선택하고
+`eqtb.mathcode.table-v1`/`eqtb.delcode.table-v1` family tag를 추가했다. 요청/래치 3개와 두
+code-table family의 literal V3 golden, cross-family hash 및 replay substitution 회귀가 green이다.
+Legacy, generic V1, dimension-only V2는 byte-for-byte frozen이며, 그 기존 일반적 ambiguity는
+범위를 넓혀 재키하지 않고 `ARCH-017`로 분리했다. `e4f917c`은 zero-root-scope precedence,
+nested unknown/duplicate field rejection, nonempty interner atomicity와 prepared latch 뒤 illegal
+request가 `Illegal`이 아니라 `Incompatible`인 branch를 고정한다. Full tex-checkpoint 74 lib/all
+targets와 tex-vm 684 lib/all targets가 green이다.
+
+Closure review `6a8dd287-ca6c-83e8-abf2-4ca5827a8d97`는 confidence 0.96의
+`APPROVE_MAG1`을 반환했다. V3 tag가 원래 must-fix collision을 닫고 replay consumer까지 stale
+identity를 거부하며, rootless restore preflight evidence가 조건부 atomicity finding을 닫았다고
+판정했다. Generic V1/V2 ambiguity는 MAG1 blocker가 아닌 `ARCH-017` residual이고, composite V3
+golden, independently-restorable substitution witness, stronger unique-interner witness와 replay
+reason telemetry는 production versioned writer 전 hardening이다. MAG1 closure는 canonical
+workspace Clippy, latexd lib, frozen compatibility tests, rustfmt/diff와 clean expected tree를 최종
+확인한 뒤 완료한다. 이 승인은 `\mag`, true units, current-font/W3, writer activation, epoch 6을
+승인하지 않는다.
 
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지

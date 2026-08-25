@@ -136,6 +136,7 @@ fn w2_5_scan_context_gate_has_no_production_activation() {
         "VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY: &str = \"state.magnification.v1\""
     ));
     assert!(checkpoint.contains("pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 5;"));
+    assert!(checkpoint.contains("latexd:complete-vm-snapshot-fingerprint:v3\\0"));
     assert!(checkpoint.contains("vm.magnification-state.v1"));
     assert!(checkpoint.contains(
         "pub const SNAPSHOT_WRITE_POLICY: SnapshotWritePolicy = SnapshotWritePolicy::LegacyOnly;"

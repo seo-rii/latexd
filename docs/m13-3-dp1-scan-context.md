@@ -236,12 +236,31 @@ MAG1 implements the reviewed owner contract as follows:
   `Some(1000)`, layer-count mismatches, and illegal prepared values fail before
   VM/interner mutation. Requested/prepared mismatch is valid and round-trips.
 - `state.magnification.v1` is derived only from family presence. The semantic
-  fingerprint uses `vm.magnification-state.v1` and distinguishes owner layer,
-  requested value, and latch value. Absent state preserves exact legacy bytes
-  and hashes; `LegacyOnly` rejects present state instead of dropping it.
+  fingerprint uses the V3 domain and `vm.magnification-state.v1`, and
+  distinguishes owner layer, requested value, and latch value. V3 also tags
+  optional mathcode and delcode DTOs with distinct family frames. Absent state
+  preserves exact legacy bytes and hashes; dimension-only state preserves its
+  frozen V2 identity; `LegacyOnly` rejects present magnification state instead
+  of dropping it.
 - The implementation is split across `f158376` (owner), `075650a` (reader and
   atomic restore), and `129894a` (hash, replay rekey, and writer refusal).
-  Source activation and implementation-review approval remain separate gates.
+  Review remediation `c1db9f8` adds family-tagged V3 identity and `e4f917c`
+  hardens restore and owner-branch evidence. Source activation remains a
+  separate gate.
+
+Implementation review `6a8dc94a-1e08-83ee-bf6c-0ca00a8b68d6` returned
+`REVISE_MAG1` at 0.97 confidence after finding that frozen V1/V2 code-table
+framing could alias identical mathcode and delcode DTOs when dormant tokens kept
+both capabilities present. MAG1's V3 remediation closes that path for every
+magnification-bearing checkpoint and freezes literal family-distinct hashes and
+replay substitution rejection. Existing generic V1/V2 artifacts are not
+silently rekeyed; their separate migration question is recorded as `ARCH-017`.
+Closure review `6a8dd287-ca6c-83e8-abf2-4ca5827a8d97` returned
+`APPROVE_MAG1` at 0.96 confidence. It accepted the family-distinct V3 framing,
+consumer-level replay rejection, and rootless preflight atomicity evidence.
+Composite all-family V3 vectors, independently restorable substitution proof,
+a unique control-sequence interner witness, and reason-coded replay metrics are
+hardening gates before a production versioned writer, not MAG1 closure blockers.
 
 The current decisions and unresolved gates are:
 
@@ -253,7 +272,7 @@ The current decisions and unresolved gates are:
 | What owns magnification? | The readiness review selected a dormant owner with grouped arbitrary requested integers and a non-grouped prepared value in `1..=32768`; native transitions are frozen by the 26-case fixture. Source activation remains forbidden. |
 | Source-visible before epoch 6? | Neither font selection nor `\mag` may become newly source-visible at epoch 5. |
 | Snapshot state? | MAG1 adds optional `VmMagnificationStateV1`, `state.magnification.v1`, and semantic-hash framing while preserving absent-state legacy identity and making `LegacyOnly` refuse present state. Current-font state remains unresolved. |
-| Source-unreachable prerequisite state? | Magnification is implemented pending mandatory implementation review. Current-font state is not authorized. |
+| Source-unreachable prerequisite state? | The dormant magnification owner and persistence unit passed mandatory implementation and closure review. Current-font state is not authorized. |
 | Wider atomic W3? | Not selected. A later review must choose widened W3, dormant prerequisites, or a revised epoch/capability sequence. |
 | Executable behavior identity? | Passive `primitive.dimension-parameter-command.v1` is identity/owner linkage only. Full execution needs an explicit reviewed behavior-capability decision. |
 | Layout behavior? | Storage/query execution and paragraph-layout consumption remain separate capabilities and epochs. |
@@ -285,15 +304,14 @@ W3 remains blocked while any of these conditions is true:
 - production current-font definition/effective scale is not bound to exact TFM
   content identity;
 - missing metrics lack exact diagnostics and token progress;
-- the dormant MAG1 implementation lacks approval from its mandatory
-  implementation review, or a source epoch remains unspecified;
+- a source-visible magnification transition lacks a separately reviewed source
+  epoch and atomic activation contract;
 - a prerequisite would become source-visible at epoch 5;
 - implementation requires a cmr10 or magnification fallback;
 - pt/sp-only execution is proposed under the current activation identity;
 - generic `\dimen` behavior would change;
 - command execution could be present without the atomic epoch-6 transition.
 
-MAG1 implements only the reviewed dormant owner and persistence contract and
-must now pass its implementation review. A later plan must still choose the
-current-font owner and the atomic source-visible epoch transition. Until then
-W3 remains blocked.
+MAG1's dormant owner, persistence contract, and V3 remediation passed closure
+review. A later plan must still choose the current-font owner and the atomic
+source-visible epoch transition. Until then W3 remains blocked.
