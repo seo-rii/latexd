@@ -42,9 +42,10 @@ grouped requested state, a non-grouped prepared latch, and optional durable
 state under epoch 5. It does not authorize a `\mag` primitive, true-unit
 scanner activation, font owner, source epoch change, or non-legacy writer.
 
-Neither characterization nor the exact metric substrate adds a source command,
-primitive, Eqtb owner, VM/renderer dependency, snapshot field, capability,
-semantic hash frame, writer lane, or layout consumer.
+MAG1 adds only the reviewed dormant Eqtb owner, snapshot family, data
+capability, and semantic hash frame. It adds no source command, primitive,
+scanner/renderer dependency, writer lane, layout consumer, or behavior
+capability.
 `\hangindent`, `\mag`, and font definition/selection remain unavailable as VM
 production primitives. The checkpoint semantic epoch remains epoch 5, the
 production checkpoint writer remains `LegacyOnly`, dimension-parameter state
@@ -220,7 +221,29 @@ loading even though the subset API is now honest.
 
 ## Owner, persistence, and capability decisions
 
-W2.5-SC0 records the following decisions and unresolved gates:
+MAG1 implements the reviewed owner contract as follows:
+
+- `RequestedMagnification` stores any `i32`. Its virtual root default is 1000,
+  local 1000 remains materialized, and ordinary Eqtb/SaveStack local/global
+  assignment semantics own its layers.
+- `PreparedMagnification` can only contain `1..=32768`. The latch is separate
+  from `EqKey`, is not grouped, and assignment never mutates it. Preparation
+  installs the first legal request; an illegal first request is globally
+  corrected to 1000, while a later incompatible request is globally corrected
+  to the already-prepared value.
+- Optional `VmMagnificationStateV1` stores one requested owner per canonical
+  scope layer plus the prepared effective value. Empty present state, root
+  `Some(1000)`, layer-count mismatches, and illegal prepared values fail before
+  VM/interner mutation. Requested/prepared mismatch is valid and round-trips.
+- `state.magnification.v1` is derived only from family presence. The semantic
+  fingerprint uses `vm.magnification-state.v1` and distinguishes owner layer,
+  requested value, and latch value. Absent state preserves exact legacy bytes
+  and hashes; `LegacyOnly` rejects present state instead of dropping it.
+- The implementation is split across `f158376` (owner), `075650a` (reader and
+  atomic restore), and `129894a` (hash, replay rekey, and writer refusal).
+  Source activation and implementation-review approval remain separate gates.
+
+The current decisions and unresolved gates are:
 
 | Question | W2.5-SC0 decision |
 | --- | --- |
@@ -229,15 +252,15 @@ W2.5-SC0 records the following decisions and unresolved gates:
 | Missing metric behavior? | No fallback. Exact VM diagnostic and recovery behavior remains unresolved and blocks W3. |
 | What owns magnification? | The readiness review selected a dormant owner with grouped arbitrary requested integers and a non-grouped prepared value in `1..=32768`; native transitions are frozen by the 26-case fixture. Source activation remains forbidden. |
 | Source-visible before epoch 6? | Neither font selection nor `\mag` may become newly source-visible at epoch 5. |
-| Snapshot state? | MAG1 may add optional `VmMagnificationStateV1` plus capability and semantic-hash framing while preserving absent-state legacy identity and making the `LegacyOnly` writer refuse non-default state. Current-font state remains unresolved. |
-| Source-unreachable prerequisite state? | Magnification only is authorized by the owner-readiness review. Current-font state is not. |
+| Snapshot state? | MAG1 adds optional `VmMagnificationStateV1`, `state.magnification.v1`, and semantic-hash framing while preserving absent-state legacy identity and making `LegacyOnly` refuse present state. Current-font state remains unresolved. |
+| Source-unreachable prerequisite state? | Magnification is implemented pending mandatory implementation review. Current-font state is not authorized. |
 | Wider atomic W3? | Not selected. A later review must choose widened W3, dormant prerequisites, or a revised epoch/capability sequence. |
 | Executable behavior identity? | Passive `primitive.dimension-parameter-command.v1` is identity/owner linkage only. Full execution needs an explicit reviewed behavior-capability decision. |
 | Layout behavior? | Storage/query execution and paragraph-layout consumption remain separate capabilities and epochs. |
 
-These unresolved ownership and persistence choices are intentional gate
-outputs, not implicit defaults. Successful characterization does not authorize
-production implementation.
+The remaining current-font and source-activation choices are intentional gate
+outputs, not implicit defaults. Dormant MAG1 implementation does not authorize
+production source behavior.
 
 ## Atomicity and non-activation matrix
 
@@ -262,15 +285,15 @@ W3 remains blocked while any of these conditions is true:
 - production current-font definition/effective scale is not bound to exact TFM
   content identity;
 - missing metrics lack exact diagnostics and token progress;
-- the reviewed dormant magnification owner and persistence unit is incomplete,
-  or a source epoch remains unspecified;
+- the dormant MAG1 implementation lacks approval from its mandatory
+  implementation review, or a source epoch remains unspecified;
 - a prerequisite would become source-visible at epoch 5;
 - implementation requires a cmr10 or magnification fallback;
 - pt/sp-only execution is proposed under the current activation identity;
 - generic `\dimen` behavior would change;
 - command execution could be present without the atomic epoch-6 transition.
 
-MAG1 must implement only the reviewed dormant owner and persistence contract,
-then pass an implementation review. A later plan must still choose the
+MAG1 implements only the reviewed dormant owner and persistence contract and
+must now pass its implementation review. A later plan must still choose the
 current-font owner and the atomic source-visible epoch transition. Until then
 W3 remains blocked.

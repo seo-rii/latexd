@@ -1975,6 +1975,18 @@ semantic hash, atomic restore, and `LegacyOnly` refusal. It does not activate
 `\mag`, true-unit scanning, fonts, W3, or a new epoch, and it requires a final
 implementation review.
 
+MAG1 is now implemented in three bounded commits: `f158376` adds the grouped
+arbitrary requested owner and separately validated non-grouped prepared latch;
+`075650a` adds the optional canonical `VmMagnificationStateV1`, data capability,
+reader, and preflight-atomic restore; `129894a` adds the
+`vm.magnification-state.v1` fingerprint frame, two-field replay rekey proof,
+exact absent-state legacy-byte compatibility, and present-state `LegacyOnly`
+refusal. Requested/prepared mismatch remains a valid durable state, while an
+empty family, root `Some(1000)`, layer-count mismatch, and prepared values
+outside `1..=32768` are rejected before VM/interner mutation. Source behavior,
+the writer lane, epoch 5, W3, and ARCH-016 remain unchanged. The mandatory MAG1
+implementation review is the remaining owner-unit approval gate.
+
 Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0` returned
 `PROCEED_EXACT_TFM` at 0.93 confidence. The approved owner-neutral prerequisite
 landed in `927b0dd` as `tex-tfm-metrics`. From caller-provided bytes it parses

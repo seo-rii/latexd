@@ -1537,6 +1537,25 @@ diagnostic/observation/exit/source hash fixture와 readiness 5/5, pinned pdfTeX 
 atomic reader/restore와 non-default `LegacyOnly` refusal까지로 제한하고, 완료 뒤 mandatory Pro
 implementation review를 통과해야 한다.
 
+MAG1 implementation은 `f158376`, `075650a`, `129894a`의 세 coherent unit으로 완료했다.
+`RequestedMagnification(i32)`은 default 1000의 grouped owner이고,
+`PreparedMagnification`은 `1..=32768`만 표현하는 non-grouped latch다. Assignment는 latch를
+변경하지 않으며, preparation만 illegal first request를 global 1000으로, incompatible later
+request를 기존 prepared 값으로 correction한다. 이 전이는 EqKey 끝에 추가한 전용
+`MagnificationRequested` key/value를 사용하고 기존 IntegerParameter V1을 바꾸지 않는다.
+
+Optional `VmMagnificationStateV1 { requested_layers, prepared_effective }`는 exact scope depth,
+nonempty family, canonical root default 생략과 prepared range를 VM/interner mutation 전에
+검증한다. Local 1000과 requested/prepared mismatch는 보존되고, restore/unwind 뒤에도 latch는
+group되지 않는다. `state.magnification.v1`은 family presence에서만 파생되고,
+`vm.magnification-state.v1` fingerprint frame은 layer/request/latch 변경을 모두 구분한다.
+Absent state는 기존 legacy bytes/hash를 보존하고, present state는 `LegacyOnly` writer에서
+capability를 포함한 lane mismatch로 거부된다. Replay는 새 VM hash와 checkpoint ID를 함께
+rekey한 경우만 안전하며 이후 state mutation은 다시 거부된다. Epoch 5, source nonactivation,
+W3/ARCH-016 block은 유지된다. Full tex-vm package와 full tex-checkpoint 71 lib/all targets,
+각 package Clippy가 green이며, 남은 MAG1 gate는 mandatory Pro implementation review와 최종
+workspace 검증/문서 closure다.
+
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지
 못했다. 이를 approval/rejection으로 해석하지 않는다. 다음 gate는 W2.5 evidence를 기반으로
