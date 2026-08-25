@@ -182,6 +182,48 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "invalid_extensible_bottom": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "ea1db2a85aef32a9dda8feb60acbcf724f823089278ce19b6c18cf7c3d412b22",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_extensible_middle": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "2b8bbc709710899879dc2ee11bcfda5b0a416c5fcf4e2aa323d529dfdd70b91b",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_extensible_top": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "f2bff092f8f4e1136dd8dce2f4e81a9daf1adb4ff07898fa97a4c0eca4e65c80",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "invalid_fontdimen2": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
@@ -252,12 +294,68 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "invalid_ligature_target": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "b6465f558e429e4c13b5d50c8a3cab1baecc842445dd2c2624dd87e03a045d08",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "invalid_ligkern": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
       ],
       "exit_status": 1,
       "mutated_tfm_sha256": "a1d53abf64ef616ecf5369f6ffd743d62afaba685893dfea9561fcd7a96336d2",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_ligkern_kern_index": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "06f7f9591460280297e7bced57f1d2261a4f2f401cfd537b561fee8907c66b8c",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_ligkern_next_character": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "f9d7f2d6cebf1f653bc0fd9a310c2119000d2ef1b03f74b514573ab5b14e7265",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_ligkern_skip": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "f4c0cbb8c941bbf86cd01b42eba0d428a18b6e7d582cc0311cf7b38747e3752c",
       "observations": {
         "font": "nullfont",
         "quad": 0,

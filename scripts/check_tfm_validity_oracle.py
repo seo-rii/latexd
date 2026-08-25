@@ -163,6 +163,22 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "ligature/kern instruction jumps outside its table",
     },
+    "invalid_ligkern_next_character": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature/kern instruction names an absent next character",
+    },
+    "invalid_ligature_target": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature instruction names an absent replacement character",
+    },
+    "invalid_ligkern_kern_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "kern instruction addresses kern index nk",
+    },
+    "invalid_ligkern_skip": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature/kern skip advances past the instruction table",
+    },
     "invalid_kern_fix_word": {
         "base_tfm": CMR10_TFM,
         "description": "kern fix word has a forbidden sign byte",
@@ -170,6 +186,18 @@ CASE_SPECS = {
     "invalid_extensible": {
         "base_tfm": CMEX10_TFM,
         "description": "extensible recipe references a character outside the range",
+    },
+    "invalid_extensible_top": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible recipe top references a character outside the range",
+    },
+    "invalid_extensible_middle": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible recipe middle references a character outside the range",
+    },
+    "invalid_extensible_bottom": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible recipe bottom references a character outside the range",
     },
     "signed_slant_parameter": {
         "base_tfm": CMR10_TFM,
@@ -339,12 +367,34 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         mutated[offsets["parameter"] + 16] = 1
     elif case_id == "invalid_ligkern":
         mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([129, 0, 1, 0])
+    elif case_id == "invalid_ligkern_next_character":
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([128, 255, 128, 0])
+    elif case_id == "invalid_ligature_target":
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([128, 0, 0, 255])
+    elif case_id == "invalid_ligkern_kern_index":
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes(
+            [128, 0, 128, _counts(base_tfm)[9]]
+        )
+    elif case_id == "invalid_ligkern_skip":
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([127, 0, 128, 0])
     elif case_id == "invalid_kern_fix_word":
         mutated[offsets["kern"]] = 1
     elif case_id == "invalid_extensible":
         if _counts(base_tfm)[10] == 0:
             raise ValueError("extensible mutation requires a nonempty recipe table")
         mutated[offsets["extensible"] + 3] = 255
+    elif case_id == "invalid_extensible_top":
+        if _counts(base_tfm)[10] == 0:
+            raise ValueError("extensible mutation requires a nonempty recipe table")
+        mutated[offsets["extensible"]] = 255
+    elif case_id == "invalid_extensible_middle":
+        if _counts(base_tfm)[10] == 0:
+            raise ValueError("extensible mutation requires a nonempty recipe table")
+        mutated[offsets["extensible"] + 1] = 255
+    elif case_id == "invalid_extensible_bottom":
+        if _counts(base_tfm)[10] == 0:
+            raise ValueError("extensible mutation requires a nonempty recipe table")
+        mutated[offsets["extensible"] + 2] = 255
     elif case_id == "signed_slant_parameter":
         mutated[offsets["parameter"]] = 1
     else:
