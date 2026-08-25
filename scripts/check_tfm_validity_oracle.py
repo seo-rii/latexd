@@ -175,6 +175,22 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "character list points back to the same character",
     },
+    "valid_charlist_acyclic_chain": {
+        "base_tfm": CMR10_TFM,
+        "description": "three character records form an acyclic list",
+    },
+    "charlist_two_node_cycle": {
+        "base_tfm": CMR10_TFM,
+        "description": "two character records form a list cycle",
+    },
+    "charlist_three_node_cycle": {
+        "base_tfm": CMR10_TFM,
+        "description": "three character records form a list cycle",
+    },
+    "charlist_target_in_range_absent": {
+        "base_tfm": CMR10_TFM,
+        "description": "charlist range accepts a target whose width index is zero",
+    },
     "invalid_width_fix_word_sign": {
         "base_tfm": CMR10_TFM,
         "description": "unselected width fix word has a forbidden sign byte",
@@ -267,6 +283,30 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "ligature/kern skip advances past the instruction table",
     },
+    "valid_ligkern_restart": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature/kern restart points inside its table",
+    },
+    "valid_boundary_character_absent_next_bypass": {
+        "base_tfm": CMR10_TFM,
+        "description": "the declared boundary character bypasses next-character existence",
+    },
+    "ligkern_next_in_range_absent": {
+        "base_tfm": CMR10_TFM,
+        "description": "ordinary next character has an in-range zero width index",
+    },
+    "ligature_target_in_range_absent": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature target has an in-range zero width index",
+    },
+    "valid_boundary_label": {
+        "base_tfm": CMR10_TFM,
+        "description": "terminal boundary label points inside the instruction table",
+    },
+    "invalid_boundary_label": {
+        "base_tfm": CMR10_TFM,
+        "description": "terminal boundary label points outside the instruction table",
+    },
     "invalid_kern_fix_word": {
         "base_tfm": CMR10_TFM,
         "description": "kern fix word has a forbidden sign byte",
@@ -286,6 +326,22 @@ CASE_SPECS = {
     "invalid_extensible_bottom": {
         "base_tfm": CMEX10_TFM,
         "description": "extensible recipe bottom references a character outside the range",
+    },
+    "extensible_top_in_range_absent": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible top has an in-range zero width index",
+    },
+    "extensible_middle_in_range_absent": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible middle has an in-range zero width index",
+    },
+    "extensible_bottom_in_range_absent": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible bottom has an in-range zero width index",
+    },
+    "extensible_repeat_in_range_absent": {
+        "base_tfm": CMEX10_TFM,
+        "description": "extensible repeat has an in-range zero width index",
     },
     "signed_slant_parameter": {
         "base_tfm": CMR10_TFM,
@@ -516,6 +572,27 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
     elif case_id == "charlist_self_cycle":
         mutated[offsets["character"] + 2] = 2
         mutated[offsets["character"] + 3] = _counts(base_tfm)[2]
+    elif case_id in {
+        "valid_charlist_acyclic_chain",
+        "charlist_two_node_cycle",
+        "charlist_three_node_cycle",
+    }:
+        links = {
+            "valid_charlist_acyclic_chain": ((125, 126), (126, 127)),
+            "charlist_two_node_cycle": ((126, 127), (127, 126)),
+            "charlist_three_node_cycle": ((125, 126), (126, 127), (127, 125)),
+        }[case_id]
+        for character, target in links:
+            record = offsets["character"] + 4 * (character - _counts(base_tfm)[2])
+            mutated[record + 2] = (mutated[record + 2] & 252) | 2
+            mutated[record + 3] = target
+    elif case_id == "charlist_target_in_range_absent":
+        absent_record = offsets["character"] + 4 * (127 - _counts(base_tfm)[2])
+        mutated[absent_record] = 0
+        mutated[offsets["character"] + 2] = (
+            mutated[offsets["character"] + 2] & 252
+        ) | 2
+        mutated[offsets["character"] + 3] = 127
     elif case_id == "invalid_width_fix_word_sign":
         mutated[offsets["width"] + 4] = 1
     elif case_id == "invalid_height_fix_word_sign":
@@ -564,6 +641,30 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         )
     elif case_id == "invalid_ligkern_skip":
         mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([127, 0, 128, 0])
+    elif case_id == "valid_ligkern_restart":
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes([129, 0, 0, 0])
+    elif case_id == "valid_boundary_character_absent_next_bypass":
+        absent_record = offsets["character"] + 4 * (127 - _counts(base_tfm)[2])
+        mutated[absent_record] = 0
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 8] = bytes(
+            [255, 127, 0, 1, 128, 127, 128, 0]
+        )
+    elif case_id == "ligkern_next_in_range_absent":
+        absent_record = offsets["character"] + 4 * (127 - _counts(base_tfm)[2])
+        mutated[absent_record] = 0
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes(
+            [128, 127, 128, 0]
+        )
+    elif case_id == "ligature_target_in_range_absent":
+        absent_record = offsets["character"] + 4 * (127 - _counts(base_tfm)[2])
+        mutated[absent_record] = 0
+        mutated[offsets["ligkern"] : offsets["ligkern"] + 4] = bytes(
+            [128, 0, 0, 127]
+        )
+    elif case_id in {"valid_boundary_label", "invalid_boundary_label"}:
+        last_instruction = offsets["ligkern"] + 4 * (_counts(base_tfm)[8] - 1)
+        target = 0 if case_id == "valid_boundary_label" else _counts(base_tfm)[8]
+        mutated[last_instruction : last_instruction + 4] = bytes([255, 0, 0, target])
     elif case_id == "invalid_kern_fix_word":
         mutated[offsets["kern"]] = 1
     elif case_id == "invalid_extensible":
@@ -582,6 +683,21 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         if _counts(base_tfm)[10] == 0:
             raise ValueError("extensible mutation requires a nonempty recipe table")
         mutated[offsets["extensible"] + 2] = 255
+    elif case_id in {
+        "extensible_top_in_range_absent",
+        "extensible_middle_in_range_absent",
+        "extensible_bottom_in_range_absent",
+        "extensible_repeat_in_range_absent",
+    }:
+        absent_record = offsets["character"] + 4 * (1 - _counts(base_tfm)[2])
+        mutated[absent_record] = 0
+        recipe_byte = {
+            "extensible_top_in_range_absent": 0,
+            "extensible_middle_in_range_absent": 1,
+            "extensible_bottom_in_range_absent": 2,
+            "extensible_repeat_in_range_absent": 3,
+        }[case_id]
+        mutated[offsets["extensible"] + recipe_byte] = 1
     elif case_id == "signed_slant_parameter":
         mutated[offsets["parameter"]] = 1
     else:
