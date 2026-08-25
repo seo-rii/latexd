@@ -2865,5 +2865,37 @@ mod tests {
         assert_eq!(invalid.requested_magnification_owner(), None);
         invalid.end_group(&mut invalid_save_stack);
         assert_eq!(invalid.requested_magnification().get(), 1_000);
+
+        let mut incompatible_illegal_request = Eqtb::default();
+        let mut incompatible_save_stack = SaveStack::default();
+        incompatible_illegal_request.assign_requested_magnification(
+            RequestedMagnification::new(2_000),
+            AssignmentScope::Global,
+            0,
+            &mut incompatible_save_stack,
+        );
+        incompatible_illegal_request
+            .prepare_magnification(0, &mut incompatible_save_stack)
+            .expect("legal magnification must prepare");
+        incompatible_illegal_request.assign_requested_magnification(
+            RequestedMagnification::new(40_000),
+            AssignmentScope::Global,
+            0,
+            &mut incompatible_save_stack,
+        );
+        assert_eq!(
+            incompatible_illegal_request.prepare_magnification(0, &mut incompatible_save_stack),
+            Err(MagnificationPreparationIssue::Incompatible {
+                requested: RequestedMagnification::new(40_000),
+                prepared: incompatible_illegal_request
+                    .prepared_magnification()
+                    .expect("prepared latch"),
+            }),
+            "an existing latch makes even an out-of-range request incompatible, not first-use illegal"
+        );
+        assert_eq!(
+            incompatible_illegal_request.requested_magnification().get(),
+            2_000
+        );
     }
 }
