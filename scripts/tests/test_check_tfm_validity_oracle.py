@@ -223,7 +223,12 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("REVISE_BOUNDARY", contract)
         self.assertIn("6a8db2a7-dd74-83ee-851b-4749f3f3fbd4", contract)
         self.assertIn("complete font-load validation remains open", contract)
-        self.assertIn("54 byte-frozen mutations", contract)
+        self.assertIn("82 byte-frozen mutations", contract)
+        self.assertIn(
+            "bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa",
+            contract,
+        )
+        self.assertIn("tex82-read-font-info-validation-rules.md", contract)
         self.assertIn(TEX82_READ_FONT_INFO_SOURCE["sha256"], contract)
         self.assertIn("Phase 1", contract)
         self.assertIn("Phase 2", contract)
@@ -234,6 +239,41 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("REVISE_TFM_PLAN", contract)
         self.assertNotIn("rejection and acceptance inventory is complete", contract)
         self.assertIn("W3 remains blocked", contract)
+
+    def test_source_rule_ledger_maps_stateful_and_size_dependent_gates(self) -> None:
+        ledger = (
+            Path(__file__).parents[2]
+            / "docs/tex82-read-font-info-validation-rules.md"
+        ).read_text(encoding="utf-8")
+
+        required_evidence = (
+            TEX82_READ_FONT_INFO_SOURCE["sha256"],
+            TEX82_READ_FONT_INFO_SOURCE["loader_section_sha256"],
+            "6a8ddef5-7b84-83e9-a8ff-b24a2c752739",
+            "TFM-SIZE-001",
+            "TFM-RANGE-003",
+            "TFM-BOX-003",
+            "TFM-LIGKERN-004",
+            "TFM-EXT-002",
+            "TFM-PARAM-003",
+            "TFM-EOF-002",
+            "nonzero_width_zero_at_1sp",
+            "nonzero_width_zero_at_16sp",
+            "empty_range_256_255",
+            "valid_boundary_character_absent_next_bypass",
+            "ligkern_next_in_range_absent",
+            "charlist_target_in_range_absent",
+            "extensible_repeat_in_range_absent",
+            "parameter_count_8_valid",
+            "trailing_3_bytes_nonzero",
+            "private-first",
+            "InvalidEffectiveSize",
+            "MalformedTfm",
+        )
+        for evidence in required_evidence:
+            self.assertIn(evidence, ledger)
+
+        self.assertNotIn("ValidatedTfmAtSize is implemented", ledger)
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
     def test_pdftex_initex_matches_characterization(self) -> None:

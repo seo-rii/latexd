@@ -1521,13 +1521,21 @@ scale되어 native load되고 16sp에서는 nonzero가 되어 bad TFM으로 거�
 validation을 기각했다. 따라서 지금 허용된 범위는 case-specific size schema, source-rule ledger,
 positive/EOF/state closure뿐이며 Rust `font_load` module이나 public proof type은 금지한다.
 
-Phase 4 첫 단위는 matrix를 54 process로 늘리고 모든 case에 natural/explicit-at size를 고정했다.
-cmr10 1sp/16sp control과 width/height/depth/italic zero-entry의 동일-byte 1sp accept/16sp reject
-pair가 native fixture에 들어갔다. 두 final report SHA-256은
-`b3d764d04cb4dce9f64aa57a13441db92739fe3babe804843f5b8baef7d6f3d9`로 byte-identical이다.
-남은 Phase 4는 empty-range, partial/long suffix, lig/kern positive boundary state, multi-node
-charlist, in-range absent character, extended parameter 및 exact boundary와 source-rule ledger를
-strict TDD로 닫은 뒤 readiness review를 다시 실행한다.
+Phase 4는 matrix를 82 process로 늘리고 모든 case에 natural/explicit-at size를 고정했다.
+cmr10 1sp/16sp 및 최대 legal size control, invalid 0/limit recovery, width/height/depth/italic
+zero-entry의 동일-byte 1sp accept/16sp reject pair를 native fixture에 넣었다. Empty range 두 형태와
+ec256 rejection, 1/2/3/8193-byte trailing suffix, minimal header, exact-1pt design size, 유효/무효
+8번째 parameter도 고정했다. Stateful closure는 valid restart/boundary character/boundary label,
+2/3-node charlist cycle, range 안의 absent charlist acceptance와 ligature/extensible character-existence
+rejection을 분리한다. 두 final report SHA-256은
+`bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa`로 byte-identical이다.
+
+Official source predicate, dependency, native witness, future private phase와 coarse public error를
+`docs/tex82-read-font-info-validation-rules.md` source-rule ledger에 연결했다. 이 82-case matrix는
+targeted finite compatibility corpus이지 exhaustive proof가 아니다. Generated property,
+structure-aware differential, fuzz/no-panic, private whole-oracle parity와 substitution gate는 후속
+구현/publication gate로 남는다. Phase 4 fixture/ledger readiness Pro review 전에는 private Rust
+validator를 시작하지 않고, public proof type은 모든 private gate와 별도 review 전까지 금지한다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

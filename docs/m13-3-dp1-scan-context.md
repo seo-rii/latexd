@@ -172,7 +172,7 @@ the unchanged selected dimensions. This is intentional evidence that the
 result is not a font-load capability. In addition, 11 existing
 `tex-fonts` tests, 681 `tex-vm` library tests and every VM integration target,
 68 `tex-checkpoint` library tests and every checkpoint target, 239 `latexd`
-library tests, the full 80-test Python policy suite, package Clippy, canonical
+library tests, the full 81-test Python policy suite, package Clippy, canonical
 workspace Clippy, rustfmt, and diff checks pass. Existing IntegerParameter V1
 and epoch/capability contracts remain unchanged.
 
@@ -183,7 +183,7 @@ effective size to the TFM hash and restore that state deterministically.
 ## Full TFM validity gate
 
 [`scripts/check_tfm_validity_oracle.py`](../scripts/check_tfm_validity_oracle.py)
-runs 54 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
+runs 82 byte-frozen mutations in separate pdfTeX INITEX processes. Its expected
 results live in
 [`tfm-validity-oracle-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json).
 Every case records its natural/explicit-at size, exact mutated TFM SHA-256,
@@ -196,8 +196,8 @@ source is the official
 SHA-256 `c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324`
 and loader-section SHA-256
 `57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8`.
-Two final 54-process reports are byte-identical with SHA-256
-`b3d764d04cb4dce9f64aa57a13441db92739fe3babe804843f5b8baef7d6f3d9`.
+Two final 82-process reports are byte-identical with SHA-256
+`bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa`.
 
 The native matrix accepts unmodified cmr10, `np=5`, `np=4`, `np=0`, and one
 complete trailing word after the declared length. It rejects a zero width-table
@@ -236,12 +236,33 @@ accepted at 1sp, but scales nonzero and is rejected at 16sp. It authorized only
 oracle closure and a pinned source-rule ledger, not Rust validator code or a
 public proof type.
 
-Phase 4 begins that closure with a per-case natural/explicit-at schema, valid
-cmr10 controls at 1sp and 16sp, and paired width/height/depth/italic entry-zero
-mutations. Each pair has identical TFM bytes: all four load at 1sp and reject at
-16sp with the exact bad-TFM recovery. Positive state, EOF/trailing-suffix,
-empty-range, absent-character, extended-parameter, and source-ledger evidence
-remain open before another readiness review.
+Phase 4 completes the requested finite oracle closure with a per-case
+natural/explicit-at schema. Valid cmr10 controls cover 1sp, 16sp, and the
+`2^27-1`sp maximum; zero and `2^27`sp freeze TeX's invalid-at-size recovery.
+Paired width/height/depth/italic entry-zero mutations use identical TFM bytes:
+all four load at 1sp and reject at 16sp with the exact bad-TFM recovery.
+`bc=2,ec=1` and `bc=256,ec=255` empty ranges load, while `ec=256` rejects.
+One-, two-, three-, and 8193-byte nonzero suffixes all load, as do the minimum
+two-word header, exact-1pt design size, and a valid eighth parameter; an invalid
+eighth parameter rejects.
+
+The stateful witnesses accept an acyclic charlist, a lig/kern restart, boundary
+character bypass, and a valid boundary label. Two- and three-node charlist
+cycles and an invalid boundary label reject. An in-range absent charlist target
+loads because that rule is range-only, while ordinary lig/kern next and
+ligature targets and every extensible-recipe reference to an in-range absent
+character reject because those rules require character existence. The pinned
+source predicates, dependencies, witnesses, future private phases, and coarse
+error mapping are recorded in the
+[`tex82-read-font-info-validation-rules.md`](tex82-read-font-info-validation-rules.md)
+source-rule ledger.
+
+This is a targeted finite compatibility corpus, not an exhaustive validity
+proof. Deterministic generated properties, structure-aware differential cases,
+fuzz/no-panic evidence, private whole-oracle parity, and substitution closure
+remain later implementation/publication gates. Another Pro readiness review of
+the Phase 4 fixture and ledger is required before any private Rust validator
+work; no public proof type is authorized.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
