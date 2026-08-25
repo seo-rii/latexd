@@ -1134,7 +1134,7 @@ fn build_checkpoint_bundle_with_shipouts_and_policy_and_stats(
 // and object-field order disappear during decoding, but changing DTO
 // serialization or field framing requires an explicit fingerprint-version
 // decision. Fingerprint v1 remains frozen for pre-W2 supported states; v2 is
-// selected only when persisted dimension-parameter state is present.
+// selected when persisted dimension-parameter or magnification state is present.
 fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     let required_capabilities = snapshot.required_capabilities();
     let legacy: &LegacyVmSnapshotV1 = snapshot;
@@ -1145,7 +1145,7 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
 
     let muskip_json = serde_json::to_vec(&serde_json::to_value(&snapshot.muskip_registers)?)?;
     let mut fingerprint = blake3::Hasher::new();
-    if snapshot.dimension_parameter_state.is_some() {
+    if snapshot.dimension_parameter_state.is_some() || snapshot.magnification_state.is_some() {
         fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
     } else {
         fingerprint.update(b"latexd:complete-vm-snapshot-fingerprint:v1\0");
@@ -1205,6 +1205,16 @@ fn checkpoint_vm_semantic_hash(snapshot: &VmSnapshot) -> Result<String> {
     }
     if let Some(state) = &snapshot.dimension_parameter_state {
         fingerprint.update(b"eqtb.dimension-parameter-state.v1\0");
+        let state_json = serde_json::to_vec(state)?;
+        fingerprint.update(
+            &u64::try_from(state_json.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        fingerprint.update(&state_json);
+    }
+    if let Some(state) = &snapshot.magnification_state {
+        fingerprint.update(b"vm.magnification-state.v1\0");
         let state_json = serde_json::to_vec(state)?;
         fingerprint.update(
             &u64::try_from(state_json.len())
@@ -1677,7 +1687,7 @@ mod tests {
         VmDimensionParameterAssignmentV1, VmDimensionParameterStateV1,
         VmIntegerParameterAssignmentV1, VmIntegerParameterStateV1,
         VmLayoutIntegerParameterAssignmentV1, VmLayoutIntegerParameterStateV1,
-        VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+        VmMagnificationStateV1, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
     };
 
     use super::{
@@ -3103,6 +3113,103 @@ mod tests {
     }
 
     #[test]
+    fn vm_semantic_hash_frames_magnification_requests_and_prepared_latch() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        assert!(vm.run_plain("{").diagnostics.is_empty());
+        let mut mismatch = vm.snapshot();
+        mismatch.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000), Some(1_000)],
+            prepared_effective: Some(2_000),
+        });
+        let mut changed_request = mismatch.clone();
+        changed_request
+            .magnification_state
+            .as_mut()
+            .expect("magnification state")
+            .requested_layers[1] = Some(999);
+        let mut changed_prepared = mismatch.clone();
+        changed_prepared
+            .magnification_state
+            .as_mut()
+            .expect("magnification state")
+            .prepared_effective = Some(1_000);
+
+        let mismatch_hash = super::checkpoint_vm_semantic_hash(&mismatch)
+            .expect("hash mismatched magnification state");
+        assert_ne!(
+            mismatch_hash,
+            super::checkpoint_vm_semantic_hash(&changed_request)
+                .expect("hash changed magnification request")
+        );
+        assert_ne!(
+            mismatch_hash,
+            super::checkpoint_vm_semantic_hash(&changed_prepared)
+                .expect("hash changed prepared magnification")
+        );
+
+        let legacy: &tex_vm::LegacyVmSnapshotV1 = &mismatch;
+        let legacy_json = serde_json::to_vec(
+            &serde_json::to_value(legacy).expect("serialize legacy projection value"),
+        )
+        .expect("serialize legacy projection bytes");
+        let muskip_json = serde_json::to_vec(
+            &serde_json::to_value(&mismatch.muskip_registers).expect("serialize muskip value"),
+        )
+        .expect("serialize muskip bytes");
+        let magnification_json = serde_json::to_vec(
+            mismatch
+                .magnification_state
+                .as_ref()
+                .expect("magnification state"),
+        )
+        .expect("serialize magnification state bytes");
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"latexd:complete-vm-snapshot-fingerprint:v2\0");
+        expected.update(&(legacy_json.len() as u64).to_le_bytes());
+        expected.update(&legacy_json);
+        for capability in mismatch.required_capabilities() {
+            expected.update(&(capability.as_str().len() as u64).to_le_bytes());
+            expected.update(capability.as_str().as_bytes());
+        }
+        expected.update(&(muskip_json.len() as u64).to_le_bytes());
+        expected.update(&muskip_json);
+        expected.update(&mismatch.next_muskip_register.to_le_bytes());
+        expected.update(b"vm.magnification-state.v1\0");
+        expected.update(&(magnification_json.len() as u64).to_le_bytes());
+        expected.update(&magnification_json);
+
+        assert_eq!(mismatch_hash, expected.finalize().to_hex().to_string());
+    }
+
+    #[test]
+    fn legacy_only_writer_preserves_default_bytes_and_rejects_magnification_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let default_snapshot = Vm::new(&mut interner).snapshot();
+        assert!(default_snapshot.magnification_state.is_none());
+        super::LegacySnapshotForWrite::try_from(default_snapshot.clone())
+            .expect("default snapshot remains writable in the legacy lane");
+        assert_eq!(
+            serde_json::to_vec(&default_snapshot).expect("serialize default snapshot"),
+            serde_json::to_vec(&*default_snapshot).expect("serialize legacy projection"),
+            "absent magnification state must preserve exact legacy bytes"
+        );
+
+        let mut materialized = default_snapshot;
+        materialized.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![None],
+            prepared_effective: Some(1_000),
+        });
+        let error = super::LegacySnapshotForWrite::try_from(materialized)
+            .expect_err("LegacyOnly must reject every present magnification family");
+        assert!(
+            error
+                .to_string()
+                .contains(tex_vm::VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY)
+        );
+    }
+
+    #[test]
     fn complete_vm_hash_framing_uses_fixed_width_lengths_and_family_tags() {
         let mut interner = ControlSequenceInterner::new();
         let mut snapshot = Vm::new(&mut interner).snapshot();
@@ -3277,6 +3384,68 @@ mod tests {
             .expect("dimension state")
             .layers[0][0]
             .value = RawDimensionSp::new(62);
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "state mutation after rekey must invalidate replay identity"
+        );
+    }
+
+    #[test]
+    fn magnification_attachment_requires_both_fingerprint_v2_and_checkpoint_rekey() {
+        let mut interner = ControlSequenceInterner::new();
+        let fresh = Vm::new(&mut interner).snapshot();
+        let mut magnification = fresh.clone();
+        magnification.magnification_state = Some(VmMagnificationStateV1 {
+            requested_layers: vec![Some(2_000)],
+            prepared_effective: Some(2_000),
+        });
+        let mut bundle = build_checkpoint_bundle(7, &fresh, "preamble", &[])
+            .expect("build pre-magnification identity");
+        let checkpoint = &mut bundle.checkpoints[0];
+        let legacy_hash = checkpoint.meta.vm_state_hash.clone();
+        let legacy_id = checkpoint.meta.checkpoint_id.clone();
+        checkpoint.attachment = StoredSnapshotAttachment::Versioned(
+            VersionedSnapshotSlot::from_snapshot(magnification.clone()),
+        );
+
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "a newly attached magnification snapshot must not reuse stale metadata"
+        );
+        let magnification_hash =
+            super::checkpoint_vm_semantic_hash(&magnification).expect("hash magnification state");
+        assert_ne!(magnification_hash, legacy_hash);
+        let magnification_id = super::checkpoint_id(
+            checkpoint.meta.kind.clone(),
+            checkpoint.meta.rev,
+            checkpoint.meta.page_index_after,
+            &checkpoint.meta.boundary_hash,
+            &magnification_hash,
+        );
+
+        checkpoint.meta.checkpoint_id = magnification_id.clone();
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "checkpoint ID alone must not excuse a stale VM hash"
+        );
+        checkpoint.meta.checkpoint_id = legacy_id;
+        checkpoint.meta.vm_state_hash = magnification_hash;
+        assert!(
+            !super::checkpoint_is_replay_safe(checkpoint),
+            "VM hash alone must not excuse a stale checkpoint ID"
+        );
+        checkpoint.meta.checkpoint_id = magnification_id;
+        assert!(super::checkpoint_is_replay_safe(checkpoint));
+
+        let StoredSnapshotAttachment::Versioned(slot) = &mut checkpoint.attachment else {
+            panic!("versioned magnification attachment");
+        };
+        slot.document
+            .state
+            .magnification_state
+            .as_mut()
+            .expect("magnification state")
+            .requested_layers[0] = Some(1_999);
         assert!(
             !super::checkpoint_is_replay_safe(checkpoint),
             "state mutation after rekey must invalidate replay identity"
