@@ -259,8 +259,11 @@ Closure review `6a8dd287-ca6c-83e8-abf2-4ca5827a8d97` returned
 `APPROVE_MAG1` at 0.96 confidence. It accepted the family-distinct V3 framing,
 consumer-level replay rejection, and rootless preflight atomicity evidence.
 Composite all-family V3 vectors, independently restorable substitution proof,
-a unique control-sequence interner witness, and reason-coded replay metrics are
-hardening gates before a production versioned writer, not MAG1 closure blockers.
+a unique token-register control-sequence interner witness landed in `d8d914e`.
+Reason-coded replay metrics remain a production versioned-writer observability
+gate, not a MAG1 closure blocker. Exact closure gates pass 75 tex-checkpoint
+library tests and every target, the 5-test MAG1 restore contract, 239 latexd
+library tests, canonical workspace Clippy, rustfmt, and diff checks.
 
 The current decisions and unresolved gates are:
 

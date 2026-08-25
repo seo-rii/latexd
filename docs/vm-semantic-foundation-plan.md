@@ -2004,10 +2004,13 @@ request incompatibility branch. Closure review
 confidence. It confirms that V3 closes the MAG1-specific family collision and
 replay substitution, and that the rootless preflight evidence closes the
 conditional restore finding. Composite V3 vectors, independently restorable
-substitution evidence, a stronger unique-interner witness, and reason-coded
-replay telemetry remain nonblocking hardening before production versioned
-writing. The approval does not authorize source activation, writer activation,
-W3, or a semantic-epoch change.
+substitution evidence, and a stronger unique-interner witness landed in
+`d8d914e`; only reason-coded replay telemetry remains a later production-writer
+observability gate. On the exact closure HEAD, tex-checkpoint passes 75 library
+tests and every target, the MAG1 restore target passes 5/5, latexd passes 239
+library tests, and canonical workspace Clippy plus rustfmt/diff are green. MAG1
+is closed. The approval does not authorize source activation, writer
+activation, W3, or a semantic-epoch change.
 
 Post-SC0 architecture review `6a886eee-a3ac-83ee-bae5-603ff0aa2ea0` returned
 `PROCEED_EXACT_TFM` at 0.93 confidence. The approved owner-neutral prerequisite

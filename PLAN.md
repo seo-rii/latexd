@@ -1573,12 +1573,18 @@ targets와 tex-vm 684 lib/all targets가 green이다.
 Closure review `6a8dd287-ca6c-83e8-abf2-4ca5827a8d97`는 confidence 0.96의
 `APPROVE_MAG1`을 반환했다. V3 tag가 원래 must-fix collision을 닫고 replay consumer까지 stale
 identity를 거부하며, rootless restore preflight evidence가 조건부 atomicity finding을 닫았다고
-판정했다. Generic V1/V2 ambiguity는 MAG1 blocker가 아닌 `ARCH-017` residual이고, composite V3
-golden, independently-restorable substitution witness, stronger unique-interner witness와 replay
-reason telemetry는 production versioned writer 전 hardening이다. MAG1 closure는 canonical
-workspace Clippy, latexd lib, frozen compatibility tests, rustfmt/diff와 clean expected tree를 최종
-확인한 뒤 완료한다. 이 승인은 `\mag`, true units, current-font/W3, writer activation, epoch 6을
-승인하지 않는다.
+판정했다. Generic V1/V2 ambiguity는 MAG1 blocker가 아닌 `ARCH-017` residual이다. `d8d914e`은
+모든 현재 optional family와 dormant-only capability를 포함한 composite V3 literal golden,
+independently-restorable family substitution, 고유 token-register control sequence가 rootless
+failure에서 target interner에 들어가지 않는 witness까지 추가했다. Reason-coded replay telemetry는
+production versioned writer 전 observability gate로 남는다.
+
+Exact closure HEAD에서 decisive V3/replay와 frozen legacy/V1/V2 tests, tex-checkpoint 75 lib/all
+targets, MAG1 restore 5/5, latexd lib 239/239, canonical workspace lib/bins Clippy,
+rustfmt/diff가 green이다. 따라서 dormant MAG1 owner/persistence unit은 closed다. 이 승인은
+`\mag`, true units, current-font/W3, writer activation, epoch 6을 승인하지 않는다. 다음
+architecture work는 `ARCH-016` complete TFM validation 또는 별도 reviewed current-font owner
+readiness 중 먼저 증거가 충분한 prerequisite를 선택해야 한다.
 
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지
