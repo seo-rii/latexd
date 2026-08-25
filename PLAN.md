@@ -1477,12 +1477,12 @@ sentinel을 고정하고 CI report는 engine/base-TFM/raw-output/environment/pro
 `5db4edc5db6269806a8e9171f1c4d549eedc2f15c076db613a2d31eb472a965a`로 byte-identical이고,
 새 policy/oracle 7/7과 전체 repository policy 76/76이 green이다.
 
-이 matrix는 현재 API가 exact DP1 dimension-subset parser이지 full TFM validity validator가
-아님을 명시한다. Unrelated invalid table을 일부 받아들이고 native가 허용하는 trailing word를
-strict length mismatch로 거부하므로 source-visible font load success로 사용할 수 없다. 다음
-implementation/ownership review가 narrow API rename/documentation과 complete TeX82 validator 중
-하나를 선택할 때까지 `ARCH-016`과 W3는 blocked이며, 이 evidence unit은 production crate,
-VM dependency, capability, snapshot, hash, writer, epoch를 바꾸지 않는다.
+이 matrix는 당시 API가 exact DP1 dimension-subset parser이지 full TFM validity validator가
+아님을 명시했다. Unrelated invalid table을 일부 받아들이고 native가 허용하는 trailing word를
+strict length mismatch로 거부하므로 source-visible font load success로 사용할 수 없다. 이어진
+implementation review가 narrow API와 complete TeX82 validator 중 선행 단위를 고르도록 했고,
+그 판정 전까지 `ARCH-016`과 W3를 blocked로 유지했다. 이 evidence unit은 production crate,
+VM dependency, capability, snapshot, hash, writer, epoch를 바꾸지 않았다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
@@ -1490,6 +1490,33 @@ approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 
 커밋했으며, logical font definition/effective scale/TFM hash를 묶는 current-font owner와
 magnification owner의 새 readiness review 전에는 W3, source-visible font/`\mag`, snapshot
 schema/capability, epoch 6을 시작하지 않는다.
+
+2026-08-26 replacement implementation review
+`6a8db2a7-dd74-83ee-851b-4749f3f3fbd4`는 confidence 0.96의
+`REVISE_BOUNDARY`를 반환했다. Selected-field offset/range/indexing, TeX82
+`store_scaled`, signed fix word, exact-frame hash와 per-input resource bound에는 독립 결함을
+찾지 않았고, source-visible loader가 broad `parse_tfm` success를 native validity로 오해할 수
+있는 public contract를 high finding으로 판정했다. Full validator를 지금 구현하는 것은
+authoritative bad-TFM branch inventory가 없는 상태에서 범위를 잘못 넓히므로 거부하고, 먼저
+exact-frame dimension-subset 이름으로 좁히도록 선택했다.
+
+Strict TDD로 unresolved `dimension_subset` compile RED를 확인한 뒤 public API를
+`dimension_subset::extract_exact_frame -> ExactTfmDimensionMetrics`로 옮겼다. Error/hash도
+`ExtractError::ExactFrameLengthMismatch`와 `exact_frame_content_hash`로 scope를 드러내고,
+`parse_tfm`/`TfmParseError` compatibility alias는 남기지 않았다. 새 boundary 회귀는 native가
+허용하는 trailing word를 exact-frame policy로 거부하고, native가 거부하는 unrelated
+`fontdimen2` 손상에서도 selected dimension extraction이 성공함을 함께 고정한다. `np=0`
+zero-fill과 broad-symbol compile-fail doctest까지 포함해 기존 6개 exact test, 새 4개 boundary
+test, doctest 2개가 green이고 산술/hash golden은 바뀌지 않았다. Fresh full Python policy
+80/80, tex-fonts 11/11, tex-vm 681 lib와 모든 integration, tex-checkpoint 68 lib와 모든 target,
+latexd lib 239/239, package/canonical workspace Clippy와 rustfmt/diff check도 green이다.
+
+이 수정은 API confusion만 닫는다. Complete font-load validation은 여전히 open이며,
+source-visible loader 전 별도 review는 pinned TeX82/pdfTeX loader source의 모든 bad-TFM branch,
+trailing policy, immutable input bytes와 raw hash/extracted fields를 하나로 묶는 opaque validated
+artifact, validate/extract TOCTOU 방지와 failure-atomic owner commit을 승인해야 한다. 따라서
+`ARCH-016`과 W3는 source loading 관점에서 계속 blocked이고, VM/font owner/`\mag`/snapshot/
+capability/hash/writer/epoch에는 변화가 없다.
 
 2026-08-22 W2.5 implementation-review 제출 두 번은 live browser/auth preflight가 중간에
 통과했음에도 shared broker가 chat creation 전 startup에서 종료되어 UUID/verdict를 만들지

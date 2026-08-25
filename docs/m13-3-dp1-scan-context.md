@@ -26,6 +26,15 @@ before chat creation when the shared broker exited during startup. A following
 session probe reported `prior_exit_type=crashed`; it likewise produced no UUID
 or verdict.
 
+The replacement implementation review
+`6a8db2a7-dd74-83ee-851b-4749f3f3fbd4` completed on 2026-08-26 with
+`REVISE_BOUNDARY` at confidence 0.96. It found no independent offset, range,
+scaling, signed-fix-word, indexing, hash, or denial-of-service defect in the
+selected-field implementation. It required the broad public parse names to be
+removed because subset extraction must not look like complete font-load
+validation. The reviewed correction is limited to an explicitly named exact
+frame dimension-subset API and does not authorize an owner or W3.
+
 Neither characterization nor the exact metric substrate adds a source command,
 primitive, Eqtb owner, VM/renderer dependency, snapshot field, capability,
 semantic hash frame, writer lane, or layout consumer.
@@ -107,12 +116,21 @@ is not stable semantic identity.
 
 ## Exact TFM prerequisite
 
-`tex-tfm-metrics` accepts a TFM byte slice and returns a private exact metric
-representation with public design-size, SHA-256 content identity, and
-`at_size_sp` projection. It parses only `fontdimen5` and `fontdimen6`; it has no
-filesystem, resolver, Type1, renderer, VM, font-selection, or floating-point
-dependency. Invalid length/table structure, design size, selected fix-word
-range, or effective size produces a typed error with no fallback.
+`tex-tfm-metrics` exposes
+`dimension_subset::extract_exact_frame`, which accepts exactly the byte frame
+declared by a TFM `lf` field and returns `ExactTfmDimensionMetrics` with public
+design-size, exact-frame SHA-256 identity, and `at_size_sp` projection. The
+broad `parse_tfm` and `TfmParseError` names no longer exist. Rustdoc and
+compile-fail tests make the promise explicit: Success does not imply that
+TeX82 or pdfTeX would load the font.
+
+The extractor parses only the aggregate layout needed to reach `fontdimen5`
+and `fontdimen6`; it has no filesystem, resolver, Type1, renderer, VM,
+font-selection, or floating-point dependency. Exact-frame length mismatch is
+reported as `ExactFrameLengthMismatch`, which describes this subset policy and
+does not classify the bytes as natively invalid. Inconsistent aggregate table
+structure, invalid design size or selected fix-word range, and invalid
+effective size remain typed errors with no fallback.
 
 TeX82 accepts parameter tables shorter than seven entries and supplies zero for
 the absent dimensions. Native INITEX and the crate therefore agree that `np=5`
@@ -133,13 +151,19 @@ behavior. The original oracle values remain exact:
 | cmr10 at 12pt | 786434sp | 338602sp |
 | cmr7 natural | 522469sp | 197518sp |
 
-The content identity is lowercase `sha256:` plus the digest of TFM bytes only
-and matches the audited classic-font manifest. Six crate tests, 11 existing
+The exact-frame content identity is lowercase `sha256:` plus the digest of the
+supplied frame bytes only and matches the audited classic-font manifest. Six
+original exact-metric tests, four boundary tests, and two broad-symbol
+compile-fail doctests pass. The boundary tests explicitly preserve `np=0`
+zero-fill, reject a native-accepted trailing word as an exact-frame mismatch,
+and accept an unrelated native-invalid `fontdimen2` mutation while returning
+the unchanged selected dimensions. This is intentional evidence that the
+result is not a font-load capability. In addition, 11 existing
 `tex-fonts` tests, 681 `tex-vm` library tests and every VM integration target,
 68 `tex-checkpoint` library tests and every checkpoint target, 239 `latexd`
-library tests, package Clippy, canonical workspace Clippy, rustfmt, and diff
-checks pass. Existing IntegerParameter V1 and epoch/capability contracts remain
-unchanged.
+library tests, the full 80-test Python policy suite, package Clippy, canonical
+workspace Clippy, rustfmt, and diff checks pass. Existing IntegerParameter V1
+and epoch/capability contracts remain unchanged.
 
 This crate closes metric representation and conversion, not production
 provenance. A later owner must still bind a logical font definition and
@@ -165,15 +189,24 @@ or kern fix-word sign, scaled-nonzero width[0], invalid unselected
 and out-of-range extensible recipe. Every rejecting case reaches the sentinel
 with `nullfont` and the exact `Bad metric (TFM) file` diagnostic.
 
-This proves that the current crate is a bounded dimension-subset parser, not a
-full TFM validity oracle. It already rejects the invalid selected
+This proves that the current crate is a bounded dimension-subset extractor, not
+a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
-loading rejects; conversely, its exact declared-length policy rejects the
-native-accepted trailing word. No source-visible font owner may treat
-`parse_tfm` success as native font-load success until a review chooses either a
-narrowly named/documented subset API or a complete TeX82 validator. This gap is
-tracked as `ARCH-016`, adds no production dependency or behavior, and keeps W3
-blocked.
+loading rejects; conversely, its exact-frame policy rejects the
+native-accepted trailing word. The 2026-08-26 Pro review selected the narrow API
+instead of widening this bounded unit into a purported complete validator.
+
+The API-confusion part of `ARCH-016` is mitigated: call sites must spell
+`dimension_subset::extract_exact_frame`, the error/hash names declare the frame
+scope, broad aliases are absent, and a native-invalid subset-success witness is
+executable. However, complete font-load validation remains open. Before any
+source-visible font definition, resolver, cache, or owner commits state, a
+separately reviewed validator must derive every rule from the pinned TeX82/
+pdfTeX loader source and return one opaque artifact that binds immutable input
+bytes, full validation evidence, declared-frame extent, raw content identity,
+and extracted fields. A loader must not validate one byte stream and extract or
+reacquire another. `ARCH-016` and W3 therefore remain blocked for source
+loading even though the subset API is now honest.
 
 ## Owner, persistence, and capability decisions
 

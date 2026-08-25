@@ -106,6 +106,11 @@ class TfmValidityOracleTests(unittest.TestCase):
 
         self.assertIn("full TFM validity", contract)
         self.assertIn("dimension-subset", contract)
+        self.assertIn("dimension_subset::extract_exact_frame", contract)
+        self.assertIn("ExactFrameLengthMismatch", contract)
+        self.assertIn("REVISE_BOUNDARY", contract)
+        self.assertIn("6a8db2a7-dd74-83ee-851b-4749f3f3fbd4", contract)
+        self.assertIn("complete font-load validation remains open", contract)
         self.assertIn("W3 remains blocked", contract)
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
