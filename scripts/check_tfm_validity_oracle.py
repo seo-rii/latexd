@@ -63,6 +63,18 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "bc is greater than ec plus one",
     },
+    "character_range_ec256": {
+        "base_tfm": CMR10_TFM,
+        "description": "ec exceeds the TeX82 character-code range",
+    },
+    "empty_range_2_1": {
+        "base_tfm": CMR10_TFM,
+        "description": "ordinary native-valid empty character range",
+    },
+    "empty_range_256_255": {
+        "base_tfm": CMR10_TFM,
+        "description": "native-valid empty range at the normalization boundary",
+    },
     "aggregate_length_mismatch": {
         "base_tfm": CMR10_TFM,
         "description": "lf disagrees with the aggregate table counts",
@@ -82,6 +94,22 @@ CASE_SPECS = {
     "trailing_word": {
         "base_tfm": CMR10_TFM,
         "description": "one complete word follows the declared TFM length",
+    },
+    "trailing_1_byte_nonzero": {
+        "base_tfm": CMR10_TFM,
+        "description": "one nonzero byte follows the declared TFM length",
+    },
+    "trailing_2_bytes_nonzero": {
+        "base_tfm": CMR10_TFM,
+        "description": "two nonzero bytes follow the declared TFM length",
+    },
+    "trailing_3_bytes_nonzero": {
+        "base_tfm": CMR10_TFM,
+        "description": "three nonzero bytes follow the declared TFM length",
+    },
+    "trailing_long_nonzero": {
+        "base_tfm": CMR10_TFM,
+        "description": "8193 nonzero bytes follow the declared TFM length",
     },
     "zero_width_table_consistent": {
         "base_tfm": CMR10_TFM,
@@ -103,9 +131,17 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "the header contains fewer than checksum and design-size words",
     },
+    "minimal_header_lh2": {
+        "base_tfm": CMR10_TFM,
+        "description": "the header has exactly the two words TeX82 reads",
+    },
     "design_size_below_one_pt": {
         "base_tfm": CMR10_TFM,
         "description": "the design size is one fix-word unit below 1pt",
+    },
+    "design_size_exactly_one_pt": {
+        "base_tfm": CMR10_TFM,
+        "description": "the design size is exactly the 1pt acceptance boundary",
     },
     "invalid_character_width_index": {
         "base_tfm": CMR10_TFM,
@@ -255,6 +291,14 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "fontdimen1 uses a sign byte that is valid for the pure-number slant",
     },
+    "parameter_count_8_valid": {
+        "base_tfm": CMR10_TFM,
+        "description": "an eighth zero parameter is validated and accepted",
+    },
+    "parameter_8_invalid_fix_word": {
+        "base_tfm": CMR10_TFM,
+        "description": "the eighth parameter has a forbidden fix-word sign byte",
+    },
     "premature_eof": {
         "base_tfm": CMR10_TFM,
         "description": "the final byte declared by lf is missing",
@@ -358,8 +402,53 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         return _short_parameter_table(base_tfm, 0)
     if case_id == "trailing_word":
         return bytes(base_tfm) + bytes(4)
+    if case_id == "trailing_1_byte_nonzero":
+        return bytes(base_tfm) + bytes([165])
+    if case_id == "trailing_2_bytes_nonzero":
+        return bytes(base_tfm) + bytes([165]) * 2
+    if case_id == "trailing_3_bytes_nonzero":
+        return bytes(base_tfm) + bytes([165]) * 3
+    if case_id == "trailing_long_nonzero":
+        return bytes(base_tfm) + bytes([165]) * 8193
     if case_id == "premature_eof":
         return bytes(base_tfm[:-1])
+    if case_id in {"parameter_count_8_valid", "parameter_8_invalid_fix_word"}:
+        counts = _counts(base_tfm)
+        mutated = bytearray(base_tfm)
+        mutated.extend(
+            bytes(4)
+            if case_id == "parameter_count_8_valid"
+            else bytes([1, 0, 0, 0])
+        )
+        mutated[0:2] = (counts[0] + 1).to_bytes(2, "big")
+        mutated[22:24] = (counts[11] + 1).to_bytes(2, "big")
+        return bytes(mutated)
+    if case_id in {"empty_range_2_1", "empty_range_256_255"}:
+        offsets = _table_offsets(base_tfm)
+        character_start = offsets["character"]
+        width_start = offsets["width"]
+        ligkern_start = offsets["ligkern"]
+        parameter_start = offsets["parameter"]
+        mutated = bytearray(
+            base_tfm[:character_start]
+            + base_tfm[width_start:ligkern_start]
+            + base_tfm[parameter_start:]
+        )
+        first, last = (
+            (2, 1) if case_id == "empty_range_2_1" else (256, 255)
+        )
+        mutated[0:2] = (len(mutated) // 4).to_bytes(2, "big")
+        mutated[4:6] = first.to_bytes(2, "big")
+        mutated[6:8] = last.to_bytes(2, "big")
+        mutated[16:22] = bytes(6)
+        return bytes(mutated)
+    if case_id == "minimal_header_lh2":
+        counts = _counts(base_tfm)
+        header_end = 4 * (6 + counts[1])
+        mutated = bytearray(base_tfm[:32] + base_tfm[header_end:])
+        mutated[0:2] = (len(mutated) // 4).to_bytes(2, "big")
+        mutated[2:4] = (2).to_bytes(2, "big")
+        return bytes(mutated)
 
     mutated = bytearray(base_tfm)
     offsets = _table_offsets(base_tfm)
@@ -368,6 +457,8 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
     elif case_id == "invalid_character_range":
         mutated[4:6] = (2).to_bytes(2, "big")
         mutated[6:8] = (0).to_bytes(2, "big")
+    elif case_id == "character_range_ec256":
+        mutated[6:8] = (256).to_bytes(2, "big")
     elif case_id == "aggregate_length_mismatch":
         mutated[0:2] = (_counts(base_tfm)[0] + 1).to_bytes(2, "big")
     elif case_id == "zero_width_table_consistent":
@@ -392,6 +483,8 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         mutated[18:20] = (counts[9] + counts[1] - 1).to_bytes(2, "big")
     elif case_id == "design_size_below_one_pt":
         mutated[28:32] = ((1 << 20) - 1).to_bytes(4, "big")
+    elif case_id == "design_size_exactly_one_pt":
+        mutated[28:32] = (1 << 20).to_bytes(4, "big")
     elif case_id == "invalid_character_width_index":
         mutated[offsets["character"]] = _counts(base_tfm)[4]
     elif case_id == "invalid_character_height_index":

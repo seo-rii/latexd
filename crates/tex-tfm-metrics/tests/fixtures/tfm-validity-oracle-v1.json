@@ -42,6 +42,20 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "character_range_ec256": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "651964b1d064070d2850bb0927adf3fa437d98193c59429391bf2a803e21c767",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "design_size_below_one_pt": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
@@ -53,6 +67,42 @@
         "quad": 0,
         "sentinel": 1,
         "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "design_size_exactly_one_pt": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "22083bb69778730c4066ae916f788db230805fb962a5e2079582f140256783ac",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 65536,
+        "sentinel": 1,
+        "xheight": 28216
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "empty_range_2_1": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "ddb3fa1fb0a5efcbf5ef1f9e38f23651d77028fc8ab2c62d90f581b3e57f9e70",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "empty_range_256_255": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "56dfb89b93fbde0087a597d9b7e242f94de8831cd1656c3fbee93c0028bffa2b",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
@@ -580,6 +630,32 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "parameter_8_invalid_fix_word": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "58a65c0a33df47aee5806ff273bfbf30d9d1035c31223d23c50676c463803b11",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "parameter_count_8_valid": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "5e3ee43ecbe96f86ff970ddcd2d59b40720a2c905df7c40533f2959f05573cb4",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "short_header": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
@@ -591,6 +667,18 @@
         "quad": 0,
         "sentinel": 1,
         "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "minimal_header_lh2": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "3c4119fe8111b3bd7627b1b7bacb737ad8e7b380ee60e70c1ed1267e8d35efbe",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
@@ -660,6 +748,54 @@
       "diagnostics": [],
       "exit_status": 0,
       "mutated_tfm_sha256": "a94cf8d418df8c41a762d1ed907a5d5863ce87b8369df510e6d9d2d31d153288",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "trailing_1_byte_nonzero": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "ae15d0bd5f5ac2225ec05c5923135e7842316e865e382590be2826202fb34ead",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "trailing_2_bytes_nonzero": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "00b0d32a88bfb59421f1fa4c1740c3252983079ca7e12f7af9aa7b88a5995335",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "trailing_3_bytes_nonzero": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "eb2cdfddc20318db2b459394c491f44b7c77911baa1199f7ea7d3456815524ee",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "trailing_long_nonzero": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "7acbcf36be21fd4fc59dca0b73a8daf05108d883e2a25c77e34345e6b72120c6",
       "observations": {
         "font": "latexdprobe",
         "quad": 655361,
@@ -777,7 +913,11 @@
     "aggregate_length_mismatch": {"mode": "natural"},
     "charlist_out_of_range": {"mode": "natural"},
     "charlist_self_cycle": {"mode": "natural"},
+    "character_range_ec256": {"mode": "natural"},
     "design_size_below_one_pt": {"mode": "natural"},
+    "design_size_exactly_one_pt": {"mode": "natural"},
+    "empty_range_2_1": {"mode": "natural"},
+    "empty_range_256_255": {"mode": "natural"},
     "invalid_at_size_limit": {"mode": "at_sp", "value": 134217728},
     "invalid_at_size_zero": {"mode": "at_sp", "value": 0},
     "invalid_character_depth_index": {"mode": "natural"},
@@ -816,13 +956,20 @@
     "nonzero_width_zero_at_16sp": {"mode": "at_sp", "value": 16},
     "nonzero_width_zero_at_1sp": {"mode": "at_sp", "value": 1},
     "premature_eof": {"mode": "natural"},
+    "parameter_8_invalid_fix_word": {"mode": "natural"},
+    "parameter_count_8_valid": {"mode": "natural"},
     "short_header": {"mode": "natural"},
+    "minimal_header_lh2": {"mode": "natural"},
     "short_np0": {"mode": "natural"},
     "short_np4": {"mode": "natural"},
     "short_np5": {"mode": "natural"},
     "signed_slant_parameter": {"mode": "natural"},
     "size_field_high_bit": {"mode": "natural"},
     "trailing_word": {"mode": "natural"},
+    "trailing_1_byte_nonzero": {"mode": "natural"},
+    "trailing_2_bytes_nonzero": {"mode": "natural"},
+    "trailing_3_bytes_nonzero": {"mode": "natural"},
+    "trailing_long_nonzero": {"mode": "natural"},
     "valid_cmr10": {"mode": "natural"},
     "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
     "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
