@@ -20,6 +20,13 @@ EXPECTED_FIXTURE = (
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
 )
 
+TEX82_READ_FONT_INFO_SOURCE = {
+    "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
+    "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "loader_section_lines": [10870, 11210],
+    "loader_section_sha256": "57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8",
+}
+
 CMR10_TFM = "crates/tex-fonts/assets/classic/tfm/cmr10.tfm"
 CMEX10_TFM = "crates/tex-fonts/assets/classic/tfm/cmex10.tfm"
 
@@ -27,6 +34,18 @@ CASE_SPECS = {
     "valid_cmr10": {
         "base_tfm": CMR10_TFM,
         "description": "unmodified cmr10 control",
+    },
+    "size_field_high_bit": {
+        "base_tfm": CMR10_TFM,
+        "description": "a TFM size halfword uses the forbidden high bit",
+    },
+    "invalid_character_range": {
+        "base_tfm": CMR10_TFM,
+        "description": "bc is greater than ec plus one",
+    },
+    "aggregate_length_mismatch": {
+        "base_tfm": CMR10_TFM,
+        "description": "lf disagrees with the aggregate table counts",
     },
     "short_np5": {
         "base_tfm": CMR10_TFM,
@@ -47,6 +66,26 @@ CASE_SPECS = {
     "zero_width_table_consistent": {
         "base_tfm": CMR10_TFM,
         "description": "zero width-table count with a compensating table count",
+    },
+    "zero_height_table_consistent": {
+        "base_tfm": CMR10_TFM,
+        "description": "zero height-table count with a compensating table count",
+    },
+    "zero_depth_table_consistent": {
+        "base_tfm": CMR10_TFM,
+        "description": "zero depth-table count with a compensating table count",
+    },
+    "zero_italic_table_consistent": {
+        "base_tfm": CMR10_TFM,
+        "description": "zero italic-table count with a compensating table count",
+    },
+    "short_header": {
+        "base_tfm": CMR10_TFM,
+        "description": "the header contains fewer than checksum and design-size words",
+    },
+    "design_size_below_one_pt": {
+        "base_tfm": CMR10_TFM,
+        "description": "the design size is one fix-word unit below 1pt",
     },
     "invalid_character_width_index": {
         "base_tfm": CMR10_TFM,
@@ -83,6 +122,14 @@ CASE_SPECS = {
     "invalid_extensible": {
         "base_tfm": CMEX10_TFM,
         "description": "extensible recipe references a character outside the range",
+    },
+    "signed_slant_parameter": {
+        "base_tfm": CMR10_TFM,
+        "description": "fontdimen1 uses a sign byte that is valid for the pure-number slant",
+    },
+    "premature_eof": {
+        "base_tfm": CMR10_TFM,
+        "description": "the final byte declared by lf is missing",
     },
 }
 
@@ -154,13 +201,40 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         return _short_parameter_table(base_tfm, 0)
     if case_id == "trailing_word":
         return bytes(base_tfm) + bytes(4)
+    if case_id == "premature_eof":
+        return bytes(base_tfm[:-1])
 
     mutated = bytearray(base_tfm)
     offsets = _table_offsets(base_tfm)
-    if case_id == "zero_width_table_consistent":
+    if case_id == "size_field_high_bit":
+        mutated[8] = 128
+    elif case_id == "invalid_character_range":
+        mutated[4:6] = (2).to_bytes(2, "big")
+        mutated[6:8] = (0).to_bytes(2, "big")
+    elif case_id == "aggregate_length_mismatch":
+        mutated[0:2] = (_counts(base_tfm)[0] + 1).to_bytes(2, "big")
+    elif case_id == "zero_width_table_consistent":
         counts = _counts(base_tfm)
         mutated[8:10] = (0).to_bytes(2, "big")
         mutated[16:18] = (counts[8] + counts[4]).to_bytes(2, "big")
+    elif case_id == "zero_height_table_consistent":
+        counts = _counts(base_tfm)
+        mutated[10:12] = (0).to_bytes(2, "big")
+        mutated[18:20] = (counts[9] + counts[5]).to_bytes(2, "big")
+    elif case_id == "zero_depth_table_consistent":
+        counts = _counts(base_tfm)
+        mutated[12:14] = (0).to_bytes(2, "big")
+        mutated[18:20] = (counts[9] + counts[6]).to_bytes(2, "big")
+    elif case_id == "zero_italic_table_consistent":
+        counts = _counts(base_tfm)
+        mutated[14:16] = (0).to_bytes(2, "big")
+        mutated[18:20] = (counts[9] + counts[7]).to_bytes(2, "big")
+    elif case_id == "short_header":
+        counts = _counts(base_tfm)
+        mutated[2:4] = (1).to_bytes(2, "big")
+        mutated[18:20] = (counts[9] + counts[1] - 1).to_bytes(2, "big")
+    elif case_id == "design_size_below_one_pt":
+        mutated[28:32] = ((1 << 20) - 1).to_bytes(4, "big")
     elif case_id == "invalid_character_width_index":
         mutated[offsets["character"]] = _counts(base_tfm)[4]
     elif case_id == "charlist_self_cycle":
@@ -182,6 +256,8 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         if _counts(base_tfm)[10] == 0:
             raise ValueError("extensible mutation requires a nonempty recipe table")
         mutated[offsets["extensible"] + 3] = 255
+    elif case_id == "signed_slant_parameter":
+        mutated[offsets["parameter"]] = 1
     else:
         raise ValueError(f"unknown TFM validity case: {case_id}")
     return bytes(mutated)
@@ -332,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         "format": fixture["format"],
         "schema_version": fixture["schema_version"],
         "compatibility_target": fixture["compatibility_target"],
+        "compatibility_source": TEX82_READ_FONT_INFO_SOURCE,
         "engine": {
             "path": engine_path,
             "sha256": hashlib.sha256(Path(engine_path).read_bytes()).hexdigest(),

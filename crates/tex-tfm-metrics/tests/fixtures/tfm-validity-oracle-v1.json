@@ -1,11 +1,53 @@
 {
   "case_results": {
+    "aggregate_length_mismatch": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "f04a8bdded1a773b4cf5ccfc2161a2b19b371d5c362194732dfb89ae2a1a5c1b",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "charlist_self_cycle": {
       "diagnostics": [
         "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
       ],
       "exit_status": 1,
       "mutated_tfm_sha256": "21f90ff87906e91e54c515a4049e6b787dd1f8ae88522f1b0eefb6b588f0d294",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "design_size_below_one_pt": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "4dc14034d2a7092ac0c182d7ef900624fd844072325c0e950c56fd5a2ad849cf",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "invalid_character_range": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "95d8111dbf8e475dc2b40d88f499d122113a68c8e7841182f0197213e33e5b7d",
       "observations": {
         "font": "nullfont",
         "quad": 0,
@@ -126,6 +168,34 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "premature_eof": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "7502399ca549f1b9d3dccd4b10694e7760c28ac40bdd9fb9cb01d94a00289bc5",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "short_header": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "673f27a865beaa7735bf8129020e3a26f72337d64096473ec9048981430a082a",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "short_np0": {
       "diagnostics": [],
       "exit_status": 0,
@@ -162,6 +232,32 @@
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },
+    "signed_slant_parameter": {
+      "diagnostics": [],
+      "exit_status": 0,
+      "mutated_tfm_sha256": "02230f0e75067cfcce6c9aa8aba9839906f346c0c0723779eafe4a38751afd4f",
+      "observations": {
+        "font": "latexdprobe",
+        "quad": 655361,
+        "sentinel": 1,
+        "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "size_field_high_bit": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "469894d35397e1f70647d5f6166c9f0c4b15ef154234b67578283d2c91485126",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
     "trailing_word": {
       "diagnostics": [],
       "exit_status": 0,
@@ -183,6 +279,48 @@
         "quad": 655361,
         "sentinel": 1,
         "xheight": 282168
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "zero_depth_table_consistent": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "7287314d35331af914463466cd1426d5d663ef54456fa5b396382c1cdef9bad2",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "zero_height_table_consistent": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "01979835ad1744b037881ec2d2b6e3218df4df89e2ed59a61c82e10916ffe57a",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
+      },
+      "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
+    },
+    "zero_italic_table_consistent": {
+      "diagnostics": [
+        "Font \\probe=latexdprobe not loadable: Bad metric (TFM) file"
+      ],
+      "exit_status": 1,
+      "mutated_tfm_sha256": "aaafd477e8bc12e58273bcfface8fd8c7b02467b84dadd210b678973615f0bad",
+      "observations": {
+        "font": "nullfont",
+        "quad": 0,
+        "sentinel": 1,
+        "xheight": 0
       },
       "source_sha256": "412fae8d526e96791e5751d3b609b17425e2260ba85d2c5d85aa792bcee60d6c"
     },

@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts.check_tfm_validity_oracle import (
     CASE_SPECS,
     EXPECTED_FIXTURE,
+    TEX82_READ_FONT_INFO_SOURCE,
     main,
     mutate_tfm,
     run_oracle,
@@ -16,21 +17,31 @@ from scripts.check_tfm_validity_oracle import (
 
 
 EXPECTED_CASES = {
-    "valid_cmr10",
-    "short_np5",
-    "short_np4",
-    "short_np0",
-    "trailing_word",
-    "zero_width_table_consistent",
-    "invalid_character_width_index",
+    "aggregate_length_mismatch",
     "charlist_self_cycle",
-    "invalid_width_fix_word_sign",
-    "nonzero_width_zero",
+    "design_size_below_one_pt",
+    "invalid_character_range",
+    "invalid_character_width_index",
+    "invalid_extensible",
     "invalid_fontdimen2",
     "invalid_fontdimen5",
-    "invalid_ligkern",
     "invalid_kern_fix_word",
-    "invalid_extensible",
+    "invalid_ligkern",
+    "invalid_width_fix_word_sign",
+    "nonzero_width_zero",
+    "premature_eof",
+    "short_header",
+    "short_np0",
+    "short_np4",
+    "short_np5",
+    "signed_slant_parameter",
+    "size_field_high_bit",
+    "trailing_word",
+    "valid_cmr10",
+    "zero_depth_table_consistent",
+    "zero_height_table_consistent",
+    "zero_italic_table_consistent",
+    "zero_width_table_consistent",
 }
 
 
@@ -43,6 +54,15 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertEqual(fixture["format"], "latexd.tfm-validity-oracle")
         self.assertEqual(fixture["schema_version"], 1)
         self.assertEqual(fixture["compatibility_target"], "TeX82 via pdfTeX INITEX")
+        self.assertEqual(
+            TEX82_READ_FONT_INFO_SOURCE,
+            {
+                "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
+                "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+                "loader_section_lines": [10870, 11210],
+                "loader_section_sha256": "57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8",
+            },
+        )
         self.assertEqual(validate_case_results(fixture["case_results"], fixture), [])
 
         for case_id, expected in fixture["case_results"].items():
@@ -111,6 +131,9 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("REVISE_BOUNDARY", contract)
         self.assertIn("6a8db2a7-dd74-83ee-851b-4749f3f3fbd4", contract)
         self.assertIn("complete font-load validation remains open", contract)
+        self.assertIn("25 byte-frozen mutations", contract)
+        self.assertIn(TEX82_READ_FONT_INFO_SOURCE["sha256"], contract)
+        self.assertIn("Phase 1", contract)
         self.assertIn("W3 remains blocked", contract)
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
@@ -132,6 +155,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertEqual(report["format"], "latexd.tfm-validity-oracle")
         self.assertEqual(report["schema_version"], 1)
         self.assertEqual(report["compatibility_target"], "TeX82 via pdfTeX INITEX")
+        self.assertEqual(report["compatibility_source"], TEX82_READ_FONT_INFO_SOURCE)
         self.assertIn("pdfTeX", report["engine"]["version"])
         self.assertTrue(Path(report["engine"]["path"]).is_absolute())
         self.assertEqual(len(report["engine"]["sha256"]), 64)
