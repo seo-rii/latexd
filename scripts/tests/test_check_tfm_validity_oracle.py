@@ -150,10 +150,11 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("REVISE_BOUNDARY", contract)
         self.assertIn("6a8db2a7-dd74-83ee-851b-4749f3f3fbd4", contract)
         self.assertIn("complete font-load validation remains open", contract)
-        self.assertIn("37 byte-frozen mutations", contract)
+        self.assertIn("44 byte-frozen mutations", contract)
         self.assertIn(TEX82_READ_FONT_INFO_SOURCE["sha256"], contract)
         self.assertIn("Phase 1", contract)
         self.assertIn("Phase 2", contract)
+        self.assertIn("Phase 3", contract)
         self.assertIn("W3 remains blocked", contract)
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")

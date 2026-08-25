@@ -1505,6 +1505,14 @@ entry-zero nonzero 조건을 각각 분리했다. 12개 mutation 모두 native e
 범위는 lig/kern instruction 및 extensible recipe의 개별 branch이고, validator production API는
 여전히 시작하지 않는다.
 
+Phase 3는 matrix를 44 process로 늘려 lig/kern next character, ligature target, kern index,
+forward skip과 extensible top/middle/bottom character를 독립 mutation으로 고정했다. 기존
+restart index, kern fix-word와 required repeat witness를 합쳐 pinned `read_font_info`의 모든
+accept/reject branch inventory가 닫혔다. 두 final report는 SHA-256
+`faa274a7b1f65bad3cc52f1ec94fe680530fc341eedc79c39e538ef93294976b`로 byte-identical이다.
+이 evidence는 production API를 추가하지 않으며, immutable bytes와 complete validation을 묶는
+opaque validator의 별도 Pro review와 TDD 구현 전까지 source-visible loader와 W3는 계속 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
