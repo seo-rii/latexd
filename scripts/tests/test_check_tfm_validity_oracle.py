@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scripts.check_tfm_validity_oracle import (
+    CASE_SIZES,
     CASE_SPECS,
     EXPECTED_FIXTURE,
     TEX82_READ_FONT_INFO_SOURCE,
@@ -45,9 +46,17 @@ EXPECTED_CASES = {
     "invalid_ligature_target",
     "invalid_width_fix_word_sign",
     "nonzero_width_zero",
+    "nonzero_width_zero_at_1sp",
+    "nonzero_width_zero_at_16sp",
     "nonzero_depth_zero",
+    "nonzero_depth_zero_at_1sp",
+    "nonzero_depth_zero_at_16sp",
     "nonzero_height_zero",
+    "nonzero_height_zero_at_1sp",
+    "nonzero_height_zero_at_16sp",
     "nonzero_italic_zero",
+    "nonzero_italic_zero_at_1sp",
+    "nonzero_italic_zero_at_16sp",
     "premature_eof",
     "short_header",
     "short_np0",
@@ -57,10 +66,25 @@ EXPECTED_CASES = {
     "size_field_high_bit",
     "trailing_word",
     "valid_cmr10",
+    "valid_cmr10_at_1sp",
+    "valid_cmr10_at_16sp",
     "zero_depth_table_consistent",
     "zero_height_table_consistent",
     "zero_italic_table_consistent",
     "zero_width_table_consistent",
+}
+
+EXPLICIT_CASE_SIZES = {
+    "nonzero_width_zero_at_1sp": {"mode": "at_sp", "value": 1},
+    "nonzero_width_zero_at_16sp": {"mode": "at_sp", "value": 16},
+    "nonzero_depth_zero_at_1sp": {"mode": "at_sp", "value": 1},
+    "nonzero_depth_zero_at_16sp": {"mode": "at_sp", "value": 16},
+    "nonzero_height_zero_at_1sp": {"mode": "at_sp", "value": 1},
+    "nonzero_height_zero_at_16sp": {"mode": "at_sp", "value": 16},
+    "nonzero_italic_zero_at_1sp": {"mode": "at_sp", "value": 1},
+    "nonzero_italic_zero_at_16sp": {"mode": "at_sp", "value": 16},
+    "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
+    "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
 }
 
 
@@ -69,7 +93,9 @@ class TfmValidityOracleTests(unittest.TestCase):
         fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
 
         self.assertEqual(set(CASE_SPECS), EXPECTED_CASES)
+        self.assertEqual(set(CASE_SIZES), EXPECTED_CASES)
         self.assertEqual(set(fixture["case_results"]), EXPECTED_CASES)
+        self.assertEqual(set(fixture["case_sizes"]), EXPECTED_CASES)
         self.assertEqual(fixture["format"], "latexd.tfm-validity-oracle")
         self.assertEqual(fixture["schema_version"], 1)
         self.assertEqual(fixture["compatibility_target"], "TeX82 via pdfTeX INITEX")
@@ -84,10 +110,26 @@ class TfmValidityOracleTests(unittest.TestCase):
         )
         self.assertEqual(validate_case_results(fixture["case_results"], fixture), [])
 
+        for case_id in EXPECTED_CASES:
+            expected_size = EXPLICIT_CASE_SIZES.get(case_id, {"mode": "natural"})
+            self.assertEqual(CASE_SIZES[case_id], expected_size, case_id)
+            self.assertEqual(fixture["case_sizes"][case_id], expected_size, case_id)
+
         for case_id, expected in fixture["case_results"].items():
             self.assertEqual(len(expected["mutated_tfm_sha256"]), 64, case_id)
             self.assertEqual(len(expected["source_sha256"]), 64, case_id)
             self.assertEqual(expected["observations"]["sentinel"], 1, case_id)
+
+        for table in ("width", "height", "depth", "italic"):
+            accepted = fixture["case_results"][f"nonzero_{table}_zero_at_1sp"]
+            rejected = fixture["case_results"][f"nonzero_{table}_zero_at_16sp"]
+            self.assertEqual(
+                accepted["mutated_tfm_sha256"],
+                rejected["mutated_tfm_sha256"],
+                table,
+            )
+            self.assertEqual(accepted["diagnostics"], [], table)
+            self.assertEqual(rejected["observations"]["font"], "nullfont", table)
 
     def test_mutations_are_byte_deterministic_and_leave_assets_unchanged(
         self,
@@ -191,6 +233,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertEqual(set(report["base_tfm_files"]), {"cmr10.tfm", "cmex10.tfm"})
         self.assertEqual(set(report["case_results"]), EXPECTED_CASES)
         for case_id, result in report["case_results"].items():
+            self.assertEqual(result["size"], CASE_SIZES[case_id], case_id)
             self.assertIn("This is pdfTeX", result["raw_output"], case_id)
             self.assertEqual(
                 result["source_sha256"],

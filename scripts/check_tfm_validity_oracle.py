@@ -35,6 +35,14 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "unmodified cmr10 control",
     },
+    "valid_cmr10_at_1sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "unmodified cmr10 control at 1sp",
+    },
+    "valid_cmr10_at_16sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "unmodified cmr10 control at 16sp",
+    },
     "size_field_high_bit": {
         "base_tfm": CMR10_TFM,
         "description": "a TFM size halfword uses the forbidden high bit",
@@ -139,17 +147,49 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "width table entry zero scales to a nonzero dimension",
     },
+    "nonzero_width_zero_at_1sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw width[0] scales to zero at 1sp",
+    },
+    "nonzero_width_zero_at_16sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw width[0] remains nonzero at 16sp",
+    },
     "nonzero_height_zero": {
         "base_tfm": CMR10_TFM,
         "description": "height table entry zero scales to a nonzero dimension",
+    },
+    "nonzero_height_zero_at_1sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw height[0] scales to zero at 1sp",
+    },
+    "nonzero_height_zero_at_16sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw height[0] remains nonzero at 16sp",
     },
     "nonzero_depth_zero": {
         "base_tfm": CMR10_TFM,
         "description": "depth table entry zero scales to a nonzero dimension",
     },
+    "nonzero_depth_zero_at_1sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw depth[0] scales to zero at 1sp",
+    },
+    "nonzero_depth_zero_at_16sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw depth[0] remains nonzero at 16sp",
+    },
     "nonzero_italic_zero": {
         "base_tfm": CMR10_TFM,
         "description": "italic table entry zero scales to a nonzero dimension",
+    },
+    "nonzero_italic_zero_at_1sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw italic[0] scales to zero at 1sp",
+    },
+    "nonzero_italic_zero_at_16sp": {
+        "base_tfm": CMR10_TFM,
+        "description": "nonzero raw italic[0] remains nonzero at 16sp",
     },
     "invalid_fontdimen2": {
         "base_tfm": CMR10_TFM,
@@ -208,6 +248,22 @@ CASE_SPECS = {
         "description": "the final byte declared by lf is missing",
     },
 }
+
+CASE_SIZES = {case_id: {"mode": "natural"} for case_id in CASE_SPECS}
+CASE_SIZES.update(
+    {
+        "valid_cmr10_at_1sp": {"mode": "at_sp", "value": 1},
+        "valid_cmr10_at_16sp": {"mode": "at_sp", "value": 16},
+        "nonzero_width_zero_at_1sp": {"mode": "at_sp", "value": 1},
+        "nonzero_width_zero_at_16sp": {"mode": "at_sp", "value": 16},
+        "nonzero_height_zero_at_1sp": {"mode": "at_sp", "value": 1},
+        "nonzero_height_zero_at_16sp": {"mode": "at_sp", "value": 16},
+        "nonzero_depth_zero_at_1sp": {"mode": "at_sp", "value": 1},
+        "nonzero_depth_zero_at_16sp": {"mode": "at_sp", "value": 16},
+        "nonzero_italic_zero_at_1sp": {"mode": "at_sp", "value": 1},
+        "nonzero_italic_zero_at_16sp": {"mode": "at_sp", "value": 16},
+    }
+)
 
 OBSERVATION_PATTERN = re.compile(
     r"LATEXD-TFMV:([A-Za-z0-9_]+)=([A-Za-z0-9_.:/+-]+)"
@@ -270,7 +326,7 @@ def _short_parameter_table(tfm: bytes, parameter_count: int) -> bytes:
 
 
 def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
-    if case_id == "valid_cmr10":
+    if case_id in {"valid_cmr10", "valid_cmr10_at_1sp", "valid_cmr10_at_16sp"}:
         return bytes(base_tfm)
     if case_id == "short_np5":
         return _short_parameter_table(base_tfm, 5)
@@ -353,13 +409,29 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         mutated[offsets["depth"] + 4] = 1
     elif case_id == "invalid_italic_fix_word_sign":
         mutated[offsets["italic"] + 4] = 1
-    elif case_id == "nonzero_width_zero":
+    elif case_id in {
+        "nonzero_width_zero",
+        "nonzero_width_zero_at_1sp",
+        "nonzero_width_zero_at_16sp",
+    }:
         mutated[offsets["width"] : offsets["width"] + 4] = (1 << 16).to_bytes(4, "big")
-    elif case_id == "nonzero_height_zero":
+    elif case_id in {
+        "nonzero_height_zero",
+        "nonzero_height_zero_at_1sp",
+        "nonzero_height_zero_at_16sp",
+    }:
         mutated[offsets["height"] : offsets["height"] + 4] = (1 << 16).to_bytes(4, "big")
-    elif case_id == "nonzero_depth_zero":
+    elif case_id in {
+        "nonzero_depth_zero",
+        "nonzero_depth_zero_at_1sp",
+        "nonzero_depth_zero_at_16sp",
+    }:
         mutated[offsets["depth"] : offsets["depth"] + 4] = (1 << 16).to_bytes(4, "big")
-    elif case_id == "nonzero_italic_zero":
+    elif case_id in {
+        "nonzero_italic_zero",
+        "nonzero_italic_zero_at_1sp",
+        "nonzero_italic_zero_at_16sp",
+    }:
         mutated[offsets["italic"] : offsets["italic"] + 4] = (1 << 16).to_bytes(4, "big")
     elif case_id == "invalid_fontdimen2":
         mutated[offsets["parameter"] + 4] = 1
@@ -444,14 +516,24 @@ def _collect_case_results(
     results = {}
     process_environment = os.environ.copy()
     process_environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
-    source_sha256 = hashlib.sha256(PROBE_SOURCE.encode()).hexdigest()
     for case_id, spec in CASE_SPECS.items():
         base_path = REPOSITORY / spec["base_tfm"]
         mutated = mutate_tfm(case_id, base_path.read_bytes())
+        size = CASE_SIZES[case_id]
+        if size == {"mode": "natural"}:
+            font_definition = r"\font\probe=latexdprobe"
+        elif size.get("mode") == "at_sp" and isinstance(size.get("value"), int):
+            font_definition = rf"\font\probe=latexdprobe at {size['value']}sp"
+        else:
+            raise ValueError(f"invalid TFM oracle size for {case_id}: {size!r}")
+        source = PROBE_SOURCE.replace(
+            r"\font\probe=latexdprobe", font_definition, 1
+        )
+        source_sha256 = hashlib.sha256(source.encode()).hexdigest()
         with tempfile.TemporaryDirectory(prefix="latexd-tfm-validity-oracle-") as temp:
             root = Path(temp)
             (root / "latexdprobe.tfm").write_bytes(mutated)
-            (root / "probe.tex").write_text(PROBE_SOURCE, encoding="utf-8")
+            (root / "probe.tex").write_text(source, encoding="utf-8")
             case_environment = process_environment.copy()
             case_environment["TEXFONTS"] = f"{root}{os.pathsep}"
             completed = subprocess.run(
@@ -468,17 +550,23 @@ def _collect_case_results(
             "exit_status": completed.returncode,
             "mutated_tfm_sha256": hashlib.sha256(mutated).hexdigest(),
             "observations": parse_observations(completed.stdout),
+            "size": dict(size),
             "source_sha256": source_sha256,
         }
         if include_raw_output:
             result["raw_output"] = completed.stdout
-            result["source"] = PROBE_SOURCE
+            result["source"] = source
         results[case_id] = result
     return results
 
 
 def run_oracle(engine: str) -> dict[str, dict[str, object]]:
-    return _collect_case_results(engine, include_raw_output=False)
+    return {
+        case_id: _fixture_result(result)
+        for case_id, result in _collect_case_results(
+            engine, include_raw_output=False
+        ).items()
+    }
 
 
 def validate_case_results(
@@ -487,6 +575,9 @@ def validate_case_results(
     expected = fixture["case_results"]
     if not isinstance(expected, dict):
         raise ValueError("TFM validity fixture case_results must be an object")
+    expected_sizes = fixture.get("case_sizes")
+    if not isinstance(expected_sizes, dict):
+        raise ValueError("TFM validity fixture case_sizes must be an object")
     violations = []
     for case_id, expected_result in expected.items():
         actual = results.get(case_id)
@@ -496,6 +587,13 @@ def validate_case_results(
                 f"{case_id} mismatch: expected {expected_result!r}, "
                 f"observed {semantic_actual!r}"
             )
+        if actual is not None and "size" in actual:
+            actual_size = actual["size"]
+            if actual_size != expected_sizes.get(case_id):
+                violations.append(
+                    f"{case_id} size mismatch: expected {expected_sizes.get(case_id)!r}, "
+                    f"observed {actual_size!r}"
+                )
     unexpected = set(results).difference(expected)
     if unexpected:
         violations.append(f"unexpected cases: {sorted(unexpected)!r}")
@@ -561,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
         "case_descriptions": {
             case_id: spec["description"] for case_id, spec in CASE_SPECS.items()
         },
+        "case_sizes": CASE_SIZES,
         "normalization": {
             "diagnostics": (
                 "lines beginning !; semicolon continuation joined; "
