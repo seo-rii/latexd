@@ -19,16 +19,28 @@ from scripts.check_tfm_validity_oracle import (
 EXPECTED_CASES = {
     "aggregate_length_mismatch",
     "charlist_self_cycle",
+    "charlist_out_of_range",
     "design_size_below_one_pt",
     "invalid_character_range",
+    "invalid_character_depth_index",
+    "invalid_character_extensible_index",
+    "invalid_character_height_index",
+    "invalid_character_italic_index",
+    "invalid_character_ligature_index",
     "invalid_character_width_index",
     "invalid_extensible",
+    "invalid_depth_fix_word_sign",
     "invalid_fontdimen2",
     "invalid_fontdimen5",
+    "invalid_height_fix_word_sign",
+    "invalid_italic_fix_word_sign",
     "invalid_kern_fix_word",
     "invalid_ligkern",
     "invalid_width_fix_word_sign",
     "nonzero_width_zero",
+    "nonzero_depth_zero",
+    "nonzero_height_zero",
+    "nonzero_italic_zero",
     "premature_eof",
     "short_header",
     "short_np0",
@@ -131,9 +143,10 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("REVISE_BOUNDARY", contract)
         self.assertIn("6a8db2a7-dd74-83ee-851b-4749f3f3fbd4", contract)
         self.assertIn("complete font-load validation remains open", contract)
-        self.assertIn("25 byte-frozen mutations", contract)
+        self.assertIn("37 byte-frozen mutations", contract)
         self.assertIn(TEX82_READ_FONT_INFO_SOURCE["sha256"], contract)
         self.assertIn("Phase 1", contract)
+        self.assertIn("Phase 2", contract)
         self.assertIn("W3 remains blocked", contract)
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")

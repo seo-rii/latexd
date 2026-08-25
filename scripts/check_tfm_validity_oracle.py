@@ -91,6 +91,30 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "character info addresses width index nw",
     },
+    "invalid_character_height_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "character info addresses height index nh",
+    },
+    "invalid_character_depth_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "character info addresses depth index nd",
+    },
+    "invalid_character_italic_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "character info addresses italic index ni",
+    },
+    "invalid_character_ligature_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "ligature-tagged character info addresses instruction nl",
+    },
+    "invalid_character_extensible_index": {
+        "base_tfm": CMR10_TFM,
+        "description": "extensible-tagged character info addresses recipe ne",
+    },
+    "charlist_out_of_range": {
+        "base_tfm": CMR10_TFM,
+        "description": "character list points outside bc through ec",
+    },
     "charlist_self_cycle": {
         "base_tfm": CMR10_TFM,
         "description": "character list points back to the same character",
@@ -99,9 +123,33 @@ CASE_SPECS = {
         "base_tfm": CMR10_TFM,
         "description": "unselected width fix word has a forbidden sign byte",
     },
+    "invalid_height_fix_word_sign": {
+        "base_tfm": CMR10_TFM,
+        "description": "height fix word has a forbidden sign byte",
+    },
+    "invalid_depth_fix_word_sign": {
+        "base_tfm": CMR10_TFM,
+        "description": "depth fix word has a forbidden sign byte",
+    },
+    "invalid_italic_fix_word_sign": {
+        "base_tfm": CMR10_TFM,
+        "description": "italic fix word has a forbidden sign byte",
+    },
     "nonzero_width_zero": {
         "base_tfm": CMR10_TFM,
         "description": "width table entry zero scales to a nonzero dimension",
+    },
+    "nonzero_height_zero": {
+        "base_tfm": CMR10_TFM,
+        "description": "height table entry zero scales to a nonzero dimension",
+    },
+    "nonzero_depth_zero": {
+        "base_tfm": CMR10_TFM,
+        "description": "depth table entry zero scales to a nonzero dimension",
+    },
+    "nonzero_italic_zero": {
+        "base_tfm": CMR10_TFM,
+        "description": "italic table entry zero scales to a nonzero dimension",
     },
     "invalid_fontdimen2": {
         "base_tfm": CMR10_TFM,
@@ -169,6 +217,9 @@ def _table_offsets(tfm: bytes) -> dict[str, int]:
     return {
         "character": 4 * (6 + lh),
         "width": 4 * (6 + lh + character_count),
+        "height": 4 * (6 + lh + character_count + nw),
+        "depth": 4 * (6 + lh + character_count + nw + nh),
+        "italic": 4 * (6 + lh + character_count + nw + nh + nd),
         "ligkern": 4 * (6 + lh + character_count + nw + nh + nd + ni),
         "kern": 4 * (6 + lh + character_count + nw + nh + nd + ni + nl),
         "extensible": 4
@@ -237,13 +288,51 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         mutated[28:32] = ((1 << 20) - 1).to_bytes(4, "big")
     elif case_id == "invalid_character_width_index":
         mutated[offsets["character"]] = _counts(base_tfm)[4]
+    elif case_id == "invalid_character_height_index":
+        counts = _counts(base_tfm)
+        mutated[10:12] = (counts[5] - 1).to_bytes(2, "big")
+        mutated[18:20] = (counts[9] + 1).to_bytes(2, "big")
+        mutated[offsets["character"] + 1] = ((counts[5] - 1) << 4) | (
+            mutated[offsets["character"] + 1] & 15
+        )
+    elif case_id == "invalid_character_depth_index":
+        character_byte = mutated[offsets["character"] + 1]
+        mutated[offsets["character"] + 1] = (character_byte & 240) | _counts(
+            base_tfm
+        )[6]
+    elif case_id == "invalid_character_italic_index":
+        character_byte = mutated[offsets["character"] + 2]
+        mutated[offsets["character"] + 2] = (_counts(base_tfm)[7] << 2) | (
+            character_byte & 3
+        )
+    elif case_id == "invalid_character_ligature_index":
+        mutated[offsets["character"] + 2] = 1
+        mutated[offsets["character"] + 3] = _counts(base_tfm)[8]
+    elif case_id == "invalid_character_extensible_index":
+        mutated[offsets["character"] + 2] = 3
+        mutated[offsets["character"] + 3] = _counts(base_tfm)[10]
+    elif case_id == "charlist_out_of_range":
+        mutated[offsets["character"] + 2] = 2
+        mutated[offsets["character"] + 3] = 255
     elif case_id == "charlist_self_cycle":
         mutated[offsets["character"] + 2] = 2
         mutated[offsets["character"] + 3] = _counts(base_tfm)[2]
     elif case_id == "invalid_width_fix_word_sign":
         mutated[offsets["width"] + 4] = 1
+    elif case_id == "invalid_height_fix_word_sign":
+        mutated[offsets["height"] + 4] = 1
+    elif case_id == "invalid_depth_fix_word_sign":
+        mutated[offsets["depth"] + 4] = 1
+    elif case_id == "invalid_italic_fix_word_sign":
+        mutated[offsets["italic"] + 4] = 1
     elif case_id == "nonzero_width_zero":
         mutated[offsets["width"] : offsets["width"] + 4] = (1 << 16).to_bytes(4, "big")
+    elif case_id == "nonzero_height_zero":
+        mutated[offsets["height"] : offsets["height"] + 4] = (1 << 16).to_bytes(4, "big")
+    elif case_id == "nonzero_depth_zero":
+        mutated[offsets["depth"] : offsets["depth"] + 4] = (1 << 16).to_bytes(4, "big")
+    elif case_id == "nonzero_italic_zero":
+        mutated[offsets["italic"] : offsets["italic"] + 4] = (1 << 16).to_bytes(4, "big")
     elif case_id == "invalid_fontdimen2":
         mutated[offsets["parameter"] + 4] = 1
     elif case_id == "invalid_fontdimen5":
