@@ -1,0 +1,367 @@
+{
+  "format": "latexd.tfm-validation-rule-contract",
+  "schema_version": 1,
+  "compatibility_source": {
+    "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
+    "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "loader_section": "lines 10870..11210",
+    "loader_section_sha256": "57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8"
+  },
+  "invariants": [
+    "resolved-effective-size",
+    "immutable-raw-object",
+    "declared-frame",
+    "raw-counts",
+    "character-domain",
+    "table-layout",
+    "character-records",
+    "character-existence",
+    "instruction-count",
+    "source-order",
+    "exact-scaling",
+    "parameter-index",
+    "global-engine-state"
+  ],
+  "proof_states": [
+    "SizePrecondition",
+    "HeaderCheckedTfm",
+    "CharacterCheckedTfm",
+    "BoxCheckedTfm",
+    "LigKernCheckedTfm",
+    "TailCheckedTfm",
+    "CompletePrivateTfm",
+    "ExcludedResourcePolicy"
+  ],
+  "rules": [
+    {
+      "id": "TFM-SIZE-001", "source_ordinal": 1,
+      "source_anchor": "tex.web:read_font_info:tfm-size-001",
+      "predicate_sha256": "6ac667a7063271ea53fc91b4d29346d7918d020359bedfd83bb2dad1cec2b0d8",
+      "dependency_text_sha256": "295f8107a49072c1ec5c112f0ece0235dbb482372326125161a83de5f83a46a5",
+      "future_phase_sha256": "e0413cd66a2b1b57b885a76c3dfc56d5180622715a17a5c87ace45a6ee4c1836",
+      "dependency_ids": ["resolved-effective-size"],
+      "proof_state": "SizePrecondition",
+      "witnesses": ["valid_cmr10", "valid_cmr10_at_1sp", "valid_cmr10_at_16sp", "valid_cmr10_at_max_sp", "invalid_at_size_zero", "invalid_at_size_limit"]
+    },
+    {
+      "id": "TFM-COUNT-001", "source_ordinal": 2,
+      "source_anchor": "tex.web:read_font_info:tfm-count-001",
+      "predicate_sha256": "1a5db1b0a02037bc928c6f85e11208ed9ea9138ee53fd089e13a1764db65360c",
+      "dependency_text_sha256": "7cdaf4b4b0a974aede0291b625f9d3f1ef6ebf840b6a52942dd100d009c9b2a1",
+      "future_phase_sha256": "db19b30e769b56028eb637f6eb2a7f7995912c2cc96be61e6257e68ecea1df7d",
+      "dependency_ids": ["immutable-raw-object"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["size_field_high_bit"]
+    },
+    {
+      "id": "TFM-RANGE-001", "source_ordinal": 3,
+      "source_anchor": "tex.web:read_font_info:tfm-range-001",
+      "predicate_sha256": "c80bae5c872254c2fd2175e228d97470afea4299314738f23249aca144b386d7",
+      "dependency_text_sha256": "5812385b61e8a2cda96c398f00d6678a60e1660401e1275e332ca824f3638d1c",
+      "future_phase_sha256": "1f452fc1b9af1c6901830385e7eec24b969b24c82441a09cc38974639a9d2f27",
+      "dependency_ids": ["TFM-COUNT-001"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["invalid_character_range", "empty_range_2_1"]
+    },
+    {
+      "id": "TFM-RANGE-002", "source_ordinal": 4,
+      "source_anchor": "tex.web:read_font_info:tfm-range-002",
+      "predicate_sha256": "64f802111726ed0b3887b0185d207c2d7ef9056002198c9e448e3c146ff2ba61",
+      "dependency_text_sha256": "7fbd104c5f04ae1d7d5d9cb0ffb44925885dc12a605ffc0a7d83ee10d4bbc7c6",
+      "future_phase_sha256": "1f452fc1b9af1c6901830385e7eec24b969b24c82441a09cc38974639a9d2f27",
+      "dependency_ids": ["TFM-COUNT-001"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["character_range_ec256"]
+    },
+    {
+      "id": "TFM-RANGE-003", "source_ordinal": 5,
+      "source_anchor": "tex.web:read_font_info:tfm-range-003",
+      "predicate_sha256": "92e3154daefd3797da3cce9470042651e8d3e8f9b8d078e80823ecdd3596cec2",
+      "dependency_text_sha256": "4a3200f9adf4ab04ffaa9cf5683d97429d5ddae57cf5bacc0d83cfa6532159cd",
+      "future_phase_sha256": "bc5e85c2e241242b42d7c6a776ae36994dd95839d1cb5f23340c984f60975466",
+      "dependency_ids": ["TFM-RANGE-001", "TFM-RANGE-002"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["empty_range_2_1", "empty_range_256_255"]
+    },
+    {
+      "id": "TFM-GEOMETRY-001", "source_ordinal": 6,
+      "source_anchor": "tex.web:read_font_info:tfm-geometry-001",
+      "predicate_sha256": "d2a6635267a4e55e0f1fa8150eb5fdbbabed82c27b12dec373a3fd63e5137daa",
+      "dependency_text_sha256": "360da6fd67cfd9b981a8c7da5c170b715a7a00edabe9a0b3f2fc53ce83b1816d",
+      "future_phase_sha256": "62ca8880338821110e7daa2f718c90f6a6f4b0a10a0453582ab44d92dbdd0003",
+      "dependency_ids": ["TFM-COUNT-001", "TFM-RANGE-003"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["aggregate_length_mismatch"]
+    },
+    {
+      "id": "TFM-GEOMETRY-002", "source_ordinal": 7,
+      "source_anchor": "tex.web:read_font_info:tfm-geometry-002",
+      "predicate_sha256": "dc42b66445c77330becb135e7641847ab4eb6fadd7353fc97eb375b5a8872893",
+      "dependency_text_sha256": "77b61f2fd26d9b29e80b21e9a1e22ef3e8265103aca48ff10b84a11da067c139",
+      "future_phase_sha256": "62ca8880338821110e7daa2f718c90f6a6f4b0a10a0453582ab44d92dbdd0003",
+      "dependency_ids": ["TFM-COUNT-001"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["zero_width_table_consistent", "zero_height_table_consistent", "zero_depth_table_consistent", "zero_italic_table_consistent"]
+    },
+    {
+      "id": "TFM-RESOURCE-001", "source_ordinal": 8,
+      "source_anchor": "tex.web:read_font_info:tfm-resource-001",
+      "predicate_sha256": "67b8c89ced36a139b9537017a16afd9daa64a1594a1d1a73d0833626fee92a50",
+      "dependency_text_sha256": "8d5c9fd6d25ee899debba94761227d72fabb5e40ba61387c32945fca2087bbb5",
+      "future_phase_sha256": "dfa1e400cf6d9383d31e70c966862494c01b3858003f071cd2d6811e3409f28e",
+      "dependency_ids": ["global-engine-state"],
+      "proof_state": "ExcludedResourcePolicy",
+      "witnesses": []
+    },
+    {
+      "id": "TFM-HEADER-001", "source_ordinal": 9,
+      "source_anchor": "tex.web:read_font_info:tfm-header-001",
+      "predicate_sha256": "e28b1edffc20c57966e70a834ccab5313f66a55e4e1d12faed1c1f20246bcb3d",
+      "dependency_text_sha256": "14cf04411f592ecded4a59febdbad35de0472ecb98e1a2b676f7671f8ae9d890",
+      "future_phase_sha256": "f3f886705138464979583bdb73a33fcf3ee2acc348174f9ff4ed59febdd5d8a4",
+      "dependency_ids": ["TFM-GEOMETRY-001", "declared-frame"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["short_header", "minimal_header_lh2"]
+    },
+    {
+      "id": "TFM-HEADER-002", "source_ordinal": 10,
+      "source_anchor": "tex.web:read_font_info:tfm-header-002",
+      "predicate_sha256": "0e2bd8a2ef3bb61d7f2eeb916c5a00119500c476e557565fe678a15c2a8ed9cd",
+      "dependency_text_sha256": "f5a52e1445819d4aabe0a2f1ad388c5ae941268cc4e5ee393e907b380506f06c",
+      "future_phase_sha256": "f3f886705138464979583bdb73a33fcf3ee2acc348174f9ff4ed59febdd5d8a4",
+      "dependency_ids": ["TFM-HEADER-001"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["design_size_below_one_pt", "design_size_exactly_one_pt"]
+    },
+    {
+      "id": "TFM-CHAR-001", "source_ordinal": 11,
+      "source_anchor": "tex.web:read_font_info:tfm-char-001",
+      "predicate_sha256": "4e9dcd1d79f407ceb453c0df1c1d75577669de23a1523da5bf3cd474cb76b622",
+      "dependency_text_sha256": "8d327986ea799e12acbb6e83ca7fd42134a1ac63116bb76bdbf333eecc8fd26f",
+      "future_phase_sha256": "69e29d2b7cf8a476d2960a2b188a4c08c0235d5f9c24b80d1fa90fdbda514f04",
+      "dependency_ids": ["character-domain", "table-layout", "raw-counts"],
+      "proof_state": "CharacterCheckedTfm",
+      "witnesses": ["invalid_character_width_index", "invalid_character_height_index", "invalid_character_depth_index", "invalid_character_italic_index"]
+    },
+    {
+      "id": "TFM-CHAR-002", "source_ordinal": 12,
+      "source_anchor": "tex.web:read_font_info:tfm-char-002",
+      "predicate_sha256": "0170648921717bf86ca04ec3bfe9803c7db6b9fb707353a574eaa47dfa1b6c30",
+      "dependency_text_sha256": "ca3bd52f131b969fd07edc63061e436e1843f3ba5c02ab14da08e363376b6573",
+      "future_phase_sha256": "4ed7f258da5528f1b391e8502c513a11697dd41d737c05e613d53a05eba23735",
+      "dependency_ids": ["TFM-CHAR-001", "raw-counts"],
+      "proof_state": "CharacterCheckedTfm",
+      "witnesses": ["invalid_character_ligature_index", "invalid_character_extensible_index"]
+    },
+    {
+      "id": "TFM-CHARLIST-001", "source_ordinal": 13,
+      "source_anchor": "tex.web:read_font_info:tfm-charlist-001",
+      "predicate_sha256": "65dd29bd0de59eab5011490a4f8edbd1646f5f5cca4f6a79b633ae5c2da126e9",
+      "dependency_text_sha256": "ea58ec5a33872be23bdc878bb13ed88fb7a3c268890f3d6ff6e0ef9933b0faae",
+      "future_phase_sha256": "a28fe53cd531cdea587f703b5613c64158d5e5555a54c088d46ca86e15d1ef4c",
+      "dependency_ids": ["TFM-CHAR-001", "character-domain"],
+      "proof_state": "CharacterCheckedTfm",
+      "witnesses": ["charlist_out_of_range", "charlist_target_in_range_absent"]
+    },
+    {
+      "id": "TFM-CHARLIST-002", "source_ordinal": 14,
+      "source_anchor": "tex.web:read_font_info:tfm-charlist-002",
+      "predicate_sha256": "018dac502c4d9a51e56bf79cf82395e6f1270067ad8f259acc04d96dec796792",
+      "dependency_text_sha256": "9f078dc563c088e1041cc824e4fb2b08fda17b65b516e541229bc3dd892c2250",
+      "future_phase_sha256": "61c76db86a25c12b7912e863d1def866110a0ebf5489cccc5540dc3cd405a4ff",
+      "dependency_ids": ["TFM-CHARLIST-001", "character-records"],
+      "proof_state": "CharacterCheckedTfm",
+      "witnesses": ["valid_charlist_acyclic_chain", "charlist_self_cycle", "charlist_two_node_cycle", "charlist_three_node_cycle"]
+    },
+    {
+      "id": "TFM-BOX-001", "source_ordinal": 15,
+      "source_anchor": "tex.web:read_font_info:tfm-box-001",
+      "predicate_sha256": "636083f4763e77966ef59bf21e4acdce5773b9d9c27e0f26ad8aafc5a2c0479d",
+      "dependency_text_sha256": "9f9dd06685c777853c94132e52453cf3b3c9ed99af93de66224d7e3aafee3c30",
+      "future_phase_sha256": "1f375a30582144a63e321f0423f4021e65882164de0d7d5c86989204c030b285",
+      "dependency_ids": ["TFM-SIZE-001", "table-layout"],
+      "proof_state": "BoxCheckedTfm",
+      "witnesses": ["invalid_width_fix_word_sign", "invalid_height_fix_word_sign", "invalid_depth_fix_word_sign", "invalid_italic_fix_word_sign"]
+    },
+    {
+      "id": "TFM-BOX-002", "source_ordinal": 16,
+      "source_anchor": "tex.web:read_font_info:tfm-box-002",
+      "predicate_sha256": "26af5e71fbbefde7abe17919d9d5ac4ce0f51ee353cd2e0877da8110d8699f5b",
+      "dependency_text_sha256": "74fc76e114fa9c411bdb7c1dfb7d84fe9b205da5d3ba37d28ab46898d887e477",
+      "future_phase_sha256": "1f375a30582144a63e321f0423f4021e65882164de0d7d5c86989204c030b285",
+      "dependency_ids": ["TFM-BOX-001"],
+      "proof_state": "BoxCheckedTfm",
+      "witnesses": ["nonzero_width_zero", "nonzero_height_zero", "nonzero_depth_zero", "nonzero_italic_zero"]
+    },
+    {
+      "id": "TFM-BOX-003", "source_ordinal": 17,
+      "source_anchor": "tex.web:read_font_info:tfm-box-003",
+      "predicate_sha256": "7fe5d4e9aafb4da4f7d881c021b39a18f3a9ca1a93831b01ad880a943fae9e32",
+      "dependency_text_sha256": "930443f5728251a433aad0e1865a1e977ee3e205318766305cbddcfc279cd9d0",
+      "future_phase_sha256": "6dde5470e04322fcc3fc084bf741749bf27ae355c9840a9c6697c37f307cc9b3",
+      "dependency_ids": ["TFM-BOX-002", "resolved-effective-size"],
+      "proof_state": "BoxCheckedTfm",
+      "witnesses": ["nonzero_width_zero_at_1sp", "nonzero_width_zero_at_16sp", "nonzero_height_zero_at_1sp", "nonzero_height_zero_at_16sp", "nonzero_depth_zero_at_1sp", "nonzero_depth_zero_at_16sp", "nonzero_italic_zero_at_1sp", "nonzero_italic_zero_at_16sp"]
+    },
+    {
+      "id": "TFM-LIGKERN-001", "source_ordinal": 18,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-001",
+      "predicate_sha256": "5813ecf4c65627c8cfa58856e083ccac7303f498541d078d0700698f657ef490",
+      "dependency_text_sha256": "410832afef68b5a6be196ab3204eb05c2613fbfb1f2cafa93e78551f9059f616",
+      "future_phase_sha256": "7a1e6b65bc4f7f47cc6bf7cb951a0bababc5851f1c424ccd4519c398bfad6774",
+      "dependency_ids": ["instruction-count"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": []
+    },
+    {
+      "id": "TFM-LIGKERN-002", "source_ordinal": 19,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-002",
+      "predicate_sha256": "04f78c863b172d507e5bbec803e26a5713707c003ce13139932196b3a1eee038",
+      "dependency_text_sha256": "44729701b4432359026cdcb8ea264fda988297100a147a3c26a7faa01bdfebbb",
+      "future_phase_sha256": "d18deca2f04750b422a590c8dc544827c701ada60d431ecd08d160ec893ebe9e",
+      "dependency_ids": ["instruction-count", "source-order"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["valid_ligkern_restart", "invalid_ligkern"]
+    },
+    {
+      "id": "TFM-LIGKERN-003", "source_ordinal": 20,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-003",
+      "predicate_sha256": "ccfd61b5ceea336f2f1b87caa78ba55dcc4a336674d87bc38fdb0c676a58f92c",
+      "dependency_text_sha256": "a957a3aa2acc24c602970d8c9952810443a11f27f557fbf305de9d54133f225f",
+      "future_phase_sha256": "bdc9cf3a62af0a1485de9769434465ee23a6eee0fe68e1cadfef84304d605b99",
+      "dependency_ids": ["instruction-count", "source-order"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["valid_boundary_character_absent_next_bypass"]
+    },
+    {
+      "id": "TFM-LIGKERN-004", "source_ordinal": 21,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-004",
+      "predicate_sha256": "7db063189b98d8de909793c82cd9094bff092b0ba43e4c95f2921f8b6f307d01",
+      "dependency_text_sha256": "410827a44a234a8428852f1cade94576c0df4a1fa30af1ef8d09c7cefc352e63",
+      "future_phase_sha256": "b4f3433a7c2d222d5618f42520c0043a0f5f47e53462afb57681d79cd6a9019d",
+      "dependency_ids": ["TFM-LIGKERN-003", "character-existence"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["valid_boundary_character_absent_next_bypass", "ligkern_next_in_range_absent", "invalid_ligkern_next_character"]
+    },
+    {
+      "id": "TFM-LIGKERN-005", "source_ordinal": 22,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-005",
+      "predicate_sha256": "da73121d55b9c1aa2d9a864c40edccd91214eaf1b346fb3dc4bb024e36f5b771",
+      "dependency_text_sha256": "f05d0914a8a53a27481764a55c4546114e87d512e1afd658021565f16332dad4",
+      "future_phase_sha256": "75b991aac9c5dfb9e16e36276bfa30731e1c7fc47be8cecf0ad9566db548a46e",
+      "dependency_ids": ["character-existence"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["invalid_ligature_target", "ligature_target_in_range_absent"]
+    },
+    {
+      "id": "TFM-LIGKERN-006", "source_ordinal": 23,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-006",
+      "predicate_sha256": "85a728a30d746cb8ed597ece59f335d01f750b812849115e431278ed5857fb64",
+      "dependency_text_sha256": "823000d3d6e619dcd1ea62ac406420ccd2b912a4bec3e7241f269ac3cad6bfe2",
+      "future_phase_sha256": "75b991aac9c5dfb9e16e36276bfa30731e1c7fc47be8cecf0ad9566db548a46e",
+      "dependency_ids": ["raw-counts"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["invalid_ligkern_kern_index"]
+    },
+    {
+      "id": "TFM-LIGKERN-007", "source_ordinal": 24,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-007",
+      "predicate_sha256": "022d61eb7b17fd2c9c36bff2d65ef5f94f4e2a844d7b5bef1202bc8b63cb7f39",
+      "dependency_text_sha256": "aca06c7e034ca7eb9a9cef0861e2e3920ec1b35fcca84ba4f527bd557c99898f",
+      "future_phase_sha256": "75b991aac9c5dfb9e16e36276bfa30731e1c7fc47be8cecf0ad9566db548a46e",
+      "dependency_ids": ["instruction-count"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["invalid_ligkern_skip"]
+    },
+    {
+      "id": "TFM-LIGKERN-008", "source_ordinal": 25,
+      "source_anchor": "tex.web:read_font_info:tfm-ligkern-008",
+      "predicate_sha256": "2bfca11cc0ab352ae9259525ac0ce1fa793a35da1ff8b72bd9155452c6f0f067",
+      "dependency_text_sha256": "811a9a79414109ff04cbe2a3633ca3d0ba9b7d219c23f233aa74c73bb5406590",
+      "future_phase_sha256": "186312166d337a4861c8431f85a87fb730859f9e59ae97e95093668b7e0647ca",
+      "dependency_ids": ["TFM-LIGKERN-002", "source-order"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["valid_boundary_label", "invalid_boundary_label"]
+    },
+    {
+      "id": "TFM-KERN-001", "source_ordinal": 26,
+      "source_anchor": "tex.web:read_font_info:tfm-kern-001",
+      "predicate_sha256": "7a5683bc1c902f279ccfcca6fa5bbc8a2274508cb54347358eb77f4738f61ad3",
+      "dependency_text_sha256": "74fc76e114fa9c411bdb7c1dfb7d84fe9b205da5d3ba37d28ab46898d887e477",
+      "future_phase_sha256": "5d379620f52e64626391fe6a1668cefe1e5ddab287da54a61ed7de882578acd1",
+      "dependency_ids": ["TFM-SIZE-001", "table-layout"],
+      "proof_state": "LigKernCheckedTfm",
+      "witnesses": ["invalid_kern_fix_word"]
+    },
+    {
+      "id": "TFM-EXT-001", "source_ordinal": 27,
+      "source_anchor": "tex.web:read_font_info:tfm-ext-001",
+      "predicate_sha256": "239852d3cfe63d3b0ca1cf0015d41ba0df6c1adc93953194e30924146f1bb96a",
+      "dependency_text_sha256": "61f758be16838f448fad017beac8fda7e6b3023333d2fa0305365336f9f82dc7",
+      "future_phase_sha256": "e4a29ff36e00a3eba218ac5f85b6580cf36f6c764e0622bff81c269a4be4f7ea",
+      "dependency_ids": ["character-existence", "table-layout"],
+      "proof_state": "TailCheckedTfm",
+      "witnesses": ["invalid_extensible_top", "invalid_extensible_middle", "invalid_extensible_bottom", "extensible_top_in_range_absent", "extensible_middle_in_range_absent", "extensible_bottom_in_range_absent"]
+    },
+    {
+      "id": "TFM-EXT-002", "source_ordinal": 28,
+      "source_anchor": "tex.web:read_font_info:tfm-ext-002",
+      "predicate_sha256": "821baa13dda6760acc8af624d4cbd773f337c011d1c20255b9f52a6bcc781a06",
+      "dependency_text_sha256": "61f758be16838f448fad017beac8fda7e6b3023333d2fa0305365336f9f82dc7",
+      "future_phase_sha256": "e4a29ff36e00a3eba218ac5f85b6580cf36f6c764e0622bff81c269a4be4f7ea",
+      "dependency_ids": ["character-existence", "table-layout"],
+      "proof_state": "TailCheckedTfm",
+      "witnesses": ["invalid_extensible", "extensible_repeat_in_range_absent"]
+    },
+    {
+      "id": "TFM-PARAM-001", "source_ordinal": 29,
+      "source_anchor": "tex.web:read_font_info:tfm-param-001",
+      "predicate_sha256": "d77ba8d22ef9d4f2e2b8c960bfe0afa393089c300c6e9313831788ac308000ef",
+      "dependency_text_sha256": "c5611b3e34cad9622360938998e7f60641e145d8416e09de5b7fc81a4d17f616",
+      "future_phase_sha256": "e63c944c840a94bee3af7854073795e777d2593fa901c6525fd4bba5989ec28d",
+      "dependency_ids": ["parameter-index", "table-layout"],
+      "proof_state": "TailCheckedTfm",
+      "witnesses": ["signed_slant_parameter"]
+    },
+    {
+      "id": "TFM-PARAM-002", "source_ordinal": 30,
+      "source_anchor": "tex.web:read_font_info:tfm-param-002",
+      "predicate_sha256": "dde3f598a7278966ee47c9c275858b0e28360c5a1b4d8221be8adcb43bbe6db8",
+      "dependency_text_sha256": "8bcada6ddd7b3577f40f32fa34bf6e5e4ca7d85a7505f73cb5acd14c77d8e156",
+      "future_phase_sha256": "0dad41fabee616d7049f92c8be1824e2cc47262a91bede3d6ed058023b434a27",
+      "dependency_ids": ["TFM-SIZE-001", "parameter-index", "table-layout"],
+      "proof_state": "TailCheckedTfm",
+      "witnesses": ["invalid_fontdimen2", "invalid_fontdimen5", "parameter_8_invalid_fix_word"]
+    },
+    {
+      "id": "TFM-PARAM-003", "source_ordinal": 31,
+      "source_anchor": "tex.web:read_font_info:tfm-param-003",
+      "predicate_sha256": "f82302605cbbea9191541f8b77168467e7d764ccc728594fbd7b1c860ebb04f1",
+      "dependency_text_sha256": "b781a890c6d5918a2e24b8ac06e071ca164a616914a18ae63cd4e68dc1db5e4c",
+      "future_phase_sha256": "11e29f5405bb7564d3ae145d9409be7ea2d52a893a436b59ed34131d0d7cc615",
+      "dependency_ids": ["TFM-PARAM-001", "TFM-PARAM-002"],
+      "proof_state": "TailCheckedTfm",
+      "witnesses": ["short_np0", "short_np4", "short_np5", "parameter_count_8_valid", "parameter_8_invalid_fix_word"]
+    },
+    {
+      "id": "TFM-EOF-001", "source_ordinal": 32,
+      "source_anchor": "tex.web:read_font_info:tfm-eof-001",
+      "predicate_sha256": "3c3611e4c0b8bcac20e62ad9653e4da643624cb29c32fabca8bf8ff9ae0ee522",
+      "dependency_text_sha256": "efdfe16860abb3ef56f42682c9a20bfa3b138ede2d66538443b205c2fbd96640",
+      "future_phase_sha256": "c1777950419c73b7a83ae167c4c0abcc4e8547809ef76d57dcdd08a2ec2b7027",
+      "dependency_ids": ["TFM-GEOMETRY-001", "immutable-raw-object", "declared-frame"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["premature_eof"]
+    },
+    {
+      "id": "TFM-EOF-002", "source_ordinal": 33,
+      "source_anchor": "tex.web:read_font_info:tfm-eof-002",
+      "predicate_sha256": "c6d04dcc522b84f8de1fe56e77611893a41aaa2f4401680dc9520e3f827d2880",
+      "dependency_text_sha256": "a1c2339495d85b519ab4bb2c97168ed52d1784ddb58787158e78b6ed6cd78042",
+      "future_phase_sha256": "279f581832f16ee1c7cabfc221fa2997bdf221916b44751f56681199111e6a0b",
+      "dependency_ids": ["TFM-EOF-001", "immutable-raw-object"],
+      "proof_state": "HeaderCheckedTfm",
+      "witnesses": ["trailing_word", "trailing_1_byte_nonzero", "trailing_2_bytes_nonzero", "trailing_3_bytes_nonzero", "trailing_long_nonzero"]
+    }
+  ]
+}

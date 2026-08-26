@@ -2,7 +2,10 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.check_tfm_validation_ledger import validate_rule_ledger
+from scripts.check_tfm_validation_ledger import (
+    validate_rule_contract,
+    validate_rule_ledger,
+)
 
 
 ROOT = Path(__file__).parents[2]
@@ -10,6 +13,10 @@ LEDGER = ROOT / "docs/tex82-read-font-info-validation-rules.md"
 FIXTURE = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
+)
+RULE_CONTRACT = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json"
 )
 
 
@@ -22,13 +29,23 @@ def fixture_case_ids() -> set[str]:
     return set(fixture["case_results"])
 
 
+def rule_contract() -> dict[str, object]:
+    return json.loads(RULE_CONTRACT.read_text(encoding="utf-8"))
+
+
 class TfmValidationLedgerTests(unittest.TestCase):
     def test_contract_records_machine_ledger_gate(self) -> None:
         contract = (ROOT / "docs/m13-3-dp1-scan-context.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("check_tfm_validation_ledger.py", contract)
+        self.assertIn("tfm-validation-rules-v1.json", contract)
+        self.assertIn("33/33 semantic rule cells", contract)
         self.assertIn("82/82", contract)
+        self.assertIn("source ordinal", contract)
+        self.assertIn("proof ownership", contract)
+        self.assertIn("6a8e358c-697c-83e8-a6ba-881a469553d7", contract)
+        self.assertIn("REVISE_PRIVATE_TFM_HEADER", contract)
 
     def test_ci_runs_machine_ledger_policy(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -49,7 +66,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
         errors = validate_rule_ledger("\n".join(lines), fixture_case_ids())
         self.assertTrue(any("duplicate rule ids" in error for error in errors))
 
-    def test_source_and_phase_order_swaps_are_rejected(self) -> None:
+    def test_source_order_swaps_are_rejected(self) -> None:
         lines = ledger_text().splitlines()
         count_index = next(
             index for index, line in enumerate(lines) if line.startswith("| `TFM-COUNT-001`")
@@ -61,7 +78,108 @@ class TfmValidationLedgerTests(unittest.TestCase):
 
         errors = validate_rule_ledger("\n".join(lines), fixture_case_ids())
         self.assertTrue(any("source rule order" in error for error in errors))
-        self.assertTrue(any("phase order" in error for error in errors))
+
+    def test_semantic_rule_cells_cannot_be_reassigned_between_ids(self) -> None:
+        lines = ledger_text().splitlines()
+        header_index = next(
+            index for index, line in enumerate(lines) if line.startswith("| `TFM-HEADER-001`")
+        )
+        charlist_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("| `TFM-CHARLIST-001`")
+        )
+        header_cells = [
+            cell.strip() for cell in lines[header_index].strip().strip("|").split("|")
+        ]
+        charlist_cells = [
+            cell.strip()
+            for cell in lines[charlist_index].strip().strip("|").split("|")
+        ]
+        for cell_index in (1, 2, 3):
+            header_cells[cell_index], charlist_cells[cell_index] = (
+                charlist_cells[cell_index],
+                header_cells[cell_index],
+            )
+        lines[header_index] = "| " + " | ".join(header_cells) + " |"
+        lines[charlist_index] = "| " + " | ".join(charlist_cells) + " |"
+
+        errors = validate_rule_ledger("\n".join(lines), fixture_case_ids())
+        self.assertTrue(any("semantic contract" in error for error in errors))
+
+    def test_nonempty_dependency_cells_cannot_be_swapped(self) -> None:
+        lines = ledger_text().splitlines()
+        first_index = next(
+            index for index, line in enumerate(lines) if line.startswith("| `TFM-HEADER-001`")
+        )
+        second_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("| `TFM-CHARLIST-001`")
+        )
+        first = [cell.strip() for cell in lines[first_index].strip().strip("|").split("|")]
+        second = [cell.strip() for cell in lines[second_index].strip().strip("|").split("|")]
+        first[2], second[2] = second[2], first[2]
+        lines[first_index] = "| " + " | ".join(first) + " |"
+        lines[second_index] = "| " + " | ".join(second) + " |"
+
+        errors = validate_rule_ledger("\n".join(lines), fixture_case_ids())
+        self.assertTrue(any("semantic contract" in error for error in errors))
+
+    def test_complete_witness_cells_cannot_be_swapped(self) -> None:
+        lines = ledger_text().splitlines()
+        first_index = next(
+            index for index, line in enumerate(lines) if line.startswith("| `TFM-HEADER-001`")
+        )
+        second_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("| `TFM-CHARLIST-001`")
+        )
+        first = [cell.strip() for cell in lines[first_index].strip().strip("|").split("|")]
+        second = [cell.strip() for cell in lines[second_index].strip().strip("|").split("|")]
+        first[3], second[3] = second[3], first[3]
+        lines[first_index] = "| " + " | ".join(first) + " |"
+        lines[second_index] = "| " + " | ".join(second) + " |"
+
+        errors = validate_rule_ledger("\n".join(lines), fixture_case_ids())
+        self.assertTrue(any("semantic contract" in error for error in errors))
+
+    def test_contract_pins_source_hashes_and_all_rule_semantics(self) -> None:
+        contract = rule_contract()
+        self.assertEqual(contract["schema_version"], 1)
+        self.assertEqual(
+            contract["compatibility_source"]["sha256"],
+            "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+        )
+        self.assertEqual(
+            contract["compatibility_source"]["loader_section_sha256"],
+            "57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8",
+        )
+        self.assertEqual(len(contract["rules"]), 33)
+        for rule in contract["rules"]:
+            self.assertIn("predicate_sha256", rule)
+            self.assertIn("dependency_ids", rule)
+            self.assertIn("witnesses", rule)
+            self.assertIn("proof_state", rule)
+
+    def test_eof_rules_are_source_late_but_header_proven(self) -> None:
+        rules = {rule["id"]: rule for rule in rule_contract()["rules"]}
+        self.assertGreater(
+            rules["TFM-EOF-001"]["source_ordinal"],
+            rules["TFM-PARAM-003"]["source_ordinal"],
+        )
+        self.assertEqual(rules["TFM-EOF-001"]["proof_state"], "HeaderCheckedTfm")
+        self.assertEqual(rules["TFM-EOF-002"]["proof_state"], "HeaderCheckedTfm")
+
+    def test_header_proof_ownership_cannot_be_moved_to_a_late_phase(self) -> None:
+        changed = json.loads(json.dumps(rule_contract()))
+        rules = {rule["id"]: rule for rule in changed["rules"]}
+        rules["TFM-EOF-001"]["proof_state"] = "TailCheckedTfm"
+        rules["TFM-PARAM-003"]["proof_state"] = "HeaderCheckedTfm"
+
+        errors = validate_rule_contract(changed, fixture_case_ids())
+        self.assertTrue(any("proof ownership" in error for error in errors))
 
     def test_unknown_native_witness_is_rejected(self) -> None:
         changed = ledger_text().replace(

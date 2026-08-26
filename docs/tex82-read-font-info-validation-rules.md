@@ -17,6 +17,13 @@ that phase as non-importable `HeaderCheckedTfm`; it is neither complete
 validation evidence nor a public result. Character and later phases require a
 new implementation gate.
 
+Private-header implementation review
+`6a8e358c-697c-83e8-a6ba-881a469553d7` returned
+`REVISE_PRIVATE_TFM_HEADER` at confidence 0.94. It found no defect in the Rust
+header checks, but found that the first machine ledger could pass after rule
+semantics were reassigned between ids. Character work therefore remains
+blocked on exact semantic-ledger and exact-byte corpus evidence.
+
 The compatibility authority is the official TeX82 source at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`. The audited source has
 full-file SHA-256
@@ -126,11 +133,22 @@ corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
-`scripts/check_tfm_validation_ledger.py` now enforces exact rule and monotonic
-phase order, unique rule ids, nonempty dependencies, phase-cell consistency,
+`tfm-validation-rules-v1.json` is the canonical machine contract for all 33
+rules. It pins the audited source hashes, one source ordinal and unique anchor
+per rule, hashes of the predicate/dependency/future-phase cells, symbolic
+dependency ids, exact witness lists, and proof ownership. Source ordinal and
+proof state are deliberately independent: the source-late EOF rules are already
+proved by `HeaderCheckedTfm` because declared-frame availability is a structural
+header invariant.
+
+`scripts/check_tfm_validation_ledger.py` now enforces 33/33 exact semantic rule
+cells, exact `HeaderCheckedTfm` proof ownership, unique rule ids and anchors,
+contiguous source ordinals, closed symbolic dependencies and proof states,
 known native witness ids, and a complete 82/82 fixture-case join. Its policy
-suite fails on duplicate/swapped rows, missing dependencies, unknown witnesses,
-unmapped cases, missing documentation, and missing CI enrollment. The next
-decision gate therefore reviews the private header implementation before
-character/charlist work. Current-font ownership, public validation, and
-source-visible font loading remain separate blocked decisions.
+suite fails on duplicate/swapped rows, predicate/dependency/witness
+reassignment, proof-ownership reassignment, missing dependencies, unknown or
+unmapped witnesses, missing documentation, and missing CI enrollment. Exact
+content-addressed native/Rust byte parity, the upper positive design-size
+witness, and maximum valid geometry still block character/charlist work.
+Current-font ownership, public validation, and source-visible font loading
+remain separate blocked decisions.

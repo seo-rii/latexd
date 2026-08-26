@@ -290,14 +290,32 @@ This state proves only a checked structural header boundary; it is not full TFM
 validity and is not importable outside its private root module. Character and
 charlist work remains blocked until this implementation is reviewed.
 [`scripts/check_tfm_validation_ledger.py`](../scripts/check_tfm_validation_ledger.py)
-now parses the 33-rule table and fails closed on source-order changes, duplicate
-ids, phase regressions or mismatched phase cells, missing dependencies, unknown
-native witnesses, and unmapped fixture cases. The exact witness join is 82/82;
-seven policy tests include adversarial duplicates, row swaps, missing fields,
-unknown/missing witnesses, documentation, and CI-enrollment checks. Whole-oracle
-byte/classification parity, structured differential evidence, fuzzing, and
-substitution closure remain later private gates; public and downstream use
-remains forbidden.
+originally parsed the 33-rule table and checked order and global witness
+coverage. Private-header implementation review
+`6a8e358c-697c-83e8-a6ba-881a469553d7` returned
+`REVISE_PRIVATE_TFM_HEADER` at confidence 0.94: the Rust header checks appeared
+correct, but the original checker could remain green after moving predicate,
+dependency, and witness cells to the wrong rule ids.
+
+The corrected fail-closed policy uses
+[`tfm-validation-rules-v1.json`](../crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json)
+as the canonical 33-rule semantic contract. It pins the TeX source hashes,
+unique source anchors, 33/33 semantic rule cells, symbolic dependencies, exact
+witness lists, and proof ownership. A source ordinal records where a rule occurs
+in `read_font_info`; proof ownership independently records which private type
+has already established it. In particular, source-late `TFM-EOF-001` and
+`TFM-EOF-002` belong to `HeaderCheckedTfm`, not a later phase. Fourteen policy
+tests now reject semantic-cell swaps, dependency-only and witness-only swaps,
+header proof-ownership reassignment, duplicate or reordered ids, unknown or
+unmapped witnesses, missing dependencies, documentation drift, and missing CI
+enrollment. The exact witness join remains 82/82.
+
+The review also requires a content-addressed corpus proving that the native
+loader and Rust receive identical bytes, a normalized three-way result, the
+upper positive design-size boundary, and maximum valid geometry before any
+character work. Structured differential evidence, fuzzing, and substitution
+closure remain later private gates; public and downstream use remains
+forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
