@@ -10,6 +10,13 @@ implementation sequence remains private-first; no `font_load` module,
 `ValidatedTfmAtSize`, resolver, owner, cache, VM integration, source primitive,
 checkpoint capability, or epoch transition is authorized.
 
+Phase 4 closure review `6a8e2bef-e164-83e8-99ee-be8002ced80f` returned
+`PROCEED_PRIVATE_TFM_VALIDATOR` at confidence 0.89. It authorized only a
+root-private preamble/layout/frame/header phase. Commit `962094c` implements
+that phase as non-importable `HeaderCheckedTfm`; it is neither complete
+validation evidence nor a public result. Character and later phases require a
+new implementation gate.
+
 The compatibility authority is the official TeX82 source at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`. The audited source has
 full-file SHA-256
@@ -85,19 +92,20 @@ paired ids deliberately separate acceptance from rejection.
 
 ## Required private implementation sequence
 
-Another readiness review must approve implementation before this sequence can
-start. If approved, every intermediate representation remains crate-private:
+The closure review authorized and `962094c` completed only the first structural
+state below. Every intermediate representation remains root-module-private:
 
-1. checked preamble, range normalization, table ranges, and declared-frame
-   availability;
-2. header and design-size validation;
-3. character records and charlist graph validation;
-4. exact at-size box scaling and all four scaled entry-zero checks;
-5. source-ordered lig/kern boundary state and kern validation;
-6. extensible recipes, every supplied parameter, and EOF behavior;
-7. whole-oracle parity and generated no-panic/property gates;
-8. internal raw/frame identity, effective-size, and A/B substitution closure;
-9. only after every earlier gate passes, a separately reviewed public facade.
+1. **Implemented privately:** effective-size binding, checked preamble, raw and
+   normalized ranges, complete table layout, declared-frame availability,
+   header/design-size validation, retained raw bytes, and typed raw/frame
+   identities;
+2. character records and charlist graph validation;
+3. exact at-size box scaling and all four scaled entry-zero checks;
+4. source-ordered lig/kern boundary state and kern validation;
+5. extensible recipes, every supplied parameter, and EOF behavior;
+6. whole-oracle parity and generated no-panic/property gates;
+7. internal complete-state and A/B substitution closure;
+8. only after every earlier gate passes, a separately reviewed public facade.
 
 The future artifact must retain the exact immutable raw object used for frame
 discovery, checks, hashes, and extraction. It must bind effective size, declared
@@ -109,15 +117,17 @@ conversion from `ExactTfmDimensionMetrics`.
 ## Remaining readiness evidence
 
 The named native cases are a finite compatibility corpus, not an exhaustive
-proof. Before public publication, deterministic Rust properties must cover all
-twelve high-bit count positions, every valid `bc=ec+1` empty range, truncation,
-suffix semantic invariance/raw-identity distinction, generated charlist graphs,
-and arbitrary-input no panic. A versioned structure-aware native differential
+proof. The first private phase now deterministically covers all twelve high-bit
+count positions, all 256 valid `bc=ec+1` empty ranges, every first-phase
+truncation, generated suffix semantic invariance/raw-identity distinction, and
+bounded arbitrary-input no panic. Generated charlist graphs and later-phase
+arbitrary inputs remain open. A versioned structure-aware native differential
 corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
-The next decision gate is a Pro readiness review of this ledger, the completed
-Phase 4 fixture/report, and the exact native results. Even an approval would
-authorize only private validator TDD; current-font ownership and source-visible
-font loading remain separate blocked decisions.
+The next decision gate reviews the private header implementation and strengthens
+the ledger policy test to enforce rule order, uniqueness, witness existence,
+and phase monotonicity before character/charlist work. Current-font ownership,
+public validation, and source-visible font loading remain separate blocked
+decisions.

@@ -237,6 +237,9 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("targeted natural-size", contract)
         self.assertIn("6a8ddef5-7b84-83e9-a8ff-b24a2c752739", contract)
         self.assertIn("REVISE_TFM_PLAN", contract)
+        self.assertIn("6a8e2bef-e164-83e8-99ee-be8002ced80f", contract)
+        self.assertIn("PROCEED_PRIVATE_TFM_VALIDATOR", contract)
+        self.assertIn("HeaderCheckedTfm", contract)
         self.assertNotIn("rejection and acceptance inventory is complete", contract)
         self.assertIn("W3 remains blocked", contract)
 
@@ -269,6 +272,9 @@ class TfmValidityOracleTests(unittest.TestCase):
             "private-first",
             "InvalidEffectiveSize",
             "MalformedTfm",
+            "6a8e2bef-e164-83e8-99ee-be8002ced80f",
+            "PROCEED_PRIVATE_TFM_VALIDATOR",
+            "HeaderCheckedTfm",
         )
         for evidence in required_evidence:
             self.assertIn(evidence, ledger)

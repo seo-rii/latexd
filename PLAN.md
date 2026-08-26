@@ -1537,6 +1537,24 @@ structure-aware differential, fuzz/no-panic, private whole-oracle parity와 subs
 구현/publication gate로 남는다. Phase 4 fixture/ledger readiness Pro review 전에는 private Rust
 validator를 시작하지 않고, public proof type은 모든 private gate와 별도 review 전까지 금지한다.
 
+Phase 4 closure Pro review `6a8e2bef-e164-83e8-99ee-be8002ced80f`는 confidence 0.89의
+`PROCEED_PRIVATE_TFM_VALIDATOR`를 반환했다. 승인 범위는 root-private
+effective-size/preamble/range/layout/frame/header phase 하나뿐이다. `962094c`는 외부에서 import할 수
+없는 `HeaderCheckedTfm`을 추가해 동일 `Arc<[u8]>`, bound size, raw counts와 normalized character
+domain, 전체 checked table ranges, declared endpoint, 서로 다른 raw/frame digest type 및 raw/projected
+design size를 보존한다. Public dimension-subset API는 호출하거나 변경하지 않고 character/box/
+lig-kern/extensible/parameter contents와 DP1 dimension은 아직 읽지 않는다.
+
+Strict RED는 private module/API 부재를 각각 확인했고, GREEN은 private unit 34개로 12 count high-bit,
+256 valid empty range, 모든 first-phase truncation, generated suffix invariance와 digest role,
+header/design boundary, pointer-identical ownership, size binding, later-invalid separation 및 bounded
+arbitrary-input no-panic을 통과한다. 기존 exact-metric 6, subset-boundary 5, doctest 3, package/canonical
+Clippy, focused Python policy 8 및 82-process native hash
+`bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa`도 유지된다. 다음
+character/charlist phase 전에는 이 private implementation review와 ledger rule order/uniqueness/witness/
+phase monotonicity의 machine check가 필요하다. Public validator, owner, resolver, source loader와 W3는
+계속 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

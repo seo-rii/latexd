@@ -261,8 +261,38 @@ This is a targeted finite compatibility corpus, not an exhaustive validity
 proof. Deterministic generated properties, structure-aware differential cases,
 fuzz/no-panic evidence, private whole-oracle parity, and substitution closure
 remain later implementation/publication gates. Another Pro readiness review of
-the Phase 4 fixture and ledger is required before any private Rust validator
-work; no public proof type is authorized.
+the Phase 4 fixture and ledger was therefore required before any private Rust
+validator work; no public proof type was authorized by the earlier review.
+
+Phase 4 closure review `6a8e2bef-e164-83e8-99ee-be8002ced80f` returned
+`PROCEED_PRIVATE_TFM_VALIDATOR` at confidence 0.89. It found no
+decision-changing source predicate missing from the first structural phase and
+authorized only an unreachable root-private preamble/layout/frame/header unit.
+Commit `962094c` adds private `HeaderCheckedTfm` state that consumes and retains
+the exact `Arc<[u8]>`, binds the effective size, preserves both raw counts and
+the normalized character domain, owns one checked complete table layout and
+declared endpoint, separates raw-object and declared-frame digest types, and
+retains raw/projected design size. It neither calls nor changes the public
+dimension-subset extractor.
+
+The strict-TDD gate first failed on the absent private module and absent
+behavior API. The implementation then passed 34 private unit tests covering
+all twelve count high-bit positions, all 256 native empty ranges, every
+first-phase truncation, generated suffix invariance and raw/frame identity
+separation, exact header/design boundaries, pointer-identical byte ownership,
+bound-size retention, later-phase-invalid input acceptance, and bounded
+arbitrary-input no-panic behavior. The package also passes the existing six
+exact-metric tests, five subset-boundary tests, three doctests, package Clippy,
+canonical workspace Clippy, the focused eight-test Python policy, and the
+unchanged 82-process native report hash above.
+
+This state proves only a checked structural header boundary; it is not full TFM
+validity and is not importable outside its private root module. Character and
+charlist work remains blocked until this implementation is reviewed and the
+ledger policy mechanically checks rule order, uniqueness, witness existence,
+and phase monotonicity. Whole-oracle byte/classification parity, structured
+differential evidence, fuzzing, and substitution closure remain later private
+gates; public and downstream use remains forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
