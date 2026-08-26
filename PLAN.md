@@ -1551,9 +1551,12 @@ header/design boundary, pointer-identical ownership, size binding, later-invalid
 arbitrary-input no-panic을 통과한다. 기존 exact-metric 6, subset-boundary 5, doctest 3, package/canonical
 Clippy, focused Python policy 8 및 82-process native hash
 `bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa`도 유지된다. 다음
-character/charlist phase 전에는 이 private implementation review와 ledger rule order/uniqueness/witness/
-phase monotonicity의 machine check가 필요하다. Public validator, owner, resolver, source loader와 W3는
-계속 blocked다.
+character/charlist phase 전에는 이 private implementation review가 필요하다.
+`scripts/check_tfm_validation_ledger.py`는 33개 rule의 exact source/phase order와 unique id,
+nonempty dependency, phase cell, native witness 존재 및 fixture case mapping을 파싱해 검증한다. 82개
+fixture case가 모두 정확한 rule/precondition에 join되고, duplicate/swap/missing/unknown mutation 및
+CI enrollment를 포함한 7개 policy test가 green이다. Public validator, owner, resolver, source loader와
+W3는 계속 blocked다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

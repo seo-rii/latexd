@@ -288,11 +288,16 @@ unchanged 82-process native report hash above.
 
 This state proves only a checked structural header boundary; it is not full TFM
 validity and is not importable outside its private root module. Character and
-charlist work remains blocked until this implementation is reviewed and the
-ledger policy mechanically checks rule order, uniqueness, witness existence,
-and phase monotonicity. Whole-oracle byte/classification parity, structured
-differential evidence, fuzzing, and substitution closure remain later private
-gates; public and downstream use remains forbidden.
+charlist work remains blocked until this implementation is reviewed.
+[`scripts/check_tfm_validation_ledger.py`](../scripts/check_tfm_validation_ledger.py)
+now parses the 33-rule table and fails closed on source-order changes, duplicate
+ids, phase regressions or mismatched phase cells, missing dependencies, unknown
+native witnesses, and unmapped fixture cases. The exact witness join is 82/82;
+seven policy tests include adversarial duplicates, row swaps, missing fields,
+unknown/missing witnesses, documentation, and CI-enrollment checks. Whole-oracle
+byte/classification parity, structured differential evidence, fuzzing, and
+substitution closure remain later private gates; public and downstream use
+remains forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected

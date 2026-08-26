@@ -56,7 +56,7 @@ paired ids deliberately separate acceptance from rejection.
 
 | Rule id | Source predicate and state | Dependency | Native evidence | Future private Rust phase and public result |
 | --- | --- | --- | --- | --- |
-| `TFM-SIZE-001` | The caller supplies a positive effective size below `2^27`sp. Invalid `at` syntax is corrected before TFM data loading. | Effective size; upstream scanner state. | `valid_cmr10_at_1sp`, `valid_cmr10_at_max_sp`; `invalid_at_size_zero`, `invalid_at_size_limit`. | Precondition before byte decoding; invalid input maps to `InvalidEffectiveSize`, not `MalformedTfm`. |
+| `TFM-SIZE-001` | The caller supplies a positive effective size below `2^27`sp. Invalid `at` syntax is corrected before TFM data loading. | Effective size; upstream scanner state. | `valid_cmr10`, `valid_cmr10_at_1sp`, `valid_cmr10_at_16sp`, `valid_cmr10_at_max_sp`; `invalid_at_size_zero`, `invalid_at_size_limit`. | Precondition before byte decoding; invalid input maps to `InvalidEffectiveSize`, not `MalformedTfm`. |
 | `TFM-COUNT-001` | Each of the twelve size halfwords is read by `read_sixteen`; a first byte above 127 aborts. | Declared frame and EOF. | `size_field_high_bit`; all twelve positions remain a required generated Rust property. | Private preamble decoder; rejection maps to `MalformedTfm`. |
 | `TFM-RANGE-001` | Reject `bc > ec + 1`. | Decoded `bc`, `ec`. | `invalid_character_range`; positive `empty_range_2_1`. | Private preamble/range phase; `MalformedTfm`. |
 | `TFM-RANGE-002` | Reject `ec > 255` independently of the empty-range rule. | Decoded `ec`. | `character_range_ec256`. | Private preamble/range phase; `MalformedTfm`. |
@@ -72,7 +72,7 @@ paired ids deliberately separate acceptance from rejection.
 | `TFM-CHARLIST-002` | Following smaller list targets must not return to the character currently being checked. | Stateful graph traversal and character order. | `valid_charlist_acyclic_chain`; `charlist_self_cycle`, `charlist_two_node_cycle`, `charlist_three_node_cycle`. | Private bounded graph phase; cycles map to `MalformedTfm`. |
 | `TFM-BOX-001` | Every width/height/depth/italic fix word uses `store_scaled`; sign byte must be 0 or 255. | Effective size and exact nested arithmetic. | `invalid_width_fix_word_sign`, `invalid_height_fix_word_sign`, `invalid_depth_fix_word_sign`, `invalid_italic_fix_word_sign`. | Private exact-scaling phase; `MalformedTfm`. |
 | `TFM-BOX-002` | Entry zero of each box table must be zero after scaling, not merely raw-word zero. | Effective size. | Natural-size `nonzero_width_zero`, `nonzero_height_zero`, `nonzero_depth_zero`, `nonzero_italic_zero`. | Private exact-scaling phase; `MalformedTfm`. |
-| `TFM-BOX-003` | The identical nonzero raw entry-zero word can round to zero at 1sp and nonzero at 16sp. Validation evidence is therefore size-bound. | Exact effective size and `store_scaled`. | `nonzero_width_zero_at_1sp`/`nonzero_width_zero_at_16sp`, with corresponding height/depth/italic pairs. | Private at-size box phase; final proof must store the same size used here. |
+| `TFM-BOX-003` | The identical nonzero raw entry-zero word can round to zero at 1sp and nonzero at 16sp. Validation evidence is therefore size-bound. | Exact effective size and `store_scaled`. | `nonzero_width_zero_at_1sp`/`nonzero_width_zero_at_16sp`, `nonzero_height_zero_at_1sp`/`nonzero_height_zero_at_16sp`, `nonzero_depth_zero_at_1sp`/`nonzero_depth_zero_at_16sp`, `nonzero_italic_zero_at_1sp`/`nonzero_italic_zero_at_16sp`. | Private at-size box phase; final proof must store the same size used here. |
 | `TFM-LIGKERN-001` | `nl=0` skips the instruction loop and boundary state remains unset. | Instruction count. | Empty-range controls remove lig/kern data and load successfully. | Private lig/kern phase. |
 | `TFM-LIGKERN-002` | For `a>128`, `256*c+d` must be below `nl`; an in-range restart is valid. | Instruction index and source order. | `valid_ligkern_restart`; `invalid_ligkern`. | Private state-machine phase; invalid restart maps to `MalformedTfm`. |
 | `TFM-LIGKERN-003` | If the first instruction has `a=255`, byte `b` establishes the boundary character before ordinary instructions are checked. | First-instruction state. | `valid_boundary_character_absent_next_bypass`. | Private state-machine phase; state must be installed before next-character existence checks. |
@@ -82,7 +82,7 @@ paired ids deliberately separate acceptance from rejection.
 | `TFM-LIGKERN-007` | If `a<128`, the forward skip must remain inside the instruction table. | Current instruction index and `nl`. | `invalid_ligkern_skip`; ordinary cmr10 instructions. | Private state-machine phase; `MalformedTfm`. |
 | `TFM-LIGKERN-008` | If the final instruction has `a=255`, its already range-checked restart target becomes the boundary label. | Terminal instruction state. | `valid_boundary_label`, `invalid_boundary_label`. | Private state-machine phase; preserve source ordering. |
 | `TFM-KERN-001` | Every kern fix word uses the same sign-constrained exact scaler. | Effective size. | `invalid_kern_fix_word`; valid cmr10 kern table. | Private kern phase; `MalformedTfm`. |
-| `TFM-EXT-001` | Nonzero top, middle, and bottom recipe bytes must each denote an existing character; zero means absent optional part. | Character existence. | Out-of-range `invalid_extensible_top`/`middle`/`bottom`; in-range-absent `extensible_top_in_range_absent`/`middle`/`bottom`; valid cmex10 zero optionals. | Private extensible phase; `MalformedTfm`. |
+| `TFM-EXT-001` | Nonzero top, middle, and bottom recipe bytes must each denote an existing character; zero means absent optional part. | Character existence. | Out-of-range `invalid_extensible_top`, `invalid_extensible_middle`, `invalid_extensible_bottom`; in-range-absent `extensible_top_in_range_absent`, `extensible_middle_in_range_absent`, `extensible_bottom_in_range_absent`; valid cmex10 zero optionals. | Private extensible phase; `MalformedTfm`. |
 | `TFM-EXT-002` | Repeat is mandatory and must denote an existing character. | Character existence. | `invalid_extensible`, `extensible_repeat_in_range_absent`; valid cmex10 recipes. | Private extensible phase; `MalformedTfm`. |
 | `TFM-PARAM-001` | `fontdimen1` slant is a signed pure number and uses a distinct decoding path. | Parameter index 1. | `signed_slant_parameter`. | Private parameter phase; preserve signed pure-number semantics. |
 | `TFM-PARAM-002` | Every parameter after slant uses `store_scaled` and rejects other sign bytes. | Effective size and parameter index. | `invalid_fontdimen2`, `invalid_fontdimen5`, `parameter_8_invalid_fix_word`. | Private parameter phase; `MalformedTfm`. |
@@ -126,8 +126,11 @@ corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
-The next decision gate reviews the private header implementation and strengthens
-the ledger policy test to enforce rule order, uniqueness, witness existence,
-and phase monotonicity before character/charlist work. Current-font ownership,
-public validation, and source-visible font loading remain separate blocked
-decisions.
+`scripts/check_tfm_validation_ledger.py` now enforces exact rule and monotonic
+phase order, unique rule ids, nonempty dependencies, phase-cell consistency,
+known native witness ids, and a complete 82/82 fixture-case join. Its policy
+suite fails on duplicate/swapped rows, missing dependencies, unknown witnesses,
+unmapped cases, missing documentation, and missing CI enrollment. The next
+decision gate therefore reviews the private header implementation before
+character/charlist work. Current-font ownership, public validation, and
+source-visible font loading remain separate blocked decisions.
