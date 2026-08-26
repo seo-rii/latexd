@@ -1552,11 +1552,22 @@ arbitrary-input no-panic을 통과한다. 기존 exact-metric 6, subset-boundary
 Clippy, focused Python policy 8 및 82-process native hash
 `bb48c1a684727289ff254c394faa5285595b3f5aed7663e28d0b717c45d7a4aa`도 유지된다. 다음
 character/charlist phase 전에는 이 private implementation review가 필요하다.
-`scripts/check_tfm_validation_ledger.py`는 33개 rule의 exact source/phase order와 unique id,
-nonempty dependency, phase cell, native witness 존재 및 fixture case mapping을 파싱해 검증한다. 82개
-fixture case가 모두 정확한 rule/precondition에 join되고, duplicate/swap/missing/unknown mutation 및
-CI enrollment를 포함한 7개 policy test가 green이다. Public validator, owner, resolver, source loader와
-W3는 계속 blocked다.
+Private implementation review `6a8e358c-697c-83e8-a6ba-881a469553d7`는 confidence 0.94의
+`REVISE_PRIVATE_TFM_HEADER`를 반환했다. Rust header predicate 자체의 defect는 찾지 않았지만, 첫
+machine ledger가 predicate/dependency/witness를 다른 rule id로 옮겨도 green일 수 있음을 지적했다.
+수정된 `scripts/check_tfm_validation_ledger.py`는 canonical JSON contract와 대조한다.
+33/33 semantic rule cells, source ordinal, unique source anchor, symbolic dependency, exact witness list,
+proof ownership을 검증한다. Source-late EOF 두 규칙이 이미 `HeaderCheckedTfm`에 속한다는 점도 source
+order와 분리해 고정하며, 14개 policy test가 cell swap과 proof-owner 이동을 fail-closed한다.
+
+이어 content-addressed v2 corpus는 82 case bytes를 69 unique SHA-256 blobs로 중복 제거해 고정했다.
+각 case는 requested/resolved size, 별도 `validator_input_size_sp`,
+`AcceptedByNativeLoader`/`MalformedTfm`/`InvalidEffectiveSize`, first rejecting rule과 supports-rules를
+기록한다. Native oracle은 mutation을 재실행하지 않고 blob을 직접 사용하며 Rust private header test도
+same persisted bytes와 digest를 읽어 정확한 proof ownership에 따라 82개를 분류한다. Python policy는
+manifest keyset, mutation equivalence와 missing/corrupt/orphan blob을 검증한다. Upper positive design-size
+witness와 maximum valid geometry 전에는 character/charlist를 시작하지 않는다. Public validator, owner,
+resolver, source loader와 W3는 계속 blocked다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

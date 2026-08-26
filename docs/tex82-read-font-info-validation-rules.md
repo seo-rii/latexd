@@ -133,6 +133,14 @@ corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
+The versioned content-addressed v2 corpus materializes the current 82 cases as
+69 unique SHA-256 blobs. Its manifest records requested and resolved sizes, the
+separate private-validator input size, normalized three-way classification,
+first rejecting rule, and every supported rule. The native oracle and the Rust
+header parity test both consume those persisted blobs; generation drift,
+missing/corrupt/orphan blobs, case-key drift, or classification drift fails the
+policy suite.
+
 `tfm-validation-rules-v1.json` is the canonical machine contract for all 33
 rules. It pins the audited source hashes, one source ordinal and unique anchor
 per rule, hashes of the predicate/dependency/future-phase cells, symbolic
@@ -147,8 +155,8 @@ contiguous source ordinals, closed symbolic dependencies and proof states,
 known native witness ids, and a complete 82/82 fixture-case join. Its policy
 suite fails on duplicate/swapped rows, predicate/dependency/witness
 reassignment, proof-ownership reassignment, missing dependencies, unknown or
-unmapped witnesses, missing documentation, and missing CI enrollment. Exact
-content-addressed native/Rust byte parity, the upper positive design-size
-witness, and maximum valid geometry still block character/charlist work.
+unmapped witnesses, missing documentation, and missing CI enrollment. The
+upper positive design-size witness and maximum valid geometry still block
+character/charlist work.
 Current-font ownership, public validation, and source-visible font loading
 remain separate blocked decisions.

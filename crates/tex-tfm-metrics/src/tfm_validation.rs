@@ -321,7 +321,15 @@ fn check_preamble_header(
 
 #[cfg(test)]
 mod tests {
-    use std::{any::TypeId, ops::Range, sync::Arc};
+    use std::{
+        any::TypeId,
+        collections::HashSet,
+        ops::Range,
+        path::Path,
+        sync::Arc,
+    };
+
+    use sha2::{Digest, Sha256};
 
     use super::{
         CharacterDomain, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
@@ -332,6 +340,69 @@ mod tests {
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
     const PREAMBLE_BYTES: usize = 24;
     const SEED_FRAME_BYTES: usize = 48;
+
+    #[test]
+    fn content_addressed_native_corpus_matches_header_proof_ownership() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(corpus_root.join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let header_rules = rule_contract["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|rule| rule["proof_state"] == "HeaderCheckedTfm")
+            .map(|rule| rule["id"].as_str().unwrap())
+            .collect::<HashSet<_>>();
+
+        let cases = manifest["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 82);
+        for case in cases {
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(
+                corpus_root
+                    .join("blobs")
+                    .join(format!("{blob_sha256}.tfm")),
+            )
+            .unwrap();
+            let actual_blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(actual_blob_sha256, blob_sha256, "{case_id}");
+            let input_size = i32::try_from(case["validator_input_size_sp"].as_i64().unwrap())
+                .unwrap();
+            let result = check_preamble_header(Arc::from(raw), input_size);
+            let classification = case["expected_classification"].as_str().unwrap();
+            let first_rule = case["first_rejecting_rule"].as_str();
+
+            match classification {
+                "InvalidEffectiveSize" => assert!(
+                    matches!(result, Err(PreambleHeaderFailure::InvalidEffectiveSize)),
+                    "{case_id}"
+                ),
+                "MalformedTfm"
+                    if first_rule.is_some_and(|rule| header_rules.contains(rule)) =>
+                {
+                    assert!(
+                        matches!(result, Err(PreambleHeaderFailure::Malformed(_))),
+                        "{case_id}"
+                    );
+                }
+                "AcceptedByNativeLoader" | "MalformedTfm" => {
+                    assert!(result.is_ok(), "{case_id}");
+                }
+                other => panic!("unexpected normalized classification {other} for {case_id}"),
+            }
+        }
+    }
 
     fn seed_frame() -> Vec<u8> {
         let mut bytes = vec![0; SEED_FRAME_BYTES];

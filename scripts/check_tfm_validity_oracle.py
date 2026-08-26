@@ -19,6 +19,15 @@ EXPECTED_FIXTURE = (
     REPOSITORY
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
 )
+RULE_CONTRACT = (
+    REPOSITORY
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json"
+)
+CORPUS_ROOT = (
+    REPOSITORY
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v2"
+)
+CORPUS_MANIFEST = CORPUS_ROOT / "manifest.json"
 
 TEX82_READ_FONT_INFO_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
@@ -705,6 +714,154 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
     return bytes(mutated)
 
 
+def build_case_inputs() -> dict[str, bytes]:
+    return {
+        case_id: mutate_tfm(
+            case_id,
+            (REPOSITORY / spec["base_tfm"]).read_bytes(),
+        )
+        for case_id, spec in CASE_SPECS.items()
+    }
+
+
+def build_corpus_manifest(case_inputs: dict[str, bytes]) -> dict[str, object]:
+    fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
+    rule_contract = json.loads(RULE_CONTRACT.read_text(encoding="utf-8"))
+    rules = rule_contract["rules"]
+    rule_ordinals = {rule["id"]: rule["source_ordinal"] for rule in rules}
+    supports_by_case = {case_id: [] for case_id in CASE_SPECS}
+    for rule in rules:
+        for case_id in rule["witnesses"]:
+            supports_by_case[case_id].append(rule["id"])
+
+    cases = []
+    for case_id in sorted(CASE_SPECS):
+        oracle_result = fixture["case_results"][case_id]
+        if case_id in {"invalid_at_size_zero", "invalid_at_size_limit"}:
+            classification = "InvalidEffectiveSize"
+        elif oracle_result["observations"]["font"] == "nullfont":
+            classification = "MalformedTfm"
+        else:
+            classification = "AcceptedByNativeLoader"
+
+        supports_rules = sorted(
+            supports_by_case[case_id], key=rule_ordinals.__getitem__
+        )
+        first_rejecting_rule = None
+        if classification == "InvalidEffectiveSize":
+            first_rejecting_rule = "TFM-SIZE-001"
+        elif classification == "MalformedTfm":
+            first_rejecting_rule = supports_rules[0]
+
+        requested_size = CASE_SIZES[case_id]
+        if requested_size["mode"] == "at_sp":
+            requested_value = requested_size["value"]
+            validator_input_size_sp = requested_value
+            resolved_effective_size_sp = (
+                655_360
+                if classification == "InvalidEffectiveSize"
+                else requested_value
+            )
+        else:
+            validator_input_size_sp = 655_360
+            resolved_effective_size_sp = None
+            source_rejects_before_size = (
+                first_rejecting_rule is not None
+                and rule_ordinals[first_rejecting_rule]
+                <= rule_ordinals["TFM-HEADER-002"]
+            )
+            if not source_rejects_before_size:
+                raw = case_inputs[case_id]
+                design_size_fix_word = int.from_bytes(raw[28:32], "big", signed=True)
+                resolved_effective_size_sp = design_size_fix_word // 16
+                validator_input_size_sp = resolved_effective_size_sp
+
+        cases.append(
+            {
+                "blob_sha256": hashlib.sha256(case_inputs[case_id]).hexdigest(),
+                "expected_classification": classification,
+                "first_rejecting_rule": first_rejecting_rule,
+                "id": case_id,
+                "requested_size": dict(requested_size),
+                "resolved_effective_size_sp": resolved_effective_size_sp,
+                "supports_rules": supports_rules,
+                "validator_input_size_sp": validator_input_size_sp,
+            }
+        )
+
+    return {
+        "compatibility_source": TEX82_READ_FONT_INFO_SOURCE,
+        "compatibility_target": fixture["compatibility_target"],
+        "format": "latexd.tfm-validity-corpus",
+        "normalization": {
+            "AcceptedByNativeLoader": "native loader selected latexdprobe",
+            "InvalidEffectiveSize": (
+                "project precondition rejected the requested size before byte validation; "
+                "native TeX recovered to 10pt"
+            ),
+            "MalformedTfm": "native loader selected nullfont after bad-TFM recovery",
+            "unresolved_size": (
+                "null when natural-size native loading rejected before a valid design "
+                "size became effective; validator_input_size_sp uses the 10pt harness size"
+            ),
+        },
+        "rule_contract": {
+            "format": rule_contract["format"],
+            "repository_path": str(RULE_CONTRACT.relative_to(REPOSITORY)),
+            "sha256": hashlib.sha256(RULE_CONTRACT.read_bytes()).hexdigest(),
+        },
+        "schema_version": 2,
+        "source_oracle": {
+            "format": fixture["format"],
+            "repository_path": str(EXPECTED_FIXTURE.relative_to(REPOSITORY)),
+            "sha256": hashlib.sha256(EXPECTED_FIXTURE.read_bytes()).hexdigest(),
+        },
+        "cases": cases,
+    }
+
+
+def validate_corpus_manifest(
+    manifest: dict[str, object], corpus_root: Path = CORPUS_ROOT
+) -> list[str]:
+    case_inputs = build_case_inputs()
+    expected = build_corpus_manifest(case_inputs)
+    errors = []
+    if manifest != expected:
+        errors.append("TFM validity corpus manifest differs from generated semantics")
+
+    cases = manifest.get("cases")
+    if not isinstance(cases, list):
+        return errors + ["TFM validity corpus cases must be an array"]
+    referenced_hashes = {
+        case.get("blob_sha256")
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("blob_sha256"), str)
+    }
+    blob_root = corpus_root / "blobs"
+    actual_files = set(blob_root.glob("*.tfm")) if blob_root.is_dir() else set()
+    actual_hashes = {path.stem for path in actual_files}
+    if actual_hashes != referenced_hashes:
+        errors.append("TFM validity corpus has missing or orphan blob files")
+    for path in actual_files:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != path.stem:
+            errors.append(f"TFM validity corpus blob hash mismatch: {path.name}")
+    return errors
+
+
+def load_corpus_case_inputs(
+    corpus_root: Path = CORPUS_ROOT,
+) -> dict[str, bytes]:
+    manifest_path = corpus_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    errors = validate_corpus_manifest(manifest, corpus_root)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return {
+        case["id"]: (corpus_root / "blobs" / f"{case['blob_sha256']}.tfm").read_bytes()
+        for case in manifest["cases"]
+    }
+
+
 def parse_observations(output: str) -> dict[str, int | str]:
     observations: dict[str, int | str] = {}
     for name, raw_value in OBSERVATION_PATTERN.findall(output):
@@ -745,11 +902,11 @@ def _collect_case_results(
     engine: str, *, include_raw_output: bool
 ) -> dict[str, dict[str, object]]:
     results = {}
+    case_inputs = load_corpus_case_inputs()
     process_environment = os.environ.copy()
     process_environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
-    for case_id, spec in CASE_SPECS.items():
-        base_path = REPOSITORY / spec["base_tfm"]
-        mutated = mutate_tfm(case_id, base_path.read_bytes())
+    for case_id in CASE_SPECS:
+        mutated = case_inputs[case_id]
         size = CASE_SIZES[case_id]
         if size == {"mode": "natural"}:
             font_definition = r"\font\probe=latexdprobe"

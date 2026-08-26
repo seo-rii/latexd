@@ -1,0 +1,1196 @@
+{
+  "cases": [
+    {
+      "blob_sha256": "f04a8bdded1a773b4cf5ccfc2161a2b19b371d5c362194732dfb89ae2a1a5c1b",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-GEOMETRY-001",
+      "id": "aggregate_length_mismatch",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-GEOMETRY-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "651964b1d064070d2850bb0927adf3fa437d98193c59429391bf2a803e21c767",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-RANGE-002",
+      "id": "character_range_ec256",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-RANGE-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "b5d0fbf7172cefdcda3858b37db48a04c49775b1e7cd750d57dd32a7dcdb3015",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHARLIST-001",
+      "id": "charlist_out_of_range",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "21f90ff87906e91e54c515a4049e6b787dd1f8ae88522f1b0eefb6b588f0d294",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHARLIST-002",
+      "id": "charlist_self_cycle",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "2ec5e0149a8a87c8d01577c2bf4945c1e56757c991d96cb5fa4a8f803fdbe8c6",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "charlist_target_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "2cb23c40759690b5055a121afe4b4503adedbd92b804d45462316f361510ba1a",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHARLIST-002",
+      "id": "charlist_three_node_cycle",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "f2d22dfa07df14605db86cac4433fdcf557010e4cb2ebf1cbf19f4a81e6d7ef2",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHARLIST-002",
+      "id": "charlist_two_node_cycle",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "4dc14034d2a7092ac0c182d7ef900624fd844072325c0e950c56fd5a2ad849cf",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-HEADER-002",
+      "id": "design_size_below_one_pt",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-HEADER-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "22083bb69778730c4066ae916f788db230805fb962a5e2079582f140256783ac",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "design_size_exactly_one_pt",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 65536,
+      "supports_rules": [
+        "TFM-HEADER-002"
+      ],
+      "validator_input_size_sp": 65536
+    },
+    {
+      "blob_sha256": "56dfb89b93fbde0087a597d9b7e242f94de8831cd1656c3fbee93c0028bffa2b",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "empty_range_256_255",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-RANGE-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "ddb3fa1fb0a5efcbf5ef1f9e38f23651d77028fc8ab2c62d90f581b3e57f9e70",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "empty_range_2_1",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-RANGE-001",
+        "TFM-RANGE-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "b57676dced6ba41e2916b3c06123311f57954ac53726ed432318cb9a703232e1",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "extensible_bottom_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "a1500240b48c4dcca4ae047deecd83fe3ddacd92ee27742e506c605315c6e366",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "extensible_middle_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "d478b606f530143854232086cb8e1e054c31b69ed5a7400893fd1229622e1ee4",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-002",
+      "id": "extensible_repeat_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "bcc2520065f53475c3fc0386714fe1bcd5cec22ea3e68dcd1700e65e2380af84",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "extensible_top_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "InvalidEffectiveSize",
+      "first_rejecting_rule": "TFM-SIZE-001",
+      "id": "invalid_at_size_limit",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 134217728
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 134217728
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "InvalidEffectiveSize",
+      "first_rejecting_rule": "TFM-SIZE-001",
+      "id": "invalid_at_size_zero",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 0
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 0
+    },
+    {
+      "blob_sha256": "6df0abe58bd5d9866aa73160d55d7bc571e375e6acff730ec03934ac11d6a5b7",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-008",
+      "id": "invalid_boundary_label",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-008"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "5884eaac2b3684ac862f2ef4a4cfe1c9a99e6aa08174b6ac3a5990daa2878a34",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-001",
+      "id": "invalid_character_depth_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "19bb67ed6026b43b35f1d77db5b92f5fe4604a5805c0d6b3619b8d07c05392c7",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-002",
+      "id": "invalid_character_extensible_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "3f8f9fc920f640c98ce3bd92cbc8c2f11c2c0da23825ee9aceba28f44e1e7c13",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-001",
+      "id": "invalid_character_height_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "c5e98f71033531b4448115c7be4a5f5243d50f31c13ac9a3c83ce13f50e3e16e",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-001",
+      "id": "invalid_character_italic_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "21939ce738ee1a5ce71aff790135ed7c43a2868b25a45e642bba656f9f2e1c9d",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-002",
+      "id": "invalid_character_ligature_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "95d8111dbf8e475dc2b40d88f499d122113a68c8e7841182f0197213e33e5b7d",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-RANGE-001",
+      "id": "invalid_character_range",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-RANGE-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "fdc88ee7ef1ce9628987a895f6c137285791f461a5a744dfc517df954b3d2ffe",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-CHAR-001",
+      "id": "invalid_character_width_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHAR-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "9f2511880326d46b6cfa70379ba4868861b0f9b7485b80e5fe3611d96f8b8318",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-001",
+      "id": "invalid_depth_fix_word_sign",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "d7532346aefa843339d9ac98e66d7987830d7a9697970d132287f86824831783",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-002",
+      "id": "invalid_extensible",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "ea1db2a85aef32a9dda8feb60acbcf724f823089278ce19b6c18cf7c3d412b22",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "invalid_extensible_bottom",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "2b8bbc709710899879dc2ee11bcfda5b0a416c5fcf4e2aa323d529dfdd70b91b",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "invalid_extensible_middle",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "f2bff092f8f4e1136dd8dce2f4e81a9daf1adb4ff07898fa97a4c0eca4e65c80",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EXT-001",
+      "id": "invalid_extensible_top",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EXT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "397ed3fe4af84b53d3c567aa4bfd2c49078aa6ea724fbc77e84b59cb860b13a8",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-PARAM-002",
+      "id": "invalid_fontdimen2",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "c99a7d87b6e8dfa942a8f52beaee11b9ea96e35992db74300e9eb901cc991a04",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-PARAM-002",
+      "id": "invalid_fontdimen5",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7fb773d40e1b14f5d9759befa2a14c9a0e5839ad364751c58768c2a0f95a8e23",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-001",
+      "id": "invalid_height_fix_word_sign",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "13a4ecbb09e2e91cd54b6d84da54302c1368f47e56bce81c9de69e8749bde50b",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-001",
+      "id": "invalid_italic_fix_word_sign",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "2425a3a8e9798b991de72d1baaab42ecbcd0c8a308ab62978057f333f6cbad33",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-KERN-001",
+      "id": "invalid_kern_fix_word",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-KERN-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "b6465f558e429e4c13b5d50c8a3cab1baecc842445dd2c2624dd87e03a045d08",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-005",
+      "id": "invalid_ligature_target",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-005"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "a1d53abf64ef616ecf5369f6ffd743d62afaba685893dfea9561fcd7a96336d2",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-002",
+      "id": "invalid_ligkern",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "06f7f9591460280297e7bced57f1d2261a4f2f401cfd537b561fee8907c66b8c",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-006",
+      "id": "invalid_ligkern_kern_index",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-006"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "f9d7f2d6cebf1f653bc0fd9a310c2119000d2ef1b03f74b514573ab5b14e7265",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-004",
+      "id": "invalid_ligkern_next_character",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-004"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "f4c0cbb8c941bbf86cd01b42eba0d428a18b6e7d582cc0311cf7b38747e3752c",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-007",
+      "id": "invalid_ligkern_skip",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-007"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "a6cbae502171371ff7ba93a5553efb50318445ff4ed4fdaab4f8ca5f78712db7",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-001",
+      "id": "invalid_width_fix_word_sign",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "402c025421cfafe18df301f7dbf21e6757067675827b5868bf5010fe452c0e26",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-005",
+      "id": "ligature_target_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-005"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "2b7d212daba18f04653e356e8198eb36ec7719b67e96afed3fa308b7fe881e1f",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-LIGKERN-004",
+      "id": "ligkern_next_in_range_absent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-004"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "3c4119fe8111b3bd7627b1b7bacb737ad8e7b380ee60e70c1ed1267e8d35efbe",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "minimal_header_lh2",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-HEADER-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7f058ec4bcab947317305e46a6851f4a24220b4894980c249ccc2a69aa6a99b2",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-002",
+      "id": "nonzero_depth_zero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7f058ec4bcab947317305e46a6851f4a24220b4894980c249ccc2a69aa6a99b2",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-003",
+      "id": "nonzero_depth_zero_at_16sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 16
+      },
+      "resolved_effective_size_sp": 16,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 16
+    },
+    {
+      "blob_sha256": "7f058ec4bcab947317305e46a6851f4a24220b4894980c249ccc2a69aa6a99b2",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "nonzero_depth_zero_at_1sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 1
+      },
+      "resolved_effective_size_sp": 1,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 1
+    },
+    {
+      "blob_sha256": "d7e56041221dcaff7306a8386629efc849f1f0bab01d9d2f252ea9bb7661bbb8",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-002",
+      "id": "nonzero_height_zero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "d7e56041221dcaff7306a8386629efc849f1f0bab01d9d2f252ea9bb7661bbb8",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-003",
+      "id": "nonzero_height_zero_at_16sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 16
+      },
+      "resolved_effective_size_sp": 16,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 16
+    },
+    {
+      "blob_sha256": "d7e56041221dcaff7306a8386629efc849f1f0bab01d9d2f252ea9bb7661bbb8",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "nonzero_height_zero_at_1sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 1
+      },
+      "resolved_effective_size_sp": 1,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 1
+    },
+    {
+      "blob_sha256": "8f79cff63625127166ea6cf60670db87eefac800ee4293c80c974bbddb0fb95b",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-002",
+      "id": "nonzero_italic_zero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "8f79cff63625127166ea6cf60670db87eefac800ee4293c80c974bbddb0fb95b",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-003",
+      "id": "nonzero_italic_zero_at_16sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 16
+      },
+      "resolved_effective_size_sp": 16,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 16
+    },
+    {
+      "blob_sha256": "8f79cff63625127166ea6cf60670db87eefac800ee4293c80c974bbddb0fb95b",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "nonzero_italic_zero_at_1sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 1
+      },
+      "resolved_effective_size_sp": 1,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 1
+    },
+    {
+      "blob_sha256": "b944f73ab0d7ed93f932f7009c9b9e999a21cd6e5befc3c3e1cd6948c5d32332",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-002",
+      "id": "nonzero_width_zero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-BOX-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "b944f73ab0d7ed93f932f7009c9b9e999a21cd6e5befc3c3e1cd6948c5d32332",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-BOX-003",
+      "id": "nonzero_width_zero_at_16sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 16
+      },
+      "resolved_effective_size_sp": 16,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 16
+    },
+    {
+      "blob_sha256": "b944f73ab0d7ed93f932f7009c9b9e999a21cd6e5befc3c3e1cd6948c5d32332",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "nonzero_width_zero_at_1sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 1
+      },
+      "resolved_effective_size_sp": 1,
+      "supports_rules": [
+        "TFM-BOX-003"
+      ],
+      "validator_input_size_sp": 1
+    },
+    {
+      "blob_sha256": "58a65c0a33df47aee5806ff273bfbf30d9d1035c31223d23c50676c463803b11",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-PARAM-002",
+      "id": "parameter_8_invalid_fix_word",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-002",
+        "TFM-PARAM-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "5e3ee43ecbe96f86ff970ddcd2d59b40720a2c905df7c40533f2959f05573cb4",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "parameter_count_8_valid",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7502399ca549f1b9d3dccd4b10694e7760c28ac40bdd9fb9cb01d94a00289bc5",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-EOF-001",
+      "id": "premature_eof",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "673f27a865beaa7735bf8129020e3a26f72337d64096473ec9048981430a082a",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-HEADER-001",
+      "id": "short_header",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-HEADER-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "960c94292a8f1d81ddcebf9d0792c92633cf67621c04b26f7e8c3aaef13d6a2a",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "short_np0",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "5a1cd9372a3afde120aa1d511ea8db03ca42bd60bccf994d4b2ab47479585a6a",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "short_np4",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7d95f3ed6181ff5486f7983da1c1c19d6b66b9a6e90f1387ec8c3e22bf24960b",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "short_np5",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-003"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "02230f0e75067cfcce6c9aa8aba9839906f346c0c0723779eafe4a38751afd4f",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "signed_slant_parameter",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-PARAM-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "469894d35397e1f70647d5f6166c9f0c4b15ef154234b67578283d2c91485126",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-COUNT-001",
+      "id": "size_field_high_bit",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-COUNT-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "ae15d0bd5f5ac2225ec05c5923135e7842316e865e382590be2826202fb34ead",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "trailing_1_byte_nonzero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "00b0d32a88bfb59421f1fa4c1740c3252983079ca7e12f7af9aa7b88a5995335",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "trailing_2_bytes_nonzero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "eb2cdfddc20318db2b459394c491f44b7c77911baa1199f7ea7d3456815524ee",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "trailing_3_bytes_nonzero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7acbcf36be21fd4fc59dca0b73a8daf05108d883e2a25c77e34345e6b72120c6",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "trailing_long_nonzero",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "a94cf8d418df8c41a762d1ed907a5d5863ce87b8369df510e6d9d2d31d153288",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "trailing_word",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-EOF-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "003305b5cfba74976b09463967a7732c28ab36c9b2d5c7ec31ad3cc61eeae504",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_boundary_character_absent_next_bypass",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-003",
+        "TFM-LIGKERN-004"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "8f7e976821e5cfd8ed35b67153fd9c203d5e63ba3d8a80cf5735e70f757ddce2",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_boundary_label",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-008"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "5bbaae2cb5b2bfceca28fc4d1916fe152db45f4a9b08f252fdc5959f93b38da8",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_charlist_acyclic_chain",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-CHARLIST-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_cmr10",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_cmr10_at_16sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 16
+      },
+      "resolved_effective_size_sp": 16,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 16
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_cmr10_at_1sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 1
+      },
+      "resolved_effective_size_sp": 1,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 1
+    },
+    {
+      "blob_sha256": "87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_cmr10_at_max_sp",
+      "requested_size": {
+        "mode": "at_sp",
+        "value": 134217727
+      },
+      "resolved_effective_size_sp": 134217727,
+      "supports_rules": [
+        "TFM-SIZE-001"
+      ],
+      "validator_input_size_sp": 134217727
+    },
+    {
+      "blob_sha256": "f01785000ae2f364ffcc8decb9b7dbdf43a8d52cc69cb7ab36c8730074c6b624",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "valid_ligkern_restart",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 655360,
+      "supports_rules": [
+        "TFM-LIGKERN-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "7287314d35331af914463466cd1426d5d663ef54456fa5b396382c1cdef9bad2",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-GEOMETRY-002",
+      "id": "zero_depth_table_consistent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-GEOMETRY-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "01979835ad1744b037881ec2d2b6e3218df4df89e2ed59a61c82e10916ffe57a",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-GEOMETRY-002",
+      "id": "zero_height_table_consistent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-GEOMETRY-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "aaafd477e8bc12e58273bcfface8fd8c7b02467b84dadd210b678973615f0bad",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-GEOMETRY-002",
+      "id": "zero_italic_table_consistent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-GEOMETRY-002"
+      ],
+      "validator_input_size_sp": 655360
+    },
+    {
+      "blob_sha256": "9467cf15eee2900e96b6b0ae053800baa3d0bfaece27371e7ebe6f29837ea614",
+      "expected_classification": "MalformedTfm",
+      "first_rejecting_rule": "TFM-GEOMETRY-002",
+      "id": "zero_width_table_consistent",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": null,
+      "supports_rules": [
+        "TFM-GEOMETRY-002"
+      ],
+      "validator_input_size_sp": 655360
+    }
+  ],
+  "compatibility_source": {
+    "loader_section_lines": [
+      10870,
+      11210
+    ],
+    "loader_section_sha256": "57f665ae4cc87c721d444fdde0a1817f194f44bab18388c42a1d26d830c6ddc8",
+    "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web"
+  },
+  "compatibility_target": "TeX82 via pdfTeX INITEX",
+  "format": "latexd.tfm-validity-corpus",
+  "normalization": {
+    "AcceptedByNativeLoader": "native loader selected latexdprobe",
+    "InvalidEffectiveSize": "project precondition rejected the requested size before byte validation; native TeX recovered to 10pt",
+    "MalformedTfm": "native loader selected nullfont after bad-TFM recovery",
+    "unresolved_size": "null when natural-size native loading rejected before a valid design size became effective; validator_input_size_sp uses the 10pt harness size"
+  },
+  "rule_contract": {
+    "format": "latexd.tfm-validation-rule-contract",
+    "repository_path": "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json",
+    "sha256": "78c406eb51f07ffac5c54b4da297dc34b01ecf070968795d3d030cdeac137303"
+  },
+  "schema_version": 2,
+  "source_oracle": {
+    "format": "latexd.tfm-validity-oracle",
+    "repository_path": "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json",
+    "sha256": "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4"
+  }
+}

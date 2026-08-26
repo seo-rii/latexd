@@ -1,6 +1,8 @@
 import hashlib
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,12 +10,17 @@ from pathlib import Path
 from scripts.check_tfm_validity_oracle import (
     CASE_SIZES,
     CASE_SPECS,
+    CORPUS_MANIFEST,
+    CORPUS_ROOT,
     EXPECTED_FIXTURE,
     TEX82_READ_FONT_INFO_SOURCE,
+    build_case_inputs,
+    load_corpus_case_inputs,
     main,
     mutate_tfm,
     run_oracle,
     validate_case_results,
+    validate_corpus_manifest,
 )
 
 
@@ -120,6 +127,110 @@ EXPLICIT_CASE_SIZES = {
 
 
 class TfmValidityOracleTests(unittest.TestCase):
+    def test_v2_corpus_generator_is_executable_from_repository_root(self) -> None:
+        repository = Path(__file__).parents[2]
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "scripts/generate_tfm_validity_corpus.py",
+                "--help",
+            ],
+            cwd=repository,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn("content-addressed TeX82 TFM validity corpus", completed.stdout)
+
+    def test_v2_corpus_freezes_exact_bytes_and_three_way_classification(
+        self,
+    ) -> None:
+        manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(validate_corpus_manifest(manifest, CORPUS_ROOT), [])
+        self.assertEqual(manifest["format"], "latexd.tfm-validity-corpus")
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(len(manifest["cases"]), 82)
+
+        expected_case_keys = {
+            "blob_sha256",
+            "expected_classification",
+            "first_rejecting_rule",
+            "id",
+            "requested_size",
+            "resolved_effective_size_sp",
+            "supports_rules",
+            "validator_input_size_sp",
+        }
+        cases = {case["id"]: case for case in manifest["cases"]}
+        self.assertEqual(set(cases), EXPECTED_CASES)
+        self.assertEqual(
+            {case["expected_classification"] for case in cases.values()},
+            {
+                "AcceptedByNativeLoader",
+                "InvalidEffectiveSize",
+                "MalformedTfm",
+            },
+        )
+        for case_id, case in cases.items():
+            self.assertEqual(set(case), expected_case_keys, case_id)
+            self.assertEqual(case["requested_size"], CASE_SIZES[case_id], case_id)
+
+        generated = build_case_inputs()
+        loaded = load_corpus_case_inputs()
+        self.assertEqual(set(generated), EXPECTED_CASES)
+        self.assertEqual(loaded, generated)
+        for case_id, blob in loaded.items():
+            self.assertEqual(
+                hashlib.sha256(blob).hexdigest(),
+                cases[case_id]["blob_sha256"],
+                case_id,
+            )
+
+        manifest_hashes = {case["blob_sha256"] for case in cases.values()}
+        blob_files = {path.stem for path in (CORPUS_ROOT / "blobs").glob("*.tfm")}
+        self.assertEqual(blob_files, manifest_hashes)
+
+    def test_v2_corpus_normalizes_size_and_first_rejection_semantics(self) -> None:
+        manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
+        cases = {case["id"]: case for case in manifest["cases"]}
+
+        for case_id, requested in (
+            ("invalid_at_size_zero", 0),
+            ("invalid_at_size_limit", 1 << 27),
+        ):
+            case = cases[case_id]
+            self.assertEqual(case["expected_classification"], "InvalidEffectiveSize")
+            self.assertEqual(case["first_rejecting_rule"], "TFM-SIZE-001")
+            self.assertEqual(case["resolved_effective_size_sp"], 655_360)
+            self.assertEqual(case["validator_input_size_sp"], requested)
+
+        self.assertEqual(cases["valid_cmr10"]["resolved_effective_size_sp"], 655_360)
+        self.assertEqual(
+            cases["design_size_exactly_one_pt"]["resolved_effective_size_sp"],
+            65_536,
+        )
+        for case_id, rule_id in (
+            ("aggregate_length_mismatch", "TFM-GEOMETRY-001"),
+            ("short_header", "TFM-HEADER-001"),
+            ("design_size_below_one_pt", "TFM-HEADER-002"),
+        ):
+            case = cases[case_id]
+            self.assertEqual(case["expected_classification"], "MalformedTfm")
+            self.assertEqual(case["first_rejecting_rule"], rule_id)
+            self.assertIsNone(case["resolved_effective_size_sp"])
+            self.assertEqual(case["validator_input_size_sp"], 655_360)
+
+        parameter_tail = cases["parameter_8_invalid_fix_word"]
+        self.assertEqual(parameter_tail["first_rejecting_rule"], "TFM-PARAM-002")
+        self.assertEqual(
+            parameter_tail["supports_rules"],
+            ["TFM-PARAM-002", "TFM-PARAM-003"],
+        )
+        self.assertIsNone(cases["trailing_3_bytes_nonzero"]["first_rejecting_rule"])
+
     def test_matrix_and_fixture_freeze_full_tfm_validity_boundaries(self) -> None:
         fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
 
@@ -215,6 +326,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         contract = (
             Path(__file__).parents[2] / "docs/m13-3-dp1-scan-context.md"
         ).read_text(encoding="utf-8")
+        plan = (Path(__file__).parents[2] / "PLAN.md").read_text(encoding="utf-8")
 
         self.assertIn("full TFM validity", contract)
         self.assertIn("dimension-subset", contract)
@@ -240,8 +352,23 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("6a8e2bef-e164-83e8-99ee-be8002ced80f", contract)
         self.assertIn("PROCEED_PRIVATE_TFM_VALIDATOR", contract)
         self.assertIn("HeaderCheckedTfm", contract)
+        self.assertIn("content-addressed v2 corpus", contract)
+        self.assertIn("69 unique SHA-256 blobs", contract)
+        self.assertIn("AcceptedByNativeLoader", contract)
+        self.assertIn("InvalidEffectiveSize", contract)
+        self.assertIn("MalformedTfm", contract)
+        self.assertIn("validator_input_size_sp", contract)
+        self.assertIn("same persisted bytes", contract)
         self.assertNotIn("rejection and acceptance inventory is complete", contract)
         self.assertIn("W3 remains blocked", contract)
+        for evidence in (
+            "6a8e358c-697c-83e8-a6ba-881a469553d7",
+            "REVISE_PRIVATE_TFM_HEADER",
+            "33/33 semantic rule cells",
+            "content-addressed v2 corpus",
+            "69 unique SHA-256 blobs",
+        ):
+            self.assertIn(evidence, plan)
 
     def test_source_rule_ledger_maps_stateful_and_size_dependent_gates(self) -> None:
         ledger = (

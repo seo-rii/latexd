@@ -310,12 +310,26 @@ header proof-ownership reassignment, duplicate or reordered ids, unknown or
 unmapped witnesses, missing dependencies, documentation drift, and missing CI
 enrollment. The exact witness join remains 82/82.
 
-The review also requires a content-addressed corpus proving that the native
-loader and Rust receive identical bytes, a normalized three-way result, the
-upper positive design-size boundary, and maximum valid geometry before any
-character work. Structured differential evidence, fuzzing, and substitution
-closure remain later private gates; public and downstream use remains
-forbidden.
+The content-addressed v2 corpus stores all 82 cases.
+It uses 69 unique SHA-256 blobs. Each manifest entry binds the requested size,
+native
+`resolved_effective_size_sp`, explicit `validator_input_size_sp`, normalized
+`AcceptedByNativeLoader`/`MalformedTfm`/`InvalidEffectiveSize` result, first
+rejecting rule, and every rule the case supports. A null resolved size means
+natural-size loading rejected before design size became effective; the
+separate validator input uses the documented 10pt harness size for those byte
+checks. Invalid explicit sizes retain the original invalid validator input but
+record native TeX's resolved 10pt recovery.
+
+The Python policy verifies all case keysets, hashes, mutation equivalence, and
+zero orphan blobs. Fresh native processes load the persisted blobs instead of
+rerunning mutations, while the private Rust header corpus test loads them too.
+Both consumers use the same persisted bytes. Rust verifies each digest and all
+82 classifications against the machine contract's exact `HeaderCheckedTfm`
+proof ownership. The upper positive design-size boundary and maximum valid
+geometry still block character work. Structured differential evidence, fuzzing,
+and substitution closure remain later private gates; public and downstream use
+remains forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
