@@ -1,4 +1,13 @@
 //! Exact, owner-neutral TFM dimension metrics.
+//!
+//! The staged validator remains private until every native-parity, property,
+//! fuzz, substitution, and review gate passes:
+//!
+//! ```compile_fail
+//! use tex_tfm_metrics::tfm_validation;
+//! ```
+
+mod tfm_validation;
 
 /// Exact dimension fields extracted from one exact declared TFM frame.
 ///

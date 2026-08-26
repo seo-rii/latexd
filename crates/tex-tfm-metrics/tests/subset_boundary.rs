@@ -14,6 +14,15 @@ fn public_api_names_the_exact_frame_dimension_subset_and_removes_broad_aliases()
 }
 
 #[test]
+fn staged_validator_module_exists_without_crate_or_public_visibility() {
+    let source = include_str!("../src/lib.rs");
+
+    assert!(source.contains("\nmod tfm_validation;"));
+    assert!(!source.contains("pub mod tfm_validation"));
+    assert!(!source.contains("pub(crate) mod tfm_validation"));
+}
+
+#[test]
 fn exact_frame_policy_rejects_native_accepted_trailing_data_without_claiming_invalidity() {
     let mut trailing_word = CMR10.to_vec();
     trailing_word.extend_from_slice(&[0; 4]);
