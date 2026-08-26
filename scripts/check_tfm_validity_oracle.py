@@ -370,6 +370,15 @@ CASE_SPECS = {
     },
 }
 
+SUPPLEMENTAL_CORPUS_SPECS = {
+    "design_size_largest_positive": {
+        "base_tfm": CMR10_TFM,
+        "description": "largest positive TeX82 design-size encoding",
+        "expected_classification": "AcceptedByNativeLoader",
+    }
+}
+CORPUS_CASE_SPECS = CASE_SPECS | SUPPLEMENTAL_CORPUS_SPECS
+
 CASE_SIZES = {case_id: {"mode": "natural"} for case_id in CASE_SPECS}
 CASE_SIZES.update(
     {
@@ -388,6 +397,9 @@ CASE_SIZES.update(
         "nonzero_italic_zero_at_16sp": {"mode": "at_sp", "value": 16},
     }
 )
+CORPUS_CASE_SIZES = CASE_SIZES | {
+    case_id: {"mode": "natural"} for case_id in SUPPLEMENTAL_CORPUS_SPECS
+}
 
 OBSERVATION_PATTERN = re.compile(
     r"LATEXD-TFMV:([A-Za-z0-9_]+)=([A-Za-z0-9_.:/+-]+)"
@@ -550,6 +562,8 @@ def mutate_tfm(case_id: str, base_tfm: bytes) -> bytes:
         mutated[28:32] = ((1 << 20) - 1).to_bytes(4, "big")
     elif case_id == "design_size_exactly_one_pt":
         mutated[28:32] = (1 << 20).to_bytes(4, "big")
+    elif case_id == "design_size_largest_positive":
+        mutated[28:32] = ((1 << 31) - 1).to_bytes(4, "big")
     elif case_id == "invalid_character_width_index":
         mutated[offsets["character"]] = _counts(base_tfm)[4]
     elif case_id == "invalid_character_height_index":
@@ -720,7 +734,7 @@ def build_case_inputs() -> dict[str, bytes]:
             case_id,
             (REPOSITORY / spec["base_tfm"]).read_bytes(),
         )
-        for case_id, spec in CASE_SPECS.items()
+        for case_id, spec in CORPUS_CASE_SPECS.items()
     }
 
 
@@ -729,16 +743,20 @@ def build_corpus_manifest(case_inputs: dict[str, bytes]) -> dict[str, object]:
     rule_contract = json.loads(RULE_CONTRACT.read_text(encoding="utf-8"))
     rules = rule_contract["rules"]
     rule_ordinals = {rule["id"]: rule["source_ordinal"] for rule in rules}
-    supports_by_case = {case_id: [] for case_id in CASE_SPECS}
+    supports_by_case = {case_id: [] for case_id in CORPUS_CASE_SPECS}
     for rule in rules:
         for case_id in rule["witnesses"]:
             supports_by_case[case_id].append(rule["id"])
 
     cases = []
-    for case_id in sorted(CASE_SPECS):
-        oracle_result = fixture["case_results"][case_id]
+    for case_id in sorted(CORPUS_CASE_SPECS):
+        oracle_result = fixture["case_results"].get(case_id)
         if case_id in {"invalid_at_size_zero", "invalid_at_size_limit"}:
             classification = "InvalidEffectiveSize"
+        elif case_id in SUPPLEMENTAL_CORPUS_SPECS:
+            classification = SUPPLEMENTAL_CORPUS_SPECS[case_id][
+                "expected_classification"
+            ]
         elif oracle_result["observations"]["font"] == "nullfont":
             classification = "MalformedTfm"
         else:
@@ -753,7 +771,7 @@ def build_corpus_manifest(case_inputs: dict[str, bytes]) -> dict[str, object]:
         elif classification == "MalformedTfm":
             first_rejecting_rule = supports_rules[0]
 
-        requested_size = CASE_SIZES[case_id]
+        requested_size = CORPUS_CASE_SIZES[case_id]
         if requested_size["mode"] == "at_sp":
             requested_value = requested_size["value"]
             validator_input_size_sp = requested_value
@@ -898,53 +916,77 @@ def _fixture_result(result: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _run_native_case(
+    engine: str,
+    case_id: str,
+    mutated: bytes,
+    size: dict[str, object],
+    *,
+    include_raw_output: bool,
+) -> dict[str, object]:
+    if size == {"mode": "natural"}:
+        font_definition = r"\font\probe=latexdprobe"
+    elif size.get("mode") == "at_sp" and isinstance(size.get("value"), int):
+        font_definition = rf"\font\probe=latexdprobe at {size['value']}sp"
+    else:
+        raise ValueError(f"invalid TFM oracle size for {case_id}: {size!r}")
+    source = PROBE_SOURCE.replace(r"\font\probe=latexdprobe", font_definition, 1)
+    source_sha256 = hashlib.sha256(source.encode()).hexdigest()
+    process_environment = os.environ.copy()
+    process_environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
+    with tempfile.TemporaryDirectory(prefix="latexd-tfm-validity-oracle-") as temp:
+        root = Path(temp)
+        (root / "latexdprobe.tfm").write_bytes(mutated)
+        (root / "probe.tex").write_text(source, encoding="utf-8")
+        process_environment["TEXFONTS"] = f"{root}{os.pathsep}"
+        completed = subprocess.run(
+            [engine, "-ini", "-interaction=nonstopmode", "probe.tex"],
+            cwd=root,
+            env=process_environment,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    result: dict[str, object] = {
+        "diagnostics": parse_diagnostics(completed.stdout),
+        "exit_status": completed.returncode,
+        "mutated_tfm_sha256": hashlib.sha256(mutated).hexdigest(),
+        "observations": parse_observations(completed.stdout),
+        "size": dict(size),
+        "source_sha256": source_sha256,
+    }
+    if include_raw_output:
+        result["raw_output"] = completed.stdout
+        result["source"] = source
+    return result
+
+
+def run_corpus_case(engine: str, case_id: str) -> dict[str, object]:
+    if case_id not in CORPUS_CASE_SPECS:
+        raise ValueError(f"unknown TFM validity corpus case: {case_id}")
+    return _run_native_case(
+        engine,
+        case_id,
+        load_corpus_case_inputs()[case_id],
+        CORPUS_CASE_SIZES[case_id],
+        include_raw_output=False,
+    )
+
+
 def _collect_case_results(
     engine: str, *, include_raw_output: bool
 ) -> dict[str, dict[str, object]]:
     results = {}
     case_inputs = load_corpus_case_inputs()
-    process_environment = os.environ.copy()
-    process_environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
     for case_id in CASE_SPECS:
-        mutated = case_inputs[case_id]
-        size = CASE_SIZES[case_id]
-        if size == {"mode": "natural"}:
-            font_definition = r"\font\probe=latexdprobe"
-        elif size.get("mode") == "at_sp" and isinstance(size.get("value"), int):
-            font_definition = rf"\font\probe=latexdprobe at {size['value']}sp"
-        else:
-            raise ValueError(f"invalid TFM oracle size for {case_id}: {size!r}")
-        source = PROBE_SOURCE.replace(
-            r"\font\probe=latexdprobe", font_definition, 1
+        results[case_id] = _run_native_case(
+            engine,
+            case_id,
+            case_inputs[case_id],
+            CASE_SIZES[case_id],
+            include_raw_output=include_raw_output,
         )
-        source_sha256 = hashlib.sha256(source.encode()).hexdigest()
-        with tempfile.TemporaryDirectory(prefix="latexd-tfm-validity-oracle-") as temp:
-            root = Path(temp)
-            (root / "latexdprobe.tfm").write_bytes(mutated)
-            (root / "probe.tex").write_text(source, encoding="utf-8")
-            case_environment = process_environment.copy()
-            case_environment["TEXFONTS"] = f"{root}{os.pathsep}"
-            completed = subprocess.run(
-                [engine, "-ini", "-interaction=nonstopmode", "probe.tex"],
-                cwd=root,
-                env=case_environment,
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            )
-        result: dict[str, object] = {
-            "diagnostics": parse_diagnostics(completed.stdout),
-            "exit_status": completed.returncode,
-            "mutated_tfm_sha256": hashlib.sha256(mutated).hexdigest(),
-            "observations": parse_observations(completed.stdout),
-            "size": dict(size),
-            "source_sha256": source_sha256,
-        }
-        if include_raw_output:
-            result["raw_output"] = completed.stdout
-            result["source"] = source
-        results[case_id] = result
     return results
 
 

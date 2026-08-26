@@ -72,7 +72,7 @@ paired ids deliberately separate acceptance from rejection.
 | `TFM-GEOMETRY-002` | `nw`, `nh`, `nd`, and `ni` must each be nonzero even for an empty character range. | Size fields. | `zero_width_table_consistent`, `zero_height_table_consistent`, `zero_depth_table_consistent`, `zero_italic_table_consistent`. | Private checked layout; `MalformedTfm`. |
 | `TFM-RESOURCE-001` | TeX may decline a valid font when global font count or `font_info` capacity is exhausted. | Global engine state, not input validity. | Deliberately outside the byte oracle. | Explicitly excluded from any future `ValidatedTfmAtSize` data-validity claim. |
 | `TFM-HEADER-001` | The header must contain at least checksum and design-size words; later header words are ignored. | `lh`, declared frame. | `short_header`; `minimal_header_lh2`. | Private header phase; `MalformedTfm`. |
-| `TFM-HEADER-002` | Design size decoding rejects a negative high halfword and values below 1pt; exactly 1pt is valid. | Header bytes. | `design_size_below_one_pt`, `design_size_exactly_one_pt`. | Private header phase; `MalformedTfm`. |
+| `TFM-HEADER-002` | Design size decoding rejects a negative high halfword and values below 1pt; exactly 1pt is valid. | Header bytes. | `design_size_below_one_pt`, `design_size_exactly_one_pt`, `design_size_largest_positive`. | Private header phase; `MalformedTfm`. |
 | `TFM-CHAR-001` | Every character record's width, height, depth, and italic indices must be below `nw`, `nh`, `nd`, and `ni`. The checks run even when width index is zero. | Character-table slice and metric counts. | `invalid_character_width_index`, `invalid_character_height_index`, `invalid_character_depth_index`, `invalid_character_italic_index`. | Private character phase using checked slices; `MalformedTfm`. |
 | `TFM-CHAR-002` | Ligature and extensible tags must address indices below `nl` and `ne`. | Character tag and target byte. | `invalid_character_ligature_index`, `invalid_character_extensible_index`. | Private character phase; `MalformedTfm`. |
 | `TFM-CHARLIST-001` | A list target must lie in `bc..=ec`; unlike ligature/extensible references, it is not required to denote an existing character. | Normalized character range. | `charlist_out_of_range`; accepted `charlist_target_in_range_absent`. | Private charlist phase must preserve range-only semantics; `MalformedTfm` only for range failure. |
@@ -133,8 +133,8 @@ corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
-The versioned content-addressed v2 corpus materializes the current 82 cases as
-69 unique SHA-256 blobs. Its manifest records requested and resolved sizes, the
+The versioned content-addressed v2 corpus materializes the current 83 cases as
+70 unique SHA-256 blobs. Its manifest records requested and resolved sizes, the
 separate private-validator input size, normalized three-way classification,
 first rejecting rule, and every supported rule. The native oracle and the Rust
 header parity test both consume those persisted blobs; generation drift,
@@ -152,11 +152,12 @@ header invariant.
 `scripts/check_tfm_validation_ledger.py` now enforces 33/33 exact semantic rule
 cells, exact `HeaderCheckedTfm` proof ownership, unique rule ids and anchors,
 contiguous source ordinals, closed symbolic dependencies and proof states,
-known native witness ids, and a complete 82/82 fixture-case join. Its policy
+known native witness ids, and a complete 83/83 fixture-case join. Its policy
 suite fails on duplicate/swapped rows, predicate/dependency/witness
 reassignment, proof-ownership reassignment, missing dependencies, unknown or
 unmapped witnesses, missing documentation, and missing CI enrollment. The
-upper positive design-size witness and maximum valid geometry still block
-character/charlist work.
+native upper-positive design witness and Rust maximum-geometry/unavailable-frame
+plus generated-consistent-preamble gates are now complete. The remediation
+closure review still blocks character/charlist work.
 Current-font ownership, public validation, and source-visible font loading
 remain separate blocked decisions.

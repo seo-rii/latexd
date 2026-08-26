@@ -127,6 +127,20 @@
       "validator_input_size_sp": 65536
     },
     {
+      "blob_sha256": "955887ca28048879ed10418ae55ef0eceee6b2391f1cc87010a2123bca6fdc42",
+      "expected_classification": "AcceptedByNativeLoader",
+      "first_rejecting_rule": null,
+      "id": "design_size_largest_positive",
+      "requested_size": {
+        "mode": "natural"
+      },
+      "resolved_effective_size_sp": 134217727,
+      "supports_rules": [
+        "TFM-HEADER-002"
+      ],
+      "validator_input_size_sp": 134217727
+    },
+    {
       "blob_sha256": "56dfb89b93fbde0087a597d9b7e242f94de8831cd1656c3fbee93c0028bffa2b",
       "expected_classification": "AcceptedByNativeLoader",
       "first_rejecting_rule": null,
@@ -1185,7 +1199,7 @@
   "rule_contract": {
     "format": "latexd.tfm-validation-rule-contract",
     "repository_path": "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json",
-    "sha256": "78c406eb51f07ffac5c54b4da297dc34b01ecf070968795d3d030cdeac137303"
+    "sha256": "260bff0aa11e2b839985875c6df1e5075b37fc110ab0c3723a2837db70d20353"
   },
   "schema_version": 2,
   "source_oracle": {

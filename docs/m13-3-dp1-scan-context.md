@@ -308,12 +308,12 @@ has already established it. In particular, source-late `TFM-EOF-001` and
 tests now reject semantic-cell swaps, dependency-only and witness-only swaps,
 header proof-ownership reassignment, duplicate or reordered ids, unknown or
 unmapped witnesses, missing dependencies, documentation drift, and missing CI
-enrollment. The exact witness join remains 82/82.
+enrollment. The v2 exact witness join is 83/83; the original v1 native report
+remains the frozen 82-process characterization.
 
-The content-addressed v2 corpus stores all 82 cases.
-It uses 69 unique SHA-256 blobs. Each manifest entry binds the requested size,
-native
-`resolved_effective_size_sp`, explicit `validator_input_size_sp`, normalized
+The content-addressed v2 corpus stores all 83 cases.
+It uses 70 unique SHA-256 blobs. Each manifest entry binds the requested size,
+native `resolved_effective_size_sp`, explicit `validator_input_size_sp`, normalized
 `AcceptedByNativeLoader`/`MalformedTfm`/`InvalidEffectiveSize` result, first
 rejecting rule, and every rule the case supports. A null resolved size means
 natural-size loading rejected before design size became effective; the
@@ -325,10 +325,14 @@ The Python policy verifies all case keysets, hashes, mutation equivalence, and
 zero orphan blobs. Fresh native processes load the persisted blobs instead of
 rerunning mutations, while the private Rust header corpus test loads them too.
 Both consumers use the same persisted bytes. Rust verifies each digest and all
-82 classifications against the machine contract's exact `HeaderCheckedTfm`
-proof ownership. The upper positive design-size boundary and maximum valid
-geometry still block character work. Structured differential evidence, fuzzing,
-and substitution closure remain later private gates; public and downstream use
+83 classifications against the machine contract's exact `HeaderCheckedTfm`
+proof ownership. The supplemental native case accepts design fix word
+`0x7fffffff`, resolves to `2^27-1`sp, and freezes quad `134218095sp` and x-height
+`57788153sp`. Rust also accepts the exact `lf=32767` maximum frame, rejects that
+frame one byte short, and accepts 128 generated structurally consistent
+preambles. These boundary remediations are complete; a new Pro closure review
+still blocks character work. Structured differential evidence, fuzzing, and
+substitution closure remain later private gates; public and downstream use
 remains forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not

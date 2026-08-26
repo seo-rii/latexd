@@ -1560,14 +1560,17 @@ machine ledger가 predicate/dependency/witness를 다른 rule id로 옮겨도 gr
 proof ownership을 검증한다. Source-late EOF 두 규칙이 이미 `HeaderCheckedTfm`에 속한다는 점도 source
 order와 분리해 고정하며, 14개 policy test가 cell swap과 proof-owner 이동을 fail-closed한다.
 
-이어 content-addressed v2 corpus는 82 case bytes를 69 unique SHA-256 blobs로 중복 제거해 고정했다.
+이어 content-addressed v2 corpus는 83 case bytes를 70 unique SHA-256 blobs로 중복 제거해 고정했다.
 각 case는 requested/resolved size, 별도 `validator_input_size_sp`,
 `AcceptedByNativeLoader`/`MalformedTfm`/`InvalidEffectiveSize`, first rejecting rule과 supports-rules를
 기록한다. Native oracle은 mutation을 재실행하지 않고 blob을 직접 사용하며 Rust private header test도
-same persisted bytes와 digest를 읽어 정확한 proof ownership에 따라 82개를 분류한다. Python policy는
-manifest keyset, mutation equivalence와 missing/corrupt/orphan blob을 검증한다. Upper positive design-size
-witness와 maximum valid geometry 전에는 character/charlist를 시작하지 않는다. Public validator, owner,
-resolver, source loader와 W3는 계속 blocked다.
+same persisted bytes와 digest를 읽어 정확한 proof ownership에 따라 83개를 분류한다. Python policy는
+manifest keyset, mutation equivalence와 missing/corrupt/orphan blob을 검증한다. Supplemental native
+upper-positive case는 design fix word `0x7fffffff`, resolved `2^27-1`sp, quad `134218095sp`, x-height
+`57788153sp`를 양성으로 고정한다. Rust는 exact `lf=32767` maximum frame을 accept하고 1-byte-short frame을
+reject하며 128개 structurally consistent generated preamble의 exact layout도 확인한다. 이 remediation의
+새 Pro closure review 전에는 character/charlist를 시작하지 않는다. Public validator, owner, resolver,
+source loader와 W3는 계속 blocked다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

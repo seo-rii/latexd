@@ -211,13 +211,14 @@ def main() -> int:
     ledger = (ROOT / "docs/tex82-read-font-info-validation-rules.md").read_text(
         encoding="utf-8"
     )
-    fixture = json.loads(
+    corpus_manifest = json.loads(
         (
             ROOT
-            / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
+            / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v2/manifest.json"
         ).read_text(encoding="utf-8")
     )
-    errors = validate_rule_ledger(ledger, set(fixture["case_results"]))
+    corpus_case_ids = {case["id"] for case in corpus_manifest["cases"]}
+    errors = validate_rule_ledger(ledger, corpus_case_ids)
     if errors:
         for error in errors:
             print(error)
@@ -225,7 +226,7 @@ def main() -> int:
     proof_counts = Counter(rule["proof_state"] for rule in RULE_CONTRACT["rules"])
     print(
         "TeX82 TFM validation source-rule ledger passed: "
-        f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(fixture['case_results'])}, "
+        f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
         f"proof_states={dict(sorted(proof_counts.items()))}"
     )
     return 0

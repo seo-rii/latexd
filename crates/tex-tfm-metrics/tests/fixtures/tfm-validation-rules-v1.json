@@ -131,7 +131,7 @@
       "future_phase_sha256": "f3f886705138464979583bdb73a33fcf3ee2acc348174f9ff4ed59febdd5d8a4",
       "dependency_ids": ["TFM-HEADER-001"],
       "proof_state": "HeaderCheckedTfm",
-      "witnesses": ["design_size_below_one_pt", "design_size_exactly_one_pt"]
+      "witnesses": ["design_size_below_one_pt", "design_size_exactly_one_pt", "design_size_largest_positive"]
     },
     {
       "id": "TFM-CHAR-001", "source_ordinal": 11,

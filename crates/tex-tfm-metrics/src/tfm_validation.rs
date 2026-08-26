@@ -321,13 +321,7 @@ fn check_preamble_header(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        any::TypeId,
-        collections::HashSet,
-        ops::Range,
-        path::Path,
-        sync::Arc,
-    };
+    use std::{any::TypeId, collections::HashSet, ops::Range, path::Path, sync::Arc};
 
     use sha2::{Digest, Sha256};
 
@@ -345,10 +339,9 @@ mod tests {
     fn content_addressed_native_corpus_matches_header_proof_ownership() {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
         let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
-        let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(corpus_root.join("manifest.json")).unwrap(),
-        )
-        .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(corpus_root.join("manifest.json")).unwrap())
+                .unwrap();
         let rule_contract: serde_json::Value = serde_json::from_slice(
             &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
         )
@@ -362,23 +355,19 @@ mod tests {
             .collect::<HashSet<_>>();
 
         let cases = manifest["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 82);
+        assert_eq!(cases.len(), 83);
         for case in cases {
             let case_id = case["id"].as_str().unwrap();
             let blob_sha256 = case["blob_sha256"].as_str().unwrap();
-            let raw = std::fs::read(
-                corpus_root
-                    .join("blobs")
-                    .join(format!("{blob_sha256}.tfm")),
-            )
-            .unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
             let actual_blob_sha256 = Sha256::digest(&raw)
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>();
             assert_eq!(actual_blob_sha256, blob_sha256, "{case_id}");
-            let input_size = i32::try_from(case["validator_input_size_sp"].as_i64().unwrap())
-                .unwrap();
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
             let result = check_preamble_header(Arc::from(raw), input_size);
             let classification = case["expected_classification"].as_str().unwrap();
             let first_rule = case["first_rejecting_rule"].as_str();
@@ -388,9 +377,7 @@ mod tests {
                     matches!(result, Err(PreambleHeaderFailure::InvalidEffectiveSize)),
                     "{case_id}"
                 ),
-                "MalformedTfm"
-                    if first_rule.is_some_and(|rule| header_rules.contains(rule)) =>
-                {
+                "MalformedTfm" if first_rule.is_some_and(|rule| header_rules.contains(rule)) => {
                     assert!(
                         matches!(result, Err(PreambleHeaderFailure::Malformed(_))),
                         "{case_id}"
@@ -401,6 +388,59 @@ mod tests {
                 }
                 other => panic!("unexpected normalized classification {other} for {case_id}"),
             }
+        }
+    }
+
+    #[test]
+    fn maximum_valid_geometry_accepts_exact_frame_and_rejects_one_byte_short() {
+        let maximum_words = 0x7fffusize;
+        let mut bytes = vec![0; maximum_words * 4];
+        for (index, value) in [0x7fff, 2, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0x7ff3]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+
+        let state = check_preamble_header(Arc::from(bytes.clone()), 1).unwrap();
+        assert_eq!(state.declared_frame_end.0, maximum_words * 4);
+        bytes.pop();
+        assert_rule(bytes, PreambleHeaderRule::DeclaredFrameUnavailable);
+    }
+
+    #[test]
+    fn generated_structurally_consistent_preambles_have_exact_layouts() {
+        for seed in 0..128u16 {
+            let lh = 2 + seed % 7;
+            let (bc, ec, character_count) = if seed % 2 == 0 {
+                let code = seed % 256;
+                (code, code, 1u16)
+            } else {
+                let last = seed % 256;
+                (last + 1, last, 0u16)
+            };
+            let nw = 1 + seed.wrapping_mul(3) % 31;
+            let nh = 1 + seed.wrapping_mul(5) % 15;
+            let nd = 1 + seed.wrapping_mul(7) % 15;
+            let ni = 1 + seed.wrapping_mul(11) % 15;
+            let nl = seed.wrapping_mul(13) % 29;
+            let nk = seed.wrapping_mul(17) % 23;
+            let ne = seed.wrapping_mul(19) % 17;
+            let np = seed.wrapping_mul(23) % 33;
+            let lf = 6 + lh + character_count + nw + nh + nd + ni + nl + nk + ne + np;
+            let mut bytes = vec![0; usize::from(lf) * 4];
+            for (index, value) in [lf, lh, bc, ec, nw, nh, nd, ni, nl, nk, ne, np]
+                .into_iter()
+                .enumerate()
+            {
+                put_count(&mut bytes, index, value);
+            }
+            bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+
+            let state = check_preamble_header(Arc::from(bytes), 1).unwrap();
+            assert_eq!(state.declared_frame_end.0, usize::from(lf) * 4);
+            assert_eq!(state.layout.parameters.end, usize::from(lf) * 4);
         }
     }
 

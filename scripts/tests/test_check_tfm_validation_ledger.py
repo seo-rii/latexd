@@ -10,9 +10,9 @@ from scripts.check_tfm_validation_ledger import (
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "docs/tex82-read-font-info-validation-rules.md"
-FIXTURE = (
+CORPUS_MANIFEST = (
     ROOT
-    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v2/manifest.json"
 )
 RULE_CONTRACT = (
     ROOT
@@ -25,8 +25,8 @@ def ledger_text() -> str:
 
 
 def fixture_case_ids() -> set[str]:
-    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    return set(fixture["case_results"])
+    manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
+    return {case["id"] for case in manifest["cases"]}
 
 
 def rule_contract() -> dict[str, object]:
@@ -41,7 +41,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
         self.assertIn("check_tfm_validation_ledger.py", contract)
         self.assertIn("tfm-validation-rules-v1.json", contract)
         self.assertIn("33/33 semantic rule cells", contract)
-        self.assertIn("82/82", contract)
+        self.assertIn("83/83", contract)
         self.assertIn("source ordinal", contract)
         self.assertIn("proof ownership", contract)
         self.assertIn("6a8e358c-697c-83e8-a6ba-881a469553d7", contract)

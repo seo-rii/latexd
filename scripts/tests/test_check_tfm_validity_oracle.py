@@ -10,6 +10,7 @@ from pathlib import Path
 from scripts.check_tfm_validity_oracle import (
     CASE_SIZES,
     CASE_SPECS,
+    CORPUS_CASE_SIZES,
     CORPUS_MANIFEST,
     CORPUS_ROOT,
     EXPECTED_FIXTURE,
@@ -19,6 +20,7 @@ from scripts.check_tfm_validity_oracle import (
     main,
     mutate_tfm,
     run_oracle,
+    run_corpus_case,
     validate_case_results,
     validate_corpus_manifest,
 )
@@ -125,6 +127,8 @@ EXPLICIT_CASE_SIZES = {
     "valid_cmr10_at_max_sp": {"mode": "at_sp", "value": (1 << 27) - 1},
 }
 
+V2_EXPECTED_CASES = EXPECTED_CASES | {"design_size_largest_positive"}
+
 
 class TfmValidityOracleTests(unittest.TestCase):
     def test_v2_corpus_generator_is_executable_from_repository_root(self) -> None:
@@ -152,7 +156,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertEqual(validate_corpus_manifest(manifest, CORPUS_ROOT), [])
         self.assertEqual(manifest["format"], "latexd.tfm-validity-corpus")
         self.assertEqual(manifest["schema_version"], 2)
-        self.assertEqual(len(manifest["cases"]), 82)
+        self.assertEqual(len(manifest["cases"]), 83)
 
         expected_case_keys = {
             "blob_sha256",
@@ -165,7 +169,7 @@ class TfmValidityOracleTests(unittest.TestCase):
             "validator_input_size_sp",
         }
         cases = {case["id"]: case for case in manifest["cases"]}
-        self.assertEqual(set(cases), EXPECTED_CASES)
+        self.assertEqual(set(cases), V2_EXPECTED_CASES)
         self.assertEqual(
             {case["expected_classification"] for case in cases.values()},
             {
@@ -176,11 +180,13 @@ class TfmValidityOracleTests(unittest.TestCase):
         )
         for case_id, case in cases.items():
             self.assertEqual(set(case), expected_case_keys, case_id)
-            self.assertEqual(case["requested_size"], CASE_SIZES[case_id], case_id)
+            self.assertEqual(
+                case["requested_size"], CORPUS_CASE_SIZES[case_id], case_id
+            )
 
         generated = build_case_inputs()
         loaded = load_corpus_case_inputs()
-        self.assertEqual(set(generated), EXPECTED_CASES)
+        self.assertEqual(set(generated), V2_EXPECTED_CASES)
         self.assertEqual(loaded, generated)
         for case_id, blob in loaded.items():
             self.assertEqual(
@@ -192,6 +198,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         manifest_hashes = {case["blob_sha256"] for case in cases.values()}
         blob_files = {path.stem for path in (CORPUS_ROOT / "blobs").glob("*.tfm")}
         self.assertEqual(blob_files, manifest_hashes)
+        self.assertEqual(len(blob_files), 70)
 
     def test_v2_corpus_normalizes_size_and_first_rejection_semantics(self) -> None:
         manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
@@ -230,6 +237,31 @@ class TfmValidityOracleTests(unittest.TestCase):
             ["TFM-PARAM-002", "TFM-PARAM-003"],
         )
         self.assertIsNone(cases["trailing_3_bytes_nonzero"]["first_rejecting_rule"])
+
+        largest_design = cases["design_size_largest_positive"]
+        self.assertEqual(
+            largest_design["expected_classification"],
+            "AcceptedByNativeLoader",
+        )
+        self.assertEqual(largest_design["resolved_effective_size_sp"], (1 << 27) - 1)
+        self.assertEqual(largest_design["validator_input_size_sp"], (1 << 27) - 1)
+        self.assertEqual(largest_design["supports_rules"], ["TFM-HEADER-002"])
+        self.assertIsNone(largest_design["first_rejecting_rule"])
+
+    @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
+    def test_v2_corpus_has_native_upper_positive_design_size_witness(self) -> None:
+        result = run_corpus_case("pdftex", "design_size_largest_positive")
+
+        self.assertEqual(result["diagnostics"], [])
+        self.assertEqual(result["exit_status"], 0)
+        self.assertEqual(result["observations"]["font"], "latexdprobe")
+        self.assertEqual(result["observations"]["quad"], 134_218_095)
+        self.assertEqual(result["observations"]["xheight"], 57_788_153)
+        self.assertEqual(result["observations"]["sentinel"], 1)
+        self.assertEqual(
+            result["mutated_tfm_sha256"],
+            hashlib.sha256(load_corpus_case_inputs()["design_size_largest_positive"]).hexdigest(),
+        )
 
     def test_matrix_and_fixture_freeze_full_tfm_validity_boundaries(self) -> None:
         fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
@@ -353,7 +385,7 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertIn("PROCEED_PRIVATE_TFM_VALIDATOR", contract)
         self.assertIn("HeaderCheckedTfm", contract)
         self.assertIn("content-addressed v2 corpus", contract)
-        self.assertIn("69 unique SHA-256 blobs", contract)
+        self.assertIn("70 unique SHA-256 blobs", contract)
         self.assertIn("AcceptedByNativeLoader", contract)
         self.assertIn("InvalidEffectiveSize", contract)
         self.assertIn("MalformedTfm", contract)
@@ -366,7 +398,7 @@ class TfmValidityOracleTests(unittest.TestCase):
             "REVISE_PRIVATE_TFM_HEADER",
             "33/33 semantic rule cells",
             "content-addressed v2 corpus",
-            "69 unique SHA-256 blobs",
+            "70 unique SHA-256 blobs",
         ):
             self.assertIn(evidence, plan)
 
