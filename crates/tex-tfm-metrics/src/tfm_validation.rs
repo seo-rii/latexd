@@ -75,6 +75,73 @@ struct HeaderCheckedTfm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharacterMetric {
+    Width,
+    Height,
+    Depth,
+    Italic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharacterTag {
+    None,
+    Ligature { start: u8 },
+    List { target: u8 },
+    Extensible { recipe: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CheckedCharacterRecord {
+    character: u8,
+    width_index: u8,
+    height_index: u8,
+    depth_index: u8,
+    italic_index: u8,
+    tag: CharacterTag,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExistingCharacters([u64; 4]);
+
+struct CharacterCheckedTfm {
+    predecessor: HeaderCheckedTfm,
+    records: Box<[CheckedCharacterRecord]>,
+    existing_characters: ExistingCharacters,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharacterValidationRule {
+    MetricIndexOutOfRange {
+        character: u8,
+        metric: CharacterMetric,
+        index: u8,
+        count: u16,
+    },
+    LigatureIndexOutOfRange {
+        character: u8,
+        index: u8,
+        count: u16,
+    },
+    ExtensibleIndexOutOfRange {
+        character: u8,
+        index: u8,
+        count: u16,
+    },
+    CharListTargetOutOfRange {
+        character: u8,
+        target: u8,
+        first: u8,
+        last: u8,
+    },
+    CharListCycle {
+        character: u8,
+    },
+    CharListTraversalLimit {
+        character: u8,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CountField {
     Lf,
     Lh,
@@ -319,6 +386,136 @@ fn check_preamble_header(
     })
 }
 
+fn check_characters(
+    predecessor: HeaderCheckedTfm,
+) -> Result<CharacterCheckedTfm, CharacterValidationRule> {
+    let mut records: Vec<CheckedCharacterRecord> = Vec::new();
+    let mut existing_characters = ExistingCharacters([0; 4]);
+    if let CharacterDomain::Inclusive { first, last } = predecessor.character_domain {
+        for (character, raw_record) in (first..=last)
+            .zip(predecessor.raw[predecessor.layout.characters.clone()].chunks_exact(4))
+        {
+            let width_index = raw_record[0];
+            let height_index = raw_record[1] >> 4;
+            let depth_index = raw_record[1] & 0x0f;
+            let italic_index = raw_record[2] >> 2;
+            let tag_code = raw_record[2] & 0x03;
+            let remainder = raw_record[3];
+
+            for (index, count, metric) in [
+                (
+                    width_index,
+                    predecessor.raw_counts.nw,
+                    CharacterMetric::Width,
+                ),
+                (
+                    height_index,
+                    predecessor.raw_counts.nh,
+                    CharacterMetric::Height,
+                ),
+                (
+                    depth_index,
+                    predecessor.raw_counts.nd,
+                    CharacterMetric::Depth,
+                ),
+                (
+                    italic_index,
+                    predecessor.raw_counts.ni,
+                    CharacterMetric::Italic,
+                ),
+            ] {
+                if u16::from(index) >= count {
+                    return Err(CharacterValidationRule::MetricIndexOutOfRange {
+                        character,
+                        metric,
+                        index,
+                        count,
+                    });
+                }
+            }
+
+            let tag = match tag_code {
+                0 => CharacterTag::None,
+                1 => {
+                    if u16::from(remainder) >= predecessor.raw_counts.nl {
+                        return Err(CharacterValidationRule::LigatureIndexOutOfRange {
+                            character,
+                            index: remainder,
+                            count: predecessor.raw_counts.nl,
+                        });
+                    }
+                    CharacterTag::Ligature { start: remainder }
+                }
+                2 => {
+                    if remainder < first || remainder > last {
+                        return Err(CharacterValidationRule::CharListTargetOutOfRange {
+                            character,
+                            target: remainder,
+                            first,
+                            last,
+                        });
+                    }
+
+                    let mut target = remainder;
+                    let mut steps = 0usize;
+                    let domain_size = usize::from(last - first) + 1;
+                    while target < character {
+                        let target_record = records[usize::from(target - first)];
+                        let CharacterTag::List {
+                            target: next_target,
+                        } = target_record.tag
+                        else {
+                            break;
+                        };
+                        target = next_target;
+                        steps += 1;
+                        if steps > domain_size {
+                            return Err(CharacterValidationRule::CharListTraversalLimit {
+                                character,
+                            });
+                        }
+                    }
+                    if target == character {
+                        return Err(CharacterValidationRule::CharListCycle { character });
+                    }
+                    CharacterTag::List { target: remainder }
+                }
+                3 => {
+                    if u16::from(remainder) >= predecessor.raw_counts.ne {
+                        return Err(CharacterValidationRule::ExtensibleIndexOutOfRange {
+                            character,
+                            index: remainder,
+                            count: predecessor.raw_counts.ne,
+                        });
+                    }
+                    CharacterTag::Extensible { recipe: remainder }
+                }
+                _ => unreachable!("the tag code is masked to two bits"),
+            };
+
+            records.push(CheckedCharacterRecord {
+                character,
+                width_index,
+                height_index,
+                depth_index,
+                italic_index,
+                tag,
+            });
+            if width_index != 0 {
+                let word = usize::from(character) / 64;
+                let bit = u32::from(character % 64);
+                existing_characters.0[word] |= 1u64 << bit;
+            }
+        }
+    }
+
+    Ok(CharacterCheckedTfm {
+        predecessor,
+        records: records.into_boxed_slice(),
+        existing_characters,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::TypeId, collections::HashSet, ops::Range, path::Path, sync::Arc};
@@ -326,8 +523,9 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        CharacterDomain, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
-        MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest,
+        CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
+        CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
+        MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, check_characters,
         check_preamble_header,
     };
 
@@ -427,6 +625,588 @@ mod tests {
     }
 
     #[test]
+    fn content_addressed_native_corpus_matches_character_proof_ownership() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(corpus_root.join("manifest.json")).unwrap())
+                .unwrap();
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let proof_rules = |proof_state| {
+            rule_contract["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|rule| rule["proof_state"] == proof_state)
+                .map(|rule| rule["id"].as_str().unwrap())
+                .collect::<HashSet<_>>()
+        };
+        let header_rules = proof_rules("HeaderCheckedTfm");
+        let character_rules = proof_rules("CharacterCheckedTfm");
+        assert_eq!(header_rules.len(), 10);
+        assert_eq!(character_rules.len(), 4);
+
+        let cases = manifest["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 83);
+        for case in cases {
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let actual_blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(actual_blob_sha256, blob_sha256, "{case_id}");
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let classification = case["expected_classification"].as_str().unwrap();
+            let first_rule = case["first_rejecting_rule"].as_str();
+            let header = check_preamble_header(Arc::from(raw), input_size);
+
+            if classification == "InvalidEffectiveSize" {
+                assert!(
+                    matches!(header, Err(PreambleHeaderFailure::InvalidEffectiveSize)),
+                    "{case_id} {blob_sha256}"
+                );
+                continue;
+            }
+            if first_rule.is_some_and(|rule| header_rules.contains(rule)) {
+                assert!(
+                    matches!(header, Err(PreambleHeaderFailure::Malformed(_))),
+                    "{case_id} {blob_sha256}"
+                );
+                continue;
+            }
+
+            let result = check_characters(header.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in header phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| character_rules.contains(rule)) {
+                let expected = match case_id {
+                    "invalid_character_width_index" => {
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Width,
+                            index: 36,
+                            count: 36,
+                        }
+                    }
+                    "invalid_character_height_index" => {
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Height,
+                            index: 15,
+                            count: 15,
+                        }
+                    }
+                    "invalid_character_depth_index" => {
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Depth,
+                            index: 10,
+                            count: 10,
+                        }
+                    }
+                    "invalid_character_italic_index" => {
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Italic,
+                            index: 5,
+                            count: 5,
+                        }
+                    }
+                    "invalid_character_ligature_index" => {
+                        CharacterValidationRule::LigatureIndexOutOfRange {
+                            character: 0,
+                            index: 88,
+                            count: 88,
+                        }
+                    }
+                    "invalid_character_extensible_index" => {
+                        CharacterValidationRule::ExtensibleIndexOutOfRange {
+                            character: 0,
+                            index: 0,
+                            count: 0,
+                        }
+                    }
+                    "charlist_out_of_range" => CharacterValidationRule::CharListTargetOutOfRange {
+                        character: 0,
+                        target: 255,
+                        first: 0,
+                        last: 127,
+                    },
+                    "charlist_self_cycle" => {
+                        CharacterValidationRule::CharListCycle { character: 0 }
+                    }
+                    "charlist_two_node_cycle" | "charlist_three_node_cycle" => {
+                        CharacterValidationRule::CharListCycle { character: 127 }
+                    }
+                    _ => panic!("missing exact character rule for {case_id}"),
+                };
+                assert_eq!(result.err(), Some(expected), "{case_id} {blob_sha256}");
+            } else {
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+    }
+
+    #[test]
+    fn character_entrypoint_consumes_only_the_header_state() {
+        let _: fn(HeaderCheckedTfm) -> Result<CharacterCheckedTfm, CharacterValidationRule> =
+            check_characters;
+    }
+
+    #[test]
+    fn empty_character_domain_preserves_the_predecessor_without_records() {
+        let raw: Arc<[u8]> = Arc::from(seed_frame());
+        let retained = Arc::clone(&raw);
+        let header = check_preamble_header(raw, 12_345).unwrap();
+        let expected_counts = header.raw_counts;
+        let expected_domain = header.character_domain;
+        let expected_layout = header.layout.clone();
+        let expected_endpoint = header.declared_frame_end;
+        let expected_raw_digest = header.raw_digest;
+        let expected_frame_digest = header.frame_digest;
+        let expected_design_fix = header.design_size_fix_word;
+        let expected_design_sp = header.design_size_sp;
+
+        let state = check_characters(header).unwrap();
+
+        assert!(Arc::ptr_eq(&retained, &state.predecessor.raw));
+        assert_eq!(state.predecessor.effective_size, EffectiveSizeSp(12_345));
+        assert_eq!(state.predecessor.raw_counts, expected_counts);
+        assert_eq!(state.predecessor.character_domain, expected_domain);
+        assert_eq!(state.predecessor.layout, expected_layout);
+        assert_eq!(state.predecessor.declared_frame_end, expected_endpoint);
+        assert_eq!(state.predecessor.raw_digest, expected_raw_digest);
+        assert_eq!(state.predecessor.frame_digest, expected_frame_digest);
+        assert_eq!(state.predecessor.design_size_fix_word, expected_design_fix);
+        assert_eq!(state.predecessor.design_size_sp, expected_design_sp);
+        assert!(state.records.is_empty());
+        assert_eq!(state.existing_characters.0, [0; 4]);
+    }
+
+    #[test]
+    fn packed_character_indices_decode_at_their_exact_valid_maxima() {
+        let bytes = character_frame(&[[1, 0xab, 0x95, 0x5a]], [2, 12, 12, 38, 91, 91]);
+        let raw: Arc<[u8]> = Arc::from(bytes);
+        let retained = Arc::clone(&raw);
+        let state = check_characters(check_preamble_header(raw, 1).unwrap()).unwrap();
+
+        assert!(Arc::ptr_eq(&retained, &state.predecessor.raw));
+        assert_eq!(state.records.len(), 1);
+        assert_eq!(state.records[0].character, 7);
+        assert_eq!(state.records[0].width_index, 1);
+        assert_eq!(state.records[0].height_index, 10);
+        assert_eq!(state.records[0].depth_index, 11);
+        assert_eq!(state.records[0].italic_index, 37);
+        assert_eq!(state.records[0].tag, CharacterTag::Ligature { start: 0x5a });
+        assert_eq!(state.existing_characters.0, [1 << 7, 0, 0, 0]);
+    }
+
+    #[test]
+    fn metric_indices_accept_count_minus_one_and_reject_count() {
+        let accepted = character_frame(&[[1, 0x11, 0x04, 0]], [2, 2, 2, 2, 0, 0]);
+        assert!(check_characters(check_preamble_header(Arc::from(accepted), 1).unwrap()).is_ok());
+
+        for (record, metric) in [
+            ([2, 0x00, 0x00, 0], CharacterMetric::Width),
+            ([0, 0x20, 0x00, 0], CharacterMetric::Height),
+            ([0, 0x02, 0x00, 0], CharacterMetric::Depth),
+            ([0, 0x00, 0x08, 0], CharacterMetric::Italic),
+        ] {
+            assert_character_rule(
+                character_frame(&[record], [2, 2, 2, 2, 0, 0]),
+                CharacterValidationRule::MetricIndexOutOfRange {
+                    character: 7,
+                    metric,
+                    index: 2,
+                    count: 2,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn width_zero_does_not_skip_other_metric_checks() {
+        for (record, metric) in [
+            ([0, 0x10, 0x00, 0], CharacterMetric::Height),
+            ([0, 0x01, 0x00, 0], CharacterMetric::Depth),
+            ([0, 0x00, 0x04, 0], CharacterMetric::Italic),
+        ] {
+            assert_character_rule(
+                character_frame(&[record], [1, 1, 1, 1, 0, 0]),
+                CharacterValidationRule::MetricIndexOutOfRange {
+                    character: 7,
+                    metric,
+                    index: 1,
+                    count: 1,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn counts_above_packed_index_width_accept_every_encodable_index() {
+        let bytes = character_frame(&[[255, 0xff, 0xfc, 255]], [256, 16, 16, 64, 0, 0]);
+        let state = check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap();
+        assert_eq!(state.records[0].width_index, 255);
+        assert_eq!(state.records[0].height_index, 15);
+        assert_eq!(state.records[0].depth_index, 15);
+        assert_eq!(state.records[0].italic_index, 63);
+    }
+
+    #[test]
+    fn untagged_record_ignores_the_remainder() {
+        let bytes = character_frame(&[[0, 0, 0, 255]], [1, 1, 1, 1, 0, 0]);
+        let state = check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap();
+        assert_eq!(state.records[0].tag, CharacterTag::None);
+    }
+
+    #[test]
+    fn ligature_tag_checks_the_exact_table_boundary_even_when_width_is_zero() {
+        let accepted = character_frame(&[[0, 0, 1, 1]], [1, 1, 1, 1, 2, 0]);
+        assert!(check_characters(check_preamble_header(Arc::from(accepted), 1).unwrap()).is_ok());
+
+        for (count, index) in [(0, 0), (2, 2)] {
+            assert_character_rule(
+                character_frame(&[[0, 0, 1, index as u8]], [1, 1, 1, 1, count, 0]),
+                CharacterValidationRule::LigatureIndexOutOfRange {
+                    character: 7,
+                    index: index as u8,
+                    count,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn ligature_count_above_byte_range_accepts_every_encodable_index() {
+        let bytes = character_frame(&[[0, 0, 1, 255]], [1, 1, 1, 1, 256, 0]);
+        assert!(check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn extensible_tag_checks_the_exact_table_boundary_even_when_width_is_zero() {
+        let accepted = character_frame(&[[0, 0, 3, 1]], [1, 1, 1, 1, 0, 2]);
+        assert!(check_characters(check_preamble_header(Arc::from(accepted), 1).unwrap()).is_ok());
+
+        for (count, index) in [(0, 0), (2, 2)] {
+            assert_character_rule(
+                character_frame(&[[0, 0, 3, index as u8]], [1, 1, 1, 1, 0, count]),
+                CharacterValidationRule::ExtensibleIndexOutOfRange {
+                    character: 7,
+                    index: index as u8,
+                    count,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn extensible_count_above_byte_range_accepts_every_encodable_index() {
+        let bytes = character_frame(&[[0, 0, 3, 255]], [1, 1, 1, 1, 0, 256]);
+        assert!(check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn charlist_targets_accept_both_domain_endpoints() {
+        for records in [[[1, 0, 2, 8], [1, 0, 0, 0]], [[1, 0, 0, 0], [1, 0, 2, 7]]] {
+            let bytes = character_frame(&records, [2, 1, 1, 1, 0, 0]);
+            assert!(check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok());
+        }
+    }
+
+    #[test]
+    fn charlist_target_must_remain_inside_the_normalized_domain() {
+        for target in [6, 8] {
+            assert_character_rule(
+                character_frame(&[[0, 0, 2, target]], [1, 1, 1, 1, 0, 0]),
+                CharacterValidationRule::CharListTargetOutOfRange {
+                    character: 7,
+                    target,
+                    first: 7,
+                    last: 7,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn charlist_target_need_not_denote_an_existing_character() {
+        let bytes = character_frame(&[[1, 0, 2, 8], [0, 0, 0, 0]], [2, 1, 1, 1, 0, 0]);
+        let state = check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap();
+        assert_eq!(state.records[0].tag, CharacterTag::List { target: 8 });
+        assert_eq!(state.existing_characters.0, [1 << 7, 0, 0, 0]);
+    }
+
+    #[test]
+    fn width_zero_source_does_not_skip_charlist_range_validation() {
+        assert_character_rule(
+            character_frame(&[[0, 0, 2, 6]], [1, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::CharListTargetOutOfRange {
+                character: 7,
+                target: 6,
+                first: 7,
+                last: 7,
+            },
+        );
+    }
+
+    #[test]
+    fn charlist_rejects_self_two_three_and_longer_cycles() {
+        for (records, expected_character) in [
+            (vec![[1, 0, 2, 7]], 7),
+            (vec![[1, 0, 2, 8], [1, 0, 2, 7]], 8),
+            (vec![[1, 0, 2, 8], [1, 0, 2, 9], [1, 0, 2, 7]], 9),
+            (
+                vec![[1, 0, 2, 8], [1, 0, 2, 9], [1, 0, 2, 10], [1, 0, 2, 7]],
+                10,
+            ),
+        ] {
+            assert_character_rule(
+                character_frame(&records, [2, 1, 1, 1, 0, 0]),
+                CharacterValidationRule::CharListCycle {
+                    character: expected_character,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn charlist_accepts_increasing_decreasing_and_mixed_acyclic_chains() {
+        for records in [
+            vec![[1, 0, 2, 8], [1, 0, 2, 9], [1, 0, 0, 0]],
+            vec![[1, 0, 0, 0], [1, 0, 2, 7], [1, 0, 2, 8]],
+            vec![[1, 0, 2, 8], [1, 0, 0, 0], [1, 0, 2, 7]],
+        ] {
+            let bytes = character_frame(&records, [2, 1, 1, 1, 0, 0]);
+            assert!(check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok());
+        }
+    }
+
+    #[test]
+    fn charlist_cycle_detection_does_not_depend_on_character_existence() {
+        assert_character_rule(
+            character_frame(&[[0, 0, 2, 8], [0, 0, 2, 7]], [1, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::CharListCycle { character: 8 },
+        );
+    }
+
+    #[test]
+    fn full_domain_charlist_chain_and_cycle_are_bounded() {
+        let mut acyclic = vec![[1, 0, 0, 0]; 256];
+        for (character, record) in acyclic.iter_mut().enumerate().skip(1) {
+            *record = [1, 0, 2, (character - 1) as u8];
+        }
+        let bytes = character_frame_at(&acyclic, 0, [2, 1, 1, 1, 0, 0]);
+        assert!(check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok());
+
+        let mut cyclic = vec![[1, 0, 2, 0]; 256];
+        for (character, record) in cyclic.iter_mut().enumerate().take(255) {
+            record[3] = (character + 1) as u8;
+        }
+        assert_character_rule(
+            character_frame_at(&cyclic, 0, [2, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::CharListCycle { character: 255 },
+        );
+    }
+
+    #[test]
+    fn exhaustive_small_charlist_graphs_match_an_independent_cycle_oracle() {
+        for domain_size in 1..=5usize {
+            let variants = domain_size + 1;
+            for mut encoded_graph in 0..variants.pow(domain_size as u32) {
+                let mut choices = vec![0usize; domain_size];
+                let mut records = vec![[1, 0, 0, 0]; domain_size];
+                for (choice, record) in choices.iter_mut().zip(&mut records) {
+                    *choice = encoded_graph % variants;
+                    encoded_graph /= variants;
+                    if *choice != 0 {
+                        record[2] = 2;
+                        record[3] = (*choice - 1) as u8;
+                    }
+                }
+
+                let mut reference_acyclic = true;
+                for start in 0..domain_size {
+                    let mut seen = [false; 5];
+                    let mut current = start;
+                    loop {
+                        if seen[current] {
+                            reference_acyclic = false;
+                            break;
+                        }
+                        seen[current] = true;
+                        if choices[current] == 0 {
+                            break;
+                        }
+                        current = choices[current] - 1;
+                    }
+                    if !reference_acyclic {
+                        break;
+                    }
+                }
+
+                let bytes = character_frame_at(&records, 0, [2, 1, 1, 1, 0, 0]);
+                let actual =
+                    check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok();
+                assert_eq!(
+                    actual, reference_acyclic,
+                    "domain={domain_size} choices={choices:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn character_failures_follow_record_and_field_source_order() {
+        assert_character_rule(
+            character_frame(&[[1, 0, 2, 6]], [1, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::MetricIndexOutOfRange {
+                character: 7,
+                metric: CharacterMetric::Width,
+                index: 1,
+                count: 1,
+            },
+        );
+        assert_character_rule(
+            character_frame(&[[0, 0, 1, 0], [0, 0, 2, 8]], [1, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::LigatureIndexOutOfRange {
+                character: 7,
+                index: 0,
+                count: 0,
+            },
+        );
+        assert_character_rule(
+            character_frame(&[[0, 0x10, 0, 0], [0, 0, 2, 8]], [1, 1, 1, 1, 0, 0]),
+            CharacterValidationRule::MetricIndexOutOfRange {
+                character: 7,
+                metric: CharacterMetric::Height,
+                index: 1,
+                count: 1,
+            },
+        );
+    }
+
+    #[test]
+    fn header_invalidity_prevents_character_construction() {
+        let mut bytes = character_frame(&[[255; 4]], [256, 16, 16, 64, 256, 256]);
+        bytes.pop();
+        assert!(matches!(
+            check_preamble_header(Arc::from(bytes), 1),
+            Err(PreambleHeaderFailure::Malformed(
+                PreambleHeaderRule::DeclaredFrameUnavailable
+            ))
+        ));
+    }
+
+    #[test]
+    fn later_table_contents_do_not_affect_character_validation() {
+        let mut base = character_frame(&[[1, 0, 0, 0]], [2, 1, 1, 1, 1, 1]);
+        put_count(&mut base, 0, 18);
+        put_count(&mut base, 9, 1);
+        put_count(&mut base, 11, 1);
+        base.extend_from_slice(&[0; 8]);
+        let layout = check_preamble_header(Arc::from(base.clone()), 1)
+            .unwrap()
+            .layout;
+
+        for range in [
+            layout.widths,
+            layout.heights,
+            layout.depths,
+            layout.italics,
+            layout.lig_kern,
+            layout.kerns,
+            layout.extensibles,
+            layout.parameters,
+        ] {
+            let mut mutated = base.clone();
+            mutated[range.start..range.end].fill(0xff);
+            let header = check_preamble_header(Arc::from(mutated), 1).unwrap();
+            assert!(check_characters(header).is_ok(), "later range {range:?}");
+        }
+    }
+
+    #[test]
+    fn suffixes_preserve_character_semantics_and_frame_identity() {
+        let base = character_frame(&[[1, 0, 2, 8], [0, 0, 0, 0]], [2, 1, 1, 1, 0, 0]);
+        let control =
+            check_characters(check_preamble_header(Arc::from(base.clone()), 12_345).unwrap())
+                .unwrap();
+        for suffix_length in [1, 2, 3, 4, 65, 8193] {
+            let mut bytes = base.clone();
+            bytes.extend((0..suffix_length).map(|index| (index as u8).wrapping_mul(37)));
+            let state =
+                check_characters(check_preamble_header(Arc::from(bytes), 12_345).unwrap()).unwrap();
+            assert_eq!(state.records, control.records);
+            assert_eq!(state.existing_characters, control.existing_characters);
+            assert_eq!(
+                state.predecessor.frame_digest,
+                control.predecessor.frame_digest
+            );
+            assert_ne!(state.predecessor.raw_digest, control.predecessor.raw_digest);
+            assert_eq!(
+                state.predecessor.effective_size,
+                control.predecessor.effective_size
+            );
+        }
+    }
+
+    #[test]
+    fn generated_full_domain_records_preserve_all_checked_records() {
+        let mut records = vec![[0; 4]; 256];
+        for (character, record) in records.iter_mut().enumerate() {
+            record[0] = character as u8;
+            record[1] = (((character % 16) << 4) | ((255 - character) % 16)) as u8;
+            let italic = (character % 64) as u8;
+            match character % 4 {
+                0 => *record = [record[0], record[1], italic << 2, 255],
+                1 => *record = [record[0], record[1], (italic << 2) | 1, 255],
+                2 => *record = [record[0], record[1], (italic << 2) | 2, 0],
+                3 => *record = [record[0], record[1], (italic << 2) | 3, 255],
+                _ => unreachable!(),
+            }
+        }
+        let bytes = character_frame_at(&records, 0, [256, 16, 16, 64, 256, 256]);
+        let state = check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap();
+        assert_eq!(state.records.len(), 256);
+        assert_eq!(state.records[0].character, 0);
+        assert_eq!(state.records[255].character, 255);
+        assert_eq!(state.existing_characters.0[0] & 1, 0);
+        assert_ne!(state.existing_characters.0[3] & (1 << 63), 0);
+    }
+
+    #[test]
+    fn bounded_generated_character_bytes_never_panic() {
+        let mut generator = 0x6a8e_45fc_4bd0_83eeu64;
+        for case_index in 0..512 {
+            generator = generator
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let record_count = 1 + (generator as usize) % 256;
+            let mut records = vec![[0; 4]; record_count];
+            for record in &mut records {
+                for byte in record {
+                    generator = generator
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    *byte = (generator >> 32) as u8;
+                }
+            }
+            let bytes = character_frame_at(&records, 0, [256, 16, 16, 64, 256, 256]);
+            let header = check_preamble_header(Arc::from(bytes), 1).unwrap();
+            let result = std::panic::catch_unwind(|| check_characters(header));
+            assert!(result.is_ok(), "case {case_index} panicked");
+        }
+    }
+
+    #[test]
     fn maximum_valid_geometry_accepts_exact_frame_and_rejects_one_byte_short() {
         let maximum_words = 0x7fffusize;
         let mut bytes = vec![0; maximum_words * 4];
@@ -491,6 +1271,32 @@ mod tests {
         bytes
     }
 
+    fn character_frame(records: &[[u8; 4]], counts: [u16; 6]) -> Vec<u8> {
+        character_frame_at(records, 7, counts)
+    }
+
+    fn character_frame_at(records: &[[u8; 4]], first: u8, counts: [u16; 6]) -> Vec<u8> {
+        let [nw, nh, nd, ni, nl, ne] = counts;
+        let character_count = u16::try_from(records.len()).unwrap();
+        assert!(character_count > 0);
+        let last = u16::from(first) + character_count - 1;
+        assert!(last <= 255);
+        let lf = 6 + 2 + character_count + nw + nh + nd + ni + nl + ne;
+        let mut bytes = vec![0; usize::from(lf) * 4];
+        for (index, value) in [lf, 2, u16::from(first), last, nw, nh, nd, ni, nl, 0, ne, 0]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+        for (index, record) in records.iter().enumerate() {
+            let offset = 32 + index * 4;
+            bytes[offset..offset + 4].copy_from_slice(record);
+        }
+        bytes
+    }
+
     fn put_count(bytes: &mut [u8], index: usize, value: u16) {
         bytes[index * 2..index * 2 + 2].copy_from_slice(&value.to_be_bytes());
     }
@@ -501,6 +1307,11 @@ mod tests {
             Err(other) => panic!("expected malformed {expected:?}, got {other:?}"),
             Ok(_) => panic!("expected malformed {expected:?}, got success"),
         }
+    }
+
+    fn assert_character_rule(bytes: Vec<u8>, expected: CharacterValidationRule) {
+        let header = check_preamble_header(Arc::from(bytes), 1).unwrap();
+        assert_eq!(check_characters(header).err(), Some(expected));
     }
 
     #[test]

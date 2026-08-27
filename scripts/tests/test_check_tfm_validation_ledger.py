@@ -45,6 +45,18 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertIn("6a8e45fc-4bd0-83ee-b4f8-e2c948311ae1", document)
             self.assertIn("PROCEED_PRIVATE_TFM_CHARACTER", document)
 
+    def test_private_character_implementation_evidence_is_documented(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+        ):
+            document = path.read_text(encoding="utf-8")
+            self.assertIn("private `CharacterCheckedTfm` implementation", document)
+            self.assertIn("10/10 exact character-owned rejections", document)
+            self.assertIn("domains `1..=5`", document)
+            self.assertIn("box scaling remains blocked", document)
+
     def test_contract_records_machine_ledger_gate(self) -> None:
         contract = (ROOT / "docs/m13-3-dp1-scan-context.md").read_text(
             encoding="utf-8"

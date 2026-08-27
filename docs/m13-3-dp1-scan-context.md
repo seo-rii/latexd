@@ -303,8 +303,8 @@ unique source anchors, 33/33 semantic rule cells, symbolic dependencies, exact
 witness lists, and proof ownership. A source ordinal records where a rule occurs
 in `read_font_info`; proof ownership independently records which private type
 has already established it. In particular, source-late `TFM-EOF-001` and
-`TFM-EOF-002` belong to `HeaderCheckedTfm`, not a later phase. Fourteen policy
-tests now reject semantic-cell swaps, dependency-only and witness-only swaps,
+`TFM-EOF-002` belong to `HeaderCheckedTfm`, not a later phase. Policy tests now
+reject semantic-cell swaps, dependency-only and witness-only swaps,
 header proof-ownership reassignment, duplicate or reordered ids, unknown or
 unmapped witnesses, missing dependencies, documentation drift, and missing CI
 enrollment. The v2 exact witness join is 83/83; the original v1 native report
@@ -341,6 +341,18 @@ public or production caller, owner, resolver, cache, source loader, and W3. A
 new Pro review is mandatory after character closure. Structured differential
 evidence, fuzzing, and substitution closure remain later private gates; public
 and downstream use remains forbidden.
+
+The private `CharacterCheckedTfm` implementation now consumes and owns the
+exact `HeaderCheckedTfm`, decodes typed records in character-code order, checks
+all metric and tag indices even for width-zero records, derives existence only
+after validation, and applies range-only, bounded source-order charlist cycle
+checking. The persisted bridge proves all 83/83 phase outcomes and
+10/10 exact character-owned rejections. Generated evidence covers exhaustive
+small-graph domains `1..=5`, the full 256-code chain and cycle, 512 arbitrary-record
+no-panic cases, compound error precedence, suffix/frame identity, and isolation
+from every later table. Static gates retain zero public visibility and zero
+production callers. Until the mandatory character-closure review,
+box scaling remains blocked.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected

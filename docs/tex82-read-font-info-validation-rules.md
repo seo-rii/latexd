@@ -118,7 +118,9 @@ state below. Every intermediate representation remains root-module-private:
    normalized ranges, complete table layout, declared-frame availability,
    header/design-size validation, retained raw bytes, and typed raw/frame
    identities;
-2. character records and charlist graph validation;
+2. **Implemented privately:** character records, metric/tag index bounds,
+   derived existence, range-only charlist targets, and bounded source-order
+   charlist cycle validation;
 3. exact at-size box scaling and all four scaled entry-zero checks;
 4. source-ordered lig/kern boundary state and kern validation;
 5. extensible recipes, every supplied parameter, and EOF behavior;
@@ -139,9 +141,10 @@ The named native cases are a finite compatibility corpus, not an exhaustive
 proof. The first private phase now deterministically covers all twelve high-bit
 count positions, all 256 valid `bc=ec+1` empty ranges, every first-phase
 truncation, generated suffix semantic invariance/raw-identity distinction, and
-bounded arbitrary-input no panic. Generated charlist graphs and later-phase
-arbitrary inputs remain open. A versioned structure-aware native differential
-corpus must cover size × table-zero, boundary-character × absent-next,
+bounded arbitrary-input no panic. The character phase adds exhaustive
+small-domain charlist graphs, full-domain bounds, and bounded arbitrary record
+bytes; later-phase arbitrary inputs remain open. A versioned structure-aware
+native differential corpus must cover size × table-zero, boundary-character × absent-next,
 parameter-count × invalid-tail, and suffix-length interactions. Fuzzing is an
 additional safety gate and cannot replace native parity.
 
@@ -176,3 +179,15 @@ contract/ownership guards, generated graph evidence, complete corpus phase
 separation, and another review.
 Current-font ownership, public validation, and source-visible font loading
 remain separate blocked decisions.
+
+The private `CharacterCheckedTfm` implementation consumes and retains the exact
+header predecessor without replacement bytes, size, layout, or digest inputs.
+It validates every record in character-code order, including all fields of
+width-zero records, and never consults derived existence for charlist range or
+cycle checks. The persisted corpus bridge now asserts 83/83 phase outcomes and
+10/10 exact character-owned rejections while requiring every later-owned
+malformed case to succeed through this phase. Generated evidence covers
+exhaustive small-graph domains `1..=5`, full-domain chain/cycle bounds, 512
+arbitrary-record no-panic inputs, compound private precedence, suffix/frame
+identity, later-table isolation, and zero public or production reachability.
+Pending a mandatory character-closure review, box scaling remains blocked.

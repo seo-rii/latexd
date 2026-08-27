@@ -23,6 +23,30 @@ fn staged_validator_module_exists_without_crate_or_public_visibility() {
 }
 
 #[test]
+fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
+    let source = include_str!("../src/tfm_validation.rs");
+    let production = source.split("#[cfg(test)]").next().unwrap();
+
+    assert!(!production.contains("\npub "));
+    assert!(!production.contains("\npub("));
+    assert_eq!(production.matches("check_preamble_header(").count(), 1);
+    assert_eq!(production.matches("check_characters(").count(), 1);
+    for forbidden in [
+        "impl From<",
+        "impl TryFrom<",
+        "Serialize for HeaderCheckedTfm",
+        "Deserialize for HeaderCheckedTfm",
+        "Serialize for CharacterCheckedTfm",
+        "Deserialize for CharacterCheckedTfm",
+    ] {
+        assert!(
+            !production.contains(forbidden),
+            "forbidden API: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn exact_frame_policy_rejects_native_accepted_trailing_data_without_claiming_invalidity() {
     let mut trailing_word = CMR10.to_vec();
     trailing_word.extend_from_slice(&[0; 4]);

@@ -1558,7 +1558,7 @@ machine ledger가 predicate/dependency/witness를 다른 rule id로 옮겨도 gr
 수정된 `scripts/check_tfm_validation_ledger.py`는 canonical JSON contract와 대조한다.
 33/33 semantic rule cells, source ordinal, unique source anchor, symbolic dependency, exact witness list,
 proof ownership을 검증한다. Source-late EOF 두 규칙이 이미 `HeaderCheckedTfm`에 속한다는 점도 source
-order와 분리해 고정하며, 14개 policy test가 cell swap과 proof-owner 이동을 fail-closed한다.
+order와 분리해 고정하며, policy test가 cell swap과 proof-owner 이동을 fail-closed한다.
 
 이어 content-addressed v2 corpus는 83 case bytes를 70 unique SHA-256 blobs로 중복 제거해 고정했다.
 각 case는 requested/resolved size, 별도 `validator_input_size_sp`,
@@ -1577,6 +1577,15 @@ bounded cycle만 검증하며 width-zero record도 모든 검사를 통과해야
 reviewed v1 contract digest와 정확한 4개 character proof owner를 먼저 고정한다. Box scaling, entry-zero,
 lig/kern instruction, extensible recipe, parameter, public validator/caller, owner, resolver, source loader와 W3는
 계속 blocked이고 character closure 뒤 새 Pro review 전에는 시작하지 않는다.
+
+현재 private `CharacterCheckedTfm` implementation은 predecessor를 field 복사 없이 값으로 소유하고,
+character-code 순서로 width/height/depth/italic 및 ligature/extensible index를 검사한 다음 range-only
+charlist와 bounded source-order cycle 검사를 수행한다. Width-zero record도 생략하지 않으며 existence
+bitset은 모든 record 검사 뒤에만 유도한다. Persisted v2 corpus는 83/83 phase outcome과
+10/10 exact character-owned rejections를 고정하고, exhaustive small-graph domains `1..=5`, full 256-code
+chain/cycle, 512 generated arbitrary-record no-panic, compound precedence, later-table isolation, suffix/frame
+identity와 zero public/production reachability를 검증한다. Character closure review 전까지
+box scaling remains blocked.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
