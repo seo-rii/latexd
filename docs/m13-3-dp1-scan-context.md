@@ -287,8 +287,7 @@ canonical workspace Clippy, the focused eight-test Python policy, and the
 unchanged 82-process native report hash above.
 
 This state proves only a checked structural header boundary; it is not full TFM
-validity and is not importable outside its private root module. Character and
-charlist work remains blocked until this implementation is reviewed.
+validity and is not importable outside its private root module.
 [`scripts/check_tfm_validation_ledger.py`](../scripts/check_tfm_validation_ledger.py)
 originally parsed the 33-rule table and checked order and global witness
 coverage. Private-header implementation review
@@ -331,9 +330,17 @@ proof ownership. The supplemental native case accepts design fix word
 `57788153sp`. Rust also accepts the exact `lf=32767` maximum frame, rejects that
 frame one byte short, and accepts 128 generated structurally consistent
 preambles. These boundary remediations are complete; a new Pro closure review
-still blocks character work. Structured differential evidence, fuzzing, and
-substitution closure remain later private gates; public and downstream use
-remains forbidden.
+`6a8e45fc-4bd0-83ee-b4f8-e2c948311ae1` returned
+`PROCEED_PRIVATE_TFM_CHARACTER` at confidence 0.91. It authorizes only a
+root-private `CharacterCheckedTfm` that consumes and retains the approved
+header state while checking character metric/tag indices and bounded charlist
+range/cycles. Exact header error attribution, the reviewed v1 contract digest,
+and the exact four character proof owners are required hardening before that
+phase closes. Box scaling and all later TFM tables remain blocked, as do every
+public or production caller, owner, resolver, cache, source loader, and W3. A
+new Pro review is mandatory after character closure. Structured differential
+evidence, fuzzing, and substitution closure remain later private gates; public
+and downstream use remains forbidden.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected

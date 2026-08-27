@@ -378,8 +378,43 @@ mod tests {
                     "{case_id}"
                 ),
                 "MalformedTfm" if first_rule.is_some_and(|rule| header_rules.contains(rule)) => {
-                    assert!(
-                        matches!(result, Err(PreambleHeaderFailure::Malformed(_))),
+                    let expected = match case_id {
+                        "size_field_high_bit" => PreambleHeaderRule::HalfwordHighBit {
+                            field: CountField::Nw,
+                        },
+                        "invalid_character_range" => PreambleHeaderRule::InvalidCharacterRange,
+                        "character_range_ec256" => PreambleHeaderRule::CharacterCodeAbove255,
+                        "aggregate_length_mismatch" => {
+                            PreambleHeaderRule::AggregateGeometryMismatch
+                        }
+                        "zero_width_table_consistent" => {
+                            PreambleHeaderRule::EmptyRequiredMetricTable {
+                                table: MetricTable::Width,
+                            }
+                        }
+                        "zero_height_table_consistent" => {
+                            PreambleHeaderRule::EmptyRequiredMetricTable {
+                                table: MetricTable::Height,
+                            }
+                        }
+                        "zero_depth_table_consistent" => {
+                            PreambleHeaderRule::EmptyRequiredMetricTable {
+                                table: MetricTable::Depth,
+                            }
+                        }
+                        "zero_italic_table_consistent" => {
+                            PreambleHeaderRule::EmptyRequiredMetricTable {
+                                table: MetricTable::Italic,
+                            }
+                        }
+                        "short_header" => PreambleHeaderRule::HeaderTooShort,
+                        "design_size_below_one_pt" => PreambleHeaderRule::InvalidDesignSize,
+                        "premature_eof" => PreambleHeaderRule::DeclaredFrameUnavailable,
+                        _ => panic!("missing exact header rule for {case_id}"),
+                    };
+                    assert_eq!(
+                        result.err(),
+                        Some(PreambleHeaderFailure::Malformed(expected)),
                         "{case_id}"
                     );
                 }

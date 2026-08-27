@@ -34,6 +34,17 @@ def rule_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_header_closure_review_authorizes_only_private_character_phase(
+        self,
+    ) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+        ):
+            document = path.read_text(encoding="utf-8")
+            self.assertIn("6a8e45fc-4bd0-83ee-b4f8-e2c948311ae1", document)
+            self.assertIn("PROCEED_PRIVATE_TFM_CHARACTER", document)
+
     def test_contract_records_machine_ledger_gate(self) -> None:
         contract = (ROOT / "docs/m13-3-dp1-scan-context.md").read_text(
             encoding="utf-8"
@@ -180,6 +191,22 @@ class TfmValidationLedgerTests(unittest.TestCase):
 
         errors = validate_rule_contract(changed, fixture_case_ids())
         self.assertTrue(any("proof ownership" in error for error in errors))
+
+    def test_character_proof_ownership_cannot_be_moved_to_a_late_phase(self) -> None:
+        changed = json.loads(json.dumps(rule_contract()))
+        rules = {rule["id"]: rule for rule in changed["rules"]}
+        rules["TFM-CHAR-001"]["proof_state"] = "TailCheckedTfm"
+
+        errors = validate_rule_contract(changed, fixture_case_ids())
+        self.assertTrue(any("CharacterCheckedTfm proof ownership" in error for error in errors))
+
+    def test_reviewed_v1_contract_semantics_require_a_version_transition(self) -> None:
+        changed = json.loads(json.dumps(rule_contract()))
+        rules = {rule["id"]: rule for rule in changed["rules"]}
+        rules["TFM-PARAM-001"]["predicate_sha256"] = "0" * 64
+
+        errors = validate_rule_contract(changed, fixture_case_ids())
+        self.assertTrue(any("reviewed v1 contract digest" in error for error in errors))
 
     def test_unknown_native_witness_is_rejected(self) -> None:
         changed = ledger_text().replace(

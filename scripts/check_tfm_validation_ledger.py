@@ -34,12 +34,66 @@ HEADER_CHECKED_RULES = {
     "TFM-EOF-001",
     "TFM-EOF-002",
 }
+CHARACTER_CHECKED_RULES = {
+    "TFM-CHAR-001",
+    "TFM-CHAR-002",
+    "TFM-CHARLIST-001",
+    "TFM-CHARLIST-002",
+}
+REVIEWED_V1_CONTRACT_CANONICAL_SHA256 = (
+    "cebc062f771f27c5c46e0e83a74ab7c7c9f6e3a172b2cf1fe01bce0a7f6f6c21"
+)
+REVIEWED_V1_RULE_IDS = (
+    "TFM-SIZE-001",
+    "TFM-COUNT-001",
+    "TFM-RANGE-001",
+    "TFM-RANGE-002",
+    "TFM-RANGE-003",
+    "TFM-GEOMETRY-001",
+    "TFM-GEOMETRY-002",
+    "TFM-RESOURCE-001",
+    "TFM-HEADER-001",
+    "TFM-HEADER-002",
+    "TFM-CHAR-001",
+    "TFM-CHAR-002",
+    "TFM-CHARLIST-001",
+    "TFM-CHARLIST-002",
+    "TFM-BOX-001",
+    "TFM-BOX-002",
+    "TFM-BOX-003",
+    "TFM-LIGKERN-001",
+    "TFM-LIGKERN-002",
+    "TFM-LIGKERN-003",
+    "TFM-LIGKERN-004",
+    "TFM-LIGKERN-005",
+    "TFM-LIGKERN-006",
+    "TFM-LIGKERN-007",
+    "TFM-LIGKERN-008",
+    "TFM-KERN-001",
+    "TFM-EXT-001",
+    "TFM-EXT-002",
+    "TFM-PARAM-001",
+    "TFM-PARAM-002",
+    "TFM-PARAM-003",
+    "TFM-EOF-001",
+    "TFM-EOF-002",
+)
 
 
 def validate_rule_contract(
     contract: dict[str, object], fixture_case_ids: set[str]
 ) -> list[str]:
     errors: list[str] = []
+    canonical_contract = json.dumps(
+        contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(canonical_contract).hexdigest() != (
+        REVIEWED_V1_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("reviewed v1 contract digest differs; create a version transition")
     if contract.get("format") != "latexd.tfm-validation-rule-contract":
         errors.append("semantic contract format is invalid")
     if contract.get("schema_version") != 1:
@@ -56,6 +110,8 @@ def validate_rule_contract(
         return errors + ["semantic contract collections are invalid"]
 
     rule_ids = [rule.get("id") for rule in rules if isinstance(rule, dict)]
+    if tuple(rule_ids) != REVIEWED_V1_RULE_IDS:
+        errors.append("reviewed v1 ordered rule ids differ; create a version transition")
     duplicates = sorted(
         rule_id
         for rule_id, count in Counter(rule_ids).items()
@@ -115,6 +171,13 @@ def validate_rule_contract(
     }
     if header_claims != HEADER_CHECKED_RULES:
         errors.append("semantic contract HeaderCheckedTfm proof ownership differs")
+    character_claims = {
+        rule.get("id")
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("proof_state") == "CharacterCheckedTfm"
+    }
+    if character_claims != CHARACTER_CHECKED_RULES:
+        errors.append("semantic contract CharacterCheckedTfm proof ownership differs")
     unmapped_cases = sorted(fixture_case_ids - referenced_cases)
     if unmapped_cases:
         errors.append("semantic contract unmapped fixture cases: " + ", ".join(unmapped_cases))

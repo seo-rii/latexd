@@ -1569,8 +1569,14 @@ manifest keyset, mutation equivalence와 missing/corrupt/orphan blob을 검증�
 upper-positive case는 design fix word `0x7fffffff`, resolved `2^27-1`sp, quad `134218095sp`, x-height
 `57788153sp`를 양성으로 고정한다. Rust는 exact `lf=32767` maximum frame을 accept하고 1-byte-short frame을
 reject하며 128개 structurally consistent generated preamble의 exact layout도 확인한다. 이 remediation의
-새 Pro closure review 전에는 character/charlist를 시작하지 않는다. Public validator, owner, resolver,
-source loader와 W3는 계속 blocked다.
+header-closure Pro review `6a8e45fc-4bd0-83ee-b4f8-e2c948311ae1`는 confidence 0.91의
+`PROCEED_PRIVATE_TFM_CHARACTER`를 반환했다. 따라서 다음 단위는 `HeaderCheckedTfm`을 값으로 소비하고
+그 predecessor를 그대로 보존하는 root-private `CharacterCheckedTfm` 하나로 제한한다. Character record의
+width/height/depth/italic bounds, ligature/extensible tag index bounds, range-only charlist target과 source-order
+bounded cycle만 검증하며 width-zero record도 모든 검사를 통과해야 한다. Header exact private variant,
+reviewed v1 contract digest와 정확한 4개 character proof owner를 먼저 고정한다. Box scaling, entry-zero,
+lig/kern instruction, extensible recipe, parameter, public validator/caller, owner, resolver, source loader와 W3는
+계속 blocked이고 character closure 뒤 새 Pro review 전에는 시작하지 않는다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

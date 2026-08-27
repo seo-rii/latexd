@@ -24,6 +24,18 @@ header checks, but found that the first machine ledger could pass after rule
 semantics were reassigned between ids. Character work therefore remains
 blocked on exact semantic-ledger and exact-byte corpus evidence.
 
+Header-closure review `6a8e45fc-4bd0-83ee-b4f8-e2c948311ae1` returned
+`PROCEED_PRIVATE_TFM_CHARACTER` at confidence 0.91 after that remediation. It
+authorizes exactly one successor state: root-private `CharacterCheckedTfm`
+must consume and retain `HeaderCheckedTfm` by value while validating character
+records and bounded charlists. It does not authorize box scaling, table-entry
+zero checks, lig/kern instruction interpretation, extensible recipes,
+parameters, a public or crate-visible validator, production callers, font
+ownership, resolution, caching, VM integration, or source-visible loading.
+Exact header error attribution and independent v1 contract/character-owner
+pins are required hardening before character closure, and a new Pro review is
+mandatory before any later phase.
+
 The compatibility authority is the official TeX82 source at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`. The audited source has
 full-file SHA-256
@@ -158,6 +170,9 @@ reassignment, proof-ownership reassignment, missing dependencies, unknown or
 unmapped witnesses, missing documentation, and missing CI enrollment. The
 native upper-positive design witness and Rust maximum-geometry/unavailable-frame
 plus generated-consistent-preamble gates are now complete. The remediation
-closure review still blocks character/charlist work.
+closure review authorizes only the private character/charlist successor stated
+above. Character closure still requires exact variant attribution, immutable
+contract/ownership guards, generated graph evidence, complete corpus phase
+separation, and another review.
 Current-font ownership, public validation, and source-visible font loading
 remain separate blocked decisions.
