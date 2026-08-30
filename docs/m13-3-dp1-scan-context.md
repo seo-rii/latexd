@@ -468,6 +468,18 @@ pre-fix digests are recorded in `docs/evidence/tex-tfm-kern-tdd-red-v1.md` as
 The state remains private and uncalled; no later phase starts before a
 dedicated kern closure review.
 
+Kern closure review `6a93c613-4678-83e9-abc3-1ce9d58da7d7` returned
+`PROCEED_PRIVATE_TFM_EXTENSIBLE` at confidence 0.95. It found no blocking kern
+arithmetic, whole-range, maximum-geometry, provenance, isolation, or
+construction-policy defect. The next authorization is limited to one private
+successor consuming the exact kern state. Before implementation, an immutable
+v3 transition must move only `TFM-EXT-001..002` from the current effective tail
+owner, the ledger must validate the cumulative v2-to-v3 chain, and a focused
+source contract must pin optional-zero, mandatory-repeat, field-order, and
+whole-`ne` semantics. Parameter rules and every integration surface remain
+blocked through a dedicated extensible closure review. The review identities
+and digests are recorded in `docs/evidence/tex-tfm-kern-pro-closure-v1.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

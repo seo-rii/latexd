@@ -112,6 +112,19 @@ record is `docs/evidence/tex-tfm-kern-tdd-red-v1.md`, with pre-fix digests
 `b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947`.
 This remains a private no-caller state pending a dedicated kern closure review.
 
+Kern closure review `6a93c613-4678-83e9-abc3-1ce9d58da7d7` returned
+`PROCEED_PRIVATE_TFM_EXTENSIBLE` at confidence 0.95 and closed the private kern
+phase. It found no remaining arithmetic, source-order, whole-range,
+maximum-geometry, predecessor, isolation, construction, or ownership defect.
+The only authorized successor consumes the exact `KernCheckedTfm` and owns
+`TFM-EXT-001..002`. A new immutable v3 transition must move those rules from
+the current effective `TailCheckedTfm` owner while leaving
+`TFM-PARAM-001..003` there, and the ledger must validate the ordered cumulative
+transition chain. Focused source pins and strict RED evidence precede the
+implementation; parameter and integration work remains blocked through a new
+extensible closure review. See
+`docs/evidence/tex-tfm-kern-pro-closure-v1.md` for the exact artifact identities.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

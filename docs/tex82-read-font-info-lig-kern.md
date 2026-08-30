@@ -140,3 +140,20 @@ digests are respectively
 exact unresolved-type and mutant diagnostics. The implementation remains
 root-private and uncalled. Extensible, parameter, completion, loading, and all
 integration work remain blocked until a dedicated kern closure review.
+
+## Kern closure decision
+
+Dedicated review `6a93c613-4678-83e9-abc3-1ce9d58da7d7` returned
+`PROCEED_PRIVATE_TFM_EXTENSIBLE` at confidence 0.95. It found no remaining kern
+arithmetic, whole-range, maximum-geometry, predecessor-provenance, isolation,
+construction-path, or ownership defect. The complete content-addressed result
+is indexed by `docs/evidence/tex-tfm-kern-pro-closure-v1.md`.
+
+The authorization stops at one new root-private successor consuming the exact
+`KernCheckedTfm` by value. Before implementation, a new immutable v3 ownership
+transition must move only `TFM-EXT-001` and `TFM-EXT-002` from the current
+effective `TailCheckedTfm` owner, the ledger must enforce the ordered cumulative
+v2-to-v3 chain, and a focused source contract must pin full-`ne` iteration,
+field order, optional-zero semantics, and mandatory-repeat existence. Parameter
+rules, completion, visibility, loading, callers, and integration remain blocked
+through a dedicated extensible closure review.

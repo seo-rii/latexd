@@ -1690,6 +1690,18 @@ RED source digest와 실제 진단은 `docs/evidence/tex-tfm-kern-tdd-red-v1.md`
 이 구현은 root-private/no-caller 상태이며 dedicated kern closure review 전에는
 다음 validator state를 시작하지 않는다.
 
+Kern closure Pro review `6a93c613-4678-83e9-abc3-1ce9d58da7d7`는 confidence
+0.95의 `PROCEED_PRIVATE_TFM_EXTENSIBLE`을 반환했다. 현재 kern 산술, whole-table
+source order, `nk=32755`, predecessor provenance, later-table isolation 및
+construction policy에는 blocking defect가 없다. 다음 승인은 exact
+`KernCheckedTfm`을 값으로 소비하는 root-private `ExtensibleCheckedTfm` 하나로
+제한된다. 구현 전에 immutable v3 ownership transition으로 `TFM-EXT-001..002`만
+현재 effective `TailCheckedTfm` owner에서 옮기고, ledger를 ordered cumulative
+v2→v3 chain으로 일반화하며, optional zero와 mandatory repeat를 포함한 focused
+source contract를 pin한다. Parameter 세 규칙과 completion/public/caller/loading/W3는
+계속 blocked이고, extensible closure Pro review 전에는 시작하지 않는다. 정확한
+판정과 artifact digest는 `docs/evidence/tex-tfm-kern-pro-closure-v1.md`에 기록한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
