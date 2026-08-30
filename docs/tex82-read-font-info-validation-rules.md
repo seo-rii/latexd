@@ -36,6 +36,19 @@ Exact header error attribution and independent v1 contract/character-owner
 pins are required hardening before character closure, and a new Pro review is
 mandatory before any later phase.
 
+Character-closure review `6a939670-0fc8-83e8-923f-ebaed26b4c72` returned
+`PROCEED_PRIVATE_TFM_BOX` at confidence 0.94. It found no blocking character
+defect and authorizes only a private `BoxCheckedTfm` implementation that
+consumes and retains `CharacterCheckedTfm`, uses its already-bound effective
+size to scale every width/height/depth/italic word with exact TeX82 arithmetic,
+and then checks the four scaled entry-zero values. Adjacent character-field
+precedence, unreachable traversal-limit, structural privacy/reference, and
+reviewed corpus/native-report bindings are mandatory evidence hardening before
+box closure. Kern scaling and all lig/kern remains blocked, together with
+extensible recipes, parameters, public or crate-visible validation, production
+callers, font ownership/resolution/caching, source-visible loading,
+checkpoints, and W3. A new Pro review is mandatory at the private box state.
+
 The compatibility authority is the official TeX82 source at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`. The audited source has
 full-file SHA-256

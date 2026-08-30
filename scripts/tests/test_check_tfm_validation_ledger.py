@@ -57,6 +57,20 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertIn("domains `1..=5`", document)
             self.assertIn("box scaling remains blocked", document)
 
+    def test_character_closure_review_authorizes_only_private_box_phase(
+        self,
+    ) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+        ):
+            document = path.read_text(encoding="utf-8")
+            self.assertIn("6a939670-0fc8-83e8-923f-ebaed26b4c72", document)
+            self.assertIn("PROCEED_PRIVATE_TFM_BOX", document)
+            self.assertIn("private `BoxCheckedTfm` implementation", document)
+            self.assertIn("lig/kern remains blocked", document)
+
     def test_contract_records_machine_ledger_gate(self) -> None:
         contract = (ROOT / "docs/m13-3-dp1-scan-context.md").read_text(
             encoding="utf-8"

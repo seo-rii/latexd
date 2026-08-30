@@ -1587,6 +1587,16 @@ chain/cycle, 512 generated arbitrary-record no-panic, compound precedence, later
 identity와 zero public/production reachability를 검증한다. Character closure review 전까지
 box scaling remains blocked.
 
+Character-closure Pro review `6a939670-0fc8-83e8-923f-ebaed26b4c72`는 confidence 0.94의
+`PROCEED_PRIVATE_TFM_BOX`를 반환했다. 다음 구현 단위는 exact predecessor를 값으로 소비하고 보존하며
+bound effective size로 width/height/depth/italic 네 table 전체를 TeX82 `store_scaled`와 동일하게
+scale한 뒤 scaled entry zero 네 개를 source order로 검사하는 private `BoxCheckedTfm` implementation
+하나뿐이다. Box closure 전에는 adjacent character field precedence, reachable input에서
+`CharListTraversalLimit` 불가도달, AST 기반 visibility/reference 정책, reviewed manifest/native-report
+직접 결속을 먼저 fail-closed한다. Kern scaling을 포함한 lig/kern remains blocked이고 extensible,
+parameter, public/crate-visible API, production caller, font owner/resolver/cache, source loading, W3도
+다음 box-closure Pro review 전까지 금지한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

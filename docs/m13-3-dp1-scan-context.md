@@ -354,6 +354,20 @@ from every later table. Static gates retain zero public visibility and zero
 production callers. Until the mandatory character-closure review,
 box scaling remains blocked.
 
+Character-closure Pro review `6a939670-0fc8-83e8-923f-ebaed26b4c72`
+returned `PROCEED_PRIVATE_TFM_BOX` at confidence 0.94. It authorizes only one
+private `BoxCheckedTfm` implementation that consumes and retains the exact
+character predecessor, scales every width/height/depth/italic word at the
+already-bound effective size with source-faithful TeX82 arithmetic, and then
+checks the four scaled entry-zero values in source order. Before box closure,
+the character evidence must add adjacent field-precedence pairs, an exact
+unreachable-traversal-limit property, AST-based visibility/reference policy,
+and direct reviewed manifest/native-report bindings. Kern scaling and all
+lig/kern remains blocked, as do extensible recipes, parameters, any public or
+crate-visible API, production callers, font ownership/resolution/caching,
+source-visible loading, checkpoints, and W3. Another Pro review is mandatory
+at the private box state before any later table phase.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
