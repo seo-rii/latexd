@@ -16,6 +16,10 @@ RULE_CONTRACT_PATH = (
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json"
 )
 RULE_CONTRACT = json.loads(RULE_CONTRACT_PATH.read_text(encoding="utf-8"))
+RULE_TRANSITION_PATH = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
+)
 PINNED_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
     "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
@@ -83,6 +87,87 @@ REVIEWED_V1_RULE_IDS = (
     "TFM-EOF-001",
     "TFM-EOF-002",
 )
+
+PINNED_V2_FOCUSED_SOURCE = {
+    "compatibility_source_sha256": PINNED_SOURCE["sha256"],
+    "check_existence_section": {
+        "lines": "11150..11154",
+        "sha256": "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63",
+    },
+    "lig_kern_instruction_section": {
+        "lines": "11156..11172",
+        "sha256": "a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d",
+    },
+}
+PINNED_V2_OWNERSHIP_CHANGES = [
+    {
+        "rule_id": "TFM-KERN-001",
+        "from": "LigKernCheckedTfm",
+        "to": "KernCheckedTfm",
+    }
+]
+
+
+def validate_rule_transition(
+    transition: dict[str, object], predecessor: dict[str, object]
+) -> list[str]:
+    errors: list[str] = []
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessor",
+        "focused_source",
+        "proof_states_added",
+        "ownership_changes",
+    }
+    if set(transition) != expected_keys:
+        errors.append("v2 transition fields differ")
+    if transition.get("format") != "latexd.tfm-validation-rule-contract-transition":
+        errors.append("v2 transition format is invalid")
+    if transition.get("schema_version") != 2:
+        errors.append("v2 transition schema version is invalid")
+
+    canonical_predecessor = json.dumps(
+        predecessor,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessor = {
+        "path": "tfm-validation-rules-v1.json",
+        "schema_version": 1,
+        "canonical_sha256": REVIEWED_V1_CONTRACT_CANONICAL_SHA256,
+    }
+    if transition.get("predecessor") != expected_predecessor:
+        errors.append("v2 transition predecessor pin differs")
+    if hashlib.sha256(canonical_predecessor).hexdigest() != (
+        REVIEWED_V1_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("v2 transition predecessor content differs")
+    if transition.get("focused_source") != PINNED_V2_FOCUSED_SOURCE:
+        errors.append("v2 transition focused source pins differ")
+    if transition.get("proof_states_added") != ["KernCheckedTfm"]:
+        errors.append("v2 transition added proof states differ")
+    if transition.get("ownership_changes") != PINNED_V2_OWNERSHIP_CHANGES:
+        errors.append("v2 transition proof ownership changes differ")
+
+    rules = predecessor.get("rules")
+    proof_states = predecessor.get("proof_states")
+    if isinstance(rules, list) and isinstance(proof_states, list):
+        kern_rules = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict) and rule.get("id") == "TFM-KERN-001"
+        ]
+        if len(kern_rules) != 1 or kern_rules[0].get("proof_state") != (
+            "LigKernCheckedTfm"
+        ):
+            errors.append("v2 transition source ownership does not match predecessor")
+        if "KernCheckedTfm" in proof_states:
+            errors.append("v2 transition target proof state already exists")
+    else:
+        errors.append("v2 transition predecessor collections are invalid")
+    return errors
 
 
 def validate_rule_contract(
@@ -294,15 +379,20 @@ def main() -> int:
     )
     corpus_case_ids = {case["id"] for case in corpus_manifest["cases"]}
     errors = validate_rule_ledger(ledger, corpus_case_ids)
+    transition = json.loads(RULE_TRANSITION_PATH.read_text(encoding="utf-8"))
+    errors.extend(validate_rule_transition(transition, RULE_CONTRACT))
     if errors:
         for error in errors:
             print(error)
         return 1
     proof_counts = Counter(rule["proof_state"] for rule in RULE_CONTRACT["rules"])
+    for change in transition["ownership_changes"]:
+        proof_counts[change["from"]] -= 1
+        proof_counts[change["to"]] += 1
     print(
         "TeX82 TFM validation source-rule ledger passed: "
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
-        f"proof_states={dict(sorted(proof_counts.items()))}"
+        f"proof_states={dict(sorted(proof_counts.items()))}, transition=v2"
     )
     return 0
 

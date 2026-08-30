@@ -1,0 +1,30 @@
+{
+  "format": "latexd.tfm-validation-rule-contract-transition",
+  "schema_version": 2,
+  "predecessor": {
+    "path": "tfm-validation-rules-v1.json",
+    "schema_version": 1,
+    "canonical_sha256": "cebc062f771f27c5c46e0e83a74ab7c7c9f6e3a172b2cf1fe01bce0a7f6f6c21"
+  },
+  "focused_source": {
+    "compatibility_source_sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "check_existence_section": {
+      "lines": "11150..11154",
+      "sha256": "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63"
+    },
+    "lig_kern_instruction_section": {
+      "lines": "11156..11172",
+      "sha256": "a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d"
+    }
+  },
+  "proof_states_added": [
+    "KernCheckedTfm"
+  ],
+  "ownership_changes": [
+    {
+      "rule_id": "TFM-KERN-001",
+      "from": "LigKernCheckedTfm",
+      "to": "KernCheckedTfm"
+    }
+  ]
+}

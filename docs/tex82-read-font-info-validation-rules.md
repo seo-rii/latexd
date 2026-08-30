@@ -61,6 +61,13 @@ lig/kern predecessor. The reviewed v1 machine contract remains immutable; its
 combined `TFM-KERN-001` ownership must be split only by an explicit versioned
 contract transition.
 
+That immutable-v1 transition is now
+`tfm-validation-rule-transition-v2.json`. It pins the exact focused lig/kern
+instruction source SHA-256
+`a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d`
+and moves only `TFM-KERN-001` to `KernCheckedTfm`. The complete source-order
+contract is `docs/tex82-read-font-info-lig-kern.md`.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

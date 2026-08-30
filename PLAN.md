@@ -1639,6 +1639,13 @@ Kern fix-word scaling은 이번 단위에 포함하지 않으며, lig/kern closu
 machine contract에서 `TFM-KERN-001`이 lig/kern owner에 묶인 부분은 v1을 변경하지 않고
 명시적인 다음 contract version에서 분리한다.
 
+그 전환은 `tfm-validation-rule-transition-v2.json`으로 고정됐다. Reviewed v1의
+canonical digest를 predecessor로 묶고, `check_existence`와 lig/kern instruction
+source pin 중 후자는
+`a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d`다.
+정확한 source order와 구현 경계는 `docs/tex82-read-font-info-lig-kern.md`를
+따른다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

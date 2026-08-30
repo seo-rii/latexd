@@ -1,10 +1,14 @@
 import json
+import io
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from scripts.check_tfm_validation_ledger import (
+    main,
     validate_rule_contract,
     validate_rule_ledger,
+    validate_rule_transition,
 )
 
 
@@ -18,6 +22,11 @@ RULE_CONTRACT = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json"
 )
+RULE_TRANSITION = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
+)
+LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
 
 
 def ledger_text() -> str:
@@ -33,7 +42,86 @@ def rule_contract() -> dict[str, object]:
     return json.loads(RULE_CONTRACT.read_text(encoding="utf-8"))
 
 
+def rule_transition() -> dict[str, object]:
+    return json.loads(RULE_TRANSITION.read_text(encoding="utf-8"))
+
+
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_standalone_gate_reports_transitioned_proof_ownership(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        self.assertIn("'LigKernCheckedTfm': 8", output.getvalue())
+        self.assertIn("'KernCheckedTfm': 1", output.getvalue())
+
+    def test_v2_transition_pins_ligkern_source_and_splits_only_kern_owner(
+        self,
+    ) -> None:
+        transition = rule_transition()
+        self.assertEqual(validate_rule_transition(transition, rule_contract()), [])
+        self.assertEqual(transition["schema_version"], 2)
+        self.assertEqual(
+            transition["focused_source"]["check_existence_section"],
+            {
+                "lines": "11150..11154",
+                "sha256": "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63",
+            },
+        )
+        self.assertEqual(
+            transition["focused_source"]["lig_kern_instruction_section"],
+            {
+                "lines": "11156..11172",
+                "sha256": "a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d",
+            },
+        )
+        self.assertEqual(transition["proof_states_added"], ["KernCheckedTfm"])
+        self.assertEqual(
+            transition["ownership_changes"],
+            [
+                {
+                    "rule_id": "TFM-KERN-001",
+                    "from": "LigKernCheckedTfm",
+                    "to": "KernCheckedTfm",
+                }
+            ],
+        )
+        document = LIG_KERN_SOURCE_CONTRACT.read_text(encoding="utf-8")
+        for required in (
+            "lines 11150..11154",
+            "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63",
+            "lines 11156..11172",
+            "a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d",
+            "`LigKernCheckedTfm`",
+            "`KernCheckedTfm`",
+            "must not scale kern fix words",
+        ):
+            self.assertIn(required, document)
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+        ):
+            summary = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("tfm-validation-rule-transition-v2.json", summary)
+            self.assertIn(
+                "a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d",
+                summary,
+            )
+            self.assertIn("docs/tex82-read-font-info-lig-kern.md", summary)
+
+    def test_v2_transition_rejects_source_or_ownership_drift(self) -> None:
+        for field, replacement in (
+            ("focused_source", {}),
+            ("proof_states_added", []),
+            ("ownership_changes", []),
+        ):
+            changed = rule_transition()
+            changed[field] = replacement
+            self.assertTrue(
+                validate_rule_transition(changed, rule_contract()),
+                field,
+            )
+
     def test_header_closure_review_authorizes_only_private_character_phase(
         self,
     ) -> None:

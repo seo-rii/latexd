@@ -413,6 +413,14 @@ lig/kern-closure review, exact kern scaling may proceed separately from
 parameters, public or production integration, source loading, checkpoints,
 and W3 remain blocked.
 
+The immutable-v1 transition is machine-recorded in
+`tfm-validation-rule-transition-v2.json`. It pins the focused instruction
+source SHA-256
+`a105c3b6349d6ad4c15e37f3cc0d8b64670c14ffc3f79cdd827da05043d28c5d`
+and moves only `TFM-KERN-001` to the future kern state. The exact source order
+and private boundary are documented in
+`docs/tex82-read-font-info-lig-kern.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
