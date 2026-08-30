@@ -1020,6 +1020,58 @@ mod tests {
     const PREAMBLE_BYTES: usize = 24;
     const SEED_FRAME_BYTES: usize = 48;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum WholeChainOutcome {
+        Accepted,
+        InvalidEffectiveSize,
+        Header(PreambleHeaderRule),
+        Character(CharacterValidationRule),
+        Box(BoxValidationRule),
+        LigKern(LigKernValidationRule),
+        Kern(KernValidationRule),
+        Extensible(ExtensibleValidationRule),
+        Parameter(ParameterValidationRule),
+    }
+
+    fn validate_whole_chain_for_oracle(
+        raw: Arc<[u8]>,
+        effective_size_sp: i32,
+    ) -> WholeChainOutcome {
+        let header = match check_preamble_header(raw, effective_size_sp) {
+            Ok(header) => header,
+            Err(PreambleHeaderFailure::InvalidEffectiveSize) => {
+                return WholeChainOutcome::InvalidEffectiveSize;
+            }
+            Err(PreambleHeaderFailure::Malformed(rule)) => {
+                return WholeChainOutcome::Header(rule);
+            }
+        };
+        let character = match check_characters(header) {
+            Ok(character) => character,
+            Err(rule) => return WholeChainOutcome::Character(rule),
+        };
+        let boxes = match check_boxes(character) {
+            Ok(boxes) => boxes,
+            Err(rule) => return WholeChainOutcome::Box(rule),
+        };
+        let lig_kern = match check_lig_kern(boxes) {
+            Ok(lig_kern) => lig_kern,
+            Err(rule) => return WholeChainOutcome::LigKern(rule),
+        };
+        let kern = match check_kerns(lig_kern) {
+            Ok(kern) => kern,
+            Err(rule) => return WholeChainOutcome::Kern(rule),
+        };
+        let extensible = match check_extensibles(kern) {
+            Ok(extensible) => extensible,
+            Err(rule) => return WholeChainOutcome::Extensible(rule),
+        };
+        match check_parameters(extensible) {
+            Ok(_) => WholeChainOutcome::Accepted,
+            Err(rule) => WholeChainOutcome::Parameter(rule),
+        }
+    }
+
     fn reviewed_corpus_manifest(fixture_root: &Path) -> serde_json::Value {
         let manifest_bytes =
             std::fs::read(fixture_root.join("tfm-validity-oracle-v2/manifest.json")).unwrap();
@@ -1099,6 +1151,569 @@ mod tests {
             }])
         );
         manifest
+    }
+
+    #[test]
+    fn whole_chain_oracle_matches_all_native_witnesses_with_exact_typed_failures() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let mut effective_owners = rule_contract["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| {
+                (
+                    rule["id"].as_str().unwrap().to_owned(),
+                    rule["proof_state"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        for transition_name in [
+            "tfm-validation-rule-transition-v2.json",
+            "tfm-validation-rule-transition-v3.json",
+            "tfm-validation-rule-transition-v4.json",
+        ] {
+            let transition: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(fixture_root.join(transition_name)).unwrap())
+                    .unwrap();
+            for change in transition["ownership_changes"].as_array().unwrap() {
+                let rule_id = change["rule_id"].as_str().unwrap();
+                assert_eq!(
+                    effective_owners.get(rule_id).map(String::as_str),
+                    change["from"].as_str(),
+                    "{transition_name} {rule_id}"
+                );
+                effective_owners.insert(
+                    rule_id.to_owned(),
+                    change["to"].as_str().unwrap().to_owned(),
+                );
+            }
+        }
+
+        let cases = manifest["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 83);
+        for case in cases {
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let classification = case["expected_classification"].as_str().unwrap();
+            let expected = match classification {
+                "AcceptedByNativeLoader" => WholeChainOutcome::Accepted,
+                "InvalidEffectiveSize" => WholeChainOutcome::InvalidEffectiveSize,
+                "MalformedTfm" => match case_id {
+                    "size_field_high_bit" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::HalfwordHighBit {
+                            field: CountField::Nw,
+                        })
+                    }
+                    "invalid_character_range" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::InvalidCharacterRange)
+                    }
+                    "character_range_ec256" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::CharacterCodeAbove255)
+                    }
+                    "aggregate_length_mismatch" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::AggregateGeometryMismatch)
+                    }
+                    "zero_width_table_consistent" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::EmptyRequiredMetricTable {
+                            table: MetricTable::Width,
+                        })
+                    }
+                    "zero_height_table_consistent" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::EmptyRequiredMetricTable {
+                            table: MetricTable::Height,
+                        })
+                    }
+                    "zero_depth_table_consistent" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::EmptyRequiredMetricTable {
+                            table: MetricTable::Depth,
+                        })
+                    }
+                    "zero_italic_table_consistent" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::EmptyRequiredMetricTable {
+                            table: MetricTable::Italic,
+                        })
+                    }
+                    "short_header" => WholeChainOutcome::Header(PreambleHeaderRule::HeaderTooShort),
+                    "design_size_below_one_pt" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::InvalidDesignSize)
+                    }
+                    "premature_eof" => {
+                        WholeChainOutcome::Header(PreambleHeaderRule::DeclaredFrameUnavailable)
+                    }
+                    "invalid_character_width_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Width,
+                            index: 36,
+                            count: 36,
+                        },
+                    ),
+                    "invalid_character_height_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Height,
+                            index: 15,
+                            count: 15,
+                        },
+                    ),
+                    "invalid_character_depth_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Depth,
+                            index: 10,
+                            count: 10,
+                        },
+                    ),
+                    "invalid_character_italic_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::MetricIndexOutOfRange {
+                            character: 0,
+                            metric: CharacterMetric::Italic,
+                            index: 5,
+                            count: 5,
+                        },
+                    ),
+                    "invalid_character_ligature_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::LigatureIndexOutOfRange {
+                            character: 0,
+                            index: 88,
+                            count: 88,
+                        },
+                    ),
+                    "invalid_character_extensible_index" => WholeChainOutcome::Character(
+                        CharacterValidationRule::ExtensibleIndexOutOfRange {
+                            character: 0,
+                            index: 0,
+                            count: 0,
+                        },
+                    ),
+                    "charlist_out_of_range" => WholeChainOutcome::Character(
+                        CharacterValidationRule::CharListTargetOutOfRange {
+                            character: 0,
+                            target: 255,
+                            first: 0,
+                            last: 127,
+                        },
+                    ),
+                    "charlist_self_cycle" => {
+                        WholeChainOutcome::Character(CharacterValidationRule::CharListCycle {
+                            character: 0,
+                        })
+                    }
+                    "charlist_two_node_cycle" | "charlist_three_node_cycle" => {
+                        WholeChainOutcome::Character(CharacterValidationRule::CharListCycle {
+                            character: 127,
+                        })
+                    }
+                    "invalid_width_fix_word_sign" => {
+                        WholeChainOutcome::Box(BoxValidationRule::InvalidFixWordSign {
+                            table: BoxMetric::Width,
+                            index: 1,
+                            sign: 1,
+                        })
+                    }
+                    "invalid_height_fix_word_sign" => {
+                        WholeChainOutcome::Box(BoxValidationRule::InvalidFixWordSign {
+                            table: BoxMetric::Height,
+                            index: 1,
+                            sign: 1,
+                        })
+                    }
+                    "invalid_depth_fix_word_sign" => {
+                        WholeChainOutcome::Box(BoxValidationRule::InvalidFixWordSign {
+                            table: BoxMetric::Depth,
+                            index: 1,
+                            sign: 1,
+                        })
+                    }
+                    "invalid_italic_fix_word_sign" => {
+                        WholeChainOutcome::Box(BoxValidationRule::InvalidFixWordSign {
+                            table: BoxMetric::Italic,
+                            index: 1,
+                            sign: 1,
+                        })
+                    }
+                    "nonzero_width_zero" | "nonzero_width_zero_at_16sp" => {
+                        WholeChainOutcome::Box(BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Width,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        })
+                    }
+                    "nonzero_height_zero" | "nonzero_height_zero_at_16sp" => {
+                        WholeChainOutcome::Box(BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Height,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        })
+                    }
+                    "nonzero_depth_zero" | "nonzero_depth_zero_at_16sp" => {
+                        WholeChainOutcome::Box(BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Depth,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        })
+                    }
+                    "nonzero_italic_zero" | "nonzero_italic_zero_at_16sp" => {
+                        WholeChainOutcome::Box(BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Italic,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        })
+                    }
+                    "invalid_boundary_label" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::RestartTargetOutOfRange {
+                            instruction: 87,
+                            target: 88,
+                            count: 88,
+                        })
+                    }
+                    "invalid_ligkern" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::RestartTargetOutOfRange {
+                            instruction: 0,
+                            target: 256,
+                            count: 88,
+                        })
+                    }
+                    "invalid_ligkern_next_character" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::NextCharacterMissing {
+                            instruction: 0,
+                            character: 255,
+                        })
+                    }
+                    "ligkern_next_in_range_absent" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::NextCharacterMissing {
+                            instruction: 0,
+                            character: 127,
+                        })
+                    }
+                    "invalid_ligature_target" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::LigatureTargetMissing {
+                            instruction: 0,
+                            character: 255,
+                        })
+                    }
+                    "ligature_target_in_range_absent" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::LigatureTargetMissing {
+                            instruction: 0,
+                            character: 127,
+                        })
+                    }
+                    "invalid_ligkern_kern_index" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::KernIndexOutOfRange {
+                            instruction: 0,
+                            index: 10,
+                            count: 10,
+                        })
+                    }
+                    "invalid_ligkern_skip" => {
+                        WholeChainOutcome::LigKern(LigKernValidationRule::ForwardSkipOutOfRange {
+                            instruction: 0,
+                            skip: 127,
+                            target: 128,
+                            count: 88,
+                        })
+                    }
+                    "invalid_kern_fix_word" => {
+                        WholeChainOutcome::Kern(KernValidationRule::InvalidFixWordSign {
+                            index: 0,
+                            sign: 1,
+                        })
+                    }
+                    "invalid_extensible_top" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Top,
+                            character: 255,
+                        },
+                    ),
+                    "extensible_top_in_range_absent" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Top,
+                            character: 1,
+                        },
+                    ),
+                    "invalid_extensible_middle" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Middle,
+                            character: 255,
+                        },
+                    ),
+                    "extensible_middle_in_range_absent" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Middle,
+                            character: 1,
+                        },
+                    ),
+                    "invalid_extensible_bottom" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Bottom,
+                            character: 255,
+                        },
+                    ),
+                    "extensible_bottom_in_range_absent" => WholeChainOutcome::Extensible(
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Bottom,
+                            character: 1,
+                        },
+                    ),
+                    "invalid_extensible" => {
+                        WholeChainOutcome::Extensible(ExtensibleValidationRule::RepeatMissing {
+                            recipe: 0,
+                            character: 255,
+                        })
+                    }
+                    "extensible_repeat_in_range_absent" => {
+                        WholeChainOutcome::Extensible(ExtensibleValidationRule::RepeatMissing {
+                            recipe: 0,
+                            character: 1,
+                        })
+                    }
+                    "invalid_fontdimen2" => {
+                        WholeChainOutcome::Parameter(ParameterValidationRule::InvalidFixWordSign {
+                            parameter: 2,
+                            sign: 1,
+                        })
+                    }
+                    "invalid_fontdimen5" => {
+                        WholeChainOutcome::Parameter(ParameterValidationRule::InvalidFixWordSign {
+                            parameter: 5,
+                            sign: 1,
+                        })
+                    }
+                    "parameter_8_invalid_fix_word" => {
+                        WholeChainOutcome::Parameter(ParameterValidationRule::InvalidFixWordSign {
+                            parameter: 8,
+                            sign: 1,
+                        })
+                    }
+                    _ => panic!("missing exact whole-chain outcome for {case_id}"),
+                },
+                other => panic!("unexpected normalized classification {other} for {case_id}"),
+            };
+
+            let first_rule = case["first_rejecting_rule"].as_str();
+            let expected_owner = match expected {
+                WholeChainOutcome::Accepted => None,
+                WholeChainOutcome::InvalidEffectiveSize => Some("SizePrecondition"),
+                WholeChainOutcome::Header(_) => Some("HeaderCheckedTfm"),
+                WholeChainOutcome::Character(_) => Some("CharacterCheckedTfm"),
+                WholeChainOutcome::Box(_) => Some("BoxCheckedTfm"),
+                WholeChainOutcome::LigKern(_) => Some("LigKernCheckedTfm"),
+                WholeChainOutcome::Kern(_) => Some("KernCheckedTfm"),
+                WholeChainOutcome::Extensible(_) => Some("ExtensibleCheckedTfm"),
+                WholeChainOutcome::Parameter(_) => Some("ParameterCheckedTfm"),
+            };
+            assert_eq!(
+                first_rule.map(|rule| effective_owners.get(rule).unwrap().as_str()),
+                expected_owner,
+                "effective v4 owner for {case_id} {blob_sha256}"
+            );
+            assert_eq!(
+                validate_whole_chain_for_oracle(Arc::from(raw), input_size),
+                expected,
+                "{case_id} {blob_sha256}"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_multi_defect_frames_follow_staged_order_without_unwind() {
+        const SEED: u64 = 0x6d3f_6ef2_a17c_940b;
+        let mut state = SEED;
+        for case_index in 0..512usize {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let mut effective_size =
+                [1, 16, 655_360, MAX_TEX_FONT_SIZE_SP - 1][(state as usize) % 4];
+            let (mut raw, expected): (Vec<u8>, WholeChainOutcome) = match case_index % 8 {
+                0 => {
+                    let mut raw = character_frame(&[[2, 0, 0, 0]], [2, 1, 1, 1, 0, 0]);
+                    raw[8] = 128;
+                    effective_size = if state & 1 == 0 {
+                        0
+                    } else {
+                        MAX_TEX_FONT_SIZE_SP
+                    };
+                    (raw, WholeChainOutcome::InvalidEffectiveSize)
+                }
+                1 => {
+                    let mut raw = character_frame(&[[2, 0, 0, 0]], [2, 1, 1, 1, 0, 0]);
+                    raw[8] = 128;
+                    (
+                        raw,
+                        WholeChainOutcome::Header(PreambleHeaderRule::HalfwordHighBit {
+                            field: CountField::Nw,
+                        }),
+                    )
+                }
+                2 => {
+                    let mut raw =
+                        box_frame_with_words([2, 1, 1, 1], &[(BoxMetric::Width, 1, [1, 0, 0, 0])]);
+                    let layout = check_preamble_header(Arc::from(raw.clone()), 1)
+                        .unwrap()
+                        .layout;
+                    raw[layout.characters.start] = 2;
+                    (
+                        raw,
+                        WholeChainOutcome::Character(
+                            CharacterValidationRule::MetricIndexOutOfRange {
+                                character: 7,
+                                metric: CharacterMetric::Width,
+                                index: 2,
+                                count: 2,
+                            },
+                        ),
+                    )
+                }
+                3 => {
+                    let mut raw = lig_kern_frame(&[[1, 0, 0, 0]], &[[0, 7, 0, 7]], 0);
+                    let layout = check_preamble_header(Arc::from(raw.clone()), 1)
+                        .unwrap()
+                        .layout;
+                    raw[layout.widths.start + 4..layout.widths.start + 8]
+                        .copy_from_slice(&[1, 0, 0, 0]);
+                    (
+                        raw,
+                        WholeChainOutcome::Box(BoxValidationRule::InvalidFixWordSign {
+                            table: BoxMetric::Width,
+                            index: 1,
+                            sign: 1,
+                        }),
+                    )
+                }
+                4 => {
+                    let mut raw = lig_kern_frame(&[[1, 0, 0, 0]], &[[0, 7, 0, 7]], 1);
+                    let layout = check_preamble_header(Arc::from(raw.clone()), 1)
+                        .unwrap()
+                        .layout;
+                    raw[layout.kerns.start..layout.kerns.start + 4].copy_from_slice(&[1, 0, 0, 0]);
+                    (
+                        raw,
+                        WholeChainOutcome::LigKern(LigKernValidationRule::ForwardSkipOutOfRange {
+                            instruction: 0,
+                            skip: 0,
+                            target: 1,
+                            count: 1,
+                        }),
+                    )
+                }
+                5 => (
+                    kern_frame(&[[1, 0, 0, 0]], &[[0, 0, 0, 1]], &[]),
+                    WholeChainOutcome::Kern(KernValidationRule::InvalidFixWordSign {
+                        index: 0,
+                        sign: 1,
+                    }),
+                ),
+                6 => (
+                    kern_frame(&[], &[[0, 0, 0, 1]], &[[0; 4], [1, 0, 0, 0]]),
+                    WholeChainOutcome::Extensible(ExtensibleValidationRule::RepeatMissing {
+                        recipe: 0,
+                        character: 1,
+                    }),
+                ),
+                7 => (
+                    kern_frame(&[], &[], &[[0; 4], [1, 0, 0, 0], [2, 0, 0, 0]]),
+                    WholeChainOutcome::Parameter(ParameterValidationRule::InvalidFixWordSign {
+                        parameter: 2,
+                        sign: 1,
+                    }),
+                ),
+                _ => unreachable!(),
+            };
+            let suffix_len = usize::try_from((state >> 32) & 7).unwrap();
+            for suffix_index in 0..suffix_len {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                raw.push((state >> (suffix_index % 8) * 8) as u8);
+            }
+            let counts = (0..12)
+                .map(|index| u16::from_be_bytes([raw[index * 2], raw[index * 2 + 1]]))
+                .collect::<Vec<_>>();
+            let blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let outcome = std::panic::catch_unwind(|| {
+                validate_whole_chain_for_oracle(Arc::from(raw), effective_size)
+            })
+            .unwrap_or_else(|_| {
+                panic!(
+                    "seed={SEED:#x} case={case_index} size={effective_size} counts={counts:?} blob={blob_sha256}"
+                )
+            });
+            assert_eq!(
+                outcome, expected,
+                "seed={SEED:#x} case={case_index} size={effective_size} counts={counts:?} blob={blob_sha256}"
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_arbitrary_whole_chain_inputs_do_not_unwind() {
+        const SEED: u64 = 0x9c62_713d_e54a_b80f;
+        let sizes = [
+            i32::MIN,
+            0,
+            1,
+            16,
+            655_360,
+            MAX_TEX_FONT_SIZE_SP - 1,
+            MAX_TEX_FONT_SIZE_SP,
+            i32::MAX,
+        ];
+        let mut state = SEED;
+        for case_index in 0..512usize {
+            state = state
+                .wrapping_mul(2_862_933_555_777_941_757)
+                .wrapping_add(3_037_000_493);
+            let length = usize::try_from((state >> 32) % 193).unwrap();
+            let effective_size = sizes[(state as usize) % sizes.len()];
+            let mut raw = Vec::with_capacity(length);
+            for _ in 0..length {
+                state = state
+                    .wrapping_mul(2_862_933_555_777_941_757)
+                    .wrapping_add(3_037_000_493);
+                raw.push((state >> 56) as u8);
+            }
+            let blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let outcome = std::panic::catch_unwind(|| {
+                validate_whole_chain_for_oracle(Arc::from(raw), effective_size)
+            })
+            .unwrap_or_else(|_| {
+                panic!(
+                    "seed={SEED:#x} case={case_index} size={effective_size} length={length} blob={blob_sha256}"
+                )
+            });
+            if !(1..MAX_TEX_FONT_SIZE_SP).contains(&effective_size) {
+                assert_eq!(
+                    outcome,
+                    WholeChainOutcome::InvalidEffectiveSize,
+                    "seed={SEED:#x} case={case_index} blob={blob_sha256}"
+                );
+            } else if length < PREAMBLE_BYTES {
+                assert_eq!(
+                    outcome,
+                    WholeChainOutcome::Header(PreambleHeaderRule::PreambleUnavailable),
+                    "seed={SEED:#x} case={case_index} blob={blob_sha256}"
+                );
+            }
+        }
     }
 
     #[test]

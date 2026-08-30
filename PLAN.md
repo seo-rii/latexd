@@ -1847,6 +1847,15 @@ and independently modeled multi-defect generated cases. Current production AST
 counts remain 7/0/7; the production marker remains blocked. See
 `docs/evidence/tex-tfm-completion-design-pro-closure-v1.md`.
 
+The completion-hardening whole-chain oracle is test-only and GREEN. It checks
+83/83 exact native outcomes with typed payloads and effective v4 owners, plus
+512 multi-defect staged-order cases and 512 arbitrary byte/size cases under
+bounded `catch_unwind`. Final test-bearing source SHA-256 is
+`45d1e8b576752981c46142935e40e32311747c804b8d84911ae27fd9d51bcb1d`;
+the reviewed production prefix is unchanged and AST counts remain 7/0/7. The
+production marker remains blocked. Prospective RED and GREEN identities are in
+`docs/evidence/tex-tfm-whole-oracle-tdd-red-v1.md`.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
