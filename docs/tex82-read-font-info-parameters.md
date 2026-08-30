@@ -50,3 +50,20 @@ as well. Completion, callers, loading, cache, serialization, persistence, VM,
 checkpoint, and public API remain blocked. Production symbols may be added only
 after prospective RED evidence, and the resulting private phase requires a
 dedicated parameter closure review.
+
+## Private implementation evidence
+
+Strict TDD produced one private `ParameterCheckedTfm` implementation. It stores
+the first slot as typed `SignedSlant` and every later slot as `ScaledSp`,
+matching the native 21 effective sizes × 10 fix words matrix and retaining its
+complete `ExtensibleCheckedTfm` predecessor by value. The focused
+suite covers 254 forbidden non-slant sign bytes, exact parameter 2/5/8 source
+order, `np=0` standard zero fill, retained `np>7` extras, the successful
+`np=32755` maximum and its last-word failure, suffix isolation,
+same raw allocation, and 8/8 parameter witnesses.
+
+The AST gate permits exactly one private constructor and zero caller. The
+content-addressed prospective record is
+`docs/evidence/tex-tfm-parameter-tdd-red-v1.md`. This state remains unreachable:
+completion, public visibility, loading, cache, serialization, persistence, VM,
+checkpoint, and W3 require a dedicated parameter closure review.

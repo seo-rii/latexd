@@ -58,6 +58,7 @@ EXTENSIBLE_TDD_RED_EVIDENCE = (
     ROOT / "docs/evidence/tex-tfm-extensible-tdd-red-v1.md"
 )
 PARAMETER_SOURCE_DOCUMENT = ROOT / "docs/tex82-read-font-info-parameters.md"
+PARAMETER_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-parameter-tdd-red-v1.md"
 
 
 def ledger_text() -> str:
@@ -98,6 +99,45 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_parameter_red_evidence_is_content_addressed_and_exact(self) -> None:
+        evidence = PARAMETER_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "72deabc1701a0c156a105637272de48d7a0ec35aa87fbafd61ebc17cc3f2af45",
+            "603949a341a50e9b81b41a29074197c9b5bd33e29337d6146663edd866f80768",
+            "c10c863fb9d6baa0ab3264ec1bda7559d99831b75b53472dfd39652700516183",
+            "3bcaf9adb2949a6615f3543f907f794a7a841869f866b94155ddfd9d8676621e",
+            "no `ParameterCheckedTfm` in `tfm_validation`",
+            "no `ParameterValidationRule` in `tfm_validation`",
+            "no `SignedSlant` in `tfm_validation`",
+            "no `check_parameters` in `tfm_validation`",
+            'left: ["check_preamble_header", "check_characters", "check_boxes", "check_lig_kern", "check_kerns", "check_extensibles"]',
+            "No non-building RED commit was created",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_private_parameter_implementation_is_documented(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            ROOT / "docs/tex82-read-font-info-extensibles.md",
+            PARAMETER_SOURCE_DOCUMENT,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "private `ParameterCheckedTfm` implementation",
+                "`SignedSlant`",
+                "254 forbidden",
+                "`np>7`",
+                "`np=32755`",
+                "8/8 parameter witnesses",
+                "same raw allocation",
+                "zero caller",
+                "docs/evidence/tex-tfm-parameter-tdd-red-v1.md",
+                "dedicated parameter closure review",
+            ):
+                self.assertIn(required, document, path)
+
     def test_parameter_source_contract_is_documented_at_every_phase_boundary(
         self,
     ) -> None:

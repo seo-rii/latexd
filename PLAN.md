@@ -1795,6 +1795,18 @@ maximum은 `np=32755`다. EOF line은 source ordering context로 pin하지만 �
 read/ownership에서는 제외한다. 상세는 `docs/tex82-read-font-info-parameters.md`를
 따르며 production은 prospective RED 뒤에만 시작한다.
 
+Strict TDD로 private `ParameterCheckedTfm` implementation을 추가했다. 새
+`SignedSlant`는 size와 독립적인 signed 16.16 값을 저장하고, parameter 2 이후는
+21 effective sizes × 10 fix words의 native matrix와 같은 exact `store_scaled`
+결과를 보존한다. 254 forbidden sign 각각, source-order
+parameter 2/5/8 failure, `np=0` zero-fill, `np>7` retained extras, successful
+`np=32755`와 마지막 word rejection, suffix isolation, same raw allocation,
+8/8 parameter witnesses를 검증한다. AST policy는 단 하나의 private constructor와
+zero caller를 허용한다. RED identity는
+`docs/evidence/tex-tfm-parameter-tdd-red-v1.md`에 기록했다. Completion/public/
+caller/loading/cache/serialization/persistence/VM/checkpoint/W3는 dedicated
+parameter closure review까지 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

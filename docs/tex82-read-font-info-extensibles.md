@@ -152,3 +152,12 @@ phase preserves the whole declared table through `np=32755`; EOF state and all
 post-parameter work are excluded reads. The exact interpretation is
 `docs/tex82-read-font-info-parameters.md`, and implementation still starts with
 prospective RED.
+
+The successor strict-TDD unit now contains one private `ParameterCheckedTfm` implementation
+with typed `SignedSlant`. It checks 254 forbidden non-slant
+signs in source order, zero-fills `np=0`, preserves `np>7`, completes
+`np=32755`, isolates suffix bytes, retains the same raw allocation, and matches
+8/8 parameter witnesses. AST ownership still allows exactly one constructor
+and zero caller. See `docs/evidence/tex-tfm-parameter-tdd-red-v1.md` for the
+prospective failures. Completion and integration remain blocked through a
+dedicated parameter closure review.

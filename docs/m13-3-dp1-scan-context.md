@@ -569,6 +569,17 @@ and final adjustments remain excluded reads. The focused interpretation is
 `docs/tex82-read-font-info-parameters.md`; production still requires
 prospective RED.
 
+Strict TDD now supplies one private `ParameterCheckedTfm` implementation.
+Typed `SignedSlant` preserves the signed pure number independently of effective
+size; later words match the native 21 effective sizes × 10 fix words matrix and
+retain exact `store_scaled` results. Tests cover all 254
+forbidden signs, parameter 2/5/8 source order, `np=0` filling, retained `np>7`
+extras, the complete `np=32755` table and its last-word rejection, suffix
+isolation, same raw allocation, and 8/8 parameter witnesses. The AST policy
+allows one private constructor and zero caller. Prospective evidence is
+`docs/evidence/tex-tfm-parameter-tdd-red-v1.md`. Completion and every integration
+surface remain blocked through a dedicated parameter closure review.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

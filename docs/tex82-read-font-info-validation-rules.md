@@ -212,6 +212,16 @@ seven while every declared extra remains validated and retained through
 state's reads. See `docs/tex82-read-font-info-parameters.md`. No production
 symbol precedes prospective RED.
 
+The strict-TDD successor is one private `ParameterCheckedTfm` implementation.
+Its typed `SignedSlant` is size-independent, while every later declared word
+uses exact `store_scaled`. Executable boundaries cover 254 forbidden signs,
+source-order parameter 2/5/8 errors, `np=0` standard fill, retained `np>7`
+entries, successful `np=32755` plus the invalid last word, suffix isolation,
+same raw allocation, and 8/8 parameter witnesses. Structural policy permits
+one private constructor and zero caller. The RED record is
+`docs/evidence/tex-tfm-parameter-tdd-red-v1.md`; all broader work awaits a
+dedicated parameter closure review.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

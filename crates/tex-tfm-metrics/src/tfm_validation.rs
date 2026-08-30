@@ -170,6 +170,20 @@ struct ExtensibleCheckedTfm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SignedSlant(i32);
+
+struct ParameterCheckedTfm {
+    predecessor: ExtensibleCheckedTfm,
+    slant: SignedSlant,
+    dimensions: Box<[ScaledSp]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParameterValidationRule {
+    InvalidFixWordSign { parameter: u16, sign: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExtensiblePart {
     Top,
     Middle,
@@ -916,6 +930,68 @@ fn check_extensibles(
     })
 }
 
+fn check_parameters(
+    predecessor: ExtensibleCheckedTfm,
+) -> Result<ParameterCheckedTfm, ParameterValidationRule> {
+    let header_state = &predecessor
+        .predecessor
+        .predecessor
+        .predecessor
+        .predecessor
+        .predecessor;
+    let mut raw_parameters = header_state.raw[header_state.layout.parameters.clone()]
+        .chunks_exact(4)
+        .enumerate();
+    let slant = raw_parameters.next().map_or(SignedSlant(0), |(_, word)| {
+        SignedSlant(i32::from_be_bytes([word[0], word[1], word[2], word[3]]) >> 4)
+    });
+
+    let mut reduced_size = i64::from(header_state.effective_size.0);
+    let mut alpha = 16i64;
+    while reduced_size >= 1 << 23 {
+        reduced_size /= 2;
+        alpha += alpha;
+    }
+    let beta = 256 / alpha;
+    alpha *= reduced_size;
+
+    let stored_parameter_count = header_state.raw_counts.np.max(7);
+    let mut dimensions = Vec::with_capacity(usize::from(stored_parameter_count.saturating_sub(1)));
+    for (zero_based_index, raw_word) in raw_parameters {
+        let parameter = match u16::try_from(zero_based_index + 1) {
+            Ok(parameter) => parameter,
+            Err(_) => unreachable!("header-checked TFM parameter indices fit u16"),
+        };
+        let sign = raw_word[0];
+        let b = i64::from(raw_word[1]);
+        let c = i64::from(raw_word[2]);
+        let d = i64::from(raw_word[3]);
+        let positive_fraction =
+            ((d * reduced_size / 256 + c * reduced_size) / 256 + b * reduced_size) / beta;
+        let scaled = match sign {
+            0 => positive_fraction,
+            255 => positive_fraction - alpha,
+            _ => {
+                return Err(ParameterValidationRule::InvalidFixWordSign { parameter, sign });
+            }
+        };
+        let scaled_sp = match i32::try_from(scaled) {
+            Ok(scaled_sp) => ScaledSp(scaled_sp),
+            Err(_) => unreachable!("TeX82 fix-word and effective-size bounds fit parameters"),
+        };
+        dimensions.push(scaled_sp);
+    }
+    if dimensions.len() < 6 {
+        dimensions.resize(6, ScaledSp(0));
+    }
+
+    Ok(ParameterCheckedTfm {
+        predecessor,
+        slant,
+        dimensions: dimensions.into_boxed_slice(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -934,9 +1010,10 @@ mod tests {
         CharacterValidationRule, CheckedExtensibleRecipe, CountField, EffectiveSizeSp,
         ExtensibleCheckedTfm, ExtensiblePart, ExtensibleValidationRule, FrameTfmDigest,
         HeaderCheckedTfm, KernCheckedTfm, KernValidationRule, LigKernCheckedTfm,
-        LigKernValidationRule, MetricTable, PreambleHeaderFailure, PreambleHeaderRule,
-        RawTfmDigest, ScaledSp, check_boxes, check_characters, check_extensibles, check_kerns,
-        check_lig_kern, check_preamble_header,
+        LigKernValidationRule, MetricTable, ParameterCheckedTfm, ParameterValidationRule,
+        PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp, SignedSlant,
+        check_boxes, check_characters, check_extensibles, check_kerns, check_lig_kern,
+        check_parameters, check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -1556,6 +1633,44 @@ mod tests {
     fn extensible_entrypoint_consumes_only_the_kern_state() {
         let _: fn(KernCheckedTfm) -> Result<ExtensibleCheckedTfm, ExtensibleValidationRule> =
             check_extensibles;
+    }
+
+    #[test]
+    fn parameter_entrypoint_consumes_only_the_extensible_state() {
+        let _: fn(ExtensibleCheckedTfm) -> Result<ParameterCheckedTfm, ParameterValidationRule> =
+            check_parameters;
+    }
+
+    #[test]
+    fn parameter_phase_source_contract_is_content_addressed() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let bytes =
+            std::fs::read(fixture_root.join("tfm-parameter-source-contract-v1.json")).unwrap();
+        assert_eq!(
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd"
+        );
+        let contract: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(contract["schema_version"], 1);
+        assert_eq!(contract["proof_boundary"]["input"], "ExtensibleCheckedTfm");
+        assert_eq!(contract["proof_boundary"]["output"], "ParameterCheckedTfm");
+        assert_eq!(
+            contract["proof_boundary"]["owned_rule_ids"],
+            serde_json::json!(["TFM-PARAM-001", "TFM-PARAM-002", "TFM-PARAM-003"])
+        );
+        assert_eq!(contract["proof_boundary"]["loop_cardinality"], "np");
+        assert_eq!(
+            contract["proof_boundary"]["absolute_valid_parameter_count"],
+            32_755
+        );
+        assert_eq!(contract["proof_boundary"]["standard_parameter_count"], 7);
+        assert_eq!(
+            contract["proof_boundary"]["excluded_reads"],
+            serde_json::json!(["eof_state", "raw_suffix", "final_adjustments"])
+        );
     }
 
     #[test]
@@ -2795,6 +2910,378 @@ mod tests {
     }
 
     #[test]
+    fn empty_parameter_table_zero_fills_the_standard_typed_state() {
+        let state = check_parameter_frame(kern_frame(&[], &[], &[]), 1).unwrap();
+
+        assert_eq!(state.slant, SignedSlant(0));
+        assert_eq!(state.dimensions.as_ref(), [ScaledSp(0); 6]);
+        assert!(state.predecessor.extensibles.is_empty());
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .np,
+            0
+        );
+    }
+
+    #[test]
+    fn slant_is_a_signed_pure_number_independent_of_effective_size() {
+        for (word, expected) in [
+            ([1, 35, 69, 111], 1_193_046),
+            ([254, 220, 186, 159], -1_193_047),
+            ([255, 255, 255, 255], -1),
+            ([128, 0, 0, 0], -134_217_728),
+            ([127, 255, 255, 255], 134_217_727),
+        ] {
+            for effective_size_sp in [1, 655_360, MAX_TEX_FONT_SIZE_SP - 1] {
+                let state = check_parameter_frame(kern_frame(&[], &[], &[word]), effective_size_sp)
+                    .unwrap();
+                assert_eq!(state.slant, SignedSlant(expected), "{word:?}");
+                assert_eq!(state.dimensions.as_ref(), [ScaledSp(0); 6]);
+            }
+        }
+    }
+
+    #[test]
+    fn non_slant_parameters_use_exact_scaling_then_zero_fill() {
+        let state = check_parameter_frame(
+            kern_frame(
+                &[],
+                &[],
+                &[
+                    [0, 0, 0, 0],
+                    [0, 0x10, 0, 0],
+                    [255, 0xf0, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1],
+                ],
+            ),
+            655_360,
+        )
+        .unwrap();
+
+        assert_eq!(state.slant, SignedSlant(0));
+        assert_eq!(
+            state.dimensions.as_ref(),
+            [
+                ScaledSp(655_360),
+                ScaledSp(-655_360),
+                ScaledSp(160),
+                ScaledSp(0),
+                ScaledSp(0),
+                ScaledSp(0),
+            ]
+        );
+    }
+
+    #[test]
+    fn frozen_native_box_matrix_matches_non_slant_parameter_values() {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/tfm-box-scaling-oracle-v1.json");
+        let fixture_bytes = std::fs::read(fixture_path).unwrap();
+        assert_eq!(
+            Sha256::digest(&fixture_bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "287f3c33038b05279239f0836af5e03a306f4589d41127eb3aec2af88f051eb4"
+        );
+        let fixture: serde_json::Value = serde_json::from_slice(&fixture_bytes).unwrap();
+
+        for (size_id, size) in fixture["case_sizes_sp"].as_object().unwrap() {
+            let size = i32::try_from(size.as_i64().unwrap()).unwrap();
+            let observations = fixture["case_results"][size_id]["observations"]
+                .as_object()
+                .unwrap();
+            for (word_id, raw_word) in fixture["fix_word_cases"].as_object().unwrap() {
+                let raw_word = raw_word.as_str().unwrap();
+                let raw_word: [u8; 4] = std::array::from_fn(|index| {
+                    u8::from_str_radix(&raw_word[index * 2..index * 2 + 2], 16).unwrap()
+                });
+                let state =
+                    check_parameter_frame(kern_frame(&[], &[], &[[0, 0, 0, 0], raw_word]), size)
+                        .unwrap();
+                let expected =
+                    i32::try_from(observations[&format!("{word_id}_width")].as_i64().unwrap())
+                        .unwrap();
+                assert_eq!(
+                    state.dimensions[0],
+                    ScaledSp(expected),
+                    "{size_id} {word_id}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_forbidden_non_slant_sign_has_exact_parameter_identity() {
+        for sign in 1..=254u8 {
+            let result =
+                check_parameter_frame(kern_frame(&[], &[], &[[sign, 2, 3, 4], [sign, 0, 0, 0]]), 1);
+            assert_eq!(
+                result.err(),
+                Some(ParameterValidationRule::InvalidFixWordSign { parameter: 2, sign })
+            );
+        }
+    }
+
+    #[test]
+    fn parameter_failures_follow_whole_declared_source_order() {
+        let result = check_parameter_frame(
+            kern_frame(
+                &[],
+                &[],
+                &[
+                    [0, 0, 0, 0],
+                    [3, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [4, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [5, 0, 0, 0],
+                ],
+            ),
+            1,
+        );
+        assert_eq!(
+            result.err(),
+            Some(ParameterValidationRule::InvalidFixWordSign {
+                parameter: 2,
+                sign: 3,
+            })
+        );
+
+        let eighth = check_parameter_frame(
+            kern_frame(
+                &[],
+                &[],
+                &[
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [5, 0, 0, 0],
+                ],
+            ),
+            1,
+        );
+        assert_eq!(
+            eighth.err(),
+            Some(ParameterValidationRule::InvalidFixWordSign {
+                parameter: 8,
+                sign: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn parameters_above_seven_are_scaled_and_retained() {
+        let state = check_parameter_frame(
+            kern_frame(
+                &[],
+                &[],
+                &[
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0x10, 0, 0],
+                ],
+            ),
+            65_536,
+        )
+        .unwrap();
+
+        assert_eq!(state.dimensions.len(), 7);
+        assert_eq!(state.dimensions[6], ScaledSp(65_536));
+    }
+
+    #[test]
+    fn absolute_maximum_parameter_table_is_checked_and_retained() {
+        let parameters = vec![[0, 0, 0, 0]; 32_755];
+        let state = check_parameter_frame(kern_frame(&[], &[], &parameters), 1).unwrap();
+
+        assert_eq!(state.slant, SignedSlant(0));
+        assert_eq!(state.dimensions.len(), 32_754);
+        assert!(state.dimensions.iter().all(|value| *value == ScaledSp(0)));
+    }
+
+    #[test]
+    fn final_parameter_at_absolute_maximum_is_still_validated() {
+        let mut parameters = vec![[0, 0, 0, 0]; 32_755];
+        parameters[32_754] = [254, 0, 0, 0];
+        let result = check_parameter_frame(kern_frame(&[], &[], &parameters), 1);
+
+        assert_eq!(
+            result.err(),
+            Some(ParameterValidationRule::InvalidFixWordSign {
+                parameter: 32_755,
+                sign: 254,
+            })
+        );
+    }
+
+    #[test]
+    fn suffix_does_not_change_parameter_semantics() {
+        let bytes = kern_frame(&[], &[], &[[255, 255, 255, 255], [0, 0x10, 0, 0]]);
+        let control = check_parameter_frame(bytes.clone(), 65_536).unwrap();
+        let mut suffixed = bytes;
+        suffixed.extend((0..8193).map(|index| (index as u8).wrapping_mul(37)));
+        let state = check_parameter_frame(suffixed, 65_536).unwrap();
+
+        assert_eq!(state.slant, control.slant);
+        assert_eq!(state.dimensions, control.dimensions);
+        let state_header = &state
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor;
+        let control_header = &control
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor;
+        assert_eq!(state_header.frame_digest, control_header.frame_digest);
+        assert_ne!(state_header.raw_digest, control_header.raw_digest);
+    }
+
+    #[test]
+    fn parameter_success_retains_the_same_raw_allocation_and_extensible_state() {
+        let bytes = extensible_frame_at(
+            7,
+            &[[1, 0, 0, 0]],
+            &[[0, 0, 0, 7]],
+            &[[0, 0, 0, 0], [0, 0x10, 0, 0]],
+        );
+        let raw: Arc<[u8]> = Arc::from(bytes);
+        let retained = Arc::clone(&raw);
+        let state = check_parameters(
+            check_extensibles(
+                check_kerns(
+                    check_lig_kern(
+                        check_boxes(
+                            check_characters(check_preamble_header(raw, 65_536).unwrap()).unwrap(),
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(state.slant, SignedSlant(0));
+        assert_eq!(state.dimensions[0], ScaledSp(65_536));
+        assert_eq!(state.predecessor.extensibles[0].repeat, 7);
+        assert!(Arc::ptr_eq(
+            &retained,
+            &state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw
+        ));
+    }
+
+    #[test]
+    fn persisted_parameter_witnesses_have_exact_private_results() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let parameter_witnesses = [
+            "signed_slant_parameter",
+            "invalid_fontdimen2",
+            "invalid_fontdimen5",
+            "short_np0",
+            "short_np4",
+            "short_np5",
+            "parameter_count_8_valid",
+            "parameter_8_invalid_fix_word",
+        ];
+        let mut accepted = 0;
+        let mut rejected = 0;
+
+        for case in manifest["cases"].as_array().unwrap() {
+            let case_id = case["id"].as_str().unwrap();
+            if !parameter_witnesses.contains(&case_id) {
+                continue;
+            }
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let extensible = check_extensibles(
+                check_kerns(
+                    check_lig_kern(
+                        check_boxes(
+                            check_characters(
+                                check_preamble_header(Arc::from(raw), input_size).unwrap(),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed before parameter phase: {failure:?}")
+            });
+            let result = check_parameters(extensible);
+            let expected = match case_id {
+                "invalid_fontdimen2" => Some(ParameterValidationRule::InvalidFixWordSign {
+                    parameter: 2,
+                    sign: 1,
+                }),
+                "invalid_fontdimen5" => Some(ParameterValidationRule::InvalidFixWordSign {
+                    parameter: 5,
+                    sign: 1,
+                }),
+                "parameter_8_invalid_fix_word" => {
+                    Some(ParameterValidationRule::InvalidFixWordSign {
+                        parameter: 8,
+                        sign: 1,
+                    })
+                }
+                _ => None,
+            };
+            if let Some(expected) = expected {
+                rejected += 1;
+                assert_eq!(result.err(), Some(expected), "{case_id} {blob_sha256}");
+            } else {
+                accepted += 1;
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+        assert_eq!(accepted, 5);
+        assert_eq!(rejected, 3);
+    }
+
+    #[test]
     fn box_tables_scale_exact_positive_negative_fractional_and_carry_words() {
         let bytes = box_frame_with_words(
             [5, 3, 3, 3],
@@ -4024,6 +4511,13 @@ mod tests {
         effective_size_sp: i32,
     ) -> Result<ExtensibleCheckedTfm, ExtensibleValidationRule> {
         check_extensibles(check_kern_frame(bytes, effective_size_sp).unwrap())
+    }
+
+    fn check_parameter_frame(
+        bytes: Vec<u8>,
+        effective_size_sp: i32,
+    ) -> Result<ParameterCheckedTfm, ParameterValidationRule> {
+        check_parameters(check_extensible_frame(bytes, effective_size_sp).unwrap())
     }
 
     fn maximum_lig_kern_frame(instructions: &[[u8; 4]]) -> Vec<u8> {
