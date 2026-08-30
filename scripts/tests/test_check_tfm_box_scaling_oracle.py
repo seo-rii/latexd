@@ -185,6 +185,24 @@ class TfmBoxScalingOracleTests(unittest.TestCase):
             self.assertIn("exact `BoxCheckedTfm` proof ownership", document, relative_path)
             self.assertIn("lig/kern remains blocked", document, relative_path)
 
+    def test_pro_closure_verdict_and_split_successors_are_documented(self) -> None:
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+            "docs/tex82-read-font-info-box-scaling.md",
+        ):
+            document = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(
+                "6a93a948-81a8-83ee-8173-a0a58dbe1a08", document, relative_path
+            )
+            self.assertIn("PROCEED_PRIVATE_TFM_LIGKERN", document, relative_path)
+            self.assertIn("confidence 0.95", document, relative_path)
+            self.assertIn("exactly one production construction", document, relative_path)
+            self.assertIn("base TFM SHA-256", document, relative_path)
+            self.assertIn("`LigKernCheckedTfm`", document, relative_path)
+            self.assertIn("`KernCheckedTfm`", document, relative_path)
+
     def test_validation_rejects_changed_missing_and_unexpected_results(self) -> None:
         fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
         changed = copy.deepcopy(fixture["case_results"])
@@ -198,6 +216,39 @@ class TfmBoxScalingOracleTests(unittest.TestCase):
         unexpected = copy.deepcopy(fixture["case_results"])
         unexpected["future_size"] = unexpected["size_1"]
         self.assertTrue(any("unexpected cases" in item for item in validate_results(unexpected, fixture)))
+
+        for field, replacement in (
+            ("compatibility_source", {}),
+            ("case_sizes_sp", {}),
+            ("fix_word_cases", {}),
+            ("native_observation_projection", {}),
+        ):
+            changed_contract = copy.deepcopy(fixture)
+            changed_contract[field] = replacement
+            self.assertTrue(
+                any(
+                    field in item
+                    for item in validate_results(
+                        fixture["case_results"], changed_contract
+                    )
+                ),
+                field,
+            )
+
+    def test_overwritten_base_font_drift_is_rejected_even_when_probe_bytes_match(
+        self,
+    ) -> None:
+        fixture = json.loads(EXPECTED_FIXTURE.read_text(encoding="utf-8"))
+        base = BASE_TFM.read_bytes()
+        changed = bytearray(base)
+        character_start = 4 * (6 + int.from_bytes(base[2:4], "big"))
+        changed[character_start] ^= 1
+        self.assertEqual(build_mutated_tfm(bytes(changed)), build_mutated_tfm(base))
+
+        errors = validate_results(
+            fixture["case_results"], fixture, base_tfm=bytes(changed)
+        )
+        self.assertTrue(any("base TFM SHA-256" in error for error in errors))
 
     @unittest.skipUnless(shutil.which("pdftex"), "pdftex is required for the oracle")
     def test_pdftex_initex_matches_frozen_fixture(self) -> None:

@@ -83,3 +83,19 @@ complete-validator publication, public or crate-visible APIs, production font
 ownership/resolution/caching, source-visible loading, checkpoints, and W3 also
 remain outside this unit. A new Pro closure review is required before any later
 TFM table phase starts.
+
+## Closure decision and successors
+
+Box-closure Pro review `6a93a948-81a8-83ee-8173-a0a58dbe1a08` returned
+`PROCEED_PRIVATE_TFM_LIGKERN` at confidence 0.95 and found no blocking defect
+in this box state. Its two evidence guardrails are now enforced: the native
+oracle checks the base TFM SHA-256 before any probe mutation, and the AST policy
+requires exactly one production construction and one authorized return path
+for every private proof state.
+
+The next and only authorized state transition is from `BoxCheckedTfm` to
+private `LigKernCheckedTfm`, validating lig/kern instructions and boundary
+state in source order. It must not scale kern fix words. A dedicated
+lig/kern-closure review is required before a separate private
+`KernCheckedTfm` may consume that predecessor and perform exact kern scaling.
+Extensible recipes and every public or production integration remain blocked.

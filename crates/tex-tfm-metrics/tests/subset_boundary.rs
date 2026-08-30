@@ -1,7 +1,8 @@
 use tex_tfm_metrics::dimension_subset::{ExactTfmDimensions, ExtractError, extract_exact_frame};
 
 use syn::{
-    Field, ForeignItem, ImplItem, Item, Meta, Path as SynPath, UseTree, Visibility,
+    ExprStruct, Field, ForeignItem, ImplItem, Item, ItemFn, Meta, Path as SynPath, UseTree,
+    Visibility,
     visit::{self, Visit},
 };
 
@@ -69,6 +70,18 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
         "production entrypoint references: {:?}",
         policy.entrypoint_references
     );
+    assert_eq!(
+        policy.proof_state_returners,
+        [
+            ("HeaderCheckedTfm".into(), "check_preamble_header".into()),
+            ("CharacterCheckedTfm".into(), "check_characters".into()),
+            ("BoxCheckedTfm".into(), "check_boxes".into()),
+        ]
+    );
+    assert_eq!(
+        policy.proof_state_constructions,
+        policy.proof_state_returners
+    );
 }
 
 #[test]
@@ -95,6 +108,11 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
         "struct Proof; impl Proof { pub(crate) fn leak() {} }",
         "extern \"C\" { pub(crate) fn leak(); }",
         "#[derive(Clone)] struct BoxCheckedTfm;",
+        "struct BoxCheckedTfm; impl Clone for BoxCheckedTfm { fn clone(&self) -> Self { loop {} } }",
+        "struct BoxCheckedTfm; fn forge_box() -> BoxCheckedTfm { loop {} }",
+        "struct BoxCheckedTfm; type ForgedBox = BoxCheckedTfm;",
+        "struct BoxCheckedTfm; struct Factory; impl Factory { fn forge() -> BoxCheckedTfm { loop {} } }",
+        "struct BoxCheckedTfm; macro_rules! forge { () => { BoxCheckedTfm } }",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -165,6 +183,9 @@ fn parameter_start(bytes: &[u8]) -> usize {
 struct PrivateValidatorPolicy {
     entrypoint_definitions: Vec<String>,
     entrypoint_references: Vec<String>,
+    proof_state_returners: Vec<(String, String)>,
+    proof_state_constructions: Vec<(String, String)>,
+    current_function: Option<String>,
 }
 
 impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
@@ -182,7 +203,7 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
         }
 
         if let Item::Struct(structure) = item
-            && structure.ident == "BoxCheckedTfm"
+            && is_proof_state(&structure.ident.to_string())
         {
             for attribute in &structure.attrs {
                 if let Meta::List(arguments) = &attribute.meta
@@ -196,10 +217,28 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
                                 !(character.is_ascii_alphanumeric() || character == '_')
                             })
                             .any(|token| token == "Clone"),
-                        "BoxCheckedTfm must not derive Clone"
+                        "proof states must not derive Clone"
                     );
                 }
             }
+        }
+
+        if let Item::Impl(implementation) = item {
+            let mut proof_states = ProofStatePathCollector::default();
+            proof_states.visit_type(&implementation.self_ty);
+            assert!(
+                proof_states.names.is_empty(),
+                "proof states must not have manual or inherent impls"
+            );
+        }
+
+        if let Item::Type(alias) = item {
+            let mut proof_states = ProofStatePathCollector::default();
+            proof_states.visit_type(&alias.ty);
+            assert!(
+                proof_states.names.is_empty(),
+                "proof states must not have type aliases"
+            );
         }
 
         let visibility = match item {
@@ -232,6 +271,45 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
         visit::visit_item(self, item);
     }
 
+    fn visit_item_fn(&mut self, function: &'ast ItemFn) {
+        let function_name = function.sig.ident.to_string();
+        let mut proof_states = ProofStatePathCollector::default();
+        proof_states.visit_return_type(&function.sig.output);
+        for proof_state in proof_states.names {
+            assert_eq!(
+                authorized_proof_constructor(&proof_state),
+                Some(function_name.as_str()),
+                "unauthorized function returns a proof state"
+            );
+            self.proof_state_returners
+                .push((proof_state, function_name.clone()));
+        }
+
+        let previous_function = self.current_function.replace(function_name);
+        visit::visit_item_fn(self, function);
+        self.current_function = previous_function;
+    }
+
+    fn visit_expr_struct(&mut self, expression: &'ast ExprStruct) {
+        if let Some(segment) = expression.path.segments.last() {
+            let proof_state = segment.ident.to_string();
+            if is_proof_state(&proof_state) {
+                let function_name = self
+                    .current_function
+                    .as_deref()
+                    .expect("proof state constructed outside a function");
+                assert_eq!(
+                    authorized_proof_constructor(&proof_state),
+                    Some(function_name),
+                    "proof state constructed outside its authorized entrypoint"
+                );
+                self.proof_state_constructions
+                    .push((proof_state, function_name.to_owned()));
+            }
+        }
+        visit::visit_expr_struct(self, expression);
+    }
+
     fn visit_field(&mut self, field: &'ast Field) {
         assert!(
             matches!(field.vis, Visibility::Inherited),
@@ -251,6 +329,14 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             assert!(
                 matches!(visibility, Visibility::Inherited),
                 "production validator associated item has non-private visibility"
+            );
+        }
+        if let ImplItem::Fn(function) = item {
+            let mut proof_states = ProofStatePathCollector::default();
+            proof_states.visit_return_type(&function.sig.output);
+            assert!(
+                proof_states.names.is_empty(),
+                "associated functions must not return proof states"
             );
         }
         visit::visit_impl_item(self, item);
@@ -291,6 +377,7 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             if is_validator_entrypoint(token) {
                 self.entrypoint_references.push(token.to_owned());
             }
+            assert!(!is_proof_state(token), "macros must not name proof states");
         }
         visit::visit_macro(self, macro_invocation);
     }
@@ -310,9 +397,42 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
     }
 }
 
+#[derive(Default)]
+struct ProofStatePathCollector {
+    names: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for ProofStatePathCollector {
+    fn visit_path(&mut self, path: &'ast SynPath) {
+        if let Some(segment) = path.segments.last() {
+            let name = segment.ident.to_string();
+            if is_proof_state(&name) && !self.names.contains(&name) {
+                self.names.push(name);
+            }
+        }
+        visit::visit_path(self, path);
+    }
+}
+
 fn is_validator_entrypoint(name: &str) -> bool {
     matches!(
         name,
         "check_preamble_header" | "check_characters" | "check_boxes"
     )
+}
+
+fn is_proof_state(name: &str) -> bool {
+    matches!(
+        name,
+        "HeaderCheckedTfm" | "CharacterCheckedTfm" | "BoxCheckedTfm"
+    )
+}
+
+fn authorized_proof_constructor(proof_state: &str) -> Option<&'static str> {
+    match proof_state {
+        "HeaderCheckedTfm" => Some("check_preamble_header"),
+        "CharacterCheckedTfm" => Some("check_characters"),
+        "BoxCheckedTfm" => Some("check_boxes"),
+        _ => None,
+    }
 }

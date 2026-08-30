@@ -49,6 +49,18 @@ extensible recipes, parameters, public or crate-visible validation, production
 callers, font ownership/resolution/caching, source-visible loading,
 checkpoints, and W3. A new Pro review is mandatory at the private box state.
 
+Box-closure review `6a93a948-81a8-83ee-8173-a0a58dbe1a08` returned
+`PROCEED_PRIVATE_TFM_LIGKERN` at confidence 0.95. It found no blocking box
+defect and authorizes only source-ordered lig/kern instruction and boundary
+state validation from `BoxCheckedTfm` to private `LigKernCheckedTfm`; kern
+fix-word scaling is a separate successor after another closure review. The
+native oracle must verify the base TFM SHA-256 before mutation, and the AST
+policy must enforce exactly one production construction and return path for
+each proof state. A later private `KernCheckedTfm` must consume the reviewed
+lig/kern predecessor. The reviewed v1 machine contract remains immutable; its
+combined `TFM-KERN-001` ownership must be split only by an explicit versioned
+contract transition.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST
@@ -148,11 +160,14 @@ state below. Every intermediate representation remains root-module-private:
    charlist cycle validation;
 3. **Implemented privately:** exact at-size box scaling and all four scaled
    entry-zero checks;
-4. source-ordered lig/kern boundary state and kern validation;
-5. extensible recipes, every supplied parameter, and EOF behavior;
-6. whole-oracle parity and generated no-panic/property gates;
-7. internal complete-state and A/B substitution closure;
-8. only after every earlier gate passes, a separately reviewed public facade.
+4. source-ordered lig/kern instruction and boundary-state validation, returning
+   private `LigKernCheckedTfm` without scaling kern words;
+5. after a dedicated closure review, exact kern scaling that consumes
+   `LigKernCheckedTfm` and returns private `KernCheckedTfm`;
+6. extensible recipes, every supplied parameter, and EOF behavior;
+7. whole-oracle parity and generated no-panic/property gates;
+8. internal complete-state and A/B substitution closure;
+9. only after every earlier gate passes, a separately reviewed public facade.
 
 The future artifact must retain the exact immutable raw object used for frame
 discovery, checks, hashes, and extraction. It must bind effective size, declared
@@ -233,6 +248,10 @@ The focused source contract and native exact-sp evidence are documented in
 signed extremes, and nested-division carry cases. It separately records exact
 signed width/italic and box-observed negative height/depth. The oracle runs in
 the required CI job before the Rust suite and uploads engine, source, TFM, and
-probe provenance. A mandatory Pro box-closure review remains pending. Kern
-scaling and all lig/kern remains blocked, as do extensible recipes, parameters,
-public/current-font ownership, source-visible loading, checkpoints, and W3.
+probe provenance. Box-closure review
+`6a93a948-81a8-83ee-8173-a0a58dbe1a08` authorized only the split
+`BoxCheckedTfm` to `LigKernCheckedTfm` instruction/boundary successor. Kern
+scaling remains blocked until a dedicated lig/kern-closure review and must then
+produce a separate `KernCheckedTfm`. Extensible recipes, parameters,
+public/current-font ownership, source-visible loading, checkpoints, and W3
+remain blocked.

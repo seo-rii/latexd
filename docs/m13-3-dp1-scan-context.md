@@ -401,6 +401,18 @@ all lig/kern remains blocked, together with extensible recipes, parameters,
 public or crate-visible APIs, production font ownership/resolution/caching,
 source-visible loading, checkpoints, and W3.
 
+Box-closure Pro review `6a93a948-81a8-83ee-8173-a0a58dbe1a08` returned
+`PROCEED_PRIVATE_TFM_LIGKERN` at confidence 0.95. It found no blocking box
+defect and authorizes exactly one successor: instruction and boundary-state
+validation from `BoxCheckedTfm` to private `LigKernCheckedTfm`, without kern
+fix-word scaling. The native oracle now verifies the base TFM SHA-256 before
+probe mutation, and the AST policy requires exactly one production construction
+and one authorized return path for each proof state. After a dedicated
+lig/kern-closure review, exact kern scaling may proceed separately from
+`LigKernCheckedTfm` to private `KernCheckedTfm`. Extensible recipes,
+parameters, public or production integration, source loading, checkpoints,
+and W3 remain blocked.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

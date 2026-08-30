@@ -1627,6 +1627,18 @@ closure review 전까지 root-private이고 production caller가 없다. Kern sc
 lig/kern remains blocked이며 extensible, parameter, public owner/API, source loading과 W3도
 계속 blocked다.
 
+Box-closure Pro review `6a93a948-81a8-83ee-8173-a0a58dbe1a08`은 confidence 0.95의
+`PROCEED_PRIVATE_TFM_LIGKERN`을 반환했다. 리뷰는 box 구현과 증거에서 blocking
+결함을 찾지 않았고, 다음 단위를 `BoxCheckedTfm`에서 `LigKernCheckedTfm`으로 가는
+instruction/boundary validation 하나로 제한했다. Native oracle은 덮어쓰기 전 입력의
+base TFM SHA-256까지 직접 확인하고, AST policy는 각 proof state마다
+exactly one production construction과 exactly one authorized return path를 요구한다. 이 보강은
+테스트로 고정했다.
+Kern fix-word scaling은 이번 단위에 포함하지 않으며, lig/kern closure Pro review 뒤에만
+`LigKernCheckedTfm`을 소비하는 별도 `KernCheckedTfm` successor로 진행한다. Reviewed v1
+machine contract에서 `TFM-KERN-001`이 lig/kern owner에 묶인 부분은 v1을 변경하지 않고
+명시적인 다음 contract version에서 분리한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

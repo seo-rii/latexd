@@ -183,12 +183,39 @@ def run_oracle(engine: str) -> dict[str, dict[str, object]]:
 
 
 def validate_results(
-    results: dict[str, dict[str, object]], fixture: dict[str, object]
+    results: dict[str, dict[str, object]],
+    fixture: dict[str, object],
+    *,
+    base_tfm: bytes | None = None,
 ) -> list[str]:
     expected = fixture.get("case_results")
     if not isinstance(expected, dict):
         raise ValueError("TFM box scaling fixture case_results must be an object")
     violations = []
+    base_tfm = BASE_TFM.read_bytes() if base_tfm is None else base_tfm
+    actual_contract = {
+        "format": "latexd.tfm-box-scaling-oracle",
+        "schema_version": 1,
+        "compatibility_target": "TeX82 via pdfTeX INITEX",
+        "compatibility_source": COMPATIBILITY_SOURCE,
+        "base_tfm_sha256": hashlib.sha256(base_tfm).hexdigest(),
+        "case_sizes_sp": CASE_SIZES_SP,
+        "fix_word_cases": {
+            case_id: word.hex() for case_id, word in FIX_WORD_CASES.items()
+        },
+        "native_observation_projection": {
+            "width": "exact_scaled_sp",
+            "height": "max_zero_exact_scaled_sp",
+            "depth": "max_zero_exact_scaled_sp",
+            "italic": "exact_scaled_sp",
+        },
+    }
+    for field, actual in actual_contract.items():
+        if fixture.get(field) != actual:
+            label = "base TFM SHA-256" if field == "base_tfm_sha256" else field
+            violations.append(
+                f"{label} mismatch: expected {fixture.get(field)!r}, observed {actual!r}"
+            )
     for case_id, expected_result in expected.items():
         actual = results.get(case_id)
         if actual != expected_result:
