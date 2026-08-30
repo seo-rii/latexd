@@ -117,6 +117,38 @@ struct CharacterCheckedTfm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScaledSp(i32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoxMetric {
+    Width,
+    Height,
+    Depth,
+    Italic,
+}
+
+struct BoxCheckedTfm {
+    predecessor: CharacterCheckedTfm,
+    widths: Box<[ScaledSp]>,
+    heights: Box<[ScaledSp]>,
+    depths: Box<[ScaledSp]>,
+    italics: Box<[ScaledSp]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoxValidationRule {
+    InvalidFixWordSign {
+        table: BoxMetric,
+        index: u16,
+        sign: u8,
+    },
+    NonzeroScaledEntryZero {
+        table: BoxMetric,
+        scaled_sp: i32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterValidationRule {
     MetricIndexOutOfRange {
         character: u8,
@@ -510,6 +542,92 @@ fn check_characters(
     })
 }
 
+fn check_boxes(predecessor: CharacterCheckedTfm) -> Result<BoxCheckedTfm, BoxValidationRule> {
+    let mut reduced_size = i64::from(predecessor.predecessor.effective_size.0);
+    let mut alpha = 16i64;
+    while reduced_size >= 1 << 23 {
+        reduced_size /= 2;
+        alpha += alpha;
+    }
+    let beta = 256 / alpha;
+    alpha *= reduced_size;
+
+    let mut widths = Vec::with_capacity(usize::from(predecessor.predecessor.raw_counts.nw));
+    let mut heights = Vec::with_capacity(usize::from(predecessor.predecessor.raw_counts.nh));
+    let mut depths = Vec::with_capacity(usize::from(predecessor.predecessor.raw_counts.nd));
+    let mut italics = Vec::with_capacity(usize::from(predecessor.predecessor.raw_counts.ni));
+    for (table, range) in [
+        (
+            BoxMetric::Width,
+            predecessor.predecessor.layout.widths.clone(),
+        ),
+        (
+            BoxMetric::Height,
+            predecessor.predecessor.layout.heights.clone(),
+        ),
+        (
+            BoxMetric::Depth,
+            predecessor.predecessor.layout.depths.clone(),
+        ),
+        (
+            BoxMetric::Italic,
+            predecessor.predecessor.layout.italics.clone(),
+        ),
+    ] {
+        for (index, raw_word) in predecessor.predecessor.raw[range]
+            .chunks_exact(4)
+            .enumerate()
+        {
+            let sign = raw_word[0];
+            let b = i64::from(raw_word[1]);
+            let c = i64::from(raw_word[2]);
+            let d = i64::from(raw_word[3]);
+            let positive_fraction =
+                ((d * reduced_size / 256 + c * reduced_size) / 256 + b * reduced_size) / beta;
+            let scaled = match sign {
+                0 => positive_fraction,
+                255 => positive_fraction - alpha,
+                _ => {
+                    let index = match u16::try_from(index) {
+                        Ok(index) => index,
+                        Err(_) => unreachable!("header-checked TFM table indices fit u16"),
+                    };
+                    return Err(BoxValidationRule::InvalidFixWordSign { table, index, sign });
+                }
+            };
+            let scaled_sp = match i32::try_from(scaled) {
+                Ok(scaled_sp) => ScaledSp(scaled_sp),
+                Err(_) => unreachable!("TeX82 fix-word and effective-size bounds fit scaled"),
+            };
+            match table {
+                BoxMetric::Width => widths.push(scaled_sp),
+                BoxMetric::Height => heights.push(scaled_sp),
+                BoxMetric::Depth => depths.push(scaled_sp),
+                BoxMetric::Italic => italics.push(scaled_sp),
+            }
+        }
+    }
+    for (table, values) in [
+        (BoxMetric::Width, widths.as_slice()),
+        (BoxMetric::Height, heights.as_slice()),
+        (BoxMetric::Depth, depths.as_slice()),
+        (BoxMetric::Italic, italics.as_slice()),
+    ] {
+        let ScaledSp(scaled_sp) = values[0];
+        if scaled_sp != 0 {
+            return Err(BoxValidationRule::NonzeroScaledEntryZero { table, scaled_sp });
+        }
+    }
+
+    Ok(BoxCheckedTfm {
+        predecessor,
+        widths: widths.into_boxed_slice(),
+        heights: heights.into_boxed_slice(),
+        depths: depths.into_boxed_slice(),
+        italics: italics.into_boxed_slice(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::TypeId, collections::HashSet, ops::Range, path::Path, sync::Arc};
@@ -517,10 +635,11 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        CHARACTER_METRIC_SOURCE_ORDER, CharacterCheckedTfm, CharacterDomain, CharacterMetric,
-        CharacterTag, CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest,
-        HeaderCheckedTfm, MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest,
-        check_characters, check_preamble_header,
+        BoxCheckedTfm, BoxMetric, BoxValidationRule, CHARACTER_METRIC_SOURCE_ORDER,
+        CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
+        CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
+        MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp,
+        check_boxes, check_characters, check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -796,9 +915,601 @@ mod tests {
     }
 
     #[test]
+    fn content_addressed_native_corpus_matches_box_proof_ownership() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let proof_rules = |proof_state| {
+            rule_contract["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|rule| rule["proof_state"] == proof_state)
+                .map(|rule| rule["id"].as_str().unwrap())
+                .collect::<HashSet<_>>()
+        };
+        let header_rules = proof_rules("HeaderCheckedTfm");
+        let character_rules = proof_rules("CharacterCheckedTfm");
+        let box_rules = proof_rules("BoxCheckedTfm");
+        assert_eq!(header_rules.len(), 10);
+        assert_eq!(character_rules.len(), 4);
+        assert_eq!(box_rules.len(), 3);
+
+        let cases = manifest["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 83);
+        for case in cases {
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let actual_blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(actual_blob_sha256, blob_sha256, "{case_id}");
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let classification = case["expected_classification"].as_str().unwrap();
+            let first_rule = case["first_rejecting_rule"].as_str();
+            let header = check_preamble_header(Arc::from(raw), input_size);
+
+            if classification == "InvalidEffectiveSize" {
+                assert!(
+                    matches!(header, Err(PreambleHeaderFailure::InvalidEffectiveSize)),
+                    "{case_id} {blob_sha256}"
+                );
+                continue;
+            }
+            if first_rule.is_some_and(|rule| header_rules.contains(rule)) {
+                assert!(
+                    matches!(header, Err(PreambleHeaderFailure::Malformed(_))),
+                    "{case_id} {blob_sha256}"
+                );
+                continue;
+            }
+
+            let character = check_characters(header.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in header phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| character_rules.contains(rule)) {
+                assert!(character.is_err(), "{case_id} {blob_sha256}");
+                continue;
+            }
+
+            let result = check_boxes(character.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in character phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| box_rules.contains(rule)) {
+                let expected = match case_id {
+                    "invalid_width_fix_word_sign" => BoxValidationRule::InvalidFixWordSign {
+                        table: BoxMetric::Width,
+                        index: 1,
+                        sign: 1,
+                    },
+                    "invalid_height_fix_word_sign" => BoxValidationRule::InvalidFixWordSign {
+                        table: BoxMetric::Height,
+                        index: 1,
+                        sign: 1,
+                    },
+                    "invalid_depth_fix_word_sign" => BoxValidationRule::InvalidFixWordSign {
+                        table: BoxMetric::Depth,
+                        index: 1,
+                        sign: 1,
+                    },
+                    "invalid_italic_fix_word_sign" => BoxValidationRule::InvalidFixWordSign {
+                        table: BoxMetric::Italic,
+                        index: 1,
+                        sign: 1,
+                    },
+                    "nonzero_width_zero" | "nonzero_width_zero_at_16sp" => {
+                        BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Width,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        }
+                    }
+                    "nonzero_height_zero" | "nonzero_height_zero_at_16sp" => {
+                        BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Height,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        }
+                    }
+                    "nonzero_depth_zero" | "nonzero_depth_zero_at_16sp" => {
+                        BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Depth,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        }
+                    }
+                    "nonzero_italic_zero" | "nonzero_italic_zero_at_16sp" => {
+                        BoxValidationRule::NonzeroScaledEntryZero {
+                            table: BoxMetric::Italic,
+                            scaled_sp: if input_size == 16 { 1 } else { 40_960 },
+                        }
+                    }
+                    _ => panic!("missing exact box rule for {case_id}"),
+                };
+                assert_eq!(result.err(), Some(expected), "{case_id} {blob_sha256}");
+            } else {
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+    }
+
+    #[test]
     fn character_entrypoint_consumes_only_the_header_state() {
         let _: fn(HeaderCheckedTfm) -> Result<CharacterCheckedTfm, CharacterValidationRule> =
             check_characters;
+    }
+
+    #[test]
+    fn box_entrypoint_consumes_only_the_character_state() {
+        let _: fn(CharacterCheckedTfm) -> Result<BoxCheckedTfm, BoxValidationRule> = check_boxes;
+    }
+
+    #[test]
+    fn box_tables_scale_exact_positive_negative_fractional_and_carry_words() {
+        let bytes = box_frame_with_words(
+            [5, 3, 3, 3],
+            &[
+                (BoxMetric::Width, 1, [0, 0x10, 0, 0]),
+                (BoxMetric::Width, 2, [255, 0xf0, 0, 0]),
+                (BoxMetric::Width, 3, [0, 0, 1, 0]),
+                (BoxMetric::Width, 4, [0, 0, 0, 1]),
+                (BoxMetric::Height, 1, [0, 1, 0, 0]),
+                (BoxMetric::Height, 2, [255, 255, 255, 255]),
+                (BoxMetric::Depth, 1, [0, 0, 255, 255]),
+                (BoxMetric::Depth, 2, [255, 255, 0, 0]),
+                (BoxMetric::Italic, 1, [0, 15, 255, 255]),
+                (BoxMetric::Italic, 2, [0, 0, 0, 1]),
+            ],
+        );
+        let state = check_boxes(
+            check_characters(check_preamble_header(Arc::from(bytes), 655_360).unwrap()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            state.widths.as_ref(),
+            [
+                ScaledSp(0),
+                ScaledSp(655_360),
+                ScaledSp(-655_360),
+                ScaledSp(160),
+                ScaledSp(0),
+            ]
+        );
+        assert_eq!(
+            state.heights.as_ref(),
+            [ScaledSp(0), ScaledSp(40_960), ScaledSp(-1)]
+        );
+        assert_eq!(
+            state.depths.as_ref(),
+            [ScaledSp(0), ScaledSp(40_959), ScaledSp(-40_960)]
+        );
+        assert_eq!(
+            state.italics.as_ref(),
+            [ScaledSp(0), ScaledSp(655_359), ScaledSp(0)]
+        );
+    }
+
+    #[test]
+    fn each_box_table_rejects_a_forbidden_sign_with_exact_identity() {
+        for table in [
+            BoxMetric::Width,
+            BoxMetric::Height,
+            BoxMetric::Depth,
+            BoxMetric::Italic,
+        ] {
+            let bytes = box_frame_with_words([2, 2, 2, 2], &[(table, 1, [1, 2, 3, 4])]);
+            let result = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            );
+            assert_eq!(
+                result.err(),
+                Some(BoxValidationRule::InvalidFixWordSign {
+                    table,
+                    index: 1,
+                    sign: 1,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn every_forbidden_sign_byte_rejects_in_every_box_table() {
+        for table in [
+            BoxMetric::Width,
+            BoxMetric::Height,
+            BoxMetric::Depth,
+            BoxMetric::Italic,
+        ] {
+            for sign in 1..=254u8 {
+                let bytes = box_frame_with_words([2, 2, 2, 2], &[(table, 1, [sign, 0, 0, 0])]);
+                let result = check_boxes(
+                    check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+                );
+                assert_eq!(
+                    result.err(),
+                    Some(BoxValidationRule::InvalidFixWordSign {
+                        table,
+                        index: 1,
+                        sign,
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn box_sign_failures_follow_table_and_entry_source_order() {
+        for (words, expected) in [
+            (
+                vec![
+                    (BoxMetric::Width, 2, [1, 0, 0, 0]),
+                    (BoxMetric::Height, 0, [2, 0, 0, 0]),
+                ],
+                BoxValidationRule::InvalidFixWordSign {
+                    table: BoxMetric::Width,
+                    index: 2,
+                    sign: 1,
+                },
+            ),
+            (
+                vec![
+                    (BoxMetric::Depth, 2, [4, 0, 0, 0]),
+                    (BoxMetric::Depth, 1, [3, 0, 0, 0]),
+                ],
+                BoxValidationRule::InvalidFixWordSign {
+                    table: BoxMetric::Depth,
+                    index: 1,
+                    sign: 3,
+                },
+            ),
+        ] {
+            let bytes = box_frame_with_words([3, 3, 3, 3], &words);
+            let result = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            );
+            assert_eq!(result.err(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn box_scaling_matches_literal_effective_size_normalization_boundaries() {
+        let bytes = box_frame_with_words(
+            [6, 1, 1, 1],
+            &[
+                (BoxMetric::Width, 1, [0, 16, 0, 0]),
+                (BoxMetric::Width, 2, [255, 240, 0, 0]),
+                (BoxMetric::Width, 3, [0, 0, 0, 1]),
+                (BoxMetric::Width, 4, [255, 255, 255, 255]),
+                (BoxMetric::Width, 5, [0, 255, 255, 255]),
+            ],
+        );
+        for (size, expected) in [
+            (1, [1, -1, 0, -1, 15]),
+            (2, [2, -2, 0, -1, 31]),
+            (15, [15, -15, 0, -1, 239]),
+            (16, [16, -16, 0, -1, 255]),
+            (17, [17, -17, 0, -1, 271]),
+            ((1 << 16) - 1, [65_535, -65_535, 0, -1, 1_048_559]),
+            (1 << 16, [65_536, -65_536, 0, -1, 1_048_575]),
+            ((1 << 16) + 1, [65_537, -65_537, 0, -1, 1_048_591]),
+            ((1 << 23) - 1, [8_388_607, -8_388_607, 7, -8, 134_217_704]),
+            (1 << 23, [8_388_608, -8_388_608, 8, -8, 134_217_720]),
+            ((1 << 23) + 1, [8_388_608, -8_388_608, 8, -8, 134_217_720]),
+            (
+                (1 << 24) - 1,
+                [16_777_214, -16_777_214, 15, -16, 268_435_408],
+            ),
+            (1 << 24, [16_777_216, -16_777_216, 16, -16, 268_435_440]),
+            (
+                (1 << 24) + 1,
+                [16_777_216, -16_777_216, 16, -16, 268_435_440],
+            ),
+            (
+                (1 << 25) - 1,
+                [33_554_428, -33_554_428, 31, -32, 536_870_816],
+            ),
+            (1 << 25, [33_554_432, -33_554_432, 32, -32, 536_870_880]),
+            (
+                (1 << 25) + 1,
+                [33_554_432, -33_554_432, 32, -32, 536_870_880],
+            ),
+            (
+                (1 << 26) - 1,
+                [67_108_856, -67_108_856, 63, -64, 1_073_741_632],
+            ),
+            (1 << 26, [67_108_864, -67_108_864, 64, -64, 1_073_741_760]),
+            (
+                (1 << 26) + 1,
+                [67_108_864, -67_108_864, 64, -64, 1_073_741_760],
+            ),
+            (
+                (1 << 27) - 1,
+                [134_217_712, -134_217_712, 127, -128, 2_147_483_264],
+            ),
+        ] {
+            let state = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes.clone()), size).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                state.widths[1..],
+                expected.map(ScaledSp),
+                "effective size {size}"
+            );
+        }
+    }
+
+    #[test]
+    fn scaled_entry_zero_checks_use_the_bound_size_for_each_box_table() {
+        for table in [
+            BoxMetric::Width,
+            BoxMetric::Height,
+            BoxMetric::Depth,
+            BoxMetric::Italic,
+        ] {
+            let bytes = box_frame_with_words([1, 1, 1, 1], &[(table, 0, [0, 1, 0, 0])]);
+            assert!(
+                check_boxes(
+                    check_characters(check_preamble_header(Arc::from(bytes.clone()), 1).unwrap())
+                        .unwrap()
+                )
+                .is_ok(),
+                "{table:?} raw entry zero should round to zero at 1sp"
+            );
+            let result = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 16).unwrap()).unwrap(),
+            );
+            assert_eq!(
+                result.err(),
+                Some(BoxValidationRule::NonzeroScaledEntryZero {
+                    table,
+                    scaled_sp: 1,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn scaled_entry_zero_failures_follow_box_table_source_order() {
+        let tables = [
+            BoxMetric::Width,
+            BoxMetric::Height,
+            BoxMetric::Depth,
+            BoxMetric::Italic,
+        ];
+        for first_failure in 0..tables.len() {
+            let words = tables[first_failure..]
+                .iter()
+                .map(|&table| (table, 0, [0, 1, 0, 0]))
+                .collect::<Vec<_>>();
+            let bytes = box_frame_with_words([1, 1, 1, 1], &words);
+            let result = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 16).unwrap()).unwrap(),
+            );
+            assert_eq!(
+                result.err(),
+                Some(BoxValidationRule::NonzeroScaledEntryZero {
+                    table: tables[first_failure],
+                    scaled_sp: 1,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn every_box_word_is_scaled_before_entry_zero_checks() {
+        let bytes = box_frame_with_words(
+            [1, 1, 1, 2],
+            &[
+                (BoxMetric::Width, 0, [0, 1, 0, 0]),
+                (BoxMetric::Italic, 1, [7, 0, 0, 0]),
+            ],
+        );
+        let result = check_boxes(
+            check_characters(check_preamble_header(Arc::from(bytes), 16).unwrap()).unwrap(),
+        );
+        assert_eq!(
+            result.err(),
+            Some(BoxValidationRule::InvalidFixWordSign {
+                table: BoxMetric::Italic,
+                index: 1,
+                sign: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn box_success_retains_the_exact_character_predecessor_and_table_lengths() {
+        let bytes = box_frame_with_words(
+            [2, 3, 4, 5],
+            &[
+                (BoxMetric::Width, 1, [0, 0, 1, 0]),
+                (BoxMetric::Height, 2, [0, 1, 0, 0]),
+                (BoxMetric::Depth, 3, [255, 255, 255, 255]),
+                (BoxMetric::Italic, 4, [0, 0, 0, 1]),
+            ],
+        );
+        let raw: Arc<[u8]> = Arc::from(bytes);
+        let retained = Arc::clone(&raw);
+        let character = check_characters(check_preamble_header(raw, 12_345).unwrap()).unwrap();
+        let expected_records = character.records.to_vec();
+        let expected_existing = character.existing_characters;
+        let expected_counts = character.predecessor.raw_counts;
+        let expected_domain = character.predecessor.character_domain;
+        let expected_layout = character.predecessor.layout.clone();
+        let expected_endpoint = character.predecessor.declared_frame_end;
+        let expected_raw_digest = character.predecessor.raw_digest;
+        let expected_frame_digest = character.predecessor.frame_digest;
+        let expected_design_fix = character.predecessor.design_size_fix_word;
+        let expected_design_sp = character.predecessor.design_size_sp;
+
+        let state = check_boxes(character).unwrap();
+
+        assert!(Arc::ptr_eq(&retained, &state.predecessor.predecessor.raw));
+        assert_eq!(
+            state.predecessor.predecessor.effective_size,
+            EffectiveSizeSp(12_345)
+        );
+        assert_eq!(state.predecessor.predecessor.raw_counts, expected_counts);
+        assert_eq!(
+            state.predecessor.predecessor.character_domain,
+            expected_domain
+        );
+        assert_eq!(state.predecessor.predecessor.layout, expected_layout);
+        assert_eq!(
+            state.predecessor.predecessor.declared_frame_end,
+            expected_endpoint
+        );
+        assert_eq!(
+            state.predecessor.predecessor.raw_digest,
+            expected_raw_digest
+        );
+        assert_eq!(
+            state.predecessor.predecessor.frame_digest,
+            expected_frame_digest
+        );
+        assert_eq!(
+            state.predecessor.predecessor.design_size_fix_word,
+            expected_design_fix
+        );
+        assert_eq!(
+            state.predecessor.predecessor.design_size_sp,
+            expected_design_sp
+        );
+        assert_eq!(state.predecessor.records.as_ref(), expected_records);
+        assert_eq!(state.predecessor.existing_characters, expected_existing);
+        assert_eq!(state.widths.len(), 2);
+        assert_eq!(state.heights.len(), 3);
+        assert_eq!(state.depths.len(), 4);
+        assert_eq!(state.italics.len(), 5);
+    }
+
+    #[test]
+    fn suffixes_and_post_box_tables_do_not_change_scaled_box_semantics() {
+        let mut base = box_frame_with_words(
+            [2, 2, 2, 2],
+            &[
+                (BoxMetric::Width, 1, [0, 0, 1, 0]),
+                (BoxMetric::Height, 1, [0, 0, 2, 0]),
+                (BoxMetric::Depth, 1, [0, 0, 3, 0]),
+                (BoxMetric::Italic, 1, [0, 0, 4, 0]),
+            ],
+        );
+        let original_lf = u16::from_be_bytes([base[0], base[1]]);
+        put_count(&mut base, 0, original_lf + 4);
+        for count_index in 8..=11 {
+            put_count(&mut base, count_index, 1);
+        }
+        base.extend_from_slice(&[0; 16]);
+        let control = check_boxes(
+            check_characters(check_preamble_header(Arc::from(base.clone()), 65_536).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let layout = control.predecessor.predecessor.layout.clone();
+
+        for range in [
+            layout.lig_kern,
+            layout.kerns,
+            layout.extensibles,
+            layout.parameters,
+        ] {
+            let mut bytes = base.clone();
+            bytes[range.clone()].fill(0xff);
+            let state = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 65_536).unwrap()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(state.widths, control.widths, "later range {range:?}");
+            assert_eq!(state.heights, control.heights, "later range {range:?}");
+            assert_eq!(state.depths, control.depths, "later range {range:?}");
+            assert_eq!(state.italics, control.italics, "later range {range:?}");
+        }
+
+        for suffix_length in [1, 2, 3, 4, 65, 8193] {
+            let mut bytes = base.clone();
+            bytes.extend((0..suffix_length).map(|index| (index as u8).wrapping_mul(41)));
+            let state = check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 65_536).unwrap()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(state.widths, control.widths);
+            assert_eq!(state.heights, control.heights);
+            assert_eq!(state.depths, control.depths);
+            assert_eq!(state.italics, control.italics);
+            assert_eq!(
+                state.predecessor.predecessor.frame_digest,
+                control.predecessor.predecessor.frame_digest
+            );
+            assert_ne!(
+                state.predecessor.predecessor.raw_digest,
+                control.predecessor.predecessor.raw_digest
+            );
+        }
+    }
+
+    #[test]
+    fn maximum_box_geometry_scales_without_overflow() {
+        let count = 8189;
+        let bytes = box_frame_with_words([count, count, count, count], &[]);
+        let state = check_boxes(
+            check_characters(
+                check_preamble_header(Arc::from(bytes), MAX_TEX_FONT_SIZE_SP - 1).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(state.widths.len(), usize::from(count));
+        assert_eq!(state.heights.len(), usize::from(count));
+        assert_eq!(state.depths.len(), usize::from(count));
+        assert_eq!(state.italics.len(), usize::from(count));
+    }
+
+    #[test]
+    fn bounded_generated_sign_valid_box_words_never_panic_or_fail() {
+        let mut generator = 0x6a93_9670_0fc8_83e8u64;
+        for case_index in 0..256 {
+            generator = generator
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let count = 2 + u16::try_from(generator % 63).unwrap();
+            let mut words = Vec::new();
+            for table in [
+                BoxMetric::Width,
+                BoxMetric::Height,
+                BoxMetric::Depth,
+                BoxMetric::Italic,
+            ] {
+                for index in 1..count {
+                    let mut word = [0; 4];
+                    for byte in &mut word {
+                        generator = generator
+                            .wrapping_mul(6_364_136_223_846_793_005)
+                            .wrapping_add(1);
+                        *byte = (generator >> 32) as u8;
+                    }
+                    word[0] = if word[0] & 1 == 0 { 0 } else { 255 };
+                    words.push((table, index, word));
+                }
+            }
+            generator = generator
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let size = 1 + i32::try_from(generator % u64::from((1u32 << 27) - 1)).unwrap();
+            let bytes = box_frame_with_words([count, count, count, count], &words);
+            let header = check_preamble_header(Arc::from(bytes), size).unwrap();
+            let character = check_characters(header).unwrap();
+            let result = std::panic::catch_unwind(|| check_boxes(character));
+            assert!(result.is_ok(), "case {case_index} panicked");
+            assert!(result.unwrap().is_ok(), "case {case_index} failed");
+        }
     }
 
     #[test]
@@ -1377,6 +2088,25 @@ mod tests {
         for (index, record) in records.iter().enumerate() {
             let offset = 32 + index * 4;
             bytes[offset..offset + 4].copy_from_slice(record);
+        }
+        bytes
+    }
+
+    fn box_frame_with_words(counts: [u16; 4], words: &[(BoxMetric, u16, [u8; 4])]) -> Vec<u8> {
+        let [nw, nh, nd, ni] = counts;
+        let mut bytes = character_frame(&[[0; 4]], [nw, nh, nd, ni, 0, 0]);
+        let layout = check_preamble_header(Arc::from(bytes.clone()), 1)
+            .unwrap()
+            .layout;
+        for &(table, index, word) in words {
+            let range = match table {
+                BoxMetric::Width => &layout.widths,
+                BoxMetric::Height => &layout.heights,
+                BoxMetric::Depth => &layout.depths,
+                BoxMetric::Italic => &layout.italics,
+            };
+            let start = range.start + usize::from(index) * 4;
+            bytes[start..start + 4].copy_from_slice(&word);
         }
         bytes
     }

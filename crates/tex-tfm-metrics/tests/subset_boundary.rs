@@ -36,6 +36,7 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
     assert!(!production.contains("\npub("));
     assert_eq!(production.matches("check_preamble_header(").count(), 1);
     assert_eq!(production.matches("check_characters(").count(), 1);
+    assert_eq!(production.matches("check_boxes(").count(), 1);
     for forbidden in [
         "impl From<",
         "impl TryFrom<",
@@ -43,6 +44,8 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
         "Deserialize for HeaderCheckedTfm",
         "Serialize for CharacterCheckedTfm",
         "Deserialize for CharacterCheckedTfm",
+        "Serialize for BoxCheckedTfm",
+        "Deserialize for BoxCheckedTfm",
     ] {
         assert!(
             !production.contains(forbidden),
@@ -59,7 +62,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
 
     assert_eq!(
         policy.entrypoint_definitions,
-        ["check_preamble_header", "check_characters"]
+        ["check_preamble_header", "check_characters", "check_boxes"]
     );
     assert!(
         policy.entrypoint_references.is_empty(),
@@ -91,6 +94,7 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
         "struct Proof { pub(crate) raw: () }",
         "struct Proof; impl Proof { pub(crate) fn leak() {} }",
         "extern \"C\" { pub(crate) fn leak(); }",
+        "#[derive(Clone)] struct BoxCheckedTfm;",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -175,6 +179,27 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             })
         {
             return;
+        }
+
+        if let Item::Struct(structure) = item
+            && structure.ident == "BoxCheckedTfm"
+        {
+            for attribute in &structure.attrs {
+                if let Meta::List(arguments) = &attribute.meta
+                    && attribute.path().is_ident("derive")
+                {
+                    assert!(
+                        !arguments
+                            .tokens
+                            .to_string()
+                            .split(|character: char| {
+                                !(character.is_ascii_alphanumeric() || character == '_')
+                            })
+                            .any(|token| token == "Clone"),
+                        "BoxCheckedTfm must not derive Clone"
+                    );
+                }
+            }
         }
 
         let visibility = match item {
@@ -286,5 +311,8 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
 }
 
 fn is_validator_entrypoint(name: &str) -> bool {
-    matches!(name, "check_preamble_header" | "check_characters")
+    matches!(
+        name,
+        "check_preamble_header" | "check_characters" | "check_boxes"
+    )
 }

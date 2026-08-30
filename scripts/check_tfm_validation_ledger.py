@@ -40,6 +40,11 @@ CHARACTER_CHECKED_RULES = {
     "TFM-CHARLIST-001",
     "TFM-CHARLIST-002",
 }
+BOX_CHECKED_RULES = {
+    "TFM-BOX-001",
+    "TFM-BOX-002",
+    "TFM-BOX-003",
+}
 REVIEWED_V1_CONTRACT_CANONICAL_SHA256 = (
     "cebc062f771f27c5c46e0e83a74ab7c7c9f6e3a172b2cf1fe01bce0a7f6f6c21"
 )
@@ -178,6 +183,13 @@ def validate_rule_contract(
     }
     if character_claims != CHARACTER_CHECKED_RULES:
         errors.append("semantic contract CharacterCheckedTfm proof ownership differs")
+    box_claims = {
+        rule.get("id")
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("proof_state") == "BoxCheckedTfm"
+    }
+    if box_claims != BOX_CHECKED_RULES:
+        errors.append("semantic contract BoxCheckedTfm proof ownership differs")
     unmapped_cases = sorted(fixture_case_ids - referenced_cases)
     if unmapped_cases:
         errors.append("semantic contract unmapped fixture cases: " + ", ".join(unmapped_cases))

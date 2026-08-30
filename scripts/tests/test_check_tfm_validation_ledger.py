@@ -55,7 +55,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertIn("private `CharacterCheckedTfm` implementation", document)
             self.assertIn("10/10 exact character-owned rejections", document)
             self.assertIn("domains `1..=5`", document)
-            self.assertIn("box scaling remains blocked", document)
+            self.assertIn("lig/kern remains blocked", document)
 
     def test_character_closure_review_authorizes_only_private_box_phase(
         self,
@@ -251,6 +251,14 @@ class TfmValidationLedgerTests(unittest.TestCase):
 
         errors = validate_rule_contract(changed, fixture_case_ids())
         self.assertTrue(any("CharacterCheckedTfm proof ownership" in error for error in errors))
+
+    def test_box_proof_ownership_cannot_be_moved_to_a_late_phase(self) -> None:
+        changed = json.loads(json.dumps(rule_contract()))
+        rules = {rule["id"]: rule for rule in changed["rules"]}
+        rules["TFM-BOX-001"]["proof_state"] = "TailCheckedTfm"
+
+        errors = validate_rule_contract(changed, fixture_case_ids())
+        self.assertTrue(any("BoxCheckedTfm proof ownership" in error for error in errors))
 
     def test_reviewed_v1_contract_semantics_require_a_version_transition(self) -> None:
         changed = json.loads(json.dumps(rule_contract()))
