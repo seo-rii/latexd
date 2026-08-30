@@ -138,6 +138,20 @@ predecessor-drifted transitions. Its active ownership projection is
 `TailCheckedTfm: 3`. This is a machine-contract change only; no extensible
 production state exists before the focused source contract and strict RED gate.
 
+That focused contract is now immutable as
+`tfm-extensible-source-contract-v1.json`, raw SHA-256
+`5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd` and
+canonical SHA-256
+`e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125`.
+It pins the existence helper lines 11150..11154 and the complete recipe loop
+lines 11176..11183 with SHA-256
+`c155058da84f06e687bd1cf226e3fc9900280abb1e4e60783360cb31f8f0c7cc`.
+Top, middle, and bottom zero are absent optionals; repeat is mandatory and code
+zero still requires actual character existence. All `ne` recipes are checked,
+including unreferenced ones, and the exact successful maximum is `ne=32753`.
+No parameter or suffix byte belongs to this transition. See
+`docs/tex82-read-font-info-extensibles.md` for the complete implementation gate.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

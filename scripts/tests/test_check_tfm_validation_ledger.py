@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.check_tfm_validation_ledger import (
     main,
+    validate_extensible_source_contract,
     validate_kern_source_contract,
     validate_rule_contract,
     validate_rule_ledger,
@@ -37,6 +38,10 @@ KERN_SOURCE_CONTRACT = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
+EXTENSIBLE_SOURCE_CONTRACT = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-extensible-source-contract-v1.json"
+)
 LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
 KERN_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-kern-tdd-red-v1.md"
 
@@ -66,7 +71,110 @@ def kern_source_contract() -> dict[str, object]:
     return json.loads(KERN_SOURCE_CONTRACT.read_text(encoding="utf-8"))
 
 
+def extensible_source_contract() -> dict[str, object]:
+    return json.loads(EXTENSIBLE_SOURCE_CONTRACT.read_text(encoding="utf-8"))
+
+
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_extensible_source_contract_pins_exact_successor_boundary(self) -> None:
+        contract = extensible_source_contract()
+        self.assertEqual(
+            validate_extensible_source_contract(
+                contract,
+                rule_transition_v3(),
+                kern_source_contract(),
+            ),
+            [],
+        )
+        self.assertEqual(contract["schema_version"], 1)
+        self.assertEqual(
+            contract["predecessors"],
+            {
+                "ownership_transition": {
+                    "path": "tfm-validation-rule-transition-v3.json",
+                    "schema_version": 3,
+                    "raw_sha256": "5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d",
+                    "canonical_sha256": "3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf",
+                },
+                "input_source_contract": {
+                    "path": "tfm-kern-source-contract-v1.json",
+                    "schema_version": 1,
+                    "raw_sha256": "19d08087ce4b96bc4e3e9059e161adfd4705157e5a7e768190695155b7c9b2a1",
+                    "canonical_sha256": "754519a85d9479c616fc2a246d6c584f839b617f43c68c4b3fa55c486e3a0b74",
+                },
+            },
+        )
+        self.assertEqual(
+            contract["focused_source"],
+            {
+                "compatibility_source_sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+                "check_existence_section": {
+                    "lines": "11150..11154",
+                    "sha256": "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63",
+                },
+                "extensible_recipe_section": {
+                    "lines": "11176..11183",
+                    "sha256": "c155058da84f06e687bd1cf226e3fc9900280abb1e4e60783360cb31f8f0c7cc",
+                },
+            },
+        )
+        self.assertEqual(
+            contract["proof_boundary"],
+            {
+                "input": "KernCheckedTfm",
+                "output": "ExtensibleCheckedTfm",
+                "owned_rule_ids": ["TFM-EXT-001", "TFM-EXT-002"],
+                "loop_cardinality": "ne",
+                "absolute_valid_recipe_count": 32753,
+                "field_order": ["top", "middle", "bottom", "repeat"],
+                "recipe_fields": [
+                    {
+                        "source_field": "a",
+                        "semantic": "top",
+                        "zero_semantics": "absent_optional",
+                    },
+                    {
+                        "source_field": "b",
+                        "semantic": "middle",
+                        "zero_semantics": "absent_optional",
+                    },
+                    {
+                        "source_field": "c",
+                        "semantic": "bottom",
+                        "zero_semantics": "absent_optional",
+                    },
+                    {
+                        "source_field": "d",
+                        "semantic": "repeat",
+                        "zero_semantics": "mandatory_character_code",
+                    },
+                ],
+                "reads": ["character_existence", "extensibles"],
+                "excluded_reads": ["parameters", "raw_suffix"],
+                "scaling": False,
+                "referenced_only": False,
+            },
+        )
+
+    def test_extensible_source_contract_rejects_predecessor_source_and_scope_drift(
+        self,
+    ) -> None:
+        for field, replacement in (
+            ("predecessors", {}),
+            ("focused_source", {}),
+            ("proof_boundary", {}),
+        ):
+            changed = extensible_source_contract()
+            changed[field] = replacement
+            self.assertTrue(
+                validate_extensible_source_contract(
+                    changed,
+                    rule_transition_v3(),
+                    kern_source_contract(),
+                ),
+                field,
+            )
+
     def test_kern_source_contract_pins_exact_successor_boundary(self) -> None:
         contract = kern_source_contract()
         self.assertEqual(
@@ -202,6 +310,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
         self.assertIn("'ExtensibleCheckedTfm': 2", output.getvalue())
         self.assertIn("'TailCheckedTfm': 3", output.getvalue())
         self.assertIn("transition_chain=v2->v3", output.getvalue())
+        self.assertIn("extensible_source_contract=v1", output.getvalue())
 
     def test_v3_transition_moves_only_extensible_rules_from_effective_owner(
         self,

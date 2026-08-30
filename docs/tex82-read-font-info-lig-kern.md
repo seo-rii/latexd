@@ -168,3 +168,15 @@ evaluates the ordered v2-to-v3 chain and fails on omission, reorder,
 wrong-effective-owner, duplicate or repeated moves, and predecessor drift.
 This ownership substrate does not authorize production extensible symbols; the
 focused source contract and prospective RED evidence remain mandatory first.
+
+The focused source prerequisite is now satisfied by immutable
+`tfm-extensible-source-contract-v1.json`, raw SHA-256
+`5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd` and
+canonical SHA-256
+`e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125`.
+It pins existence lines 11150..11154 and the recipe loop lines 11176..11183,
+distinguishes optional zero parts from mandatory repeat zero, requires complete
+`ne` iteration, and excludes parameters and suffix. Its exact successful
+maximum is `ne=32753`. The implementation and RED boundary now continue in
+`docs/tex82-read-font-info-extensibles.md`; no predecessor code changes are
+authorized.

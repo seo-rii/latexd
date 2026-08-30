@@ -27,6 +27,10 @@ RULE_TRANSITION_V3_PATH = (
 KERN_SOURCE_CONTRACT_PATH = (
     ROOT / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
+EXTENSIBLE_SOURCE_CONTRACT_PATH = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-extensible-source-contract-v1.json"
+)
 PINNED_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
     "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
@@ -186,6 +190,63 @@ REVIEWED_V3_TRANSITION_RAW_SHA256 = (
 REVIEWED_V3_TRANSITION_CANONICAL_SHA256 = (
     "3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf"
 )
+REVIEWED_KERN_SOURCE_CONTRACT_RAW_SHA256 = (
+    "19d08087ce4b96bc4e3e9059e161adfd4705157e5a7e768190695155b7c9b2a1"
+)
+REVIEWED_KERN_SOURCE_CONTRACT_CANONICAL_SHA256 = (
+    "754519a85d9479c616fc2a246d6c584f839b617f43c68c4b3fa55c486e3a0b74"
+)
+PINNED_EXTENSIBLE_FOCUSED_SOURCE = {
+    "compatibility_source_sha256": PINNED_SOURCE["sha256"],
+    "check_existence_section": {
+        "lines": "11150..11154",
+        "sha256": "50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63",
+    },
+    "extensible_recipe_section": {
+        "lines": "11176..11183",
+        "sha256": "c155058da84f06e687bd1cf226e3fc9900280abb1e4e60783360cb31f8f0c7cc",
+    },
+}
+PINNED_EXTENSIBLE_PROOF_BOUNDARY = {
+    "input": "KernCheckedTfm",
+    "output": "ExtensibleCheckedTfm",
+    "owned_rule_ids": ["TFM-EXT-001", "TFM-EXT-002"],
+    "loop_cardinality": "ne",
+    "absolute_valid_recipe_count": 32753,
+    "field_order": ["top", "middle", "bottom", "repeat"],
+    "recipe_fields": [
+        {
+            "source_field": "a",
+            "semantic": "top",
+            "zero_semantics": "absent_optional",
+        },
+        {
+            "source_field": "b",
+            "semantic": "middle",
+            "zero_semantics": "absent_optional",
+        },
+        {
+            "source_field": "c",
+            "semantic": "bottom",
+            "zero_semantics": "absent_optional",
+        },
+        {
+            "source_field": "d",
+            "semantic": "repeat",
+            "zero_semantics": "mandatory_character_code",
+        },
+    ],
+    "reads": ["character_existence", "extensibles"],
+    "excluded_reads": ["parameters", "raw_suffix"],
+    "scaling": False,
+    "referenced_only": False,
+}
+REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_RAW_SHA256 = (
+    "5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd"
+)
+REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256 = (
+    "e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125"
+)
 PINNED_KERN_FOCUSED_SOURCE = {
     "compatibility_source_sha256": PINNED_SOURCE["sha256"],
     "fix_word_scaling_section": {
@@ -210,6 +271,92 @@ PINNED_KERN_PROOF_BOUNDARY = {
     "excluded_reads": ["extensibles", "parameters", "raw_suffix"],
     "entry_zero_check": False,
 }
+
+
+def validate_extensible_source_contract(
+    contract: dict[str, object],
+    ownership_transition: dict[str, object],
+    input_source_contract: dict[str, object],
+) -> list[str]:
+    errors: list[str] = []
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessors",
+        "focused_source",
+        "proof_boundary",
+    }
+    if set(contract) != expected_keys:
+        errors.append("extensible source contract fields differ")
+    if contract.get("format") != "latexd.tfm-extensible-source-contract":
+        errors.append("extensible source contract format is invalid")
+    if contract.get("schema_version") != 1:
+        errors.append("extensible source contract schema version is invalid")
+
+    canonical_transition = json.dumps(
+        ownership_transition,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    canonical_input_contract = json.dumps(
+        input_source_contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessors = {
+        "ownership_transition": {
+            "path": "tfm-validation-rule-transition-v3.json",
+            "schema_version": 3,
+            "raw_sha256": REVIEWED_V3_TRANSITION_RAW_SHA256,
+            "canonical_sha256": REVIEWED_V3_TRANSITION_CANONICAL_SHA256,
+        },
+        "input_source_contract": {
+            "path": "tfm-kern-source-contract-v1.json",
+            "schema_version": 1,
+            "raw_sha256": REVIEWED_KERN_SOURCE_CONTRACT_RAW_SHA256,
+            "canonical_sha256": REVIEWED_KERN_SOURCE_CONTRACT_CANONICAL_SHA256,
+        },
+    }
+    if contract.get("predecessors") != expected_predecessors:
+        errors.append("extensible source contract predecessor pins differ")
+    if hashlib.sha256(RULE_TRANSITION_V3_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_V3_TRANSITION_RAW_SHA256
+    ):
+        errors.append("extensible source ownership predecessor raw content differs")
+    if hashlib.sha256(canonical_transition).hexdigest() != (
+        REVIEWED_V3_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("extensible source ownership predecessor canonical content differs")
+    if hashlib.sha256(KERN_SOURCE_CONTRACT_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_KERN_SOURCE_CONTRACT_RAW_SHA256
+    ):
+        errors.append("extensible source input predecessor raw content differs")
+    if hashlib.sha256(canonical_input_contract).hexdigest() != (
+        REVIEWED_KERN_SOURCE_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("extensible source input predecessor canonical content differs")
+    if contract.get("focused_source") != PINNED_EXTENSIBLE_FOCUSED_SOURCE:
+        errors.append("extensible source contract focused source pins differ")
+    if contract.get("proof_boundary") != PINNED_EXTENSIBLE_PROOF_BOUNDARY:
+        errors.append("extensible source contract proof boundary differs")
+
+    canonical_contract = json.dumps(
+        contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(EXTENSIBLE_SOURCE_CONTRACT_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_RAW_SHA256
+    ):
+        errors.append("reviewed extensible source contract raw content differs")
+    if hashlib.sha256(canonical_contract).hexdigest() != (
+        REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("reviewed extensible source contract canonical content differs")
+    return errors
 
 
 def validate_kern_source_contract(
@@ -738,6 +885,16 @@ def main() -> int:
         KERN_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
     )
     errors.extend(validate_kern_source_contract(kern_source_contract, transition))
+    extensible_source_contract = json.loads(
+        EXTENSIBLE_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
+    )
+    errors.extend(
+        validate_extensible_source_contract(
+            extensible_source_contract,
+            transition_v3,
+            kern_source_contract,
+        )
+    )
     if errors:
         for error in errors:
             print(error)
@@ -752,7 +909,7 @@ def main() -> int:
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
         f"proof_states={dict(sorted(proof_counts.items()))}, "
         "transition_chain=v2->v3, "
-        "kern_source_contract=v1"
+        "kern_source_contract=v1, extensible_source_contract=v1"
     )
     return 0
 

@@ -1715,6 +1715,21 @@ fail-closed하고 active ownership을 LigKern 8, Kern 1, Extensible 2, Tail 3으
 계산한다. Focused extensible source contract와 RED 전에는 production type/function을
 추가하지 않는다.
 
+Immutable `tfm-extensible-source-contract-v1.json`은 ownership v3와 kern input
+contract를 raw/canonical identity로 함께 pin한다. Contract 자체 raw SHA-256은
+`5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd`,
+canonical SHA-256은
+`e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125`다.
+Official source의 existence helper lines 11150..11154
+(`50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63`)와
+complete recipe loop lines 11176..11183
+(`c155058da84f06e687bd1cf226e3fc9900280abb1e4e60783360cb31f8f0c7cc`)를
+고정한다. `a/b/c` zero는 absent optional이고 `d` repeat zero도 실제 character
+existence를 요구한다. Whole `ne` iteration과 no parameter/suffix read를 보존하며,
+successful absolute maximum은 existing character와 nonzero width index를 위한
+14-word overhead 때문에 `ne=32753`이다. 상세 경계는
+`docs/tex82-read-font-info-extensibles.md`를 따른다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

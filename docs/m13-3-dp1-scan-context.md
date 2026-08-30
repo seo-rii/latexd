@@ -493,6 +493,20 @@ The derived active counts are LigKern 8, Kern 1, Extensible 2, and Tail 3.
 Production extensible symbols remain absent until focused source pins and RED
 evidence exist.
 
+The immutable `tfm-extensible-source-contract-v1.json` now pins both v3
+ownership and the kern input contract. Its raw SHA-256 is
+`5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd` and its
+canonical SHA-256 is
+`e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125`.
+Official existence lines 11150..11154 retain SHA-256
+`50b7893997fe98c90314983b83456c0fa15f577d02e91e2a03cf2a8034765c63`; the
+complete recipe loop lines 11176..11183 has SHA-256
+`c155058da84f06e687bd1cf226e3fc9900280abb1e4e60783360cb31f8f0c7cc`.
+The contract distinguishes optional zero top/middle/bottom from mandatory
+repeat zero, requires whole-`ne` iteration, excludes parameters and suffix, and
+derives the exact successful maximum `ne=32753`. The focused interpretation is
+`docs/tex82-read-font-info-extensibles.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
