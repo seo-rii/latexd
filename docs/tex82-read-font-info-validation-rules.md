@@ -152,6 +152,19 @@ including unreferenced ones, and the exact successful maximum is `ne=32753`.
 No parameter or suffix byte belongs to this transition. See
 `docs/tex82-read-font-info-extensibles.md` for the complete implementation gate.
 
+The strict-TDD private implementation now moves only the two extensible rules
+to `ExtensibleCheckedTfm`. It retains the exact kern predecessor and typed
+recipes, validates every declared recipe and field in source order, and reads
+no parameter or suffix byte. Tests cover optional and mandatory zero semantics,
+exact error payloads and precedence, an unreferenced invalid recipe, the
+successful `ne=32753` maximum, the absolute declared `ne=32755` first-repeat
+rejection, same-allocation provenance, 8/8 extensible-owned native rejections,
+and all parameter-owned pass-through cases. AST policy permits one private
+constructor and no caller. Prospective RED identities are recorded in
+`docs/evidence/tex-tfm-extensible-tdd-red-v1.md`. Parameter ownership and every
+integration surface remain blocked through a dedicated extensible closure
+review.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

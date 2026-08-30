@@ -41,6 +41,7 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
     assert_eq!(production.matches("check_boxes(").count(), 1);
     assert_eq!(production.matches("check_lig_kern(").count(), 1);
     assert_eq!(production.matches("check_kerns(").count(), 1);
+    assert_eq!(production.matches("check_extensibles(").count(), 1);
     for forbidden in [
         "impl From<",
         "impl TryFrom<",
@@ -54,6 +55,8 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
         "Deserialize for LigKernCheckedTfm",
         "Serialize for KernCheckedTfm",
         "Deserialize for KernCheckedTfm",
+        "Serialize for ExtensibleCheckedTfm",
+        "Deserialize for ExtensibleCheckedTfm",
     ] {
         assert!(
             !production.contains(forbidden),
@@ -76,6 +79,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             "check_boxes",
             "check_lig_kern",
             "check_kerns",
+            "check_extensibles",
         ]
     );
     assert!(
@@ -91,6 +95,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             ("BoxCheckedTfm".into(), "check_boxes".into()),
             ("LigKernCheckedTfm".into(), "check_lig_kern".into()),
             ("KernCheckedTfm".into(), "check_kerns".into()),
+            ("ExtensibleCheckedTfm".into(), "check_extensibles".into(),),
         ]
     );
     assert_eq!(
@@ -136,6 +141,11 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
         "#[forge] struct KernCheckedTfm;",
         "#[derive(Debug)] struct KernCheckedTfm;",
         "struct KernCheckedTfm; include!(\"tfm_validation_forge.rs\");",
+        "#[derive(Clone)] struct ExtensibleCheckedTfm;",
+        "struct ExtensibleCheckedTfm; fn forge_extensibles() -> ExtensibleCheckedTfm { loop {} }",
+        "#[forge] struct ExtensibleCheckedTfm;",
+        "#[derive(Debug)] struct ExtensibleCheckedTfm;",
+        "struct ExtensibleCheckedTfm; include!(\"tfm_validation_forge.rs\");",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -441,6 +451,7 @@ fn is_validator_entrypoint(name: &str) -> bool {
             | "check_boxes"
             | "check_lig_kern"
             | "check_kerns"
+            | "check_extensibles"
     )
 }
 
@@ -452,6 +463,7 @@ fn is_proof_state(name: &str) -> bool {
             | "BoxCheckedTfm"
             | "LigKernCheckedTfm"
             | "KernCheckedTfm"
+            | "ExtensibleCheckedTfm"
     )
 }
 
@@ -462,6 +474,7 @@ fn authorized_proof_constructor(proof_state: &str) -> Option<&'static str> {
         "BoxCheckedTfm" => Some("check_boxes"),
         "LigKernCheckedTfm" => Some("check_lig_kern"),
         "KernCheckedTfm" => Some("check_kerns"),
+        "ExtensibleCheckedTfm" => Some("check_extensibles"),
         _ => None,
     }
 }

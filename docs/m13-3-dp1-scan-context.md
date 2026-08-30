@@ -507,6 +507,19 @@ repeat zero, requires whole-`ne` iteration, excludes parameters and suffix, and
 derives the exact successful maximum `ne=32753`. The focused interpretation is
 `docs/tex82-read-font-info-extensibles.md`.
 
+The strict-TDD private `ExtensibleCheckedTfm` implementation now consumes and
+retains the exact kern state, validates every recipe in top/middle/bottom/repeat
+order, and stores typed recipes. Evidence distinguishes optional-zero bypass
+from mandatory repeat zero, fixes first recipe/field precedence, rejects an
+unreferenced invalid recipe, processes the successful `ne=32753` maximum, and
+rejects the absolute declared `ne=32755` geometry at its first mandatory repeat
+without a panic. Parameter and suffix mutations do not affect recipe results;
+the same raw allocation and all predecessor state remain retained. All eight
+extensible-owned native witnesses have exact runtime errors and every
+parameter-owned witness passes through. The RED record is
+`docs/evidence/tex-tfm-extensible-tdd-red-v1.md`. The state remains root-private
+and uncalled pending an extensible closure review.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

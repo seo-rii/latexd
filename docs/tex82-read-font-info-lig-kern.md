@@ -180,3 +180,12 @@ distinguishes optional zero parts from mandatory repeat zero, requires complete
 maximum is `ne=32753`. The implementation and RED boundary now continue in
 `docs/tex82-read-font-info-extensibles.md`; no predecessor code changes are
 authorized.
+
+The private successor has now been implemented under strict TDD without
+changing either predecessor transition. It validates the whole recipe table,
+retains typed recipes and exact provenance, covers both `ne=32753` successful
+and `ne=32755` declared geometries, maps all eight extensible-owned native
+witnesses exactly, and passes every parameter-owned witness without reading
+parameters. Its RED record is
+`docs/evidence/tex-tfm-extensible-tdd-red-v1.md`. Parameter and integration work
+remain blocked pending a dedicated extensible closure review.

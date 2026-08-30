@@ -69,3 +69,35 @@ The implementation may add only a root-private checked-recipe representation,
 `check_extensibles` transition. It must not change `check_lig_kern` or
 `check_kerns`, extract a shared existence helper, or begin parameter work. A
 dedicated extensible closure Pro review is mandatory afterward.
+
+## Implemented private evidence
+
+The strict-TDD implementation adds one root-private `ExtensibleCheckedTfm`, a
+typed checked-recipe record, exact optional-part/repeat errors, and one
+`check_extensibles(KernCheckedTfm)` transition. It duplicates only the bitset
+existence expression inside the new function and does not change or extract
+logic from `check_lig_kern` or `check_kerns`.
+
+Focused tests cover empty and valid recipes, every optional field, mandatory
+repeat including character zero, first recipe and field order, unreferenced
+invalid recipes, parameter and 8,193-byte suffix isolation, exact predecessor
+and raw-allocation retention, 8/8 extensible-owned native witnesses, and every
+parameter-owned pass-through witness. The successful maximum processes all
+`ne=32753` recipes. A distinct empty-domain frame reaches the absolute declared
+`ne=32755` geometry and rejects recipe zero's mandatory repeat without panic.
+
+The exact prospective RED commands and identities are in
+`docs/evidence/tex-tfm-extensible-tdd-red-v1.md`. Before implementation, the
+source and AST test files had SHA-256 values
+`3883c90f95865262df95f4073f705189f52316e354a1b5fcde51f39948076a60` and
+`325902c3d9e130ccf277ef252ac64275c6a871969c808d384dd72029b2d146f2`.
+Production remains zero-call and the proof state remains non-cloneable,
+non-serializable, safe-Rust-only, and root-private. Parameter work remains
+blocked until a dedicated extensible closure Pro review.
+
+The completed gate is green with 113 crate unit tests, 6 exact integration
+tests, 8 boundary/AST integration tests, 3 compile-fail doctests, and 62 TFM
+Python tests including fresh pdfTeX box/validity oracles. The standalone ledger
+reports 33 rules, 83 witnesses, ordered v2-to-v3 ownership, and both focused
+source contracts. Package Clippy with `-D warnings`, canonical workspace
+Clippy, formatting, Python compilation, and diff checks are also green.

@@ -157,6 +157,39 @@ struct KernCheckedTfm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CheckedExtensibleRecipe {
+    top: Option<u8>,
+    middle: Option<u8>,
+    bottom: Option<u8>,
+    repeat: u8,
+}
+
+struct ExtensibleCheckedTfm {
+    predecessor: KernCheckedTfm,
+    extensibles: Box<[CheckedExtensibleRecipe]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtensiblePart {
+    Top,
+    Middle,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtensibleValidationRule {
+    OptionalPartMissing {
+        recipe: u16,
+        part: ExtensiblePart,
+        character: u8,
+    },
+    RepeatMissing {
+        recipe: u16,
+        character: u8,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KernValidationRule {
     InvalidFixWordSign { index: u16, sign: u8 },
 }
@@ -825,6 +858,64 @@ fn check_kerns(predecessor: LigKernCheckedTfm) -> Result<KernCheckedTfm, KernVal
     })
 }
 
+fn check_extensibles(
+    predecessor: KernCheckedTfm,
+) -> Result<ExtensibleCheckedTfm, ExtensibleValidationRule> {
+    let character_state = &predecessor.predecessor.predecessor.predecessor;
+    let header_state = &character_state.predecessor;
+    let mut extensibles = Vec::with_capacity(usize::from(header_state.raw_counts.ne));
+    for (recipe_index, raw_recipe) in header_state.raw[header_state.layout.extensibles.clone()]
+        .chunks_exact(4)
+        .enumerate()
+    {
+        let recipe = match u16::try_from(recipe_index) {
+            Ok(recipe) => recipe,
+            Err(_) => unreachable!("header-checked TFM extensible indices fit u16"),
+        };
+        let mut optional_parts = [None; 3];
+        for (slot, (part, character)) in optional_parts.iter_mut().zip([
+            (ExtensiblePart::Top, raw_recipe[0]),
+            (ExtensiblePart::Middle, raw_recipe[1]),
+            (ExtensiblePart::Bottom, raw_recipe[2]),
+        ]) {
+            if character == 0 {
+                continue;
+            }
+            let word = usize::from(character) / 64;
+            let bit = u32::from(character % 64);
+            if character_state.existing_characters.0[word] & (1u64 << bit) == 0 {
+                return Err(ExtensibleValidationRule::OptionalPartMissing {
+                    recipe,
+                    part,
+                    character,
+                });
+            }
+            *slot = Some(character);
+        }
+
+        let repeat = raw_recipe[3];
+        let repeat_word = usize::from(repeat) / 64;
+        let repeat_bit = u32::from(repeat % 64);
+        if character_state.existing_characters.0[repeat_word] & (1u64 << repeat_bit) == 0 {
+            return Err(ExtensibleValidationRule::RepeatMissing {
+                recipe,
+                character: repeat,
+            });
+        }
+        extensibles.push(CheckedExtensibleRecipe {
+            top: optional_parts[0],
+            middle: optional_parts[1],
+            bottom: optional_parts[2],
+            repeat,
+        });
+    }
+
+    Ok(ExtensibleCheckedTfm {
+        predecessor,
+        extensibles: extensibles.into_boxed_slice(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -840,10 +931,12 @@ mod tests {
     use super::{
         BoxCheckedTfm, BoxMetric, BoxValidationRule, CHARACTER_METRIC_SOURCE_ORDER,
         CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
-        CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
-        KernCheckedTfm, KernValidationRule, LigKernCheckedTfm, LigKernValidationRule, MetricTable,
-        PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp, check_boxes,
-        check_characters, check_kerns, check_lig_kern, check_preamble_header,
+        CharacterValidationRule, CheckedExtensibleRecipe, CountField, EffectiveSizeSp,
+        ExtensibleCheckedTfm, ExtensiblePart, ExtensibleValidationRule, FrameTfmDigest,
+        HeaderCheckedTfm, KernCheckedTfm, KernValidationRule, LigKernCheckedTfm,
+        LigKernValidationRule, MetricTable, PreambleHeaderFailure, PreambleHeaderRule,
+        RawTfmDigest, ScaledSp, check_boxes, check_characters, check_extensibles, check_kerns,
+        check_lig_kern, check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -1457,6 +1550,51 @@ mod tests {
     #[test]
     fn kern_entrypoint_consumes_only_the_lig_kern_state() {
         let _: fn(LigKernCheckedTfm) -> Result<KernCheckedTfm, KernValidationRule> = check_kerns;
+    }
+
+    #[test]
+    fn extensible_entrypoint_consumes_only_the_kern_state() {
+        let _: fn(KernCheckedTfm) -> Result<ExtensibleCheckedTfm, ExtensibleValidationRule> =
+            check_extensibles;
+    }
+
+    #[test]
+    fn extensible_phase_source_contract_is_content_addressed() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let bytes =
+            std::fs::read(fixture_root.join("tfm-extensible-source-contract-v1.json")).unwrap();
+        assert_eq!(
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd"
+        );
+        let contract: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(contract["schema_version"], 1);
+        assert_eq!(contract["proof_boundary"]["input"], "KernCheckedTfm");
+        assert_eq!(contract["proof_boundary"]["output"], "ExtensibleCheckedTfm");
+        assert_eq!(
+            contract["proof_boundary"]["owned_rule_ids"],
+            serde_json::json!(["TFM-EXT-001", "TFM-EXT-002"])
+        );
+        assert_eq!(contract["proof_boundary"]["loop_cardinality"], "ne");
+        assert_eq!(
+            contract["proof_boundary"]["absolute_valid_recipe_count"],
+            32_753
+        );
+        assert_eq!(
+            contract["proof_boundary"]["field_order"],
+            serde_json::json!(["top", "middle", "bottom", "repeat"])
+        );
+        assert_eq!(
+            contract["proof_boundary"]["recipe_fields"][0]["zero_semantics"],
+            "absent_optional"
+        );
+        assert_eq!(
+            contract["proof_boundary"]["recipe_fields"][3]["zero_semantics"],
+            "mandatory_character_code"
+        );
     }
 
     #[test]
@@ -2234,6 +2372,426 @@ mod tests {
         }
         assert_eq!(kern_cases, 1);
         assert!(later_cases > 0);
+    }
+
+    #[test]
+    fn empty_extensible_table_retains_the_exact_kern_predecessor() {
+        let state = check_extensible_frame(kern_frame(&[], &[], &[]), 1).unwrap();
+
+        assert!(state.extensibles.is_empty());
+        assert!(state.predecessor.kerns.is_empty());
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .ne,
+            0
+        );
+    }
+
+    #[test]
+    fn extensible_recipes_decode_optional_zero_and_existing_parts_in_source_order() {
+        let bytes = extensible_frame_at(
+            7,
+            &[[1, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]],
+            &[[0, 7, 0, 9], [7, 9, 7, 9]],
+            &[],
+        );
+        let state = check_extensible_frame(bytes, 1).unwrap();
+
+        assert_eq!(
+            state.extensibles.as_ref(),
+            [
+                CheckedExtensibleRecipe {
+                    top: None,
+                    middle: Some(7),
+                    bottom: None,
+                    repeat: 9,
+                },
+                CheckedExtensibleRecipe {
+                    top: Some(7),
+                    middle: Some(9),
+                    bottom: Some(7),
+                    repeat: 9,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn extensible_optional_and_repeat_failures_have_exact_payloads() {
+        let records = [[1, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]];
+        for (recipe, expected) in [
+            (
+                [8, 0, 0, 7],
+                ExtensibleValidationRule::OptionalPartMissing {
+                    recipe: 0,
+                    part: ExtensiblePart::Top,
+                    character: 8,
+                },
+            ),
+            (
+                [7, 8, 0, 7],
+                ExtensibleValidationRule::OptionalPartMissing {
+                    recipe: 0,
+                    part: ExtensiblePart::Middle,
+                    character: 8,
+                },
+            ),
+            (
+                [7, 9, 8, 7],
+                ExtensibleValidationRule::OptionalPartMissing {
+                    recipe: 0,
+                    part: ExtensiblePart::Bottom,
+                    character: 8,
+                },
+            ),
+            (
+                [7, 9, 7, 8],
+                ExtensibleValidationRule::RepeatMissing {
+                    recipe: 0,
+                    character: 8,
+                },
+            ),
+        ] {
+            let result =
+                check_extensible_frame(extensible_frame_at(7, &records, &[recipe], &[]), 1);
+            assert_eq!(result.err(), Some(expected), "recipe {recipe:?}");
+        }
+    }
+
+    #[test]
+    fn optional_zero_bypasses_existence_but_repeat_zero_is_mandatory() {
+        let optional_zero = check_extensible_frame(
+            extensible_frame_at(7, &[[1, 0, 0, 0]], &[[0, 0, 0, 7]], &[]),
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            optional_zero.extensibles.as_ref(),
+            [CheckedExtensibleRecipe {
+                top: None,
+                middle: None,
+                bottom: None,
+                repeat: 7,
+            }]
+        );
+
+        let missing_zero = check_extensible_frame(
+            extensible_frame_at(7, &[[1, 0, 0, 0]], &[[0, 0, 0, 0]], &[]),
+            1,
+        );
+        assert_eq!(
+            missing_zero.err(),
+            Some(ExtensibleValidationRule::RepeatMissing {
+                recipe: 0,
+                character: 0,
+            })
+        );
+
+        let existing_zero = check_extensible_frame(
+            extensible_frame_at(0, &[[1, 0, 0, 0]], &[[0, 0, 0, 0]], &[]),
+            1,
+        )
+        .unwrap();
+        assert_eq!(existing_zero.extensibles[0].repeat, 0);
+    }
+
+    #[test]
+    fn extensible_failure_reports_first_recipe_and_field_in_source_order() {
+        let records = [[1, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]];
+        let first_recipe = check_extensible_frame(
+            extensible_frame_at(7, &records, &[[0, 8, 0, 7], [8, 0, 0, 7]], &[]),
+            1,
+        );
+        assert_eq!(
+            first_recipe.err(),
+            Some(ExtensibleValidationRule::OptionalPartMissing {
+                recipe: 0,
+                part: ExtensiblePart::Middle,
+                character: 8,
+            })
+        );
+
+        let first_field =
+            check_extensible_frame(extensible_frame_at(7, &records, &[[8, 8, 8, 8]], &[]), 1);
+        assert_eq!(
+            first_field.err(),
+            Some(ExtensibleValidationRule::OptionalPartMissing {
+                recipe: 0,
+                part: ExtensiblePart::Top,
+                character: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn unreferenced_invalid_extensible_recipe_is_rejected() {
+        let result = check_extensible_frame(
+            extensible_frame_at(7, &[[1, 0, 0, 0]], &[[8, 0, 0, 7]], &[]),
+            1,
+        );
+        assert_eq!(
+            result.err(),
+            Some(ExtensibleValidationRule::OptionalPartMissing {
+                recipe: 0,
+                part: ExtensiblePart::Top,
+                character: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn absolute_maximum_extensible_table_is_checked_completely() {
+        let mut bytes = vec![0; 32_767 * 4];
+        for (index, value) in [32_767, 2, 0, 0, 2, 1, 1, 1, 0, 0, 32_753, 0]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+        bytes[32..36].copy_from_slice(&[1, 0, 0, 0]);
+
+        let state = check_extensible_frame(bytes, 1).unwrap();
+        assert_eq!(state.extensibles.len(), 32_753);
+        assert!(state.extensibles.iter().all(|recipe| *recipe
+            == CheckedExtensibleRecipe {
+                top: None,
+                middle: None,
+                bottom: None,
+                repeat: 0,
+            }));
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .lf,
+            32_767
+        );
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .ne,
+            32_753
+        );
+    }
+
+    #[test]
+    fn absolute_declared_extensible_geometry_rejects_first_mandatory_repeat() {
+        let mut bytes = vec![0; 32_767 * 4];
+        for (index, value) in [32_767, 2, 1, 0, 1, 1, 1, 1, 0, 0, 32_755, 0]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+
+        let result = check_extensible_frame(bytes, 1);
+        assert_eq!(
+            result.err(),
+            Some(ExtensibleValidationRule::RepeatMissing {
+                recipe: 0,
+                character: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn parameters_and_suffix_do_not_change_extensible_semantics() {
+        let records = [[1, 0, 0, 0]];
+        let recipes = [[0, 0, 0, 7]];
+        let control = check_extensible_frame(
+            extensible_frame_at(7, &records, &recipes, &[[0, 0, 0, 0]]),
+            1,
+        )
+        .unwrap();
+        let parameter_mutant = check_extensible_frame(
+            extensible_frame_at(7, &records, &recipes, &[[127, 1, 2, 3]]),
+            1,
+        )
+        .unwrap();
+        assert_eq!(parameter_mutant.extensibles, control.extensibles);
+
+        let mut suffixed = extensible_frame_at(7, &records, &recipes, &[[0, 0, 0, 0]]);
+        suffixed.extend((0..8193).map(|index| (index as u8).wrapping_mul(37)));
+        let suffix_state = check_extensible_frame(suffixed, 1).unwrap();
+        assert_eq!(suffix_state.extensibles, control.extensibles);
+        assert_eq!(
+            suffix_state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .frame_digest,
+            control
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .frame_digest
+        );
+        assert_ne!(
+            suffix_state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_digest,
+            control
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_digest
+        );
+    }
+
+    #[test]
+    fn extensible_success_retains_the_same_raw_allocation_and_kern_state() {
+        let bytes = extensible_frame_at(7, &[[1, 0, 0, 0]], &[[0, 0, 0, 7]], &[]);
+        let raw: Arc<[u8]> = Arc::from(bytes);
+        let retained = Arc::clone(&raw);
+        let state = check_extensibles(
+            check_kerns(
+                check_lig_kern(
+                    check_boxes(check_characters(check_preamble_header(raw, 1).unwrap()).unwrap())
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(state.extensibles[0].repeat, 7);
+        assert!(state.predecessor.kerns.is_empty());
+        assert!(Arc::ptr_eq(
+            &retained,
+            &state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw
+        ));
+    }
+
+    #[test]
+    fn persisted_corpus_moves_only_extensible_rules_to_the_extensible_phase() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let mut extensible_cases = 0;
+        let mut parameter_cases = 0;
+
+        for case in manifest["cases"].as_array().unwrap() {
+            let first_rule = case["first_rejecting_rule"].as_str();
+            if !first_rule
+                .is_some_and(|rule| rule.starts_with("TFM-EXT-") || rule.starts_with("TFM-PARAM-"))
+            {
+                continue;
+            }
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let kern = check_kerns(
+                check_lig_kern(
+                    check_boxes(
+                        check_characters(
+                            check_preamble_header(Arc::from(raw), input_size).unwrap(),
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed before extensible phase: {failure:?}")
+            });
+            let result = check_extensibles(kern);
+            if first_rule.is_some_and(|rule| rule.starts_with("TFM-EXT-")) {
+                extensible_cases += 1;
+                let expected = match case_id {
+                    "invalid_extensible_top" => ExtensibleValidationRule::OptionalPartMissing {
+                        recipe: 0,
+                        part: ExtensiblePart::Top,
+                        character: 255,
+                    },
+                    "extensible_top_in_range_absent" => {
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Top,
+                            character: 1,
+                        }
+                    }
+                    "invalid_extensible_middle" => ExtensibleValidationRule::OptionalPartMissing {
+                        recipe: 0,
+                        part: ExtensiblePart::Middle,
+                        character: 255,
+                    },
+                    "extensible_middle_in_range_absent" => {
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Middle,
+                            character: 1,
+                        }
+                    }
+                    "invalid_extensible_bottom" => ExtensibleValidationRule::OptionalPartMissing {
+                        recipe: 0,
+                        part: ExtensiblePart::Bottom,
+                        character: 255,
+                    },
+                    "extensible_bottom_in_range_absent" => {
+                        ExtensibleValidationRule::OptionalPartMissing {
+                            recipe: 0,
+                            part: ExtensiblePart::Bottom,
+                            character: 1,
+                        }
+                    }
+                    "invalid_extensible" => ExtensibleValidationRule::RepeatMissing {
+                        recipe: 0,
+                        character: 255,
+                    },
+                    "extensible_repeat_in_range_absent" => {
+                        ExtensibleValidationRule::RepeatMissing {
+                            recipe: 0,
+                            character: 1,
+                        }
+                    }
+                    _ => panic!("missing exact extensible rule for {case_id}"),
+                };
+                assert_eq!(result.err(), Some(expected), "{case_id} {blob_sha256}");
+            } else {
+                parameter_cases += 1;
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+        assert_eq!(extensible_cases, 8);
+        assert!(parameter_cases > 0);
     }
 
     #[test]
@@ -3415,6 +3973,34 @@ mod tests {
         bytes
     }
 
+    fn extensible_frame_at(
+        first: u8,
+        records: &[[u8; 4]],
+        extensibles: &[[u8; 4]],
+        parameters: &[[u8; 4]],
+    ) -> Vec<u8> {
+        let ne = u16::try_from(extensibles.len()).unwrap();
+        let np = u16::try_from(parameters.len()).unwrap();
+        let mut bytes = character_frame_at(records, first, [2, 1, 1, 1, 0, ne]);
+        bytes.resize(bytes.len() + usize::from(np) * 4, 0);
+        let word_count = u16::try_from(bytes.len() / 4).unwrap();
+        put_count(&mut bytes, 0, word_count);
+        put_count(&mut bytes, 11, np);
+        let layout = check_preamble_header(Arc::from(bytes.clone()), 1)
+            .unwrap()
+            .layout;
+        for (slot, recipe) in bytes[layout.extensibles]
+            .chunks_exact_mut(4)
+            .zip(extensibles)
+        {
+            slot.copy_from_slice(recipe);
+        }
+        for (slot, parameter) in bytes[layout.parameters].chunks_exact_mut(4).zip(parameters) {
+            slot.copy_from_slice(parameter);
+        }
+        bytes
+    }
+
     fn check_kern_frame(
         bytes: Vec<u8>,
         effective_size_sp: i32,
@@ -3431,6 +4017,13 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+
+    fn check_extensible_frame(
+        bytes: Vec<u8>,
+        effective_size_sp: i32,
+    ) -> Result<ExtensibleCheckedTfm, ExtensibleValidationRule> {
+        check_extensibles(check_kern_frame(bytes, effective_size_sp).unwrap())
     }
 
     fn maximum_lig_kern_frame(instructions: &[[u8; 4]]) -> Vec<u8> {

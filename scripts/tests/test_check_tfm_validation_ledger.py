@@ -44,6 +44,9 @@ EXTENSIBLE_SOURCE_CONTRACT = (
 )
 LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
 KERN_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-kern-tdd-red-v1.md"
+EXTENSIBLE_TDD_RED_EVIDENCE = (
+    ROOT / "docs/evidence/tex-tfm-extensible-tdd-red-v1.md"
+)
 
 
 def ledger_text() -> str:
@@ -76,6 +79,39 @@ def extensible_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_extensible_red_evidence_is_content_addressed_and_exact(self) -> None:
+        evidence = EXTENSIBLE_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "3883c90f95865262df95f4073f705189f52316e354a1b5fcde51f39948076a60",
+            "325902c3d9e130ccf277ef252ac64275c6a871969c808d384dd72029b2d146f2",
+            "2bb6c60960cc660e0b73f7a604461569c467a16817c4c15c97b11abd43d32b2e",
+            "603949a341a50e9b81b41a29074197c9b5bd33e29337d6146663edd866f80768",
+            "no `CheckedExtensibleRecipe` in `tfm_validation`",
+            "no `ExtensibleCheckedTfm` in `tfm_validation`",
+            "no `ExtensiblePart` in `tfm_validation`",
+            "no `ExtensibleValidationRule` in `tfm_validation`",
+            "no `check_extensibles` in `tfm_validation`",
+            'left: ["check_preamble_header", "check_characters", "check_boxes", "check_lig_kern", "check_kerns"]',
+            "No non-building RED commit was created",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_private_extensible_implementation_evidence_is_documented(self) -> None:
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+            "docs/tex82-read-font-info-extensibles.md",
+        ):
+            document = (ROOT / relative_path).read_text(encoding="utf-8")
+            for required in (
+                "`ne=32753`",
+                "`ne=32755`",
+                "docs/evidence/tex-tfm-extensible-tdd-red-v1.md",
+                "parameter",
+            ):
+                self.assertIn(required, document, relative_path)
+
     def test_extensible_source_contract_pins_exact_successor_boundary(self) -> None:
         contract = extensible_source_contract()
         self.assertEqual(

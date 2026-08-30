@@ -1730,6 +1730,20 @@ successful absolute maximum은 existing character와 nonzero width index를 위�
 14-word overhead 때문에 `ne=32753`이다. 상세 경계는
 `docs/tex82-read-font-info-extensibles.md`를 따른다.
 
+Strict TDD로 private `ExtensibleCheckedTfm`과 typed recipe/error를 추가했다.
+`check_extensibles`는 exact `KernCheckedTfm`을 값으로 소비하고 predecessor-bound
+whole recipe range만 top/middle/bottom/repeat source order로 검사한다. Optional
+zero bypass, mandatory repeat zero, first recipe/field, unreferenced invalid recipe,
+successful `ne=32753`와 declared `ne=32755` first-repeat rejection, parameter/suffix
+isolation, same raw allocation, 8/8 extensible-owned native rejections 및 모든
+parameter-owned pass-through를 고정했다. AST registry는 exactly one construction과
+zero caller를 허용한다. RED record는
+`docs/evidence/tex-tfm-extensible-tdd-red-v1.md`이며 pre-test source/policy digest는
+`3883c90f95865262df95f4073f705189f52316e354a1b5fcde51f39948076a60`과
+`325902c3d9e130ccf277ef252ac64275c6a871969c808d384dd72029b2d146f2`다.
+Parameter/completion/public/production work는 dedicated extensible closure Pro review
+전까지 계속 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
