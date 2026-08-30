@@ -65,6 +65,9 @@ PARAMETER_PRO_CLOSURE_EVIDENCE = (
 COMPLETION_HARDENING_DESIGN = (
     ROOT / "docs/tex82-read-font-info-completion-hardening.md"
 )
+COMPLETION_DESIGN_PRO_CLOSURE = (
+    ROOT / "docs/evidence/tex-tfm-completion-design-pro-closure-v1.md"
+)
 
 
 def ledger_text() -> str:
@@ -105,6 +108,45 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_completion_design_pro_closure_is_content_addressed(self) -> None:
+        evidence = COMPLETION_DESIGN_PRO_CLOSURE.read_text(encoding="utf-8")
+        for required in (
+            "PROCEED_PRIVATE_TFM_WHOLE_ORACLE",
+            "6a93f688-9360-83e8-bcbd-25848721b9bf",
+            "review-20260830-182243-3d080e21",
+            "confidence 0.93",
+            "59b27d68df06f9b6e8abf7884261a4c7ae09a08821842c27ca3dd58162be4c11",
+            "02de8e62e9cf8c59960b38995804e88ea4c16bbd84339425da505a71703f4026",
+            "b83bd7794417ebd732af68d0971696e813a830c7e47f70ceae249c7d324fa84c",
+            "444ef1c06a06dea2f38e4f813a9cde148cea275ea674e640f5e0e95c08b4cc73",
+            "`0ae6fd8`",
+            "test-only whole-chain driver",
+            "single-owner native witnesses",
+            "multi-defect generated cases",
+            "7/0/7",
+            "No `CompleteCheckedTfm`",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_completion_review_authorizes_only_test_oracle_work(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            PARAMETER_SOURCE_DOCUMENT,
+            COMPLETION_HARDENING_DESIGN,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "PROCEED_PRIVATE_TFM_WHOLE_ORACLE",
+                "6a93f688-9360-83e8-bcbd-25848721b9bf",
+                "docs/evidence/tex-tfm-completion-design-pro-closure-v1.md",
+                "test-only whole-chain driver",
+                "7/0/7",
+                "production marker remains blocked",
+            ):
+                self.assertIn(required, document, path)
+
     def test_private_completion_hardening_design_is_decision_complete(self) -> None:
         design = COMPLETION_HARDENING_DESIGN.read_text(encoding="utf-8")
         for required in (

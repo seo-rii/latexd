@@ -186,3 +186,12 @@ serialization, persistence, VM integration, checkpoint changes, W3 activation,
 snapshot epoch changes, and a public facade remain blocked. Any proposal that
 crosses one of these boundaries requires a separate Pro review and a new
 decision-complete packet.
+
+## Design review closure
+
+Completion design Pro review `6a93f688-9360-83e8-bcbd-25848721b9bf`
+returned `PROCEED_PRIVATE_TFM_WHOLE_ORACLE` at confidence 0.93. It authorizes
+only a test-only whole-chain driver with exact single-owner native witnesses
+and independently modeled multi-defect generated cases. Current production AST
+counts remain 7/0/7; the production marker remains blocked. See
+`docs/evidence/tex-tfm-completion-design-pro-closure-v1.md`.
