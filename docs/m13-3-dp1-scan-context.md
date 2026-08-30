@@ -556,6 +556,19 @@ type-strict v4 schema scalars, and active ownership counts of LigKern 8, Kern 1,
 Extensible 2, Parameter 3, and Tail 0. No parameter production symbol exists
 before the exact source contract and prospective RED.
 
+Immutable `tfm-parameter-source-contract-v1.json` now pins that exact boundary.
+Its raw SHA-256 is
+`223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd` and its
+canonical SHA-256 is
+`90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265`.
+Official lines 11188..11199 preserve the complete loop, signed slant branch,
+non-slant scaling, contextual EOF check, and zero-fill order. The boundary
+processes all `np`, scales only parameters after slant, fills missing standard
+slots through seven, and retains extras through `np=32755`. EOF state, suffix,
+and final adjustments remain excluded reads. The focused interpretation is
+`docs/tex82-read-font-info-parameters.md`; production still requires
+prospective RED.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

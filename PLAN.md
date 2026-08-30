@@ -1783,6 +1783,18 @@ scalar를 fail-closed하고 active ownership을 LigKern 8, Kern 1, Extensible 2,
 Parameter 3, Tail 0으로 계산한다. Exact parameter source contract와 prospective
 RED 전에는 parameter production type/function을 추가하지 않는다.
 
+Focused `tfm-parameter-source-contract-v1.json`도 immutable하게 고정했다. Raw
+SHA-256은 `223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd`,
+canonical SHA-256은
+`90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265`다.
+Official parameter context lines 11188..11199와 slant/non-slant/EOF/zero-fill
+subrange를 각각 pin한다. Slant는 signed 12.20에서 16.16으로 네 low bit를
+버리며 size scaling을 하지 않고, parameter 2..`np`는 `store_scaled`를 사용한다.
+Whole declared loop 뒤 missing standard slot만 7까지 zero-fill하며 exact geometry
+maximum은 `np=32755`다. EOF line은 source ordering context로 pin하지만 이 phase의
+read/ownership에서는 제외한다. 상세는 `docs/tex82-read-font-info-parameters.md`를
+따르며 production은 prospective RED 뒤에만 시작한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

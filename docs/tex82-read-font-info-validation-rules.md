@@ -200,6 +200,18 @@ reporting the active projection LigKern 8, Kern 1, Extensible 2, Parameter 3,
 Tail 0. This changes only the ownership machine contract; the exact source
 contract and strict RED still precede every parameter production symbol.
 
+The focused `tfm-parameter-source-contract-v1.json` has raw SHA-256
+`223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd` and
+canonical SHA-256
+`90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265`.
+Official lines 11188..11199 and exact slant, non-slant, EOF, and zero-fill
+subranges establish whole-`np` order. Slant discards four low bits without size
+scaling; later words use `store_scaled`; absent standard slots are zero through
+seven while every declared extra remains validated and retained through
+`np=32755`. EOF is pinned as ordering context but excluded from this proof
+state's reads. See `docs/tex82-read-font-info-parameters.md`. No production
+symbol precedes prospective RED.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

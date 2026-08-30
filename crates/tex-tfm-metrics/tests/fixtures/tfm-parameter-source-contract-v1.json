@@ -1,0 +1,80 @@
+{
+  "format": "latexd.tfm-parameter-source-contract",
+  "schema_version": 1,
+  "predecessors": {
+    "ownership_transition": {
+      "path": "tfm-validation-rule-transition-v4.json",
+      "schema_version": 4,
+      "raw_sha256": "edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e",
+      "canonical_sha256": "245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536"
+    },
+    "input_source_contract": {
+      "path": "tfm-extensible-source-contract-v1.json",
+      "schema_version": 1,
+      "raw_sha256": "5ce088a9e04d5de598fbabd4d59347f0e7c089f7cb491ebffe83314d3fc9ebdd",
+      "canonical_sha256": "e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125"
+    }
+  },
+  "focused_source": {
+    "compatibility_source_sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "fix_word_scaling_section": {
+      "lines": "11108..11130",
+      "sha256": "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e"
+    },
+    "complete_parameter_section": {
+      "lines": "11188..11199",
+      "sha256": "3ab5b795c1f4f0f3f28883d345d4264a3a6d8c5ed391bb41ac23456df5027c07"
+    },
+    "slant_branch_section": {
+      "lines": "11189..11195",
+      "sha256": "150a57332ca1d79eac34af2a76283536424a51cfc7b4fdcd264ec210de01903f"
+    },
+    "non_slant_branch_section": {
+      "lines": "11196..11196",
+      "sha256": "b281fc02beafc4e18958430f3525d61205b5006dd5bf6b712e46d3bd9520f134"
+    },
+    "eof_check_section": {
+      "lines": "11197..11197",
+      "sha256": "a33f2363a60c6b862002eb890c3d95e46f25f1e0672f01c4d226b48ef72c1da0"
+    },
+    "zero_fill_section": {
+      "lines": "11198..11198",
+      "sha256": "9d3fe901814da1c8bf0d8776a1891d590e83186b90b5978df9a0819edaf9f2bd"
+    }
+  },
+  "proof_boundary": {
+    "input": "ExtensibleCheckedTfm",
+    "output": "ParameterCheckedTfm",
+    "owned_rule_ids": ["TFM-PARAM-001", "TFM-PARAM-002", "TFM-PARAM-003"],
+    "loop_cardinality": "np",
+    "absolute_valid_parameter_count": 32755,
+    "standard_parameter_count": 7,
+    "source_order": [
+      "declared_parameter_loop",
+      "eof_check",
+      "standard_zero_fill"
+    ],
+    "slant": {
+      "parameter_index": 1,
+      "signed": true,
+      "source_fractional_bits": 20,
+      "stored_fractional_bits": 16,
+      "discarded_low_bits": 4,
+      "scale_by_effective_size": false
+    },
+    "non_slant": {
+      "first_parameter_index": 2,
+      "scaler": "store_scaled",
+      "scale_by_effective_size": true
+    },
+    "zero_fill": {
+      "first_missing_parameter_index": "np+1",
+      "last_standard_parameter_index": 7,
+      "zero_value": 0,
+      "after_complete_declared_loop": true,
+      "retains_declared_above_standard_count": true
+    },
+    "reads": ["effective_size", "parameters"],
+    "excluded_reads": ["eof_state", "raw_suffix", "final_adjustments"]
+  }
+}

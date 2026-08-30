@@ -141,3 +141,14 @@ The v2-to-v3-to-v4 chain moves all and only `TFM-PARAM-001..003` into
 `ParameterCheckedTfm`, leaves the reviewed extensible bytes unchanged, and
 reports Parameter 3 / Tail 0. The focused parameter source contract and RED
 remain required before production code.
+
+The successor `tfm-parameter-source-contract-v1.json` is now pinned with raw
+SHA-256 `223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd`
+and canonical SHA-256
+`90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265`.
+Official lines 11188..11199 separate signed unscaled slant, later
+`store_scaled` words, the contextual EOF check, and standard zero fill. The
+phase preserves the whole declared table through `np=32755`; EOF state and all
+post-parameter work are excluded reads. The exact interpretation is
+`docs/tex82-read-font-info-parameters.md`, and implementation still starts with
+prospective RED.

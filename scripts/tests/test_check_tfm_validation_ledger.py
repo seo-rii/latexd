@@ -8,6 +8,7 @@ from scripts.check_tfm_validation_ledger import (
     main,
     validate_extensible_source_contract,
     validate_kern_source_contract,
+    validate_parameter_source_contract,
     validate_rule_contract,
     validate_rule_ledger,
     validate_rule_transition,
@@ -47,11 +48,16 @@ EXTENSIBLE_SOURCE_CONTRACT = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-extensible-source-contract-v1.json"
 )
+PARAMETER_SOURCE_CONTRACT = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-parameter-source-contract-v1.json"
+)
 LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
 KERN_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-kern-tdd-red-v1.md"
 EXTENSIBLE_TDD_RED_EVIDENCE = (
     ROOT / "docs/evidence/tex-tfm-extensible-tdd-red-v1.md"
 )
+PARAMETER_SOURCE_DOCUMENT = ROOT / "docs/tex82-read-font-info-parameters.md"
 
 
 def ledger_text() -> str:
@@ -87,7 +93,194 @@ def extensible_source_contract() -> dict[str, object]:
     return json.loads(EXTENSIBLE_SOURCE_CONTRACT.read_text(encoding="utf-8"))
 
 
+def parameter_source_contract() -> dict[str, object]:
+    return json.loads(PARAMETER_SOURCE_CONTRACT.read_text(encoding="utf-8"))
+
+
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_parameter_source_contract_is_documented_at_every_phase_boundary(
+        self,
+    ) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            ROOT / "docs/tex82-read-font-info-extensibles.md",
+            PARAMETER_SOURCE_DOCUMENT,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "tfm-parameter-source-contract-v1.json",
+                "223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd",
+                "90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265",
+                "lines 11188..11199",
+                "`np=32755`",
+                "EOF",
+                "prospective RED",
+            ):
+                self.assertIn(required, document, path)
+
+    def test_parameter_source_contract_pins_exact_successor_boundary(self) -> None:
+        contract = parameter_source_contract()
+        self.assertEqual(
+            validate_parameter_source_contract(
+                contract,
+                rule_transition_v4(),
+                extensible_source_contract(),
+            ),
+            [],
+        )
+        self.assertEqual(type(contract["schema_version"]), int)
+        self.assertEqual(contract["schema_version"], 1)
+        self.assertEqual(
+            contract["focused_source"],
+            {
+                "compatibility_source_sha256": (
+                    "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324"
+                ),
+                "fix_word_scaling_section": {
+                    "lines": "11108..11130",
+                    "sha256": (
+                        "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e"
+                    ),
+                },
+                "complete_parameter_section": {
+                    "lines": "11188..11199",
+                    "sha256": (
+                        "3ab5b795c1f4f0f3f28883d345d4264a3a6d8c5ed391bb41ac23456df5027c07"
+                    ),
+                },
+                "slant_branch_section": {
+                    "lines": "11189..11195",
+                    "sha256": (
+                        "150a57332ca1d79eac34af2a76283536424a51cfc7b4fdcd264ec210de01903f"
+                    ),
+                },
+                "non_slant_branch_section": {
+                    "lines": "11196..11196",
+                    "sha256": (
+                        "b281fc02beafc4e18958430f3525d61205b5006dd5bf6b712e46d3bd9520f134"
+                    ),
+                },
+                "eof_check_section": {
+                    "lines": "11197..11197",
+                    "sha256": (
+                        "a33f2363a60c6b862002eb890c3d95e46f25f1e0672f01c4d226b48ef72c1da0"
+                    ),
+                },
+                "zero_fill_section": {
+                    "lines": "11198..11198",
+                    "sha256": (
+                        "9d3fe901814da1c8bf0d8776a1891d590e83186b90b5978df9a0819edaf9f2bd"
+                    ),
+                },
+            },
+        )
+        boundary = contract["proof_boundary"]
+        self.assertEqual(boundary["input"], "ExtensibleCheckedTfm")
+        self.assertEqual(boundary["output"], "ParameterCheckedTfm")
+        self.assertEqual(
+            boundary["owned_rule_ids"],
+            ["TFM-PARAM-001", "TFM-PARAM-002", "TFM-PARAM-003"],
+        )
+        self.assertEqual(boundary["loop_cardinality"], "np")
+        self.assertEqual(boundary["absolute_valid_parameter_count"], 32755)
+        self.assertEqual(boundary["standard_parameter_count"], 7)
+        self.assertEqual(
+            boundary["source_order"],
+            ["declared_parameter_loop", "eof_check", "standard_zero_fill"],
+        )
+        self.assertEqual(
+            boundary["excluded_reads"],
+            ["eof_state", "raw_suffix", "final_adjustments"],
+        )
+
+    def test_parameter_source_contract_scalar_types_and_shapes_are_exact(
+        self,
+    ) -> None:
+        for field_path, replacement, diagnostic in (
+            (("schema_version",), 1.0, "schema scalar type"),
+            (("schema_version",), True, "schema scalar type"),
+            (
+                ("proof_boundary", "absolute_valid_parameter_count"),
+                32755.0,
+                "proof boundary scalar types",
+            ),
+            (
+                ("proof_boundary", "standard_parameter_count"),
+                True,
+                "proof boundary scalar types",
+            ),
+            (
+                ("proof_boundary", "slant", "signed"),
+                1,
+                "proof boundary scalar types",
+            ),
+            (
+                ("proof_boundary", "slant", "scale_by_effective_size"),
+                0,
+                "proof boundary scalar types",
+            ),
+            (
+                (
+                    "proof_boundary",
+                    "zero_fill",
+                    "retains_declared_above_standard_count",
+                ),
+                1,
+                "proof boundary scalar types",
+            ),
+        ):
+            changed = json.loads(json.dumps(parameter_source_contract()))
+            target = changed
+            for component in field_path[:-1]:
+                target = target[component]
+            target[field_path[-1]] = replacement
+            with self.subTest(field_path=field_path):
+                self.assertTrue(
+                    any(
+                        diagnostic in error
+                        for error in validate_parameter_source_contract(
+                            changed,
+                            rule_transition_v4(),
+                            extensible_source_contract(),
+                        )
+                    )
+                )
+
+        changed = json.loads(json.dumps(parameter_source_contract()))
+        changed["proof_boundary"] = []
+        self.assertIn(
+            "parameter source contract proof boundary is invalid",
+            validate_parameter_source_contract(
+                changed,
+                rule_transition_v4(),
+                extensible_source_contract(),
+            ),
+        )
+
+        changed = json.loads(json.dumps(parameter_source_contract()))
+        changed["focused_source"] = []
+        self.assertIn(
+            "parameter source contract focused source is invalid",
+            validate_parameter_source_contract(
+                changed,
+                rule_transition_v4(),
+                extensible_source_contract(),
+            ),
+        )
+
+        changed = json.loads(json.dumps(parameter_source_contract()))
+        changed["proof_boundary"]["slant"] = None
+        self.assertIn(
+            "parameter source contract proof boundary shapes are invalid",
+            validate_parameter_source_contract(
+                changed,
+                rule_transition_v4(),
+                extensible_source_contract(),
+            ),
+        )
+
     def test_extensible_red_evidence_is_content_addressed_and_exact(self) -> None:
         evidence = EXTENSIBLE_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
         for required in (
@@ -357,6 +550,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
         self.assertIn("'TailCheckedTfm': 0", output.getvalue())
         self.assertIn("transition_chain=v2->v3->v4", output.getvalue())
         self.assertIn("extensible_source_contract=v1", output.getvalue())
+        self.assertIn("parameter_source_contract=v1", output.getvalue())
 
     def test_v3_transition_moves_only_extensible_rules_from_effective_owner(
         self,
@@ -610,6 +804,28 @@ class TfmValidationLedgerTests(unittest.TestCase):
                         malformed,
                         rule_transition_v3(),
                         kern_source_contract(),
+                    )
+                )
+            with self.subTest(validator="parameter source", value=malformed):
+                self.assertTrue(
+                    validate_parameter_source_contract(
+                        malformed,
+                        rule_transition_v4(),
+                        extensible_source_contract(),
+                    )
+                )
+                self.assertTrue(
+                    validate_parameter_source_contract(
+                        parameter_source_contract(),
+                        malformed,
+                        extensible_source_contract(),
+                    )
+                )
+                self.assertTrue(
+                    validate_parameter_source_contract(
+                        parameter_source_contract(),
+                        rule_transition_v4(),
+                        malformed,
                     )
                 )
             if malformed is not None:

@@ -35,6 +35,10 @@ EXTENSIBLE_SOURCE_CONTRACT_PATH = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-extensible-source-contract-v1.json"
 )
+PARAMETER_SOURCE_CONTRACT_PATH = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-parameter-source-contract-v1.json"
+)
 PINNED_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
     "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
@@ -282,6 +286,74 @@ REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_RAW_SHA256 = (
 REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256 = (
     "e64c6d3d5afbf0349cab44eb22e57d0dc799786dbeddbc6c09c33e0f07dcb125"
 )
+PINNED_PARAMETER_FOCUSED_SOURCE = {
+    "compatibility_source_sha256": PINNED_SOURCE["sha256"],
+    "fix_word_scaling_section": {
+        "lines": "11108..11130",
+        "sha256": "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e",
+    },
+    "complete_parameter_section": {
+        "lines": "11188..11199",
+        "sha256": "3ab5b795c1f4f0f3f28883d345d4264a3a6d8c5ed391bb41ac23456df5027c07",
+    },
+    "slant_branch_section": {
+        "lines": "11189..11195",
+        "sha256": "150a57332ca1d79eac34af2a76283536424a51cfc7b4fdcd264ec210de01903f",
+    },
+    "non_slant_branch_section": {
+        "lines": "11196..11196",
+        "sha256": "b281fc02beafc4e18958430f3525d61205b5006dd5bf6b712e46d3bd9520f134",
+    },
+    "eof_check_section": {
+        "lines": "11197..11197",
+        "sha256": "a33f2363a60c6b862002eb890c3d95e46f25f1e0672f01c4d226b48ef72c1da0",
+    },
+    "zero_fill_section": {
+        "lines": "11198..11198",
+        "sha256": "9d3fe901814da1c8bf0d8776a1891d590e83186b90b5978df9a0819edaf9f2bd",
+    },
+}
+PINNED_PARAMETER_PROOF_BOUNDARY = {
+    "input": "ExtensibleCheckedTfm",
+    "output": "ParameterCheckedTfm",
+    "owned_rule_ids": ["TFM-PARAM-001", "TFM-PARAM-002", "TFM-PARAM-003"],
+    "loop_cardinality": "np",
+    "absolute_valid_parameter_count": 32755,
+    "standard_parameter_count": 7,
+    "source_order": [
+        "declared_parameter_loop",
+        "eof_check",
+        "standard_zero_fill",
+    ],
+    "slant": {
+        "parameter_index": 1,
+        "signed": True,
+        "source_fractional_bits": 20,
+        "stored_fractional_bits": 16,
+        "discarded_low_bits": 4,
+        "scale_by_effective_size": False,
+    },
+    "non_slant": {
+        "first_parameter_index": 2,
+        "scaler": "store_scaled",
+        "scale_by_effective_size": True,
+    },
+    "zero_fill": {
+        "first_missing_parameter_index": "np+1",
+        "last_standard_parameter_index": 7,
+        "zero_value": 0,
+        "after_complete_declared_loop": True,
+        "retains_declared_above_standard_count": True,
+    },
+    "reads": ["effective_size", "parameters"],
+    "excluded_reads": ["eof_state", "raw_suffix", "final_adjustments"],
+}
+REVIEWED_PARAMETER_SOURCE_CONTRACT_RAW_SHA256 = (
+    "223aad57857393d02096adbdaa9cc587be13c515e9e7e86e1b19454f0c8164dd"
+)
+REVIEWED_PARAMETER_SOURCE_CONTRACT_CANONICAL_SHA256 = (
+    "90983c5403e96dacbf16767a5cb343ca91c7913d7e60925a497b38870ab36265"
+)
 PINNED_KERN_FOCUSED_SOURCE = {
     "compatibility_source_sha256": PINNED_SOURCE["sha256"],
     "fix_word_scaling_section": {
@@ -393,6 +465,139 @@ def validate_extensible_source_contract(
         REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256
     ):
         errors.append("reviewed extensible source contract canonical content differs")
+    return errors
+
+
+def validate_parameter_source_contract(
+    contract: object,
+    ownership_transition: object,
+    input_source_contract: object,
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(contract, dict):
+        return ["parameter source contract is not an object"]
+    if not isinstance(ownership_transition, dict):
+        return ["parameter source ownership transition is not an object"]
+    if not isinstance(input_source_contract, dict):
+        return ["parameter source input contract is not an object"]
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessors",
+        "focused_source",
+        "proof_boundary",
+    }
+    if set(contract) != expected_keys:
+        errors.append("parameter source contract fields differ")
+    if contract.get("format") != "latexd.tfm-parameter-source-contract":
+        errors.append("parameter source contract format is invalid")
+    if type(contract.get("schema_version")) is not int:
+        errors.append("parameter source contract schema scalar type is invalid")
+    if contract.get("schema_version") != 1:
+        errors.append("parameter source contract schema version is invalid")
+
+    canonical_transition = json.dumps(
+        ownership_transition,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    canonical_input_contract = json.dumps(
+        input_source_contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessors = {
+        "ownership_transition": {
+            "path": "tfm-validation-rule-transition-v4.json",
+            "schema_version": 4,
+            "raw_sha256": REVIEWED_V4_TRANSITION_RAW_SHA256,
+            "canonical_sha256": REVIEWED_V4_TRANSITION_CANONICAL_SHA256,
+        },
+        "input_source_contract": {
+            "path": "tfm-extensible-source-contract-v1.json",
+            "schema_version": 1,
+            "raw_sha256": REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_RAW_SHA256,
+            "canonical_sha256": REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256,
+        },
+    }
+    if contract.get("predecessors") != expected_predecessors:
+        errors.append("parameter source contract predecessor pins differ")
+    if hashlib.sha256(RULE_TRANSITION_V4_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_V4_TRANSITION_RAW_SHA256
+    ):
+        errors.append("parameter source ownership predecessor raw content differs")
+    if hashlib.sha256(canonical_transition).hexdigest() != (
+        REVIEWED_V4_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("parameter source ownership predecessor canonical content differs")
+    if hashlib.sha256(EXTENSIBLE_SOURCE_CONTRACT_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_RAW_SHA256
+    ):
+        errors.append("parameter source input predecessor raw content differs")
+    if hashlib.sha256(canonical_input_contract).hexdigest() != (
+        REVIEWED_EXTENSIBLE_SOURCE_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("parameter source input predecessor canonical content differs")
+
+    focused_source = contract.get("focused_source")
+    if not isinstance(focused_source, dict):
+        errors.append("parameter source contract focused source is invalid")
+    if focused_source != PINNED_PARAMETER_FOCUSED_SOURCE:
+        errors.append("parameter source contract focused source pins differ")
+
+    boundary = contract.get("proof_boundary")
+    if not isinstance(boundary, dict):
+        errors.append("parameter source contract proof boundary is invalid")
+    else:
+        slant = boundary.get("slant")
+        non_slant = boundary.get("non_slant")
+        zero_fill = boundary.get("zero_fill")
+        if not all(isinstance(value, dict) for value in (slant, non_slant, zero_fill)):
+            errors.append("parameter source contract proof boundary shapes are invalid")
+        else:
+            integer_scalars = (
+                boundary.get("absolute_valid_parameter_count"),
+                boundary.get("standard_parameter_count"),
+                slant.get("parameter_index"),
+                slant.get("source_fractional_bits"),
+                slant.get("stored_fractional_bits"),
+                slant.get("discarded_low_bits"),
+                non_slant.get("first_parameter_index"),
+                zero_fill.get("last_standard_parameter_index"),
+                zero_fill.get("zero_value"),
+            )
+            boolean_scalars = (
+                slant.get("signed"),
+                slant.get("scale_by_effective_size"),
+                non_slant.get("scale_by_effective_size"),
+                zero_fill.get("after_complete_declared_loop"),
+                zero_fill.get("retains_declared_above_standard_count"),
+            )
+            if any(type(value) is not int for value in integer_scalars) or any(
+                type(value) is not bool for value in boolean_scalars
+            ):
+                errors.append(
+                    "parameter source contract proof boundary scalar types are invalid"
+                )
+    if boundary != PINNED_PARAMETER_PROOF_BOUNDARY:
+        errors.append("parameter source contract proof boundary differs")
+
+    canonical_contract = json.dumps(
+        contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(PARAMETER_SOURCE_CONTRACT_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_PARAMETER_SOURCE_CONTRACT_RAW_SHA256
+    ):
+        errors.append("reviewed parameter source contract raw content differs")
+    if hashlib.sha256(canonical_contract).hexdigest() != (
+        REVIEWED_PARAMETER_SOURCE_CONTRACT_CANONICAL_SHA256
+    ):
+        errors.append("reviewed parameter source contract canonical content differs")
     return errors
 
 
@@ -1089,6 +1294,16 @@ def main() -> int:
             kern_source_contract,
         )
     )
+    parameter_source_contract = json.loads(
+        PARAMETER_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
+    )
+    errors.extend(
+        validate_parameter_source_contract(
+            parameter_source_contract,
+            transition_v4,
+            extensible_source_contract,
+        )
+    )
     if errors:
         for error in errors:
             print(error)
@@ -1103,7 +1318,8 @@ def main() -> int:
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
         f"proof_states={dict(sorted(proof_counts.items()))}, "
         "transition_chain=v2->v3->v4, "
-        "kern_source_contract=v1, extensible_source_contract=v1"
+        "kern_source_contract=v1, extensible_source_contract=v1, "
+        "parameter_source_contract=v1"
     )
     return 0
 
