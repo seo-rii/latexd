@@ -71,6 +71,26 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertIn("private `BoxCheckedTfm` implementation", document)
             self.assertIn("lig/kern remains blocked", document)
 
+    def test_character_closure_hardening_evidence_is_documented(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+        ):
+            document = path.read_text(encoding="utf-8")
+            self.assertIn("four adjacent metric precedence pairs", document)
+            self.assertIn("`CharListTraversalLimit` remains unreachable", document)
+            self.assertIn("AST negative mutants", document)
+            self.assertIn(
+                "db680c23a099b5b39c484d34c357116fc8d6967a9151db4108af0ddf4cfbb0be",
+                document,
+            )
+            self.assertIn(
+                "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4",
+                document,
+            )
+            self.assertIn("one required CI job", document)
+
     def test_contract_records_machine_ledger_gate(self) -> None:
         contract = (ROOT / "docs/m13-3-dp1-scan-context.md").read_text(
             encoding="utf-8"
@@ -87,6 +107,12 @@ class TfmValidationLedgerTests(unittest.TestCase):
     def test_ci_runs_machine_ledger_policy(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("scripts.tests.test_check_tfm_validation_ledger", workflow)
+        ledger_gate = "python3 scripts/check_tfm_validation_ledger.py"
+        native_oracle = "python3 scripts/check_tfm_validity_oracle.py"
+        rust_suite = "run: cargo test -q"
+        self.assertIn(ledger_gate, workflow)
+        self.assertLess(workflow.index(ledger_gate), workflow.index(native_oracle))
+        self.assertLess(workflow.index(native_oracle), workflow.index(rust_suite))
 
     def test_repository_ledger_has_exact_order_unique_rules_and_complete_witnesses(
         self,

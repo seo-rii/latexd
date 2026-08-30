@@ -200,6 +200,26 @@ class TfmValidityOracleTests(unittest.TestCase):
         self.assertEqual(blob_files, manifest_hashes)
         self.assertEqual(len(blob_files), 70)
 
+    def test_reviewed_v2_manifest_metadata_requires_a_version_transition(self) -> None:
+        manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
+        case = manifest["cases"][0]
+        mutations = [
+            ("validator input size", "validator_input_size_sp", case["validator_input_size_sp"] + 1),
+            ("first rule", "first_rejecting_rule", "TFM-HEADER-001"),
+            ("classification", "expected_classification", "AcceptedByNativeLoader"),
+            ("blob mapping", "blob_sha256", "0" * 64),
+            ("case id", "id", "renamed_case"),
+        ]
+        for label, key, value in mutations:
+            changed = json.loads(json.dumps(manifest))
+            changed["cases"][0][key] = value
+            errors = validate_corpus_manifest(changed, CORPUS_ROOT)
+            self.assertIn(
+                "reviewed v2 corpus manifest digest differs; create a version transition",
+                errors,
+                label,
+            )
+
     def test_v2_corpus_normalizes_size_and_first_rejection_semantics(self) -> None:
         manifest = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
         cases = {case["id"]: case for case in manifest["cases"]}

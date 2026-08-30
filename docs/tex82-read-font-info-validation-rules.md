@@ -49,6 +49,18 @@ extensible recipes, parameters, public or crate-visible validation, production
 callers, font ownership/resolution/caching, source-visible loading,
 checkpoints, and W3. A new Pro review is mandatory at the private box state.
 
+The required character evidence hardening is now executable. Exact private assertions
+cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
+generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST
+policy and AST negative mutants reject function-pointer aliases, wrappers, re-exports,
+macro references, and alternate item/field/associated/foreign visibility. Both Rust phase bridges pin the
+reviewed v2 manifest
+`db680c23a099b5b39c484d34c357116fc8d6967a9151db4108af0ddf4cfbb0be` and canonical
+native fixture `9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4`;
+the Python canonical-object pin rejects case-id, size, classification, first-rule, and
+blob-mapping mutation. Ledger policy, native oracle, and Rust suite run in source order
+inside one required CI job.
+
 The compatibility authority is the official TeX82 source at
 `https://tug.ctan.org/systems/knuth/dist/tex/tex.web`. The audited source has
 full-file SHA-256

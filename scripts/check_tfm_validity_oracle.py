@@ -28,6 +28,9 @@ CORPUS_ROOT = (
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v2"
 )
 CORPUS_MANIFEST = CORPUS_ROOT / "manifest.json"
+REVIEWED_V2_CORPUS_MANIFEST_CANONICAL_SHA256 = (
+    "658a807fbc5f3a07e0bdf766590e39eb339db7fe29d0302276c80b60456b8a70"
+)
 
 TEX82_READ_FONT_INFO_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
@@ -841,9 +844,21 @@ def build_corpus_manifest(case_inputs: dict[str, bytes]) -> dict[str, object]:
 def validate_corpus_manifest(
     manifest: dict[str, object], corpus_root: Path = CORPUS_ROOT
 ) -> list[str]:
+    errors = []
+    canonical_manifest = json.dumps(
+        manifest,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(canonical_manifest).hexdigest() != (
+        REVIEWED_V2_CORPUS_MANIFEST_CANONICAL_SHA256
+    ):
+        errors.append(
+            "reviewed v2 corpus manifest digest differs; create a version transition"
+        )
     case_inputs = build_case_inputs()
     expected = build_corpus_manifest(case_inputs)
-    errors = []
     if manifest != expected:
         errors.append("TFM validity corpus manifest differs from generated semantics")
 

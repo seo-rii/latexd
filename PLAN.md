@@ -1597,6 +1597,17 @@ scale한 뒤 scaled entry zero 네 개를 source order로 검사하는 private `
 parameter, public/crate-visible API, production caller, font owner/resolver/cache, source loading, W3도
 다음 box-closure Pro review 전까지 금지한다.
 
+Character closure hardening은 four adjacent metric precedence pairs를 exact private
+variant로 고정했고 exhaustive domains `1..=5`와 512 generated inputs에서
+`CharListTraversalLimit` remains unreachable를 직접 검사한다. `syn` AST gate와
+AST negative mutants는 function-pointer alias, wrapper, re-export, macro reference,
+alternate item/field/associated/foreign visibility를 fail-closed한다. Rust phase bridge는 reviewed v2
+manifest `db680c23a099b5b39c484d34c357116fc8d6967a9151db4108af0ddf4cfbb0be`와
+canonical native fixture `9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4`를
+직접 결속하고, Python canonical-object pin은 case id, size, classification, first rule,
+blob mapping mutation을 거부한다. Ledger policy, native oracle, Rust suite는 one required
+CI job 안에서 source order로 실행된다. 이 세 gate는 one required CI job에 속한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

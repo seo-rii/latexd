@@ -1,5 +1,10 @@
 use tex_tfm_metrics::dimension_subset::{ExactTfmDimensions, ExtractError, extract_exact_frame};
 
+use syn::{
+    Field, ForeignItem, ImplItem, Item, Meta, Path as SynPath, UseTree, Visibility,
+    visit::{self, Visit},
+};
+
 const CMR10: &[u8] = include_bytes!("../../tex-fonts/assets/classic/tfm/cmr10.tfm");
 
 #[test]
@@ -43,6 +48,56 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
             !production.contains(forbidden),
             "forbidden API: {forbidden}"
         );
+    }
+}
+
+#[test]
+fn staged_validator_ast_has_only_private_items_and_no_production_references() {
+    let syntax = syn::parse_file(include_str!("../src/tfm_validation.rs")).unwrap();
+    let mut policy = PrivateValidatorPolicy::default();
+    policy.visit_file(&syntax);
+
+    assert_eq!(
+        policy.entrypoint_definitions,
+        ["check_preamble_header", "check_characters"]
+    );
+    assert!(
+        policy.entrypoint_references.is_empty(),
+        "production entrypoint references: {:?}",
+        policy.entrypoint_references
+    );
+}
+
+#[test]
+fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants() {
+    for source in [
+        "fn check_characters() {} const ALIAS: fn() = check_characters;",
+        "fn check_characters() {} fn wrapper() { check_characters(); }",
+        "fn check_characters() {} use self::check_characters as run;",
+        "fn check_characters() {} delegate!(check_characters);",
+    ] {
+        let syntax = syn::parse_file(source).unwrap();
+        let mut policy = PrivateValidatorPolicy::default();
+        policy.visit_file(&syntax);
+        assert_eq!(
+            policy.entrypoint_references,
+            ["check_characters"],
+            "missed production reference in {source}"
+        );
+    }
+
+    for source in [
+        "pub(crate) fn check_characters() {}",
+        "struct Proof { pub(crate) raw: () }",
+        "struct Proof; impl Proof { pub(crate) fn leak() {} }",
+        "extern \"C\" { pub(crate) fn leak(); }",
+    ] {
+        let syntax = syn::parse_file(source).unwrap();
+        let rejected = std::panic::catch_unwind(|| {
+            let mut policy = PrivateValidatorPolicy::default();
+            policy.visit_file(&syntax);
+        });
+        assert!(rejected.is_err(), "missed non-private syntax in {source}");
     }
 }
 
@@ -100,4 +155,136 @@ fn parameter_start(bytes: &[u8]) -> usize {
     };
     let character_count = ec - bc + 1;
     4 * (6 + lh + character_count + nw + nh + nd + ni + nl + nk + ne)
+}
+
+#[derive(Default)]
+struct PrivateValidatorPolicy {
+    entrypoint_definitions: Vec<String>,
+    entrypoint_references: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
+    fn visit_item(&mut self, item: &'ast Item) {
+        if let Item::Mod(module) = item
+            && module.attrs.iter().any(|attribute| {
+                attribute.path().is_ident("cfg")
+                    && matches!(
+                        &attribute.meta,
+                        Meta::List(arguments) if arguments.tokens.to_string() == "test"
+                    )
+            })
+        {
+            return;
+        }
+
+        let visibility = match item {
+            Item::Const(item) => Some(&item.vis),
+            Item::Enum(item) => Some(&item.vis),
+            Item::ExternCrate(item) => Some(&item.vis),
+            Item::Fn(item) => Some(&item.vis),
+            Item::Mod(item) => Some(&item.vis),
+            Item::Static(item) => Some(&item.vis),
+            Item::Struct(item) => Some(&item.vis),
+            Item::Trait(item) => Some(&item.vis),
+            Item::TraitAlias(item) => Some(&item.vis),
+            Item::Type(item) => Some(&item.vis),
+            Item::Union(item) => Some(&item.vis),
+            Item::Use(item) => Some(&item.vis),
+            Item::ForeignMod(_) | Item::Impl(_) | Item::Macro(_) | Item::Verbatim(_) | _ => None,
+        };
+        if let Some(visibility) = visibility {
+            assert!(
+                matches!(visibility, Visibility::Inherited),
+                "production validator item has non-private visibility"
+            );
+        }
+        if let Item::Fn(function) = item {
+            let name = function.sig.ident.to_string();
+            if is_validator_entrypoint(&name) {
+                self.entrypoint_definitions.push(name);
+            }
+        }
+        visit::visit_item(self, item);
+    }
+
+    fn visit_field(&mut self, field: &'ast Field) {
+        assert!(
+            matches!(field.vis, Visibility::Inherited),
+            "production validator field has non-private visibility"
+        );
+        visit::visit_field(self, field);
+    }
+
+    fn visit_impl_item(&mut self, item: &'ast ImplItem) {
+        let visibility = match item {
+            ImplItem::Const(item) => Some(&item.vis),
+            ImplItem::Fn(item) => Some(&item.vis),
+            ImplItem::Type(item) => Some(&item.vis),
+            ImplItem::Macro(_) | ImplItem::Verbatim(_) | _ => None,
+        };
+        if let Some(visibility) = visibility {
+            assert!(
+                matches!(visibility, Visibility::Inherited),
+                "production validator associated item has non-private visibility"
+            );
+        }
+        visit::visit_impl_item(self, item);
+    }
+
+    fn visit_foreign_item(&mut self, item: &'ast ForeignItem) {
+        let visibility = match item {
+            ForeignItem::Fn(item) => Some(&item.vis),
+            ForeignItem::Static(item) => Some(&item.vis),
+            ForeignItem::Type(item) => Some(&item.vis),
+            ForeignItem::Macro(_) | ForeignItem::Verbatim(_) | _ => None,
+        };
+        if let Some(visibility) = visibility {
+            assert!(
+                matches!(visibility, Visibility::Inherited),
+                "production validator foreign item has non-private visibility"
+            );
+        }
+        visit::visit_foreign_item(self, item);
+    }
+
+    fn visit_path(&mut self, path: &'ast SynPath) {
+        if let Some(segment) = path.segments.last() {
+            let name = segment.ident.to_string();
+            if is_validator_entrypoint(&name) {
+                self.entrypoint_references.push(name);
+            }
+        }
+        visit::visit_path(self, path);
+    }
+
+    fn visit_macro(&mut self, macro_invocation: &'ast syn::Macro) {
+        for token in macro_invocation
+            .tokens
+            .to_string()
+            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        {
+            if is_validator_entrypoint(token) {
+                self.entrypoint_references.push(token.to_owned());
+            }
+        }
+        visit::visit_macro(self, macro_invocation);
+    }
+
+    fn visit_use_tree(&mut self, use_tree: &'ast UseTree) {
+        let imported_name = match use_tree {
+            UseTree::Name(name) => Some(name.ident.to_string()),
+            UseTree::Rename(rename) => Some(rename.ident.to_string()),
+            UseTree::Glob(_) | UseTree::Group(_) | UseTree::Path(_) => None,
+        };
+        if let Some(name) = imported_name
+            && is_validator_entrypoint(&name)
+        {
+            self.entrypoint_references.push(name);
+        }
+        visit::visit_use_tree(self, use_tree);
+    }
+}
+
+fn is_validator_entrypoint(name: &str) -> bool {
+    matches!(name, "check_preamble_header" | "check_characters")
 }

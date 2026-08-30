@@ -82,6 +82,13 @@ enum CharacterMetric {
     Italic,
 }
 
+const CHARACTER_METRIC_SOURCE_ORDER: [CharacterMetric; 4] = [
+    CharacterMetric::Width,
+    CharacterMetric::Height,
+    CharacterMetric::Depth,
+    CharacterMetric::Italic,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterTag {
     None,
@@ -402,28 +409,15 @@ fn check_characters(
             let tag_code = raw_record[2] & 0x03;
             let remainder = raw_record[3];
 
-            for (index, count, metric) in [
-                (
-                    width_index,
-                    predecessor.raw_counts.nw,
-                    CharacterMetric::Width,
-                ),
-                (
-                    height_index,
-                    predecessor.raw_counts.nh,
-                    CharacterMetric::Height,
-                ),
-                (
-                    depth_index,
-                    predecessor.raw_counts.nd,
-                    CharacterMetric::Depth,
-                ),
-                (
-                    italic_index,
-                    predecessor.raw_counts.ni,
-                    CharacterMetric::Italic,
-                ),
-            ] {
+            for ((index, count), metric) in [
+                (width_index, predecessor.raw_counts.nw),
+                (height_index, predecessor.raw_counts.nh),
+                (depth_index, predecessor.raw_counts.nd),
+                (italic_index, predecessor.raw_counts.ni),
+            ]
+            .into_iter()
+            .zip(CHARACTER_METRIC_SOURCE_ORDER)
+            {
                 if u16::from(index) >= count {
                     return Err(CharacterValidationRule::MetricIndexOutOfRange {
                         character,
@@ -523,23 +517,72 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
-        CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
-        MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, check_characters,
-        check_preamble_header,
+        CHARACTER_METRIC_SOURCE_ORDER, CharacterCheckedTfm, CharacterDomain, CharacterMetric,
+        CharacterTag, CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest,
+        HeaderCheckedTfm, MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest,
+        check_characters, check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
     const PREAMBLE_BYTES: usize = 24;
     const SEED_FRAME_BYTES: usize = 48;
 
+    fn reviewed_corpus_manifest(fixture_root: &Path) -> serde_json::Value {
+        let manifest_bytes =
+            std::fs::read(fixture_root.join("tfm-validity-oracle-v2/manifest.json")).unwrap();
+        let rule_contract_bytes =
+            std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap();
+        let native_fixture_bytes =
+            std::fs::read(fixture_root.join("tfm-validity-oracle-v1.json")).unwrap();
+        for (label, bytes, expected_sha256) in [
+            (
+                "v2 corpus manifest",
+                manifest_bytes.as_slice(),
+                "db680c23a099b5b39c484d34c357116fc8d6967a9151db4108af0ddf4cfbb0be",
+            ),
+            (
+                "v1 rule contract",
+                rule_contract_bytes.as_slice(),
+                "260bff0aa11e2b839985875c6df1e5075b37fc110ab0c3723a2837db70d20353",
+            ),
+            (
+                "v1 native fixture",
+                native_fixture_bytes.as_slice(),
+                "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4",
+            ),
+        ] {
+            let actual_sha256 = Sha256::digest(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(actual_sha256, expected_sha256, "{label}");
+        }
+
+        let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).unwrap();
+        assert_eq!(
+            manifest["rule_contract"]["repository_path"],
+            "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rules-v1.json"
+        );
+        assert_eq!(
+            manifest["rule_contract"]["sha256"],
+            "260bff0aa11e2b839985875c6df1e5075b37fc110ab0c3723a2837db70d20353"
+        );
+        assert_eq!(
+            manifest["source_oracle"]["repository_path"],
+            "crates/tex-tfm-metrics/tests/fixtures/tfm-validity-oracle-v1.json"
+        );
+        assert_eq!(
+            manifest["source_oracle"]["sha256"],
+            "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4"
+        );
+        manifest
+    }
+
     #[test]
     fn content_addressed_native_corpus_matches_header_proof_ownership() {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
         let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(corpus_root.join("manifest.json")).unwrap())
-                .unwrap();
+        let manifest = reviewed_corpus_manifest(&fixture_root);
         let rule_contract: serde_json::Value = serde_json::from_slice(
             &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
         )
@@ -628,9 +671,7 @@ mod tests {
     fn content_addressed_native_corpus_matches_character_proof_ownership() {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
         let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(corpus_root.join("manifest.json")).unwrap())
-                .unwrap();
+        let manifest = reviewed_corpus_manifest(&fixture_root);
         let rule_contract: serde_json::Value = serde_json::from_slice(
             &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
         )
@@ -1053,8 +1094,15 @@ mod tests {
                 }
 
                 let bytes = character_frame_at(&records, 0, [2, 1, 1, 1, 0, 0]);
-                let actual =
-                    check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).is_ok();
+                let result = check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap());
+                assert!(
+                    !matches!(
+                        result,
+                        Err(CharacterValidationRule::CharListTraversalLimit { .. })
+                    ),
+                    "reachable traversal limit: domain={domain_size} choices={choices:?}"
+                );
+                let actual = result.is_ok();
                 assert_eq!(
                     actual, reference_acyclic,
                     "domain={domain_size} choices={choices:?}"
@@ -1091,6 +1139,35 @@ mod tests {
                 count: 1,
             },
         );
+    }
+
+    #[test]
+    fn adjacent_character_metric_failures_follow_source_order() {
+        assert_eq!(
+            CHARACTER_METRIC_SOURCE_ORDER,
+            [
+                CharacterMetric::Width,
+                CharacterMetric::Height,
+                CharacterMetric::Depth,
+                CharacterMetric::Italic,
+            ]
+        );
+        for (record, metric) in [
+            ([1, 0x10, 0x00, 0], CharacterMetric::Width),
+            ([0, 0x11, 0x00, 0], CharacterMetric::Height),
+            ([0, 0x01, 0x04, 0], CharacterMetric::Depth),
+            ([0, 0x00, 0x05, 0], CharacterMetric::Italic),
+        ] {
+            assert_character_rule(
+                character_frame(&[record], [1, 1, 1, 1, 0, 0]),
+                CharacterValidationRule::MetricIndexOutOfRange {
+                    character: 7,
+                    metric,
+                    index: 1,
+                    count: 1,
+                },
+            );
+        }
     }
 
     #[test]
@@ -1203,6 +1280,13 @@ mod tests {
             let header = check_preamble_header(Arc::from(bytes), 1).unwrap();
             let result = std::panic::catch_unwind(|| check_characters(header));
             assert!(result.is_ok(), "case {case_index} panicked");
+            assert!(
+                !matches!(
+                    result.unwrap(),
+                    Err(CharacterValidationRule::CharListTraversalLimit { .. })
+                ),
+                "case {case_index} reached the defensive traversal limit"
+            );
         }
     }
 

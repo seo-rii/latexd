@@ -368,6 +368,18 @@ crate-visible API, production callers, font ownership/resolution/caching,
 source-visible loading, checkpoints, and W3. Another Pro review is mandatory
 at the private box state before any later table phase.
 
+The prescribed character hardening now covers four adjacent metric precedence pairs
+with exact private variants. Exhaustive domains `1..=5` and 512 generated inputs assert
+that `CharListTraversalLimit` remains unreachable. AST negative mutants in a `syn`
+syntax-tree policy reject function-pointer aliases, wrappers, re-exports, macro
+references, and alternate item/field/associated/foreign visibility. Both Rust phase bridges directly pin
+the reviewed v2 manifest
+`db680c23a099b5b39c484d34c357116fc8d6967a9151db4108af0ddf4cfbb0be` and canonical
+native fixture `9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4`;
+the Python canonical-object pin separately rejects case-id, size, classification,
+first-rule, and blob-mapping mutations. Ledger policy, the native oracle, and the Rust
+suite execute in source order inside one required CI job.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

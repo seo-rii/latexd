@@ -35,6 +35,9 @@ jobs:
           scripts.tests.test_check_v3_snapshot_migration
           scripts.tests.test_vm_restore_boundary
 
+      - name: Verify TeX82 TFM validation ledger
+        run: python3 scripts/check_tfm_validation_ledger.py
+
       - name: Enforce bounded V3 migration scope
         env:
           EVENT_NAME: ${{ github.event_name }}
