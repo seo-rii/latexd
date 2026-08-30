@@ -138,6 +138,18 @@ class TfmValidationLedgerTests(unittest.TestCase):
             ):
                 self.assertIn(required, document, path)
 
+    def test_private_phase_sequence_is_current_through_parameters(self) -> None:
+        document = (ROOT / "docs/tex82-read-font-info-validation-rules.md").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "5. **Implemented privately:** exact kern scaling",
+            "6. **Implemented privately:** extensible recipes",
+            "7. **Implemented privately:** every supplied parameter",
+            "8. after a dedicated parameter closure review",
+        ):
+            self.assertIn(required, document)
+
     def test_parameter_source_contract_is_documented_at_every_phase_boundary(
         self,
     ) -> None:

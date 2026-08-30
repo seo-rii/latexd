@@ -309,8 +309,8 @@ paired ids deliberately separate acceptance from rejection.
 
 ## Required private implementation sequence
 
-The closure review authorized and `962094c` completed only the first structural
-state below. Every intermediate representation remains root-module-private:
+The reviewed private chain is now implemented through parameters. Every
+intermediate representation remains root-module-private:
 
 1. **Implemented privately:** effective-size binding, checked preamble, raw and
    normalized ranges, complete table layout, declared-frame availability,
@@ -324,12 +324,16 @@ state below. Every intermediate representation remains root-module-private:
 4. **Implemented privately:** source-ordered lig/kern instruction and
    boundary-state validation, returning private `LigKernCheckedTfm` without
    scaling kern words;
-5. after a dedicated closure review, exact kern scaling that consumes
+5. **Implemented privately:** exact kern scaling that consumes
    `LigKernCheckedTfm` and returns private `KernCheckedTfm`;
-6. extensible recipes, every supplied parameter, and EOF behavior;
-7. whole-oracle parity and generated no-panic/property gates;
-8. internal complete-state and A/B substitution closure;
-9. only after every earlier gate passes, a separately reviewed public facade.
+6. **Implemented privately:** extensible recipes that consume the exact kern
+   state and validate every declared recipe;
+7. **Implemented privately:** every supplied parameter, typed signed slant,
+   exact later-word scaling, and standard zero fill;
+8. after a dedicated parameter closure review, whole-oracle parity and
+   generated later-phase no-panic/property gates;
+9. internal complete-state and A/B substitution closure;
+10. only after every earlier gate passes, a separately reviewed public facade.
 
 The future artifact must retain the exact immutable raw object used for frame
 discovery, checks, hashes, and extraction. It must bind effective size, declared
