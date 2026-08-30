@@ -66,3 +66,12 @@ hardened AST policy source SHA-256 is
 `17205d74773bc7726e04436e1055501a019d9474be672dca09f3bbf6327a93f9`;
 the reviewed production source remains unchanged at
 `83b35e9d74db22986f16c14032009fdb58345e65da419879f79eb01622560b5f`.
+
+Generated test-only hardening is also GREEN: the `np=0..8` slot matrix,
+32,768 slant low-nibble cases, 512 sign-valid independent-scaler cases, and
+256 invalid-sign first-failure cases run the whole private chain under
+`catch_unwind`. Arithmetic/indexing no-panic explicitly excludes allocator exhaustion,
+and production code remains zero caller. Final test-bearing source
+SHA-256 is `33da91f8a9dd058ec1839a8ef65f0b3e7acc915625866ed5d7b17d18b8e2a717`;
+prospective RED is in
+`docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md`.

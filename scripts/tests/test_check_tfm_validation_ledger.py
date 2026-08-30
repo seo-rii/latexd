@@ -158,6 +158,30 @@ class TfmValidationLedgerTests(unittest.TestCase):
             ):
                 self.assertIn(required, document, path)
 
+    def test_parameter_generated_hardening_is_documented(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            ROOT / "docs/tex82-read-font-info-extensibles.md",
+            PARAMETER_SOURCE_DOCUMENT,
+            PARAMETER_PRO_CLOSURE_EVIDENCE,
+            ROOT / "docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md",
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "`np=0..8`",
+                "32,768 slant",
+                "512 sign-valid",
+                "256 invalid-sign",
+                "`catch_unwind`",
+                "33da91f8a9dd058ec1839a8ef65f0b3e7acc915625866ed5d7b17d18b8e2a717",
+                "allocator exhaustion",
+                "zero caller",
+                "docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md",
+            ):
+                self.assertIn(required, document, path)
+
     def test_parameter_red_evidence_is_content_addressed_and_exact(self) -> None:
         evidence = PARAMETER_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
         for required in (

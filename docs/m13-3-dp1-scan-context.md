@@ -597,6 +597,15 @@ Focused strict-TDD hardening now closes that residual structural gap:
 out-of-line module mutants are now rejected for both `mod bypass;` and
 `#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.
 
+Generated test-only hardening is also GREEN: the `np=0..8` slot matrix,
+32,768 slant low-nibble cases, 512 sign-valid independent-scaler cases, and
+256 invalid-sign first-failure cases run the whole private chain under
+`catch_unwind`. Arithmetic/indexing no-panic explicitly excludes allocator exhaustion,
+and production code remains zero caller. Final test-bearing source
+SHA-256 is `33da91f8a9dd058ec1839a8ef65f0b3e7acc915625866ed5d7b17d18b8e2a717`;
+prospective RED is in
+`docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

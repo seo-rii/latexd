@@ -2931,6 +2931,55 @@ mod tests {
     }
 
     #[test]
+    fn parameter_shape_matrix_names_every_declared_and_filled_slot() {
+        for np in 0..=8u16 {
+            let parameters = (0..np)
+                .map(|zero_based_index| {
+                    if zero_based_index == 0 {
+                        [0x80 | u8::try_from(np).unwrap(), 0x35, 0xa6, 0xf7]
+                    } else {
+                        let index = u8::try_from(zero_based_index).unwrap();
+                        [0, index, index.wrapping_mul(17), 255 - index]
+                    }
+                })
+                .collect::<Vec<_>>();
+            let state = check_parameter_frame(kern_frame(&[], &[], &parameters), 65_537).unwrap();
+
+            let expected_slant = parameters
+                .first()
+                .copied()
+                .map_or(SignedSlant(0), literal_signed_slant);
+            assert_eq!(state.slant, expected_slant, "np={np}");
+            assert_eq!(
+                state.dimensions.len(),
+                usize::from(np.max(7) - 1),
+                "np={np}"
+            );
+            for (ordinary_index, word) in parameters.iter().copied().skip(1).enumerate() {
+                assert_eq!(
+                    state.dimensions[ordinary_index],
+                    literal_scaled_parameter(word, 65_537).unwrap(),
+                    "np={np} fontdimen={}",
+                    ordinary_index + 2
+                );
+            }
+            for (ordinary_index, value) in state
+                .dimensions
+                .iter()
+                .enumerate()
+                .skip(parameters.len().saturating_sub(1))
+            {
+                assert_eq!(
+                    *value,
+                    ScaledSp(0),
+                    "np={np} zero-filled fontdimen={}",
+                    ordinary_index + 2
+                );
+            }
+        }
+    }
+
+    #[test]
     fn slant_is_a_signed_pure_number_independent_of_effective_size() {
         for (word, expected) in [
             ([1, 35, 69, 111], 1_193_046),
@@ -2944,6 +2993,43 @@ mod tests {
                     .unwrap();
                 assert_eq!(state.slant, SignedSlant(expected), "{word:?}");
                 assert_eq!(state.dimensions.as_ref(), [ScaledSp(0); 6]);
+            }
+        }
+    }
+
+    #[test]
+    fn slant_low_nibbles_match_literal_signed_byte_decomposition() {
+        for high_byte in 0..=u8::MAX {
+            for second_byte in [0, u8::MAX] {
+                for third_byte in [0x55, 0xaa] {
+                    for fourth_high_nibble in [0, 0xf0] {
+                        let mut baseline = None;
+                        for low_nibble in 0..16 {
+                            let word = [
+                                high_byte,
+                                second_byte,
+                                third_byte,
+                                fourth_high_nibble | low_nibble,
+                            ];
+                            let state = check_parameter_frame(
+                                kern_frame(&[], &[], &[word]),
+                                if high_byte & 1 == 0 {
+                                    1
+                                } else {
+                                    MAX_TEX_FONT_SIZE_SP - 1
+                                },
+                            )
+                            .unwrap();
+                            let expected = literal_signed_slant(word);
+                            assert_eq!(state.slant, expected, "word={word:02x?}");
+                            assert_eq!(
+                                *baseline.get_or_insert(state.slant),
+                                state.slant,
+                                "discarded low nibble changed slant for word={word:02x?}"
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -3132,6 +3218,117 @@ mod tests {
                 sign: 254,
             })
         );
+    }
+
+    #[test]
+    fn generated_parameters_match_independent_reference_and_never_panic() {
+        let sizes = [
+            1,
+            15,
+            16,
+            17,
+            65_535,
+            65_536,
+            65_537,
+            (1 << 23) - 1,
+            1 << 23,
+            (1 << 23) + 1,
+            (1 << 24) - 1,
+            1 << 24,
+            (1 << 24) + 1,
+            (1 << 25) - 1,
+            1 << 25,
+            (1 << 25) + 1,
+            (1 << 26) - 1,
+            1 << 26,
+            (1 << 26) + 1,
+            MAX_TEX_FONT_SIZE_SP - 1,
+        ];
+        let mut generator = 0x6a93_e9d1_5100_83eeu64;
+
+        for case_index in 0..512usize {
+            let np = case_index % 33;
+            let mut parameters = Vec::with_capacity(np);
+            for parameter_index in 0..np {
+                generator = generator
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let mut word = (generator as u32).to_be_bytes();
+                if parameter_index > 0 {
+                    word[0] = if generator & (1 << 63) == 0 { 0 } else { 255 };
+                }
+                parameters.push(word);
+            }
+            let size = sizes[case_index % sizes.len()];
+            let expected_slant = parameters
+                .first()
+                .copied()
+                .map_or(SignedSlant(0), literal_signed_slant);
+            let mut expected_dimensions = parameters
+                .iter()
+                .copied()
+                .skip(1)
+                .map(|word| literal_scaled_parameter(word, size).unwrap())
+                .collect::<Vec<_>>();
+            if expected_dimensions.len() < 6 {
+                expected_dimensions.resize(6, ScaledSp(0));
+            }
+
+            let outcome = std::panic::catch_unwind(|| {
+                check_parameter_frame(kern_frame(&[], &[], &parameters), size)
+            });
+            assert!(outcome.is_ok(), "case {case_index} panicked");
+            let state = outcome.unwrap().unwrap();
+            assert_eq!(state.slant, expected_slant, "case {case_index}");
+            assert_eq!(
+                state.dimensions.as_ref(),
+                expected_dimensions,
+                "case {case_index}"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_invalid_parameters_return_first_sign_without_panicking() {
+        let mut generator = 0x0dcb_7124_f1b6_5764u64;
+
+        for case_index in 0..256usize {
+            let np = 2 + case_index % 63;
+            let mut parameters = vec![[0, 0, 0, 0]; np];
+            for (parameter_index, word) in parameters.iter_mut().enumerate() {
+                generator = generator
+                    .wrapping_mul(2_862_933_555_777_941_757)
+                    .wrapping_add(3_037_000_493);
+                *word = (generator as u32).to_be_bytes();
+                if parameter_index > 0 {
+                    word[0] = if generator & 1 == 0 { 0 } else { 255 };
+                }
+            }
+            let first_invalid_index = 1 + usize::try_from(generator % (np - 1) as u64).unwrap();
+            let first_invalid_sign = 1 + u8::try_from(generator % 254).unwrap();
+            parameters[first_invalid_index][0] = first_invalid_sign;
+            if first_invalid_index + 1 < np {
+                parameters[np - 1][0] = if first_invalid_sign == 254 {
+                    1
+                } else {
+                    first_invalid_sign + 1
+                };
+            }
+            let size = 1 + i32::try_from(generator % ((1u64 << 27) - 1)).unwrap();
+
+            let outcome = std::panic::catch_unwind(|| {
+                check_parameter_frame(kern_frame(&[], &[], &parameters), size)
+            });
+            assert!(outcome.is_ok(), "case {case_index} panicked");
+            assert_eq!(
+                outcome.unwrap().err(),
+                Some(ParameterValidationRule::InvalidFixWordSign {
+                    parameter: u16::try_from(first_invalid_index + 1).unwrap(),
+                    sign: first_invalid_sign,
+                }),
+                "case {case_index}"
+            );
+        }
     }
 
     #[test]
@@ -4518,6 +4715,51 @@ mod tests {
         effective_size_sp: i32,
     ) -> Result<ParameterCheckedTfm, ParameterValidationRule> {
         check_parameters(check_extensible_frame(bytes, effective_size_sp).unwrap())
+    }
+
+    fn literal_signed_slant(word: [u8; 4]) -> SignedSlant {
+        let signed_high_byte = if word[0] < 128 {
+            i32::from(word[0])
+        } else {
+            i32::from(word[0]) - 256
+        };
+        SignedSlant(
+            signed_high_byte * (1 << 20)
+                + i32::from(word[1]) * (1 << 12)
+                + i32::from(word[2]) * (1 << 4)
+                + i32::from(word[3] / 16),
+        )
+    }
+
+    fn literal_scaled_parameter(word: [u8; 4], effective_size_sp: i32) -> Result<ScaledSp, u8> {
+        if !matches!(word[0], 0 | 255) {
+            return Err(word[0]);
+        }
+        assert!((1..MAX_TEX_FONT_SIZE_SP).contains(&effective_size_sp));
+
+        let size_shift = if effective_size_sp < 1 << 23 {
+            0
+        } else if effective_size_sp < 1 << 24 {
+            1
+        } else if effective_size_sp < 1 << 25 {
+            2
+        } else if effective_size_sp < 1 << 26 {
+            3
+        } else {
+            4
+        };
+        let reduced_size = i128::from(effective_size_sp >> size_shift);
+        let alpha_factor = 16i128 << size_shift;
+        let beta = 256 / alpha_factor;
+        let magnitude =
+            i128::from(word[1]) * 65_536 + i128::from(word[2]) * 256 + i128::from(word[3]);
+        let positive_fraction = magnitude * reduced_size / (65_536 * beta);
+        let scaled = if word[0] == 0 {
+            positive_fraction
+        } else {
+            positive_fraction - alpha_factor * reduced_size
+        };
+        Ok(ScaledSp(i32::try_from(scaled).unwrap()))
     }
 
     fn maximum_lig_kern_frame(instructions: &[[u8; 4]]) -> Vec<u8> {
