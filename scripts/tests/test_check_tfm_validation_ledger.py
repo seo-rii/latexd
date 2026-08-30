@@ -12,6 +12,7 @@ from scripts.check_tfm_validation_ledger import (
     validate_rule_ledger,
     validate_rule_transition,
     validate_rule_transition_v3,
+    validate_rule_transition_v4,
     validate_transition_chain,
 )
 
@@ -33,6 +34,10 @@ RULE_TRANSITION = (
 RULE_TRANSITION_V3 = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v3.json"
+)
+RULE_TRANSITION_V4 = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v4.json"
 )
 KERN_SOURCE_CONTRACT = (
     ROOT
@@ -68,6 +73,10 @@ def rule_transition() -> dict[str, object]:
 
 def rule_transition_v3() -> dict[str, object]:
     return json.loads(RULE_TRANSITION_V3.read_text(encoding="utf-8"))
+
+
+def rule_transition_v4() -> dict[str, object]:
+    return json.loads(RULE_TRANSITION_V4.read_text(encoding="utf-8"))
 
 
 def kern_source_contract() -> dict[str, object]:
@@ -344,8 +353,9 @@ class TfmValidationLedgerTests(unittest.TestCase):
         self.assertIn("'LigKernCheckedTfm': 8", output.getvalue())
         self.assertIn("'KernCheckedTfm': 1", output.getvalue())
         self.assertIn("'ExtensibleCheckedTfm': 2", output.getvalue())
-        self.assertIn("'TailCheckedTfm': 3", output.getvalue())
-        self.assertIn("transition_chain=v2->v3", output.getvalue())
+        self.assertIn("'ParameterCheckedTfm': 3", output.getvalue())
+        self.assertIn("'TailCheckedTfm': 0", output.getvalue())
+        self.assertIn("transition_chain=v2->v3->v4", output.getvalue())
         self.assertIn("extensible_source_contract=v1", output.getvalue())
 
     def test_v3_transition_moves_only_extensible_rules_from_effective_owner(
@@ -388,26 +398,99 @@ class TfmValidationLedgerTests(unittest.TestCase):
             ],
         )
 
+    def test_v4_transition_moves_only_parameter_rules_from_effective_owner(
+        self,
+    ) -> None:
+        transition = rule_transition_v4()
+        self.assertEqual(
+            validate_rule_transition_v4(transition, rule_transition_v3()), []
+        )
+        self.assertEqual(type(transition["schema_version"]), int)
+        self.assertEqual(transition["schema_version"], 4)
+        self.assertEqual(transition["proof_states_added"], ["ParameterCheckedTfm"])
+        self.assertEqual(
+            transition["ownership_changes"],
+            [
+                {
+                    "rule_id": rule_id,
+                    "from": "TailCheckedTfm",
+                    "to": "ParameterCheckedTfm",
+                }
+                for rule_id in (
+                    "TFM-PARAM-001",
+                    "TFM-PARAM-002",
+                    "TFM-PARAM-003",
+                )
+            ],
+        )
+        self.assertEqual(
+            transition["source_predicate_projections"],
+            [
+                {
+                    "source_predicate": "slant_signed_pure_number",
+                    "runtime_projection": "SignedSlant",
+                    "rule_ids": ["TFM-PARAM-001"],
+                },
+                {
+                    "source_predicate": "non_slant_store_scaled",
+                    "runtime_projection": "ScaledParameter",
+                    "rule_ids": ["TFM-PARAM-002"],
+                },
+                {
+                    "source_predicate": (
+                        "whole_np_iteration_then_standard_zero_fill"
+                    ),
+                    "runtime_projection": "CompleteParameterTable",
+                    "rule_ids": ["TFM-PARAM-003"],
+                },
+            ],
+        )
+
+    def test_v4_transition_scalar_types_and_shape_diagnostics_are_exact(self) -> None:
+        for field_path in (
+            ("schema_version",),
+            ("predecessor", "schema_version"),
+        ):
+            for replacement in (4.0, True):
+                changed = json.loads(json.dumps(rule_transition_v4()))
+                target = changed
+                for component in field_path[:-1]:
+                    target = target[component]
+                target[field_path[-1]] = replacement
+                with self.subTest(field_path=field_path, replacement=replacement):
+                    self.assertIn(
+                        "v4 transition schema scalar type is invalid",
+                        validate_rule_transition_v4(changed, rule_transition_v3()),
+                    )
+
+        changed = json.loads(json.dumps(rule_transition_v4()))
+        changed["source_predicate_projections"][0]["rule_ids"] = {}
+        self.assertIn(
+            "v4 transition projected rule ids are invalid",
+            validate_rule_transition_v4(changed, rule_transition_v3()),
+        )
+
     def test_transition_chain_rejects_omission_reordering_and_invalid_moves(
         self,
     ) -> None:
         v2 = rule_transition()
         v3 = rule_transition_v3()
-        self.assertEqual(validate_transition_chain([v2, v3], rule_contract()), [])
+        v4 = rule_transition_v4()
+        self.assertEqual(validate_transition_chain([v2, v3, v4], rule_contract()), [])
 
-        for changed_chain in ([v3], [v3, v2]):
+        for changed_chain in ([v3, v4], [v3, v2, v4], [v2, v4, v3]):
             self.assertTrue(validate_transition_chain(changed_chain, rule_contract()))
 
         wrong_owner = json.loads(json.dumps(v3))
         wrong_owner["ownership_changes"][0]["from"] = "LigKernCheckedTfm"
-        errors = validate_transition_chain([v2, wrong_owner], rule_contract())
+        errors = validate_transition_chain([v2, wrong_owner, v4], rule_contract())
         self.assertTrue(any("current effective owner" in error for error in errors))
 
         duplicate_in_v3 = json.loads(json.dumps(v3))
         duplicate_in_v3["ownership_changes"].append(
             json.loads(json.dumps(duplicate_in_v3["ownership_changes"][0]))
         )
-        errors = validate_transition_chain([v2, duplicate_in_v3], rule_contract())
+        errors = validate_transition_chain([v2, duplicate_in_v3, v4], rule_contract())
         self.assertTrue(any("duplicate ownership move" in error for error in errors))
 
         moved_twice = json.loads(json.dumps(v3))
@@ -418,13 +501,13 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 "to": "ExtensibleCheckedTfm",
             }
         )
-        errors = validate_transition_chain([v2, moved_twice], rule_contract())
+        errors = validate_transition_chain([v2, moved_twice, v4], rule_contract())
         self.assertTrue(any("already moved by an earlier transition" in error for error in errors))
 
         predecessor_drift = json.loads(json.dumps(v3))
         predecessor_drift["predecessor"] = {}
         self.assertTrue(
-            validate_transition_chain([v2, predecessor_drift], rule_contract())
+            validate_transition_chain([v2, predecessor_drift, v4], rule_contract())
         )
 
     def test_transition_projection_shapes_return_controlled_errors(self) -> None:
@@ -435,6 +518,12 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 rule_transition_v3,
                 rule_transition,
                 validate_rule_transition_v3,
+            ),
+            (
+                "v4",
+                rule_transition_v4,
+                rule_transition_v3,
+                validate_rule_transition_v4,
             ),
         )
         for version, transition_factory, predecessor_factory, validator in validators:

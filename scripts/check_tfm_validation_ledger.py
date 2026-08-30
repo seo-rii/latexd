@@ -24,6 +24,10 @@ RULE_TRANSITION_V3_PATH = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v3.json"
 )
+RULE_TRANSITION_V4_PATH = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v4.json"
+)
 KERN_SOURCE_CONTRACT_PATH = (
     ROOT / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
@@ -189,6 +193,37 @@ REVIEWED_V3_TRANSITION_RAW_SHA256 = (
 )
 REVIEWED_V3_TRANSITION_CANONICAL_SHA256 = (
     "3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf"
+)
+PINNED_V4_OWNERSHIP_CHANGES = [
+    {
+        "rule_id": rule_id,
+        "from": "TailCheckedTfm",
+        "to": "ParameterCheckedTfm",
+    }
+    for rule_id in ("TFM-PARAM-001", "TFM-PARAM-002", "TFM-PARAM-003")
+]
+PINNED_V4_SOURCE_PREDICATE_PROJECTIONS = [
+    {
+        "source_predicate": "slant_signed_pure_number",
+        "runtime_projection": "SignedSlant",
+        "rule_ids": ["TFM-PARAM-001"],
+    },
+    {
+        "source_predicate": "non_slant_store_scaled",
+        "runtime_projection": "ScaledParameter",
+        "rule_ids": ["TFM-PARAM-002"],
+    },
+    {
+        "source_predicate": "whole_np_iteration_then_standard_zero_fill",
+        "runtime_projection": "CompleteParameterTable",
+        "rule_ids": ["TFM-PARAM-003"],
+    },
+]
+REVIEWED_V4_TRANSITION_RAW_SHA256 = (
+    "edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e"
+)
+REVIEWED_V4_TRANSITION_CANONICAL_SHA256 = (
+    "245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536"
 )
 REVIEWED_KERN_SOURCE_CONTRACT_RAW_SHA256 = (
     "19d08087ce4b96bc4e3e9059e161adfd4705157e5a7e768190695155b7c9b2a1"
@@ -594,6 +629,94 @@ def validate_rule_transition_v3(transition: object, predecessor: object) -> list
     return errors
 
 
+def validate_rule_transition_v4(transition: object, predecessor: object) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(transition, dict):
+        return ["v4 transition is not an object"]
+    if not isinstance(predecessor, dict):
+        return ["v4 transition predecessor is not an object"]
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessor",
+        "proof_states_added",
+        "ownership_changes",
+        "source_predicate_projections",
+    }
+    if set(transition) != expected_keys:
+        errors.append("v4 transition fields differ")
+    if transition.get("format") != "latexd.tfm-validation-rule-contract-transition":
+        errors.append("v4 transition format is invalid")
+
+    predecessor_pin = transition.get("predecessor")
+    schema_scalars = [transition.get("schema_version")]
+    if isinstance(predecessor_pin, dict):
+        schema_scalars.append(predecessor_pin.get("schema_version"))
+    if any(type(value) is not int for value in schema_scalars):
+        errors.append("v4 transition schema scalar type is invalid")
+    if transition.get("schema_version") != 4:
+        errors.append("v4 transition schema version is invalid")
+
+    canonical_predecessor = json.dumps(
+        predecessor,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessor = {
+        "path": "tfm-validation-rule-transition-v3.json",
+        "schema_version": 3,
+        "raw_sha256": REVIEWED_V3_TRANSITION_RAW_SHA256,
+        "canonical_sha256": REVIEWED_V3_TRANSITION_CANONICAL_SHA256,
+    }
+    if predecessor_pin != expected_predecessor:
+        errors.append("v4 transition predecessor pin differs")
+    if hashlib.sha256(RULE_TRANSITION_V3_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_V3_TRANSITION_RAW_SHA256
+    ):
+        errors.append("v4 transition predecessor raw content differs")
+    if hashlib.sha256(canonical_predecessor).hexdigest() != (
+        REVIEWED_V3_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("v4 transition predecessor canonical content differs")
+    if transition.get("proof_states_added") != ["ParameterCheckedTfm"]:
+        errors.append("v4 transition added proof states differ")
+    if transition.get("ownership_changes") != PINNED_V4_OWNERSHIP_CHANGES:
+        errors.append("v4 transition proof ownership changes differ")
+    projections = transition.get("source_predicate_projections")
+    if projections != PINNED_V4_SOURCE_PREDICATE_PROJECTIONS:
+        errors.append("v4 transition source predicate projections differ")
+    projected_rule_ids = _validated_projection_rule_ids(
+        projections, "v4 transition", errors
+    )
+    if projected_rule_ids is not None:
+        expected_parameter_rule_ids = [
+            "TFM-PARAM-001",
+            "TFM-PARAM-002",
+            "TFM-PARAM-003",
+        ]
+        if Counter(projected_rule_ids) != Counter(expected_parameter_rule_ids):
+            errors.append("v4 transition parameter projection coverage differs")
+        if any(not rule_id.startswith("TFM-PARAM-") for rule_id in projected_rule_ids):
+            errors.append("v4 transition parameter projection includes other rules")
+
+    canonical_transition = json.dumps(
+        transition,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(RULE_TRANSITION_V4_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_V4_TRANSITION_RAW_SHA256
+    ):
+        errors.append("reviewed v4 transition raw content differs")
+    if hashlib.sha256(canonical_transition).hexdigest() != (
+        REVIEWED_V4_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("reviewed v4 transition canonical content differs")
+    return errors
+
+
 def validate_transition_chain(transitions: object, predecessor: object) -> list[str]:
     errors: list[str] = []
     if not isinstance(transitions, list):
@@ -605,12 +728,14 @@ def validate_transition_chain(transitions: object, predecessor: object) -> list[
         transition.get("schema_version") if isinstance(transition, dict) else None
         for transition in transitions
     ]
-    if schema_versions != [2, 3]:
-        errors.append("transition chain schema order differs; expected v2->v3")
+    if schema_versions != [2, 3, 4]:
+        errors.append("transition chain schema order differs; expected v2->v3->v4")
     if transitions:
         errors.extend(validate_rule_transition(transitions[0], predecessor))
     if len(transitions) >= 2:
         errors.extend(validate_rule_transition_v3(transitions[1], transitions[0]))
+    if len(transitions) >= 3:
+        errors.extend(validate_rule_transition_v4(transitions[2], transitions[1]))
 
     proof_states = predecessor.get("proof_states")
     rules = predecessor.get("rules")
@@ -945,7 +1070,10 @@ def main() -> int:
     transition_v3 = json.loads(
         RULE_TRANSITION_V3_PATH.read_text(encoding="utf-8")
     )
-    transitions = [transition, transition_v3]
+    transition_v4 = json.loads(
+        RULE_TRANSITION_V4_PATH.read_text(encoding="utf-8")
+    )
+    transitions = [transition, transition_v3, transition_v4]
     errors.extend(validate_transition_chain(transitions, RULE_CONTRACT))
     kern_source_contract = json.loads(
         KERN_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
@@ -974,7 +1102,7 @@ def main() -> int:
         "TeX82 TFM validation source-rule ledger passed: "
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
         f"proof_states={dict(sorted(proof_counts.items()))}, "
-        "transition_chain=v2->v3, "
+        "transition_chain=v2->v3->v4, "
         "kern_source_contract=v1, extensible_source_contract=v1"
     )
     return 0

@@ -189,6 +189,17 @@ from effective `TailCheckedTfm` ownership to a private
 Completion, callers, visibility, and integration remain blocked. See
 `docs/evidence/tex-tfm-extensible-pro-closure-v1.md`.
 
+The immutable `tfm-validation-rule-transition-v4.json` is the first bounded
+parameter artifact. Its raw and canonical SHA-256 values are respectively
+`edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e` and
+`245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536`.
+It pins reviewed v3, adds only `ParameterCheckedTfm`, and moves exactly
+`TFM-PARAM-001..003` from effective `TailCheckedTfm` ownership. The checker
+enforces v2-to-v3-to-v4 order and rejects non-integer v4 schema scalars before
+reporting the active projection LigKern 8, Kern 1, Extensible 2, Parameter 3,
+Tail 0. This changes only the ownership machine contract; the exact source
+contract and strict RED still precede every parameter production symbol.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

@@ -1771,6 +1771,18 @@ visibility, caller, loading, cache, serialization, persistence, VM, checkpoint�
 dedicated parameter closure review까지 blocked다. 정확한 review identity는
 `docs/evidence/tex-tfm-extensible-pro-closure-v1.md`에 기록한다.
 
+Parameter 준비의 첫 작업 단위로 immutable
+`tfm-validation-rule-transition-v4.json`을 추가했다. Raw SHA-256은
+`edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e`,
+canonical SHA-256은
+`245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536`다.
+이 transition은 reviewed v3 raw/canonical identity를 predecessor로 pin하고
+`ParameterCheckedTfm`만 추가하며 `TFM-PARAM-001..003`만 현재 effective tail
+owner에서 옮긴다. Ledger는 ordered v2→v3→v4 chain과 type-strict v4 schema
+scalar를 fail-closed하고 active ownership을 LigKern 8, Kern 1, Extensible 2,
+Parameter 3, Tail 0으로 계산한다. Exact parameter source contract와 prospective
+RED 전에는 parameter production type/function을 추가하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

@@ -132,3 +132,12 @@ tests should assert their category diagnostics. Exact review identities are in
 `docs/evidence/tex-tfm-extensible-pro-closure-v1.md`. Completion and every
 integration surface remain blocked through a dedicated parameter closure
 review.
+
+Immutable `tfm-validation-rule-transition-v4.json` now performs only that
+authorized ownership move. Its raw/canonical SHA-256 pair is
+`edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e` /
+`245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536`.
+The v2-to-v3-to-v4 chain moves all and only `TFM-PARAM-001..003` into
+`ParameterCheckedTfm`, leaves the reviewed extensible bytes unchanged, and
+reports Parameter 3 / Tail 0. The focused parameter source contract and RED
+remain required before production code.

@@ -544,6 +544,18 @@ integration surface remain blocked through a dedicated parameter closure
 review. Exact identities are in
 `docs/evidence/tex-tfm-extensible-pro-closure-v1.md`.
 
+The first parameter-preparation unit adds immutable
+`tfm-validation-rule-transition-v4.json`. Its raw SHA-256 is
+`edbccde695940a26634735f79bad60d64f8a11c63f8d48c927cfad194b4cd88e` and its
+canonical SHA-256 is
+`245cdd552002ef8f4395cf8f8dcf2412f7a883256324cd71c3c0ac138ce5f536`.
+It pins reviewed v3 by raw and canonical identity, adds only
+`ParameterCheckedTfm`, and moves exactly `TFM-PARAM-001..003` from their
+effective tail owner. The ledger now enforces the ordered v2-to-v3-to-v4 chain,
+type-strict v4 schema scalars, and active ownership counts of LigKern 8, Kern 1,
+Extensible 2, Parameter 3, and Tail 0. No parameter production symbol exists
+before the exact source contract and prospective RED.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

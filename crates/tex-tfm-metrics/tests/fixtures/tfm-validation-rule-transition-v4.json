@@ -1,0 +1,47 @@
+{
+  "format": "latexd.tfm-validation-rule-contract-transition",
+  "schema_version": 4,
+  "predecessor": {
+    "path": "tfm-validation-rule-transition-v3.json",
+    "schema_version": 3,
+    "raw_sha256": "5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d",
+    "canonical_sha256": "3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf"
+  },
+  "proof_states_added": [
+    "ParameterCheckedTfm"
+  ],
+  "source_predicate_projections": [
+    {
+      "source_predicate": "slant_signed_pure_number",
+      "runtime_projection": "SignedSlant",
+      "rule_ids": ["TFM-PARAM-001"]
+    },
+    {
+      "source_predicate": "non_slant_store_scaled",
+      "runtime_projection": "ScaledParameter",
+      "rule_ids": ["TFM-PARAM-002"]
+    },
+    {
+      "source_predicate": "whole_np_iteration_then_standard_zero_fill",
+      "runtime_projection": "CompleteParameterTable",
+      "rule_ids": ["TFM-PARAM-003"]
+    }
+  ],
+  "ownership_changes": [
+    {
+      "rule_id": "TFM-PARAM-001",
+      "from": "TailCheckedTfm",
+      "to": "ParameterCheckedTfm"
+    },
+    {
+      "rule_id": "TFM-PARAM-002",
+      "from": "TailCheckedTfm",
+      "to": "ParameterCheckedTfm"
+    },
+    {
+      "rule_id": "TFM-PARAM-003",
+      "from": "TailCheckedTfm",
+      "to": "ParameterCheckedTfm"
+    }
+  ]
+}
