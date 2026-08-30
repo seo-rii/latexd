@@ -99,3 +99,10 @@ and production code remains zero caller. Final test-bearing source
 SHA-256 is `33da91f8a9dd058ec1839a8ef65f0b3e7acc915625866ed5d7b17d18b8e2a717`;
 prospective RED is in
 `docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md`.
+
+`docs/tex82-read-font-info-completion-hardening.md` is design only for a future
+zero-rule completion marker. It keeps all 33 v4 rules at their current owners,
+excludes TeX82 runtime final adjustments, specifies test-only whole-chain and
+no-panic evidence, and requires a separate Pro review before any complete state
+symbol. The production caller remains blocked, as do visibility and all
+integration surfaces.

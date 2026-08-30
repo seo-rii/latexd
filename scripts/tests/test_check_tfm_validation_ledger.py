@@ -62,6 +62,9 @@ PARAMETER_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-parameter-tdd-red-v1.
 PARAMETER_PRO_CLOSURE_EVIDENCE = (
     ROOT / "docs/evidence/tex-tfm-parameter-pro-closure-v1.md"
 )
+COMPLETION_HARDENING_DESIGN = (
+    ROOT / "docs/tex82-read-font-info-completion-hardening.md"
+)
 
 
 def ledger_text() -> str:
@@ -102,6 +105,51 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_private_completion_hardening_design_is_decision_complete(self) -> None:
+        design = COMPLETION_HARDENING_DESIGN.read_text(encoding="utf-8")
+        for required in (
+            "`CompleteCheckedTfm { predecessor: ParameterCheckedTfm }`",
+            "`finish_validation(ParameterCheckedTfm) -> CompleteCheckedTfm`",
+            "owned rule IDs: none",
+            "`ParameterCheckedTfm: 3`",
+            "`TailCheckedTfm: 0`",
+            "SizePrecondition -> Header -> Character -> Box -> LigKern -> Kern -> Extensible -> Parameter",
+            "test-only whole-chain driver",
+            "83 witnesses",
+            "7 definitions, 0 references, 7 constructions",
+            "8 definitions, 0 references, 8 constructions",
+            "lines 11201..11225",
+            "56b9b2bc3e1abc3a4038be04d625744b1aaa9cb479a8a2ba25e074d8d77931ba",
+            "lines 11205..11225",
+            "a61aaf83a618d111bbb29851ca91276222c71ccb05935569da6929f2cd08a0cc",
+            "final adjustments are excluded",
+            "allocator exhaustion",
+            "single-owner native witnesses",
+            "multi-defect generated cases",
+            "rollback baseline is `77a7304`",
+            "No production caller",
+            "No public or crate visibility",
+            "separate Pro review",
+        ):
+            self.assertIn(required, design)
+
+    def test_completion_design_is_linked_without_claiming_implementation(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            PARAMETER_SOURCE_DOCUMENT,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "docs/tex82-read-font-info-completion-hardening.md",
+                "zero-rule completion marker",
+                "design only",
+                "separate Pro review",
+                "production caller remains blocked",
+            ):
+                self.assertIn(required, document, path)
+
     def test_parameter_pro_closure_is_content_addressed_and_exact(self) -> None:
         evidence = PARAMETER_PRO_CLOSURE_EVIDENCE.read_text(encoding="utf-8")
         for required in (

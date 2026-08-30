@@ -1833,6 +1833,13 @@ SHA-256 is `33da91f8a9dd058ec1839a8ef65f0b3e7acc915625866ed5d7b17d18b8e2a717`;
 prospective RED is in
 `docs/evidence/tex-tfm-parameter-hardening-tdd-red-v1.md`.
 
+`docs/tex82-read-font-info-completion-hardening.md` is design only for a future
+zero-rule completion marker. It keeps all 33 v4 rules at their current owners,
+excludes TeX82 runtime final adjustments, specifies test-only whole-chain and
+no-panic evidence, and requires a separate Pro review before any complete state
+symbol. The production caller remains blocked, as do visibility and all
+integration surfaces.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만
