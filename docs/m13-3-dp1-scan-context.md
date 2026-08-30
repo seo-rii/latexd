@@ -380,6 +380,27 @@ the Python canonical-object pin separately rejects case-id, size, classification
 first-rule, and blob-mapping mutations. Ledger policy, the native oracle, and the Rust
 suite execute in source order inside one required CI job.
 
+The authorized private `BoxCheckedTfm` is now implemented. It consumes and
+retains the exact character predecessor, scales the complete
+width/height/depth/italic interval with literal TeX82 `store_scaled` arithmetic,
+then checks all four scaled entry-zero values in source order. Exact Rust
+evidence covers all forbidden sign bytes, compound precedence, size-bound zero
+rounding, predecessor identity, maximum geometry, suffix/later-table isolation,
+generated sign-valid inputs, and all 83/83 persisted corpus phase outcomes.
+The AST gate rejects a `Clone` proof-state mutant, while the ledger pins
+exact `BoxCheckedTfm` proof ownership to its three source rules.
+
+The focused source contract is
+`docs/tex82-read-font-info-box-scaling.md`. Its native pdfTeX INITEX oracle
+freezes 21 effective sizes × 10 fix words, including every size-reduction
+boundary and signed/carry extremes. It distinguishes exact signed width/italic
+from box-observed negative height/depth, and CI uploads the complete engine,
+source, TFM, and probe provenance before running Rust tests. This remains a
+private implementation pending a new Pro box-closure review. Kern scaling and
+all lig/kern remains blocked, together with extensible recipes, parameters,
+public or crate-visible APIs, production font ownership/resolution/caching,
+source-visible loading, checkpoints, and W3.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

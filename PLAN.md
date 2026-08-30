@@ -1608,6 +1608,25 @@ canonical native fixture `9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984
 blob mapping mutation을 거부한다. Ledger policy, native oracle, Rust suite는 one required
 CI job 안에서 source order로 실행된다. 이 세 gate는 one required CI job에 속한다.
 
+승인된 private `BoxCheckedTfm` 구현은 이제 `CharacterCheckedTfm`을 값으로
+소비·보존하고 bound effective size만으로 width/height/depth/italic 전체를 literal
+TeX82 `store_scaled` 순서로 변환한다. 모든 word를 먼저 scale한 다음 네 entry-zero를
+source order로 검사한다. Exact private tests는 모든 1..=254 sign byte와 table/index
+precedence, 1sp/16sp entry-zero 반례, predecessor identity, suffix/later-table isolation,
+maximum geometry, generated sign-valid inputs, 그리고 persisted corpus 83/83 phase
+outcome을 고정한다. AST gate는 `Clone` proof-state mutant도 거부하고 machine ledger는
+세 규칙의 exact `BoxCheckedTfm` proof ownership을 별도로 고정한다.
+
+Source pin과 네이티브 exact-sp 증거는
+`docs/tex82-read-font-info-box-scaling.md` 및
+`tfm-box-scaling-oracle-v1.json`에 있다. Fresh pdfTeX INITEX matrix는
+21 effective sizes × 10 fix words를 21 process로 측정하고, width/italic의 signed result와 box에서
+negative height/depth가 0으로 관찰되는 차이를 함께 고정한다. Native oracle은 required
+CI job에서 Rust suite 전에 실행되고 report를 업로드한다. 이 구현은 다음 Pro box
+closure review 전까지 root-private이고 production caller가 없다. Kern scaling을 포함한
+lig/kern remains blocked이며 extensible, parameter, public owner/API, source loading과 W3도
+계속 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

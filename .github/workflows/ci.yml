@@ -27,6 +27,7 @@ jobs:
           scripts.tests.test_check_hangindent_oracle
           scripts.tests.test_check_layout_integer_parameters_oracle
           scripts.tests.test_check_mathcode_delcode_oracle
+          scripts.tests.test_check_tfm_box_scaling_oracle
           scripts.tests.test_check_tfm_validity_oracle
           scripts.tests.test_check_tfm_validation_ledger
           scripts.tests.test_check_tolerance_oracle
@@ -142,6 +143,17 @@ jobs:
         with:
           name: tfm-validity-oracle
           path: target/tfm-validity-oracle.json
+
+      - name: Verify TeX82 TFM box scaling oracle
+        run: >-
+          python3 scripts/check_tfm_box_scaling_oracle.py
+          --report target/tfm-box-scaling-oracle.json
+
+      - name: Upload TeX82 TFM box scaling oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfm-box-scaling-oracle
+          path: target/tfm-box-scaling-oracle.json
 
       - name: Run Rust test suite
         run: cargo test -q

@@ -1247,6 +1247,73 @@ mod tests {
     }
 
     #[test]
+    fn frozen_native_box_matrix_matches_private_scaled_values() {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/tfm-box-scaling-oracle-v1.json");
+        let fixture_bytes = std::fs::read(fixture_path).unwrap();
+        assert_eq!(
+            Sha256::digest(&fixture_bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "287f3c33038b05279239f0836af5e03a306f4589d41127eb3aec2af88f051eb4"
+        );
+        let fixture: serde_json::Value = serde_json::from_slice(&fixture_bytes).unwrap();
+        assert_eq!(
+            fixture["native_observation_projection"],
+            serde_json::json!({
+                "width": "exact_scaled_sp",
+                "height": "max_zero_exact_scaled_sp",
+                "depth": "max_zero_exact_scaled_sp",
+                "italic": "exact_scaled_sp",
+            })
+        );
+
+        for (size_id, size) in fixture["case_sizes_sp"].as_object().unwrap() {
+            let size = i32::try_from(size.as_i64().unwrap()).unwrap();
+            let observations = fixture["case_results"][size_id]["observations"]
+                .as_object()
+                .unwrap();
+            for (word_id, raw_word) in fixture["fix_word_cases"].as_object().unwrap() {
+                let raw_word = raw_word.as_str().unwrap();
+                let raw_word: [u8; 4] = std::array::from_fn(|index| {
+                    u8::from_str_radix(&raw_word[index * 2..index * 2 + 2], 16).unwrap()
+                });
+                let bytes = box_frame_with_words(
+                    [2, 2, 2, 2],
+                    &[
+                        (BoxMetric::Width, 1, raw_word),
+                        (BoxMetric::Height, 1, raw_word),
+                        (BoxMetric::Depth, 1, raw_word),
+                        (BoxMetric::Italic, 1, raw_word),
+                    ],
+                );
+                let state = check_boxes(
+                    check_characters(check_preamble_header(Arc::from(bytes), size).unwrap())
+                        .unwrap(),
+                )
+                .unwrap();
+                let ScaledSp(scaled_sp) = state.widths[1];
+                assert_eq!(state.heights[1], ScaledSp(scaled_sp));
+                assert_eq!(state.depths[1], ScaledSp(scaled_sp));
+                assert_eq!(state.italics[1], ScaledSp(scaled_sp));
+                for (metric, expected) in [
+                    ("width", scaled_sp),
+                    ("height", scaled_sp.max(0)),
+                    ("depth", scaled_sp.max(0)),
+                    ("italic", scaled_sp),
+                ] {
+                    assert_eq!(
+                        observations[&format!("{word_id}_{metric}")],
+                        expected,
+                        "{size_id} {word_id} {metric}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn scaled_entry_zero_checks_use_the_bound_size_for_each_box_table() {
         for table in [
             BoxMetric::Width,

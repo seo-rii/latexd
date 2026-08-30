@@ -146,7 +146,8 @@ state below. Every intermediate representation remains root-module-private:
 2. **Implemented privately:** character records, metric/tag index bounds,
    derived existence, range-only charlist targets, and bounded source-order
    charlist cycle validation;
-3. exact at-size box scaling and all four scaled entry-zero checks;
+3. **Implemented privately:** exact at-size box scaling and all four scaled
+   entry-zero checks;
 4. source-ordered lig/kern boundary state and kern validation;
 5. extensible recipes, every supplied parameter, and EOF behavior;
 6. whole-oracle parity and generated no-panic/property gates;
@@ -215,4 +216,23 @@ malformed case to succeed through this phase. Generated evidence covers
 exhaustive small-graph domains `1..=5`, full-domain chain/cycle bounds, 512
 arbitrary-record no-panic inputs, compound private precedence, suffix/frame
 identity, later-table isolation, and zero public or production reachability.
-Pending a mandatory character-closure review, box scaling remains blocked.
+Character closure review authorized the next root-private state. The private
+`BoxCheckedTfm` now consumes and retains the exact character predecessor,
+scales every width/height/depth/italic word with literal source arithmetic, and
+checks all four scaled entry-zero values only after the full scaling pass.
+Exact tests cover every forbidden sign byte in every box table, source-order
+precedence, 1sp/16sp entry-zero behavior, predecessor identity, suffix and
+later-table isolation, maximum geometry, generated sign-valid input, and 83/83
+persisted corpus phase outcomes. The AST policy rejects a `Clone` proof-state
+mutant, and the ledger enforces exact `BoxCheckedTfm` proof ownership for
+`TFM-BOX-001` through `TFM-BOX-003`.
+
+The focused source contract and native exact-sp evidence are documented in
+`docs/tex82-read-font-info-box-scaling.md`. A fresh pdfTeX INITEX matrix freezes
+21 effective sizes × 10 fix words, including the size-normalization boundaries,
+signed extremes, and nested-division carry cases. It separately records exact
+signed width/italic and box-observed negative height/depth. The oracle runs in
+the required CI job before the Rust suite and uploads engine, source, TFM, and
+probe provenance. A mandatory Pro box-closure review remains pending. Kern
+scaling and all lig/kern remains blocked, as do extensible recipes, parameters,
+public/current-font ownership, source-visible loading, checkpoints, and W3.
