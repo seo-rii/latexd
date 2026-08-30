@@ -1758,6 +1758,19 @@ Rust 및 immutable artifact는 변경하지 않았다. 정확한 evidence는
 `docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`에 기록하며, narrow renewed
 closure review가 승인하기 전에는 parameter transition/contract/RED를 시작하지 않는다.
 
+Renewed closure review `6a93dda5-4d88-83e8-b9a9-55cc15d33187`는 confidence
+0.95의 `PROCEED_PRIVATE_TFM_PARAMETER`를 반환했다. Reviewed valid-JSON matrix의
+traceback blocker는 닫혔고 Rust extensible/AST/v1/v2/v3/source contract와 owner
+count에는 추가 변경이 필요 없다. 다음 작업은 v3를 raw/canonical identity로 pin하고
+`TFM-PARAM-001..003`만 effective `TailCheckedTfm`에서 새
+`ParameterCheckedTfm`으로 옮기는 immutable transition, exact parameter source
+contract, prospective RED, 그리고 root-private/no-caller by-value parameter phase
+하나로 제한한다. 새 schema scalar는 bool/int equality를 허용하지 않는 type-strict
+검사를 사용하고 대표 malformed shape는 category diagnostic도 assert한다. Completion,
+visibility, caller, loading, cache, serialization, persistence, VM, checkpoint와 W3는
+dedicated parameter closure review까지 blocked다. 정확한 review identity는
+`docs/evidence/tex-tfm-extensible-pro-closure-v1.md`에 기록한다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

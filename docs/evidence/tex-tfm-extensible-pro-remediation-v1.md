@@ -56,3 +56,8 @@ This remediation does not authorize parameter work. A narrow renewed closure
 review must confirm the checker-only diff and unchanged Rust/artifact boundary
 before an immutable parameter ownership transition or `ParameterCheckedTfm`
 work begins.
+
+Renewed review `6a93dda5-4d88-83e8-b9a9-55cc15d33187` subsequently returned
+`PROCEED_PRIVATE_TFM_PARAMETER` at confidence 0.95. Its exact identities and
+strictly limited successor authorization are recorded in
+`docs/evidence/tex-tfm-extensible-pro-closure-v1.md`.

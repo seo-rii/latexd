@@ -179,6 +179,16 @@ Rust are unchanged; parameter ownership remains blocked pending a narrow
 renewed review. See
 `docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`.
 
+Renewed closure review `6a93dda5-4d88-83e8-b9a9-55cc15d33187` returned
+`PROCEED_PRIVATE_TFM_PARAMETER` at confidence 0.95. It confirmed that the
+reviewed malformed valid-JSON matrix now returns controlled diagnostics and
+that the existing Rust, AST, v1/v2/v3, source contracts, and owner counts need
+no change. A new additive transition may move exactly `TFM-PARAM-001..003`
+from effective `TailCheckedTfm` ownership to a private
+`ParameterCheckedTfm`, but only after exact source pins and prospective RED.
+Completion, callers, visibility, and integration remain blocked. See
+`docs/evidence/tex-tfm-extensible-pro-closure-v1.md`.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

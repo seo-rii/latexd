@@ -533,6 +533,17 @@ counts. Parameter work remains blocked until a narrow renewed closure review;
 the exact record is
 `docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`.
 
+Renewed closure review `6a93dda5-4d88-83e8-b9a9-55cc15d33187` returned
+`PROCEED_PRIVATE_TFM_PARAMETER` at confidence 0.95 and closed the private
+extensible phase. The only authorized successor is a new immutable parameter
+ownership/source contract followed by prospective RED and one root-private,
+zero-caller, by-value `ParameterCheckedTfm` implementation. The new transition
+may move only `TFM-PARAM-001..003`; new numeric/boolean schema fields require
+type-strict checks and representative shape diagnostics. Completion and every
+integration surface remain blocked through a dedicated parameter closure
+review. Exact identities are in
+`docs/evidence/tex-tfm-extensible-pro-closure-v1.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
