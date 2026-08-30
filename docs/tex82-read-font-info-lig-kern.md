@@ -157,3 +157,14 @@ v2-to-v3 chain, and a focused source contract must pin full-`ne` iteration,
 field order, optional-zero semantics, and mandatory-repeat existence. Parameter
 rules, completion, visibility, loading, callers, and integration remain blocked
 through a dedicated extensible closure review.
+
+The first successor-preparation gate is now immutable. Transition v3 has raw
+SHA-256 `5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d` and
+canonical SHA-256
+`3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf`.
+It pins v2, adds only `ExtensibleCheckedTfm`, and moves exactly the two
+extensible rules while preserving all parameter ownership. The ledger now
+evaluates the ordered v2-to-v3 chain and fails on omission, reorder,
+wrong-effective-owner, duplicate or repeated moves, and predecessor drift.
+This ownership substrate does not authorize production extensible symbols; the
+focused source contract and prospective RED evidence remain mandatory first.

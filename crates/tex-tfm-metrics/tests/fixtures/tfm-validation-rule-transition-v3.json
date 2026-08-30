@@ -1,0 +1,37 @@
+{
+  "format": "latexd.tfm-validation-rule-contract-transition",
+  "schema_version": 3,
+  "predecessor": {
+    "path": "tfm-validation-rule-transition-v2.json",
+    "schema_version": 2,
+    "raw_sha256": "4a0bb1453055d12037fbbab0c77999feaf9b24f2d71b7e8afeb38453d2788316",
+    "canonical_sha256": "773983c0d5a99c21067f79edd887db792092c4d59efb8d9c0af2c478fb5c00fc"
+  },
+  "proof_states_added": [
+    "ExtensibleCheckedTfm"
+  ],
+  "source_predicate_projections": [
+    {
+      "source_predicate": "optional_part_character_existence",
+      "runtime_projection": "OptionalPartMissing",
+      "rule_ids": ["TFM-EXT-001"]
+    },
+    {
+      "source_predicate": "repeat_character_existence",
+      "runtime_projection": "RepeatMissing",
+      "rule_ids": ["TFM-EXT-002"]
+    }
+  ],
+  "ownership_changes": [
+    {
+      "rule_id": "TFM-EXT-001",
+      "from": "TailCheckedTfm",
+      "to": "ExtensibleCheckedTfm"
+    },
+    {
+      "rule_id": "TFM-EXT-002",
+      "from": "TailCheckedTfm",
+      "to": "ExtensibleCheckedTfm"
+    }
+  ]
+}

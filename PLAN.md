@@ -1702,6 +1702,19 @@ source contract를 pin한다. Parameter 세 규칙과 completion/public/caller/l
 계속 blocked이고, extensible closure Pro review 전에는 시작하지 않는다. 정확한
 판정과 artifact digest는 `docs/evidence/tex-tfm-kern-pro-closure-v1.md`에 기록한다.
 
+Extensible 준비의 첫 작업 단위로 immutable
+`tfm-validation-rule-transition-v3.json`을 추가했다. Raw SHA-256은
+`5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d`,
+canonical SHA-256은
+`3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf`다.
+이 transition은 reviewed v2 raw/canonical identity를 predecessor로 pin하고
+`ExtensibleCheckedTfm`만 추가하며 `TFM-EXT-001..002`만 현재 effective tail
+owner에서 옮긴다. Ledger는 이제 ordered v2→v3 chain의 omission/reorder,
+wrong current owner, duplicate move, repeated earlier move와 predecessor drift를
+fail-closed하고 active ownership을 LigKern 8, Kern 1, Extensible 2, Tail 3으로
+계산한다. Focused extensible source contract와 RED 전에는 production type/function을
+추가하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

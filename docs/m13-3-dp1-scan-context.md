@@ -480,6 +480,19 @@ whole-`ne` semantics. Parameter rules and every integration surface remain
 blocked through a dedicated extensible closure review. The review identities
 and digests are recorded in `docs/evidence/tex-tfm-kern-pro-closure-v1.md`.
 
+The immutable `tfm-validation-rule-transition-v3.json` now establishes that
+ownership boundary without changing v1 or v2. Its raw SHA-256 is
+`5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d` and its
+canonical SHA-256 is
+`3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf`.
+It adds only `ExtensibleCheckedTfm`, moves exactly `TFM-EXT-001..002`, and maps
+the optional-part and repeat predicates separately. The machine ledger now
+validates the ordered cumulative v2-to-v3 chain, including omission, reorder,
+wrong-effective-owner, duplicate, repeated-move, and predecessor-pin mutants.
+The derived active counts are LigKern 8, Kern 1, Extensible 2, and Tail 3.
+Production extensible symbols remain absent until focused source pins and RED
+evidence exist.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

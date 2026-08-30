@@ -125,6 +125,19 @@ implementation; parameter and integration work remains blocked through a new
 extensible closure review. See
 `docs/evidence/tex-tfm-kern-pro-closure-v1.md` for the exact artifact identities.
 
+The immutable `tfm-validation-rule-transition-v3.json` implements only the
+approved ownership split. Its raw and canonical SHA-256 values are respectively
+`5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d` and
+`3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf`.
+It pins reviewed v2 as its predecessor, adds only `ExtensibleCheckedTfm`, moves
+exactly `TFM-EXT-001..002`, and keeps the optional-part and mandatory-repeat
+runtime projections distinct. The ledger applies v2 then v3 against the current
+effective owner and rejects missing, reordered, duplicated, repeated, or
+predecessor-drifted transitions. Its active ownership projection is
+`LigKernCheckedTfm: 8`, `KernCheckedTfm: 1`, `ExtensibleCheckedTfm: 2`, and
+`TailCheckedTfm: 3`. This is a machine-contract change only; no extensible
+production state exists before the focused source contract and strict RED gate.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

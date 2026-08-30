@@ -20,6 +20,10 @@ RULE_TRANSITION_PATH = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
 )
+RULE_TRANSITION_V3_PATH = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v3.json"
+)
 KERN_SOURCE_CONTRACT_PATH = (
     ROOT / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
@@ -151,6 +155,36 @@ REVIEWED_V2_TRANSITION_RAW_SHA256 = (
 )
 REVIEWED_V2_TRANSITION_CANONICAL_SHA256 = (
     "773983c0d5a99c21067f79edd887db792092c4d59efb8d9c0af2c478fb5c00fc"
+)
+PINNED_V3_OWNERSHIP_CHANGES = [
+    {
+        "rule_id": "TFM-EXT-001",
+        "from": "TailCheckedTfm",
+        "to": "ExtensibleCheckedTfm",
+    },
+    {
+        "rule_id": "TFM-EXT-002",
+        "from": "TailCheckedTfm",
+        "to": "ExtensibleCheckedTfm",
+    },
+]
+PINNED_V3_SOURCE_PREDICATE_PROJECTIONS = [
+    {
+        "source_predicate": "optional_part_character_existence",
+        "runtime_projection": "OptionalPartMissing",
+        "rule_ids": ["TFM-EXT-001"],
+    },
+    {
+        "source_predicate": "repeat_character_existence",
+        "runtime_projection": "RepeatMissing",
+        "rule_ids": ["TFM-EXT-002"],
+    },
+]
+REVIEWED_V3_TRANSITION_RAW_SHA256 = (
+    "5929817fa92f3f8ead2a05ba33476281bb16ab5661eef5926730fe6fa27ce09d"
+)
+REVIEWED_V3_TRANSITION_CANONICAL_SHA256 = (
+    "3206379d5f6f6748c2d532da83df565a187aee2077e936a67672336d10569ccf"
 )
 PINNED_KERN_FOCUSED_SOURCE = {
     "compatibility_source_sha256": PINNED_SOURCE["sha256"],
@@ -307,6 +341,181 @@ def validate_rule_transition(
             errors.append("v2 transition target proof state already exists")
     else:
         errors.append("v2 transition predecessor collections are invalid")
+    return errors
+
+
+def validate_rule_transition_v3(
+    transition: dict[str, object], predecessor: dict[str, object]
+) -> list[str]:
+    errors: list[str] = []
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessor",
+        "proof_states_added",
+        "ownership_changes",
+        "source_predicate_projections",
+    }
+    if set(transition) != expected_keys:
+        errors.append("v3 transition fields differ")
+    if transition.get("format") != "latexd.tfm-validation-rule-contract-transition":
+        errors.append("v3 transition format is invalid")
+    if transition.get("schema_version") != 3:
+        errors.append("v3 transition schema version is invalid")
+
+    raw_predecessor = RULE_TRANSITION_PATH.read_bytes()
+    canonical_predecessor = json.dumps(
+        predecessor,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessor = {
+        "path": "tfm-validation-rule-transition-v2.json",
+        "schema_version": 2,
+        "raw_sha256": REVIEWED_V2_TRANSITION_RAW_SHA256,
+        "canonical_sha256": REVIEWED_V2_TRANSITION_CANONICAL_SHA256,
+    }
+    if transition.get("predecessor") != expected_predecessor:
+        errors.append("v3 transition predecessor pin differs")
+    if hashlib.sha256(raw_predecessor).hexdigest() != (
+        REVIEWED_V2_TRANSITION_RAW_SHA256
+    ):
+        errors.append("v3 transition predecessor raw content differs")
+    if hashlib.sha256(canonical_predecessor).hexdigest() != (
+        REVIEWED_V2_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("v3 transition predecessor canonical content differs")
+    if transition.get("proof_states_added") != ["ExtensibleCheckedTfm"]:
+        errors.append("v3 transition added proof states differ")
+    if transition.get("ownership_changes") != PINNED_V3_OWNERSHIP_CHANGES:
+        errors.append("v3 transition proof ownership changes differ")
+    projections = transition.get("source_predicate_projections")
+    if projections != PINNED_V3_SOURCE_PREDICATE_PROJECTIONS:
+        errors.append("v3 transition source predicate projections differ")
+    if isinstance(projections, list):
+        projected_rule_ids = [
+            rule_id
+            for projection in projections
+            if isinstance(projection, dict)
+            for rule_id in projection.get("rule_ids", [])
+        ]
+        if any(not isinstance(rule_id, str) for rule_id in projected_rule_ids):
+            errors.append("v3 transition projected rule ids are invalid")
+        else:
+            if Counter(projected_rule_ids) != Counter(
+                ["TFM-EXT-001", "TFM-EXT-002"]
+            ):
+                errors.append("v3 transition extensible projection coverage differs")
+            if any(
+                rule_id.startswith("TFM-PARAM-") for rule_id in projected_rule_ids
+            ):
+                errors.append("v3 transition extensible projection includes parameters")
+    else:
+        errors.append("v3 transition source predicate projections are invalid")
+
+    canonical_transition = json.dumps(
+        transition,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    if hashlib.sha256(RULE_TRANSITION_V3_PATH.read_bytes()).hexdigest() != (
+        REVIEWED_V3_TRANSITION_RAW_SHA256
+    ):
+        errors.append("reviewed v3 transition raw content differs")
+    if hashlib.sha256(canonical_transition).hexdigest() != (
+        REVIEWED_V3_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("reviewed v3 transition canonical content differs")
+    return errors
+
+
+def validate_transition_chain(
+    transitions: list[dict[str, object]], predecessor: dict[str, object]
+) -> list[str]:
+    errors: list[str] = []
+    schema_versions = [transition.get("schema_version") for transition in transitions]
+    if schema_versions != [2, 3]:
+        errors.append("transition chain schema order differs; expected v2->v3")
+    if transitions:
+        errors.extend(validate_rule_transition(transitions[0], predecessor))
+    if len(transitions) >= 2:
+        errors.extend(validate_rule_transition_v3(transitions[1], transitions[0]))
+
+    proof_states = predecessor.get("proof_states")
+    rules = predecessor.get("rules")
+    if not isinstance(proof_states, list) or not isinstance(rules, list):
+        return errors + ["transition chain predecessor collections are invalid"]
+    known_states = set(proof_states)
+    current_owners = {
+        rule.get("id"): rule.get("proof_state")
+        for rule in rules
+        if isinstance(rule, dict)
+    }
+    moved_rule_ids: set[str] = set()
+    for transition in transitions:
+        schema_version = transition.get("schema_version")
+        added_states = transition.get("proof_states_added")
+        if not isinstance(added_states, list):
+            errors.append(f"v{schema_version} transition added proof states are invalid")
+            continue
+        for state in added_states:
+            if not isinstance(state, str):
+                errors.append(f"v{schema_version} transition added proof state is invalid")
+            elif state in known_states:
+                errors.append(
+                    f"v{schema_version} transition proof state already exists: {state}"
+                )
+            else:
+                known_states.add(state)
+
+        ownership_changes = transition.get("ownership_changes")
+        if not isinstance(ownership_changes, list):
+            errors.append(f"v{schema_version} transition ownership changes are invalid")
+            continue
+        seen_in_transition: set[str] = set()
+        for change in ownership_changes:
+            if not isinstance(change, dict):
+                errors.append(f"v{schema_version} transition ownership move is invalid")
+                continue
+            rule_id = change.get("rule_id")
+            source = change.get("from")
+            target = change.get("to")
+            if not all(isinstance(value, str) for value in (rule_id, source, target)):
+                errors.append(
+                    f"v{schema_version} transition ownership move fields are invalid"
+                )
+                continue
+            if rule_id in seen_in_transition:
+                errors.append(
+                    f"v{schema_version} transition duplicate ownership move: {rule_id}"
+                )
+                continue
+            seen_in_transition.add(rule_id)
+            if rule_id in moved_rule_ids:
+                errors.append(
+                    f"v{schema_version} transition rule already moved by an earlier "
+                    f"transition: {rule_id}"
+                )
+                continue
+            if rule_id not in current_owners:
+                errors.append(f"v{schema_version} transition rule is unknown: {rule_id}")
+                continue
+            current_owner = current_owners[rule_id]
+            if source != current_owner:
+                errors.append(
+                    f"v{schema_version} transition current effective owner differs for "
+                    f"{rule_id}: expected {current_owner}, got {source}"
+                )
+            if target not in known_states:
+                errors.append(
+                    f"v{schema_version} transition target proof state is unknown for "
+                    f"{rule_id}: {target}"
+                )
+            if source == current_owner and target in known_states:
+                current_owners[rule_id] = target
+            moved_rule_ids.add(rule_id)
     return errors
 
 
@@ -520,7 +729,11 @@ def main() -> int:
     corpus_case_ids = {case["id"] for case in corpus_manifest["cases"]}
     errors = validate_rule_ledger(ledger, corpus_case_ids)
     transition = json.loads(RULE_TRANSITION_PATH.read_text(encoding="utf-8"))
-    errors.extend(validate_rule_transition(transition, RULE_CONTRACT))
+    transition_v3 = json.loads(
+        RULE_TRANSITION_V3_PATH.read_text(encoding="utf-8")
+    )
+    transitions = [transition, transition_v3]
+    errors.extend(validate_transition_chain(transitions, RULE_CONTRACT))
     kern_source_contract = json.loads(
         KERN_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
     )
@@ -530,13 +743,15 @@ def main() -> int:
             print(error)
         return 1
     proof_counts = Counter(rule["proof_state"] for rule in RULE_CONTRACT["rules"])
-    for change in transition["ownership_changes"]:
-        proof_counts[change["from"]] -= 1
-        proof_counts[change["to"]] += 1
+    for current_transition in transitions:
+        for change in current_transition["ownership_changes"]:
+            proof_counts[change["from"]] -= 1
+            proof_counts[change["to"]] += 1
     print(
         "TeX82 TFM validation source-rule ledger passed: "
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
-        f"proof_states={dict(sorted(proof_counts.items()))}, transition=v2, "
+        f"proof_states={dict(sorted(proof_counts.items()))}, "
+        "transition_chain=v2->v3, "
         "kern_source_contract=v1"
     )
     return 0

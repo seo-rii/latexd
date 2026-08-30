@@ -10,6 +10,8 @@ from scripts.check_tfm_validation_ledger import (
     validate_rule_contract,
     validate_rule_ledger,
     validate_rule_transition,
+    validate_rule_transition_v3,
+    validate_transition_chain,
 )
 
 
@@ -26,6 +28,10 @@ RULE_CONTRACT = (
 RULE_TRANSITION = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
+)
+RULE_TRANSITION_V3 = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v3.json"
 )
 KERN_SOURCE_CONTRACT = (
     ROOT
@@ -50,6 +56,10 @@ def rule_contract() -> dict[str, object]:
 
 def rule_transition() -> dict[str, object]:
     return json.loads(RULE_TRANSITION.read_text(encoding="utf-8"))
+
+
+def rule_transition_v3() -> dict[str, object]:
+    return json.loads(RULE_TRANSITION_V3.read_text(encoding="utf-8"))
 
 
 def kern_source_contract() -> dict[str, object]:
@@ -189,6 +199,103 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertEqual(main(), 0)
         self.assertIn("'LigKernCheckedTfm': 8", output.getvalue())
         self.assertIn("'KernCheckedTfm': 1", output.getvalue())
+        self.assertIn("'ExtensibleCheckedTfm': 2", output.getvalue())
+        self.assertIn("'TailCheckedTfm': 3", output.getvalue())
+        self.assertIn("transition_chain=v2->v3", output.getvalue())
+
+    def test_v3_transition_moves_only_extensible_rules_from_effective_owner(
+        self,
+    ) -> None:
+        transition = rule_transition_v3()
+        self.assertEqual(
+            validate_rule_transition_v3(transition, rule_transition()), []
+        )
+        self.assertEqual(transition["schema_version"], 3)
+        self.assertEqual(transition["proof_states_added"], ["ExtensibleCheckedTfm"])
+        self.assertEqual(
+            transition["ownership_changes"],
+            [
+                {
+                    "rule_id": "TFM-EXT-001",
+                    "from": "TailCheckedTfm",
+                    "to": "ExtensibleCheckedTfm",
+                },
+                {
+                    "rule_id": "TFM-EXT-002",
+                    "from": "TailCheckedTfm",
+                    "to": "ExtensibleCheckedTfm",
+                },
+            ],
+        )
+        self.assertEqual(
+            transition["source_predicate_projections"],
+            [
+                {
+                    "source_predicate": "optional_part_character_existence",
+                    "runtime_projection": "OptionalPartMissing",
+                    "rule_ids": ["TFM-EXT-001"],
+                },
+                {
+                    "source_predicate": "repeat_character_existence",
+                    "runtime_projection": "RepeatMissing",
+                    "rule_ids": ["TFM-EXT-002"],
+                },
+            ],
+        )
+
+    def test_transition_chain_rejects_omission_reordering_and_invalid_moves(
+        self,
+    ) -> None:
+        v2 = rule_transition()
+        v3 = rule_transition_v3()
+        self.assertEqual(validate_transition_chain([v2, v3], rule_contract()), [])
+
+        for changed_chain in ([v3], [v3, v2]):
+            self.assertTrue(validate_transition_chain(changed_chain, rule_contract()))
+
+        wrong_owner = json.loads(json.dumps(v3))
+        wrong_owner["ownership_changes"][0]["from"] = "LigKernCheckedTfm"
+        errors = validate_transition_chain([v2, wrong_owner], rule_contract())
+        self.assertTrue(any("current effective owner" in error for error in errors))
+
+        duplicate_in_v3 = json.loads(json.dumps(v3))
+        duplicate_in_v3["ownership_changes"].append(
+            json.loads(json.dumps(duplicate_in_v3["ownership_changes"][0]))
+        )
+        errors = validate_transition_chain([v2, duplicate_in_v3], rule_contract())
+        self.assertTrue(any("duplicate ownership move" in error for error in errors))
+
+        moved_twice = json.loads(json.dumps(v3))
+        moved_twice["ownership_changes"].append(
+            {
+                "rule_id": "TFM-KERN-001",
+                "from": "KernCheckedTfm",
+                "to": "ExtensibleCheckedTfm",
+            }
+        )
+        errors = validate_transition_chain([v2, moved_twice], rule_contract())
+        self.assertTrue(any("already moved by an earlier transition" in error for error in errors))
+
+        predecessor_drift = json.loads(json.dumps(v3))
+        predecessor_drift["predecessor"] = {}
+        self.assertTrue(
+            validate_transition_chain([v2, predecessor_drift], rule_contract())
+        )
+
+    def test_transition_chain_malformed_entries_fail_closed(self) -> None:
+        malformed_projection = json.loads(json.dumps(rule_transition_v3()))
+        malformed_projection["source_predicate_projections"][0]["rule_ids"] = [{}]
+        self.assertTrue(
+            validate_rule_transition_v3(malformed_projection, rule_transition())
+        )
+
+        malformed_move = json.loads(json.dumps(rule_transition_v3()))
+        malformed_move["ownership_changes"][0]["rule_id"] = {}
+        self.assertTrue(
+            validate_transition_chain(
+                [rule_transition(), malformed_move], rule_contract()
+            )
+        )
 
     def test_v2_transition_pins_ligkern_source_and_splits_only_kern_owner(
         self,
