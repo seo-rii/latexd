@@ -59,6 +59,9 @@ EXTENSIBLE_TDD_RED_EVIDENCE = (
 )
 PARAMETER_SOURCE_DOCUMENT = ROOT / "docs/tex82-read-font-info-parameters.md"
 PARAMETER_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-parameter-tdd-red-v1.md"
+PARAMETER_PRO_CLOSURE_EVIDENCE = (
+    ROOT / "docs/evidence/tex-tfm-parameter-pro-closure-v1.md"
+)
 
 
 def ledger_text() -> str:
@@ -99,6 +102,43 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_parameter_pro_closure_is_content_addressed_and_exact(self) -> None:
+        evidence = PARAMETER_PRO_CLOSURE_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "PROCEED_PRIVATE_TFM_COMPLETION",
+            "6a93e9d1-5100-83ee-85a3-cb84f168bbf9",
+            "review-20260830-172811-d3b881d5",
+            "60ab499e6e920dc635d7e5bb11e9a2f236118e3d6c049306d7880f57adaff9ec",
+            "e22ab8f1572275349b92ac7ff54555fbd4b29d1cce93a24f0b20793aa162ee8b",
+            "0dcb7124f1b65764235883cc12f8f1c6c6382139be45667ee276b95cc8416a35",
+            "confidence 0.88",
+            "`6f8bdea`",
+            "`98250d6`",
+            "out-of-line child module",
+            "zero-caller",
+            "whole-oracle/no-panic/completion-hardening",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_parameter_closure_authorizes_only_private_hardening(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            ROOT / "docs/tex82-read-font-info-extensibles.md",
+            PARAMETER_SOURCE_DOCUMENT,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "PROCEED_PRIVATE_TFM_COMPLETION",
+                "6a93e9d1-5100-83ee-85a3-cb84f168bbf9",
+                "docs/evidence/tex-tfm-parameter-pro-closure-v1.md",
+                "whole-oracle/no-panic/completion-hardening",
+                "out-of-line child module",
+                "zero caller",
+            ):
+                self.assertIn(required, document, path)
+
     def test_parameter_red_evidence_is_content_addressed_and_exact(self) -> None:
         evidence = PARAMETER_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
         for required in (

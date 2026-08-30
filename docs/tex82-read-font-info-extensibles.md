@@ -161,3 +161,14 @@ signs in source order, zero-fills `np=0`, preserves `np>7`, completes
 and zero caller. See `docs/evidence/tex-tfm-parameter-tdd-red-v1.md` for the
 prospective failures. Completion and integration remain blocked through a
 dedicated parameter closure review.
+
+Parameter closure review `6a93e9d1-5100-83ee-85a3-cb84f168bbf9` returned
+`PROCEED_PRIVATE_TFM_COMPLETION` at confidence 0.88 and accepted the unchanged
+private parameter phase. No signed slant, scaling, whole-range, shape,
+maximum-geometry, EOF/suffix, or provenance blocker remains. A future
+out-of-line child module could evade the file-local AST policy, so the next
+private structural hardening must reject that mutant while keeping zero caller.
+Authorization is limited to test-only whole-oracle/no-panic/completion-hardening
+design; parameter production code, immutable artifacts, callers, visibility,
+complete-state construction, and integration remain frozen or blocked. Exact
+identities are in `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`.
