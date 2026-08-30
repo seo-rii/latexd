@@ -32,6 +32,7 @@ KERN_SOURCE_CONTRACT = (
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
 LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
+KERN_TDD_RED_EVIDENCE = ROOT / "docs/evidence/tex-tfm-kern-tdd-red-v1.md"
 
 
 def ledger_text() -> str:
@@ -140,6 +141,45 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 "d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1",
                 "whole `nk` table",
                 "no entry-zero check",
+            ):
+                self.assertIn(required, document, relative_path)
+
+    def test_kern_red_evidence_is_content_addressed_and_exact(self) -> None:
+        evidence = KERN_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074",
+            "b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947",
+            "cannot find type `KernCheckedTfm` in this scope",
+            "cannot find type `KernValidationRule` in this scope",
+            "cannot find value `check_kerns` in this scope",
+            'left: ["check_preamble_header", "check_characters", "check_boxes", "check_lig_kern"]',
+            "missed non-private syntax in #[forge] struct KernCheckedTfm;",
+            "No non-building RED commit was created",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_private_kern_implementation_evidence_is_documented(self) -> None:
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+            "docs/tex82-read-font-info-lig-kern.md",
+        ):
+            document = (ROOT / relative_path).read_text(encoding="utf-8")
+            for required in (
+                "private `KernCheckedTfm` implementation",
+                "254 forbidden signs",
+                "21 effective sizes × 10 fix words",
+                "32,755-word absolute kern maximum",
+                "all `TailCheckedTfm` witnesses",
+                "same raw allocation",
+                "no entry-zero check",
+                "production `include!`",
+                "unapproved proof-state attributes",
+                "docs/evidence/tex-tfm-kern-tdd-red-v1.md",
+                "fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074",
+                "b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947",
+                "dedicated kern closure review",
             ):
                 self.assertIn(required, document, relative_path)
 

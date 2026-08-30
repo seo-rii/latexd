@@ -1678,6 +1678,18 @@ scale하고 no entry-zero check 경계를 보존한다. `include!`/attribute-mac
 우회와 `nk=32755`는 RED policy/test로 먼저 고정하며, dedicated kern closure review
 전에는 extensible/parameter/completion/public/production 단계를 시작하지 않는다.
 
+Strict TDD로 추가된 private `KernCheckedTfm` implementation은 exact lig/kern
+predecessor를 값으로 보존하고 whole kern range만 읽어 scale한다. Focused evidence는
+254 forbidden signs, 21 effective sizes × 10 fix words, first-invalid source order,
+32,755-word absolute kern maximum, all `TailCheckedTfm` witnesses의 pass-through,
+same raw allocation, later-table/suffix isolation과 no entry-zero check를 고정한다.
+AST policy는 production `include!`와 unapproved proof-state attributes를 거부한다.
+RED source digest와 실제 진단은 `docs/evidence/tex-tfm-kern-tdd-red-v1.md`에
+`fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074` 및
+`b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947`로 남겼다.
+이 구현은 root-private/no-caller 상태이며 dedicated kern closure review 전에는
+다음 validator state를 시작하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

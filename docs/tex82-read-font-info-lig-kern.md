@@ -45,7 +45,7 @@ instructions, optional boundary character, and optional boundary-program
 start. It must not scale kern fix words. The implementation has no public or
 crate-visible path and no production caller.
 
-Kern scaling remains a distinct reviewed successor. Only after lig/kern
+Kern scaling is a distinct reviewed successor. Only after lig/kern
 closure may a private `KernCheckedTfm` consume `LigKernCheckedTfm`. Extensible
 recipes, parameters, complete validation, source-visible font loading,
 production ownership, checkpoints, and W3 remain blocked.
@@ -66,8 +66,8 @@ to the complete selected single-instruction matrix. The
 words and raw suffixes preserve the instruction result, so
 kern words remain unread and unscaled. The AST policy allows exactly one production construction
 and authorized return path for the proof state and rejects alternate creation,
-alias, macro, visibility, and clone paths. A dedicated Pro closure review is
-still required before any `KernCheckedTfm` implementation begins.
+alias, macro, visibility, and clone paths. At that point a dedicated Pro closure
+review was still required before any `KernCheckedTfm` implementation began.
 
 ## First closure review remediation
 
@@ -116,3 +116,27 @@ RED policy and behavior tests must cover macro-expansion construction paths,
 all invalid signs, first-invalid order, exact scaling, and the distinct
 `nk=32755` maximum. Another Pro closure review is mandatory after that one
 transition.
+
+## Implemented kern evidence
+
+The strict-TDD private `KernCheckedTfm` implementation now consumes and retains
+the exact `LigKernCheckedTfm`, applies the literal normalization and nested
+division formula to the entire predecessor-bound kern range, and stores typed
+scaled values. It neither changes the instruction/boundary state nor applies an
+entry-zero rule.
+
+Focused evidence covers 254 forbidden signs with exact index/sign payloads,
+21 effective sizes × 10 fix words, first-invalid source order, the
+32,755-word absolute kern maximum, all `TailCheckedTfm` witnesses passing
+through, the same raw allocation, later-table and suffix isolation, and
+no entry-zero check. The structural gate allows one constructor and zero callers
+while rejecting production `include!` and unapproved proof-state attributes.
+
+The prospective RED record is
+`docs/evidence/tex-tfm-kern-tdd-red-v1.md`. Its pre-fix unit/source and AST policy
+digests are respectively
+`fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074` and
+`b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947`, with the
+exact unresolved-type and mutant diagnostics. The implementation remains
+root-private and uncalled. Extensible, parameter, completion, loading, and all
+integration work remain blocked until a dedicated kern closure review.

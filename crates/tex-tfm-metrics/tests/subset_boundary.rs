@@ -40,6 +40,7 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
     assert_eq!(production.matches("check_characters(").count(), 1);
     assert_eq!(production.matches("check_boxes(").count(), 1);
     assert_eq!(production.matches("check_lig_kern(").count(), 1);
+    assert_eq!(production.matches("check_kerns(").count(), 1);
     for forbidden in [
         "impl From<",
         "impl TryFrom<",
@@ -51,6 +52,8 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
         "Deserialize for BoxCheckedTfm",
         "Serialize for LigKernCheckedTfm",
         "Deserialize for LigKernCheckedTfm",
+        "Serialize for KernCheckedTfm",
+        "Deserialize for KernCheckedTfm",
     ] {
         assert!(
             !production.contains(forbidden),
@@ -72,6 +75,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             "check_characters",
             "check_boxes",
             "check_lig_kern",
+            "check_kerns",
         ]
     );
     assert!(
@@ -86,6 +90,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             ("CharacterCheckedTfm".into(), "check_characters".into()),
             ("BoxCheckedTfm".into(), "check_boxes".into()),
             ("LigKernCheckedTfm".into(), "check_lig_kern".into()),
+            ("KernCheckedTfm".into(), "check_kerns".into()),
         ]
     );
     assert_eq!(
@@ -126,6 +131,11 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
         "#[derive(Clone)] struct LigKernCheckedTfm;",
         "struct LigKernCheckedTfm; fn forge_lig_kern() -> LigKernCheckedTfm { loop {} }",
         "struct LigKernCheckedTfm; struct HiddenDuplicate(std::mem::ManuallyDrop<LigKernCheckedTfm>); fn duplicate(state: &LigKernCheckedTfm) -> HiddenDuplicate { HiddenDuplicate(std::mem::ManuallyDrop::new(unsafe { std::ptr::read(state) })) }",
+        "#[derive(Clone)] struct KernCheckedTfm;",
+        "struct KernCheckedTfm; fn forge_kerns() -> KernCheckedTfm { loop {} }",
+        "#[forge] struct KernCheckedTfm;",
+        "#[derive(Debug)] struct KernCheckedTfm;",
+        "struct KernCheckedTfm; include!(\"tfm_validation_forge.rs\");",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -218,22 +228,10 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
         if let Item::Struct(structure) = item
             && is_proof_state(&structure.ident.to_string())
         {
-            for attribute in &structure.attrs {
-                if let Meta::List(arguments) = &attribute.meta
-                    && attribute.path().is_ident("derive")
-                {
-                    assert!(
-                        !arguments
-                            .tokens
-                            .to_string()
-                            .split(|character: char| {
-                                !(character.is_ascii_alphanumeric() || character == '_')
-                            })
-                            .any(|token| token == "Clone"),
-                        "proof states must not derive Clone"
-                    );
-                }
-            }
+            assert!(
+                structure.attrs.is_empty(),
+                "proof states must not have attributes or derives"
+            );
         }
 
         if let Item::Impl(implementation) = item {
@@ -386,6 +384,10 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
     }
 
     fn visit_macro(&mut self, macro_invocation: &'ast syn::Macro) {
+        assert!(
+            !macro_invocation.path.is_ident("include"),
+            "production validator must not include generated source"
+        );
         for token in macro_invocation
             .tokens
             .to_string()
@@ -434,14 +436,22 @@ impl<'ast> Visit<'ast> for ProofStatePathCollector {
 fn is_validator_entrypoint(name: &str) -> bool {
     matches!(
         name,
-        "check_preamble_header" | "check_characters" | "check_boxes" | "check_lig_kern"
+        "check_preamble_header"
+            | "check_characters"
+            | "check_boxes"
+            | "check_lig_kern"
+            | "check_kerns"
     )
 }
 
 fn is_proof_state(name: &str) -> bool {
     matches!(
         name,
-        "HeaderCheckedTfm" | "CharacterCheckedTfm" | "BoxCheckedTfm" | "LigKernCheckedTfm"
+        "HeaderCheckedTfm"
+            | "CharacterCheckedTfm"
+            | "BoxCheckedTfm"
+            | "LigKernCheckedTfm"
+            | "KernCheckedTfm"
     )
 }
 
@@ -451,6 +461,7 @@ fn authorized_proof_constructor(proof_state: &str) -> Option<&'static str> {
         "CharacterCheckedTfm" => Some("check_characters"),
         "BoxCheckedTfm" => Some("check_boxes"),
         "LigKernCheckedTfm" => Some("check_lig_kern"),
+        "KernCheckedTfm" => Some("check_kerns"),
         _ => None,
     }
 }

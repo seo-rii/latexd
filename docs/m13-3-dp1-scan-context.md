@@ -455,6 +455,19 @@ no entry-zero check boundary. Prospective RED evidence must first cover
 `nk=32755` maximum; every later table and integration remains blocked through a
 dedicated kern closure review.
 
+The strict-TDD private `KernCheckedTfm` implementation now consumes and retains
+the exact lig/kern predecessor and scales only its complete kern range. Focused
+evidence covers 254 forbidden signs, 21 effective sizes × 10 fix words,
+first-invalid source order, the 32,755-word absolute kern maximum, pass-through
+for all `TailCheckedTfm` witnesses, the same raw allocation, later-table and
+suffix isolation, and no entry-zero check. Structural policy rejects
+production `include!` and unapproved proof-state attributes. The exact RED commands and
+pre-fix digests are recorded in `docs/evidence/tex-tfm-kern-tdd-red-v1.md` as
+`fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074` and
+`b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947`.
+The state remains private and uncalled; no later phase starts before a
+dedicated kern closure review.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

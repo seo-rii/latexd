@@ -151,6 +151,16 @@ struct LigKernCheckedTfm {
     boundary_program_start: Option<u16>,
 }
 
+struct KernCheckedTfm {
+    predecessor: LigKernCheckedTfm,
+    kerns: Box<[ScaledSp]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KernValidationRule {
+    InvalidFixWordSign { index: u16, sign: u8 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LigKernValidationRule {
     RestartTargetOutOfRange {
@@ -767,6 +777,54 @@ fn check_lig_kern(predecessor: BoxCheckedTfm) -> Result<LigKernCheckedTfm, LigKe
     })
 }
 
+fn check_kerns(predecessor: LigKernCheckedTfm) -> Result<KernCheckedTfm, KernValidationRule> {
+    let box_state = &predecessor.predecessor;
+    let character_state = &box_state.predecessor;
+    let header_state = &character_state.predecessor;
+    let mut reduced_size = i64::from(header_state.effective_size.0);
+    let mut alpha = 16i64;
+    while reduced_size >= 1 << 23 {
+        reduced_size /= 2;
+        alpha += alpha;
+    }
+    let beta = 256 / alpha;
+    alpha *= reduced_size;
+
+    let mut kerns = Vec::with_capacity(usize::from(header_state.raw_counts.nk));
+    for (index, raw_word) in header_state.raw[header_state.layout.kerns.clone()]
+        .chunks_exact(4)
+        .enumerate()
+    {
+        let sign = raw_word[0];
+        let b = i64::from(raw_word[1]);
+        let c = i64::from(raw_word[2]);
+        let d = i64::from(raw_word[3]);
+        let positive_fraction =
+            ((d * reduced_size / 256 + c * reduced_size) / 256 + b * reduced_size) / beta;
+        let scaled = match sign {
+            0 => positive_fraction,
+            255 => positive_fraction - alpha,
+            _ => {
+                let index = match u16::try_from(index) {
+                    Ok(index) => index,
+                    Err(_) => unreachable!("header-checked TFM kern indices fit u16"),
+                };
+                return Err(KernValidationRule::InvalidFixWordSign { index, sign });
+            }
+        };
+        let scaled_sp = match i32::try_from(scaled) {
+            Ok(scaled_sp) => ScaledSp(scaled_sp),
+            Err(_) => unreachable!("TeX82 fix-word and effective-size bounds fit scaled kerns"),
+        };
+        kerns.push(scaled_sp);
+    }
+
+    Ok(KernCheckedTfm {
+        predecessor,
+        kerns: kerns.into_boxed_slice(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -783,9 +841,9 @@ mod tests {
         BoxCheckedTfm, BoxMetric, BoxValidationRule, CHARACTER_METRIC_SOURCE_ORDER,
         CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
         CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
-        LigKernCheckedTfm, LigKernValidationRule, MetricTable, PreambleHeaderFailure,
-        PreambleHeaderRule, RawTfmDigest, ScaledSp, check_boxes, check_characters, check_lig_kern,
-        check_preamble_header,
+        KernCheckedTfm, KernValidationRule, LigKernCheckedTfm, LigKernValidationRule, MetricTable,
+        PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp, check_boxes,
+        check_characters, check_kerns, check_lig_kern, check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -1397,6 +1455,34 @@ mod tests {
     }
 
     #[test]
+    fn kern_entrypoint_consumes_only_the_lig_kern_state() {
+        let _: fn(LigKernCheckedTfm) -> Result<KernCheckedTfm, KernValidationRule> = check_kerns;
+    }
+
+    #[test]
+    fn kern_phase_source_contract_is_content_addressed() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let bytes = std::fs::read(fixture_root.join("tfm-kern-source-contract-v1.json")).unwrap();
+        assert_eq!(
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "19d08087ce4b96bc4e3e9059e161adfd4705157e5a7e768190695155b7c9b2a1"
+        );
+        let contract: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(contract["schema_version"], 1);
+        assert_eq!(contract["proof_boundary"]["input"], "LigKernCheckedTfm");
+        assert_eq!(contract["proof_boundary"]["output"], "KernCheckedTfm");
+        assert_eq!(
+            contract["proof_boundary"]["owned_rule_ids"],
+            serde_json::json!(["TFM-KERN-001"])
+        );
+        assert_eq!(contract["proof_boundary"]["loop_cardinality"], "nk");
+        assert_eq!(contract["proof_boundary"]["entry_zero_check"], false);
+    }
+
+    #[test]
     fn empty_lig_kern_table_retains_the_exact_box_predecessor_and_empty_state() {
         let state = check_lig_kern(
             check_boxes(
@@ -1877,6 +1963,277 @@ mod tests {
             suffix_state.predecessor.predecessor.predecessor.raw_digest,
             control.predecessor.predecessor.predecessor.raw_digest
         );
+    }
+
+    #[test]
+    fn empty_kern_table_retains_the_exact_lig_kern_predecessor() {
+        let state = check_kern_frame(kern_frame(&[], &[], &[]), 1).unwrap();
+
+        assert!(state.kerns.is_empty());
+        assert!(state.predecessor.instructions.is_empty());
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .nk,
+            0
+        );
+    }
+
+    #[test]
+    fn kern_scaling_matches_literal_source_for_valid_signs_and_boundaries() {
+        let words = [
+            [0, 0, 0, 0],
+            [0, 0, 0, 1],
+            [0, 0, 0, 255],
+            [0, 0, 1, 0],
+            [0, 15, 255, 255],
+            [0, 16, 0, 0],
+            [0, 255, 255, 255],
+            [255, 255, 255, 255],
+            [255, 240, 0, 0],
+            [255, 0, 0, 0],
+        ];
+        let sizes = [
+            1,
+            2,
+            15,
+            16,
+            17,
+            65_535,
+            65_536,
+            65_537,
+            8_388_607,
+            8_388_608,
+            8_388_609,
+            16_777_215,
+            16_777_216,
+            16_777_217,
+            33_554_431,
+            33_554_432,
+            33_554_433,
+            67_108_863,
+            67_108_864,
+            67_108_865,
+            MAX_TEX_FONT_SIZE_SP - 1,
+        ];
+
+        for size in sizes {
+            let state = check_kern_frame(kern_frame(&words, &[], &[]), size).unwrap();
+            let expected = words.map(|[sign, b, c, d]| {
+                let mut reduced_size = i64::from(size);
+                let mut alpha = 16i64;
+                while reduced_size >= 1 << 23 {
+                    reduced_size /= 2;
+                    alpha += alpha;
+                }
+                let beta = 256 / alpha;
+                alpha *= reduced_size;
+                let positive_fraction =
+                    ((i64::from(d) * reduced_size / 256 + i64::from(c) * reduced_size) / 256
+                        + i64::from(b) * reduced_size)
+                        / beta;
+                let scaled = match sign {
+                    0 => positive_fraction,
+                    255 => positive_fraction - alpha,
+                    _ => unreachable!("the test matrix contains only valid signs"),
+                };
+                ScaledSp(i32::try_from(scaled).unwrap())
+            });
+            assert_eq!(state.kerns.as_ref(), expected, "effective size {size}");
+        }
+    }
+
+    #[test]
+    fn every_forbidden_kern_sign_rejects_with_exact_index_and_sign() {
+        for sign in 1..=254 {
+            let result = check_kern_frame(kern_frame(&[[sign, 0, 0, 0]], &[], &[]), 1);
+            assert_eq!(
+                result.err(),
+                Some(KernValidationRule::InvalidFixWordSign { index: 0, sign })
+            );
+        }
+    }
+
+    #[test]
+    fn kern_failure_reports_the_first_invalid_word_in_source_order() {
+        let result = check_kern_frame(
+            kern_frame(&[[0, 16, 0, 0], [1, 0, 0, 0], [2, 0, 0, 0]], &[], &[]),
+            65_536,
+        );
+        assert_eq!(
+            result.err(),
+            Some(KernValidationRule::InvalidFixWordSign { index: 1, sign: 1 })
+        );
+    }
+
+    #[test]
+    fn absolute_maximum_kern_table_is_scaled_completely() {
+        let mut bytes = vec![0; 32_767 * 4];
+        for (index, value) in [32_767, 2, 1, 0, 1, 1, 1, 1, 0, 32_755, 0, 0]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+
+        let state = check_kern_frame(bytes, MAX_TEX_FONT_SIZE_SP - 1).unwrap();
+        assert_eq!(state.kerns.len(), 32_755);
+        assert!(state.kerns.iter().all(|scaled| *scaled == ScaledSp(0)));
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .lf,
+            32_767
+        );
+        assert_eq!(
+            state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_counts
+                .nk,
+            32_755
+        );
+    }
+
+    #[test]
+    fn extensibles_parameters_and_suffix_do_not_change_kern_semantics() {
+        let kerns = [[0, 16, 0, 0], [255, 240, 0, 0]];
+        let control =
+            check_kern_frame(kern_frame(&kerns, &[[0, 0, 0, 0]], &[[0, 0, 0, 0]]), 65_536).unwrap();
+        let later_table_mutant =
+            check_kern_frame(kern_frame(&kerns, &[[1, 2, 3, 4]], &[[1, 2, 3, 4]]), 65_536).unwrap();
+        assert_eq!(later_table_mutant.kerns, control.kerns);
+
+        let mut suffixed = kern_frame(&kerns, &[[0, 0, 0, 0]], &[[0, 0, 0, 0]]);
+        suffixed.extend((0..8193).map(|index| (index as u8).wrapping_mul(31)));
+        let suffix_state = check_kern_frame(suffixed, 65_536).unwrap();
+        assert_eq!(suffix_state.kerns, control.kerns);
+        assert_eq!(
+            suffix_state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .frame_digest,
+            control
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .frame_digest
+        );
+        assert_ne!(
+            suffix_state
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_digest,
+            control
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw_digest
+        );
+    }
+
+    #[test]
+    fn kern_success_retains_all_lig_kern_state_and_the_same_raw_allocation() {
+        let mut bytes = lig_kern_frame(&[[1, 0, 0, 0]], &[[255, 7, 0, 0]], 1);
+        let layout = check_preamble_header(Arc::from(bytes.clone()), 65_536)
+            .unwrap()
+            .layout;
+        bytes[layout.kerns].copy_from_slice(&[0, 16, 0, 0]);
+        let raw: Arc<[u8]> = Arc::from(bytes);
+        let retained = Arc::clone(&raw);
+        let state = check_kerns(
+            check_lig_kern(
+                check_boxes(check_characters(check_preamble_header(raw, 65_536).unwrap()).unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(state.kerns.as_ref(), [ScaledSp(65_536)]);
+        assert_eq!(state.predecessor.instructions.len(), 1);
+        assert_eq!(state.predecessor.boundary_character, Some(7));
+        assert_eq!(state.predecessor.boundary_program_start, Some(0));
+        assert!(Arc::ptr_eq(
+            &retained,
+            &state.predecessor.predecessor.predecessor.predecessor.raw
+        ));
+    }
+
+    #[test]
+    fn persisted_corpus_moves_only_kern_rule_to_the_kern_phase() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let tail_rules = rule_contract["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|rule| rule["proof_state"] == "TailCheckedTfm")
+            .map(|rule| rule["id"].as_str().unwrap())
+            .collect::<HashSet<_>>();
+        let mut kern_cases = 0;
+        let mut later_cases = 0;
+
+        for case in manifest["cases"].as_array().unwrap() {
+            let first_rule = case["first_rejecting_rule"].as_str();
+            if first_rule != Some("TFM-KERN-001")
+                && !first_rule.is_some_and(|rule| tail_rules.contains(rule))
+            {
+                continue;
+            }
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let lig_kern = check_lig_kern(
+                check_boxes(
+                    check_characters(check_preamble_header(Arc::from(raw), input_size).unwrap())
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed before kern phase: {failure:?}")
+            });
+            let result = check_kerns(lig_kern);
+            if first_rule == Some("TFM-KERN-001") {
+                kern_cases += 1;
+                assert_eq!(
+                    result.err(),
+                    Some(KernValidationRule::InvalidFixWordSign { index: 0, sign: 1 }),
+                    "{case_id} {blob_sha256}"
+                );
+            } else {
+                later_cases += 1;
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+        assert_eq!(kern_cases, 1);
+        assert!(later_cases > 0);
     }
 
     #[test]
@@ -3025,6 +3382,55 @@ mod tests {
             slot.copy_from_slice(instruction);
         }
         bytes
+    }
+
+    fn kern_frame(kerns: &[[u8; 4]], extensibles: &[[u8; 4]], parameters: &[[u8; 4]]) -> Vec<u8> {
+        let nk = u16::try_from(kerns.len()).unwrap();
+        let ne = u16::try_from(extensibles.len()).unwrap();
+        let np = u16::try_from(parameters.len()).unwrap();
+        let lf = 12 + nk + ne + np;
+        let mut bytes = vec![0; usize::from(lf) * 4];
+        for (index, value) in [lf, 2, 1, 0, 1, 1, 1, 1, 0, nk, ne, np]
+            .into_iter()
+            .enumerate()
+        {
+            put_count(&mut bytes, index, value);
+        }
+        bytes[28..32].copy_from_slice(&(1i32 << 20).to_be_bytes());
+        let layout = check_preamble_header(Arc::from(bytes.clone()), 1)
+            .unwrap()
+            .layout;
+        for (slot, word) in bytes[layout.kerns].chunks_exact_mut(4).zip(kerns) {
+            slot.copy_from_slice(word);
+        }
+        for (slot, word) in bytes[layout.extensibles]
+            .chunks_exact_mut(4)
+            .zip(extensibles)
+        {
+            slot.copy_from_slice(word);
+        }
+        for (slot, word) in bytes[layout.parameters].chunks_exact_mut(4).zip(parameters) {
+            slot.copy_from_slice(word);
+        }
+        bytes
+    }
+
+    fn check_kern_frame(
+        bytes: Vec<u8>,
+        effective_size_sp: i32,
+    ) -> Result<KernCheckedTfm, KernValidationRule> {
+        check_kerns(
+            check_lig_kern(
+                check_boxes(
+                    check_characters(
+                        check_preamble_header(Arc::from(bytes), effective_size_sp).unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
     }
 
     fn maximum_lig_kern_frame(instructions: &[[u8; 4]]) -> Vec<u8> {

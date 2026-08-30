@@ -75,7 +75,7 @@ order. Its executable evidence covers 83/83 persisted corpus phase outcomes,
 an independent oracle, and the 32,755-instruction absolute maximum. Structural policy
 allows exactly one production construction and authorized return path. The v2
 split is enforced operationally: kern words remain unread and unscaled, and
-`KernCheckedTfm` remains unimplemented pending the next closure review.
+`KernCheckedTfm` remained unimplemented until the replacement closure review.
 
 Lig/kern closure Pro review `6a93b53b-e6b0-83ee-92f5-686badb00774` returned
 `REVISE_PRIVATE_TFM_LIGKERN` at confidence 0.94. The source-order algorithm was
@@ -99,6 +99,18 @@ The only authorized successor consumes the exact lig/kern state, scales the
 whole `nk` table rather than only referenced entries, and performs no entry-zero check.
 Macro-construction policy and the `nk=32755` maximum must be RED before
 implementation; a dedicated kern closure review remains mandatory afterward.
+
+The private `KernCheckedTfm` implementation was then added under strict TDD. It
+retains the exact lig/kern state by value, reads the whole kern range, and
+preserves the source's no entry-zero check. Focused tests cover
+254 forbidden signs, 21 effective sizes × 10 fix words, first-invalid order,
+the 32,755-word absolute kern maximum, all `TailCheckedTfm` witnesses,
+the same raw allocation, and later-table/suffix isolation. The AST policy now rejects
+production `include!` and unapproved proof-state attributes. The content-addressed RED
+record is `docs/evidence/tex-tfm-kern-tdd-red-v1.md`, with pre-fix digests
+`fa3cbfd93cd19b47182be11b1bfa382b8fe4da29f373c55461c3a25d348b5074` and
+`b894741a032c1438cc18462d9e9b38e9a3739aa01649d85c05e193f2e252e947`.
+This remains a private no-caller state pending a dedicated kern closure review.
 
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
