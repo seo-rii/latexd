@@ -85,6 +85,46 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 }
             ],
         )
+        self.assertEqual(
+            transition["source_predicate_projections"],
+            [
+                {
+                    "source_predicate": "empty_instruction_table",
+                    "runtime_projection": "AcceptedEmptyInstructionTable",
+                    "rule_ids": ["TFM-LIGKERN-001"],
+                },
+                {
+                    "source_predicate": "restart_target_range_check",
+                    "runtime_projection": "RestartTargetOutOfRange",
+                    "rule_ids": ["TFM-LIGKERN-002", "TFM-LIGKERN-008"],
+                },
+                {
+                    "source_predicate": "first_boundary_character_marker",
+                    "runtime_projection": "AcceptedBoundaryCharacter",
+                    "rule_ids": ["TFM-LIGKERN-003"],
+                },
+                {
+                    "source_predicate": "ordinary_next_character_existence",
+                    "runtime_projection": "NextCharacterMissing",
+                    "rule_ids": ["TFM-LIGKERN-004"],
+                },
+                {
+                    "source_predicate": "ligature_replacement_existence",
+                    "runtime_projection": "LigatureTargetMissing",
+                    "rule_ids": ["TFM-LIGKERN-005"],
+                },
+                {
+                    "source_predicate": "kern_index_range_check",
+                    "runtime_projection": "KernIndexOutOfRange",
+                    "rule_ids": ["TFM-LIGKERN-006"],
+                },
+                {
+                    "source_predicate": "forward_skip_range_check",
+                    "runtime_projection": "ForwardSkipOutOfRange",
+                    "rule_ids": ["TFM-LIGKERN-007"],
+                },
+            ],
+        )
         document = LIG_KERN_SOURCE_CONTRACT.read_text(encoding="utf-8")
         for required in (
             "lines 11150..11154",
@@ -114,6 +154,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
             ("focused_source", {}),
             ("proof_states_added", []),
             ("ownership_changes", []),
+            ("source_predicate_projections", []),
         ):
             changed = rule_transition()
             changed[field] = replacement
@@ -135,9 +176,14 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 "83/83 persisted corpus phase outcomes",
                 "8/8 exact lig/kern-owned rejections",
                 "4,096 generated programs",
-                "32,753-instruction maximum",
+                "32,755-instruction absolute maximum",
                 "kern words remain unread and unscaled",
                 "exactly one production construction",
+                "6a93b53b-e6b0-83ee-92f5-686badb00774",
+                "REVISE_PRIVATE_TFM_LIGKERN",
+                "unsafe `ptr::read`",
+                "source_predicate_projections",
+                "count-1/count",
             ):
                 self.assertIn(required, document, relative_path)
 
@@ -332,6 +378,14 @@ class TfmValidationLedgerTests(unittest.TestCase):
             self.assertIn("dependency_ids", rule)
             self.assertIn("witnesses", rule)
             self.assertIn("proof_state", rule)
+        rust_bridge = (
+            ROOT / "crates/tex-tfm-metrics/src/tfm_validation.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "cebc062f771f27c5c46e0e83a74ab7c7c9f6e3a172b2cf1fe01bce0a7f6f6c21",
+            rust_bridge,
+        )
+        self.assertIn("canonical v1 rule contract", rust_bridge)
 
     def test_eof_rules_are_source_late_but_header_proven(self) -> None:
         rules = {rule["id"]: rule for rule in rule_contract()["rules"]}

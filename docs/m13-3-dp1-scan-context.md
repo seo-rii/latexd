@@ -426,10 +426,19 @@ retains `BoxCheckedTfm`, decodes every instruction in source order, and checks
 restart, first boundary character, ordinary next/ligature/kern-index/skip, and
 the final boundary label. Evidence fixes 83/83 persisted corpus phase outcomes,
 8/8 exact lig/kern-owned rejections, 4,096 generated programs against an
-independent oracle, and the 32,753-instruction maximum. The AST gate permits
+independent oracle, and the 32,755-instruction absolute maximum. The AST gate permits
 exactly one production construction and authorized return path. In this phase,
 kern words remain unread and unscaled; kern scaling and every later table or
 integration remain blocked pending the dedicated closure review.
+
+Lig/kern closure Pro review `6a93b53b-e6b0-83ee-92f5-686badb00774` returned
+`REVISE_PRIVATE_TFM_LIGKERN` at confidence 0.94. It found the algorithm
+source-faithful but blocked closure on the understated maximum, an
+unsafe `ptr::read` duplication path, and absent many-to-one rule projection. The
+remediation adds the empty-domain 32,755-instruction absolute maximum, exact
+restart/forward/kern count-1/count boundaries, module-level unsafe prohibition
+with the executable mutant, and total unique v2 `source_predicate_projections`.
+No `KernCheckedTfm` work begins before a replacement closure review.
 
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected

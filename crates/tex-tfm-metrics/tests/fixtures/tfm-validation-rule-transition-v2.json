@@ -20,6 +20,43 @@
   "proof_states_added": [
     "KernCheckedTfm"
   ],
+  "source_predicate_projections": [
+    {
+      "source_predicate": "empty_instruction_table",
+      "runtime_projection": "AcceptedEmptyInstructionTable",
+      "rule_ids": ["TFM-LIGKERN-001"]
+    },
+    {
+      "source_predicate": "restart_target_range_check",
+      "runtime_projection": "RestartTargetOutOfRange",
+      "rule_ids": ["TFM-LIGKERN-002", "TFM-LIGKERN-008"]
+    },
+    {
+      "source_predicate": "first_boundary_character_marker",
+      "runtime_projection": "AcceptedBoundaryCharacter",
+      "rule_ids": ["TFM-LIGKERN-003"]
+    },
+    {
+      "source_predicate": "ordinary_next_character_existence",
+      "runtime_projection": "NextCharacterMissing",
+      "rule_ids": ["TFM-LIGKERN-004"]
+    },
+    {
+      "source_predicate": "ligature_replacement_existence",
+      "runtime_projection": "LigatureTargetMissing",
+      "rule_ids": ["TFM-LIGKERN-005"]
+    },
+    {
+      "source_predicate": "kern_index_range_check",
+      "runtime_projection": "KernIndexOutOfRange",
+      "rule_ids": ["TFM-LIGKERN-006"]
+    },
+    {
+      "source_predicate": "forward_skip_range_check",
+      "runtime_projection": "ForwardSkipOutOfRange",
+      "rule_ids": ["TFM-LIGKERN-007"]
+    }
+  ],
   "ownership_changes": [
     {
       "rule_id": "TFM-KERN-001",

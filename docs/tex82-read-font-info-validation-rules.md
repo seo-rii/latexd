@@ -72,10 +72,19 @@ The private `LigKernCheckedTfm` implementation now consumes and retains the
 exact box predecessor and validates the eight lig/kern-owned rules in source
 order. Its executable evidence covers 83/83 persisted corpus phase outcomes,
 8/8 exact lig/kern-owned rejections, 4,096 generated programs checked against
-an independent oracle, and the 32,753-instruction maximum. Structural policy
+an independent oracle, and the 32,755-instruction absolute maximum. Structural policy
 allows exactly one production construction and authorized return path. The v2
 split is enforced operationally: kern words remain unread and unscaled, and
 `KernCheckedTfm` remains unimplemented pending the next closure review.
+
+Lig/kern closure Pro review `6a93b53b-e6b0-83ee-92f5-686badb00774` returned
+`REVISE_PRIVATE_TFM_LIGKERN` at confidence 0.94. The source-order algorithm was
+accepted, but closure was withheld for the understated absolute geometry, an
+unsafe `ptr::read` construction-policy bypass, and missing explicit many-to-one
+rule attribution. Remediation now covers the 32,755-instruction absolute maximum,
+restart/forward/kern count-1/count arithmetic, compiler and AST unsafe rejection,
+and v2 `source_predicate_projections` with exactly eight unique lig/kern rule IDs.
+The replacement review remains mandatory before kern scaling.
 
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512

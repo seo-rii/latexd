@@ -1651,10 +1651,18 @@ source pin 중 후자는
 first boundary character, ordinary next/ligature/kern-index/forward-skip, final
 boundary label을 검사한다. 83/83 persisted corpus phase outcomes와
 8/8 exact lig/kern-owned rejections을 고정했고, 독립 oracle의 4,096 generated programs와
-32,753-instruction maximum도 통과한다. AST gate는 이 상태에도 exactly one
+32,755-instruction absolute maximum도 통과한다. AST gate는 이 상태에도 exactly one
 production construction과 authorized return path만 허용한다. 이 단계에서
 kern words remain unread and unscaled이며, kern scaling은 전용 closure review
 전까지 계속 blocked다.
+
+Lig/kern closure Pro review `6a93b53b-e6b0-83ee-92f5-686badb00774`는 confidence
+0.94의 `REVISE_PRIVATE_TFM_LIGKERN`을 반환했다. 알고리즘 결함은 없었지만 잘못된
+최대치, unsafe `ptr::read` 복제 우회, rule-to-runtime 투영 부재를 blocking evidence
+defect로 판정했다. 보강은 empty-domain 32,755-instruction absolute maximum과 restart,
+forward, kern의 count-1/count 경계, module-level unsafe 금지 및 exact mutant, 그리고 v2
+`source_predicate_projections`의 8-rule total/unique coverage로 고정한다. 새 closure
+review 전에는 `KernCheckedTfm`을 시작하지 않는다.
 
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로

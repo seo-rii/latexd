@@ -106,6 +106,43 @@ PINNED_V2_OWNERSHIP_CHANGES = [
         "to": "KernCheckedTfm",
     }
 ]
+PINNED_V2_SOURCE_PREDICATE_PROJECTIONS = [
+    {
+        "source_predicate": "empty_instruction_table",
+        "runtime_projection": "AcceptedEmptyInstructionTable",
+        "rule_ids": ["TFM-LIGKERN-001"],
+    },
+    {
+        "source_predicate": "restart_target_range_check",
+        "runtime_projection": "RestartTargetOutOfRange",
+        "rule_ids": ["TFM-LIGKERN-002", "TFM-LIGKERN-008"],
+    },
+    {
+        "source_predicate": "first_boundary_character_marker",
+        "runtime_projection": "AcceptedBoundaryCharacter",
+        "rule_ids": ["TFM-LIGKERN-003"],
+    },
+    {
+        "source_predicate": "ordinary_next_character_existence",
+        "runtime_projection": "NextCharacterMissing",
+        "rule_ids": ["TFM-LIGKERN-004"],
+    },
+    {
+        "source_predicate": "ligature_replacement_existence",
+        "runtime_projection": "LigatureTargetMissing",
+        "rule_ids": ["TFM-LIGKERN-005"],
+    },
+    {
+        "source_predicate": "kern_index_range_check",
+        "runtime_projection": "KernIndexOutOfRange",
+        "rule_ids": ["TFM-LIGKERN-006"],
+    },
+    {
+        "source_predicate": "forward_skip_range_check",
+        "runtime_projection": "ForwardSkipOutOfRange",
+        "rule_ids": ["TFM-LIGKERN-007"],
+    },
+]
 
 
 def validate_rule_transition(
@@ -119,6 +156,7 @@ def validate_rule_transition(
         "focused_source",
         "proof_states_added",
         "ownership_changes",
+        "source_predicate_projections",
     }
     if set(transition) != expected_keys:
         errors.append("v2 transition fields differ")
@@ -150,6 +188,27 @@ def validate_rule_transition(
         errors.append("v2 transition added proof states differ")
     if transition.get("ownership_changes") != PINNED_V2_OWNERSHIP_CHANGES:
         errors.append("v2 transition proof ownership changes differ")
+    projections = transition.get("source_predicate_projections")
+    if projections != PINNED_V2_SOURCE_PREDICATE_PROJECTIONS:
+        errors.append("v2 transition source predicate projections differ")
+    if isinstance(projections, list):
+        projected_rule_ids = [
+            rule_id
+            for projection in projections
+            if isinstance(projection, dict)
+            for rule_id in projection.get("rule_ids", [])
+        ]
+        expected_lig_kern_rule_ids = [
+            rule_id
+            for rule_id in REVIEWED_V1_RULE_IDS
+            if rule_id.startswith("TFM-LIGKERN-")
+        ]
+        if Counter(projected_rule_ids) != Counter(expected_lig_kern_rule_ids):
+            errors.append("v2 transition lig/kern projection coverage differs")
+        if "TFM-KERN-001" in projected_rule_ids:
+            errors.append("v2 transition lig/kern projection includes kern scaling")
+    else:
+        errors.append("v2 transition source predicate projections are invalid")
 
     rules = predecessor.get("rules")
     proof_states = predecessor.get("proof_states")

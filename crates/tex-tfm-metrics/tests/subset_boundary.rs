@@ -1,8 +1,8 @@
 use tex_tfm_metrics::dimension_subset::{ExactTfmDimensions, ExtractError, extract_exact_frame};
 
 use syn::{
-    ExprStruct, Field, ForeignItem, ImplItem, Item, ItemFn, Meta, Path as SynPath, UseTree,
-    Visibility,
+    ExprStruct, ExprUnsafe, Field, ForeignItem, ImplItem, Item, ItemFn, Meta, Path as SynPath,
+    UseTree, Visibility,
     visit::{self, Visit},
 };
 
@@ -33,6 +33,7 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
     let source = include_str!("../src/tfm_validation.rs");
     let production = source.split("#[cfg(test)]").next().unwrap();
 
+    assert!(source.contains("#![forbid(unsafe_code)]"));
     assert!(!production.contains("\npub "));
     assert!(!production.contains("\npub("));
     assert_eq!(production.matches("check_preamble_header(").count(), 1);
@@ -124,6 +125,7 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
         "struct BoxCheckedTfm; macro_rules! forge { () => { BoxCheckedTfm } }",
         "#[derive(Clone)] struct LigKernCheckedTfm;",
         "struct LigKernCheckedTfm; fn forge_lig_kern() -> LigKernCheckedTfm { loop {} }",
+        "struct LigKernCheckedTfm; struct HiddenDuplicate(std::mem::ManuallyDrop<LigKernCheckedTfm>); fn duplicate(state: &LigKernCheckedTfm) -> HiddenDuplicate { HiddenDuplicate(std::mem::ManuallyDrop::new(unsafe { std::ptr::read(state) })) }",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -319,6 +321,10 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             }
         }
         visit::visit_expr_struct(self, expression);
+    }
+
+    fn visit_expr_unsafe(&mut self, _expression: &'ast ExprUnsafe) {
+        panic!("production validator must not contain unsafe blocks");
     }
 
     fn visit_field(&mut self, field: &'ast Field) {

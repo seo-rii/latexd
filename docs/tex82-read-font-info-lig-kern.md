@@ -62,9 +62,29 @@ through this phase.
 
 An independent source-order oracle covers 4,096 generated programs in addition
 to the complete selected single-instruction matrix. The
-32,753-instruction maximum proves the largest legal table geometry remains bounded. Mutated kern
+32,755-instruction absolute maximum proves the largest legal table geometry remains bounded. Mutated kern
 words and raw suffixes preserve the instruction result, so
 kern words remain unread and unscaled. The AST policy allows exactly one production construction
 and authorized return path for the proof state and rejects alternate creation,
 alias, macro, visibility, and clone paths. A dedicated Pro closure review is
 still required before any `KernCheckedTfm` implementation begins.
+
+## First closure review remediation
+
+Closure review `6a93b53b-e6b0-83ee-92f5-686badb00774` returned
+`REVISE_PRIVATE_TFM_LIGKERN` at confidence 0.94. It found no source-order or
+state-machine defect, but rejected the evidence claim because the former
+one-character fixture stopped at 32,753 instructions, the AST policy accepted
+an unsafe `ptr::read` duplicate, and eight ledger IDs projected onto five error
+variants without an explicit contract.
+
+The replacement evidence uses the empty character domain and one word in each
+required box table to reach the 32,755-instruction absolute maximum at
+`lf=32767`. Deterministic restart, forward, and kern count-1/count cases cover
+the upper arithmetic boundaries. The validator module forbids unsafe code and
+the AST mutant gate rejects the exact `ManuallyDrop`/unsafe `ptr::read` path.
+The v2 transition now contains `source_predicate_projections`: all eight active
+lig/kern rule IDs occur exactly once, neither `TFM-KERN-001` nor an unknown ID
+is admitted, and `TFM-LIGKERN-002`/`TFM-LIGKERN-008` intentionally share
+`RestartTargetOutOfRange`. A replacement Pro review is required before kern
+scaling.
