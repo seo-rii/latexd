@@ -88,3 +88,31 @@ lig/kern rule IDs occur exactly once, neither `TFM-KERN-001` nor an unknown ID
 is admitted, and `TFM-LIGKERN-002`/`TFM-LIGKERN-008` intentionally share
 `RestartTargetOutOfRange`. A replacement Pro review is required before kern
 scaling.
+
+## Replacement closure decision and kern source pin
+
+Replacement review `6a93bc49-6f74-83ee-b517-7f02fcebb9f9` returned
+`PROCEED_PRIVATE_TFM_KERN` at confidence 0.93. It found the maximum geometry,
+unsafe construction, projection, canonical linkage, and high arithmetic
+remediations sufficient. This permits exactly one root-private successor that
+consumes the exact `LigKernCheckedTfm` by value; it does not permit any later
+table, visibility, caller, or integration.
+
+The immutable `tfm-kern-source-contract-v1.json` links the raw and canonical v2
+transition and pins all source dependencies needed by that successor:
+
+- fix-word meaning and `store_scaled`, lines 11108..11130, SHA-256
+  `306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e`;
+- effective-size normalization, lines 11142..11148, SHA-256
+  `e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906`;
+- the kern loop, lines 11173..11174, SHA-256
+  `d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1`.
+
+The loop scales the whole `nk` table in source order, including unreferenced
+entries. It admits only sign bytes 0 and 255, applies the exact normalization
+and nested divisions, and performs no entry-zero check. The private successor
+must not read extensibles, parameters, or a raw suffix. Before implementation,
+RED policy and behavior tests must cover macro-expansion construction paths,
+all invalid signs, first-invalid order, exact scaling, and the distinct
+`nk=32755` maximum. Another Pro closure review is mandatory after that one
+transition.

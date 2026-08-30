@@ -1,0 +1,34 @@
+{
+  "format": "latexd.tfm-kern-source-contract",
+  "schema_version": 1,
+  "predecessor": {
+    "path": "tfm-validation-rule-transition-v2.json",
+    "schema_version": 2,
+    "raw_sha256": "4a0bb1453055d12037fbbab0c77999feaf9b24f2d71b7e8afeb38453d2788316",
+    "canonical_sha256": "773983c0d5a99c21067f79edd887db792092c4d59efb8d9c0af2c478fb5c00fc"
+  },
+  "focused_source": {
+    "compatibility_source_sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+    "fix_word_scaling_section": {
+      "lines": "11108..11130",
+      "sha256": "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e"
+    },
+    "scale_normalization_section": {
+      "lines": "11142..11148",
+      "sha256": "e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906"
+    },
+    "kern_loop_section": {
+      "lines": "11173..11174",
+      "sha256": "d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1"
+    }
+  },
+  "proof_boundary": {
+    "input": "LigKernCheckedTfm",
+    "output": "KernCheckedTfm",
+    "owned_rule_ids": ["TFM-KERN-001"],
+    "loop_cardinality": "nk",
+    "reads": ["effective_size", "kerns"],
+    "excluded_reads": ["extensibles", "parameters", "raw_suffix"],
+    "entry_zero_check": false
+  }
+}

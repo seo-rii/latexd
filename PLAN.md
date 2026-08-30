@@ -1664,6 +1664,20 @@ forward, kern의 count-1/count 경계, module-level unsafe 금지 및 exact muta
 `source_predicate_projections`의 8-rule total/unique coverage로 고정한다. 새 closure
 review 전에는 `KernCheckedTfm`을 시작하지 않는다.
 
+Replacement closure review `6a93bc49-6f74-83ee-b517-7f02fcebb9f9`는
+confidence 0.93의 `PROCEED_PRIVATE_TFM_KERN`을 반환했다. 그 승인 범위는 exact
+`LigKernCheckedTfm`을 값으로 소비하는 root-private `KernCheckedTfm` 하나뿐이다.
+새 immutable `tfm-kern-source-contract-v1.json`은 fix-word 계산 lines 11108..11130
+(`306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e`),
+size normalization lines 11142..11148
+(`e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906`), kern
+loop lines 11173..11174
+(`d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1`)를
+pin한다. 다음 구현은 참조 여부와 무관하게 whole `nk` table을 source order로
+scale하고 no entry-zero check 경계를 보존한다. `include!`/attribute-macro construction
+우회와 `nk=32755`는 RED policy/test로 먼저 고정하며, dedicated kern closure review
+전에는 extensible/parameter/completion/public/production 단계를 시작하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

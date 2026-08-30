@@ -20,6 +20,9 @@ RULE_TRANSITION_PATH = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
 )
+KERN_SOURCE_CONTRACT_PATH = (
+    ROOT / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
+)
 PINNED_SOURCE = {
     "url": "https://tug.ctan.org/systems/knuth/dist/tex/tex.web",
     "sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
@@ -143,6 +146,84 @@ PINNED_V2_SOURCE_PREDICATE_PROJECTIONS = [
         "rule_ids": ["TFM-LIGKERN-007"],
     },
 ]
+REVIEWED_V2_TRANSITION_RAW_SHA256 = (
+    "4a0bb1453055d12037fbbab0c77999feaf9b24f2d71b7e8afeb38453d2788316"
+)
+REVIEWED_V2_TRANSITION_CANONICAL_SHA256 = (
+    "773983c0d5a99c21067f79edd887db792092c4d59efb8d9c0af2c478fb5c00fc"
+)
+PINNED_KERN_FOCUSED_SOURCE = {
+    "compatibility_source_sha256": PINNED_SOURCE["sha256"],
+    "fix_word_scaling_section": {
+        "lines": "11108..11130",
+        "sha256": "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e",
+    },
+    "scale_normalization_section": {
+        "lines": "11142..11148",
+        "sha256": "e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906",
+    },
+    "kern_loop_section": {
+        "lines": "11173..11174",
+        "sha256": "d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1",
+    },
+}
+PINNED_KERN_PROOF_BOUNDARY = {
+    "input": "LigKernCheckedTfm",
+    "output": "KernCheckedTfm",
+    "owned_rule_ids": ["TFM-KERN-001"],
+    "loop_cardinality": "nk",
+    "reads": ["effective_size", "kerns"],
+    "excluded_reads": ["extensibles", "parameters", "raw_suffix"],
+    "entry_zero_check": False,
+}
+
+
+def validate_kern_source_contract(
+    contract: dict[str, object], predecessor: dict[str, object]
+) -> list[str]:
+    errors: list[str] = []
+    expected_keys = {
+        "format",
+        "schema_version",
+        "predecessor",
+        "focused_source",
+        "proof_boundary",
+    }
+    if set(contract) != expected_keys:
+        errors.append("kern source contract fields differ")
+    if contract.get("format") != "latexd.tfm-kern-source-contract":
+        errors.append("kern source contract format is invalid")
+    if contract.get("schema_version") != 1:
+        errors.append("kern source contract schema version is invalid")
+
+    raw_predecessor = RULE_TRANSITION_PATH.read_bytes()
+    canonical_predecessor = json.dumps(
+        predecessor,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    expected_predecessor = {
+        "path": "tfm-validation-rule-transition-v2.json",
+        "schema_version": 2,
+        "raw_sha256": REVIEWED_V2_TRANSITION_RAW_SHA256,
+        "canonical_sha256": REVIEWED_V2_TRANSITION_CANONICAL_SHA256,
+    }
+    if contract.get("predecessor") != expected_predecessor:
+        errors.append("kern source contract predecessor pin differs")
+    if hashlib.sha256(raw_predecessor).hexdigest() != (
+        REVIEWED_V2_TRANSITION_RAW_SHA256
+    ):
+        errors.append("kern source contract predecessor raw content differs")
+    if hashlib.sha256(canonical_predecessor).hexdigest() != (
+        REVIEWED_V2_TRANSITION_CANONICAL_SHA256
+    ):
+        errors.append("kern source contract predecessor canonical content differs")
+    if contract.get("focused_source") != PINNED_KERN_FOCUSED_SOURCE:
+        errors.append("kern source contract focused source pins differ")
+    if contract.get("proof_boundary") != PINNED_KERN_PROOF_BOUNDARY:
+        errors.append("kern source contract proof boundary differs")
+    return errors
 
 
 def validate_rule_transition(
@@ -440,6 +521,10 @@ def main() -> int:
     errors = validate_rule_ledger(ledger, corpus_case_ids)
     transition = json.loads(RULE_TRANSITION_PATH.read_text(encoding="utf-8"))
     errors.extend(validate_rule_transition(transition, RULE_CONTRACT))
+    kern_source_contract = json.loads(
+        KERN_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8")
+    )
+    errors.extend(validate_kern_source_contract(kern_source_contract, transition))
     if errors:
         for error in errors:
             print(error)
@@ -451,7 +536,8 @@ def main() -> int:
     print(
         "TeX82 TFM validation source-rule ledger passed: "
         f"rules={len(RULE_CONTRACT['rules'])}, witnesses={len(corpus_case_ids)}, "
-        f"proof_states={dict(sorted(proof_counts.items()))}, transition=v2"
+        f"proof_states={dict(sorted(proof_counts.items()))}, transition=v2, "
+        "kern_source_contract=v1"
     )
     return 0
 

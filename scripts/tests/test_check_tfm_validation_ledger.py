@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.check_tfm_validation_ledger import (
     main,
+    validate_kern_source_contract,
     validate_rule_contract,
     validate_rule_ledger,
     validate_rule_transition,
@@ -25,6 +26,10 @@ RULE_CONTRACT = (
 RULE_TRANSITION = (
     ROOT
     / "crates/tex-tfm-metrics/tests/fixtures/tfm-validation-rule-transition-v2.json"
+)
+KERN_SOURCE_CONTRACT = (
+    ROOT
+    / "crates/tex-tfm-metrics/tests/fixtures/tfm-kern-source-contract-v1.json"
 )
 LIG_KERN_SOURCE_CONTRACT = ROOT / "docs/tex82-read-font-info-lig-kern.md"
 
@@ -46,7 +51,98 @@ def rule_transition() -> dict[str, object]:
     return json.loads(RULE_TRANSITION.read_text(encoding="utf-8"))
 
 
+def kern_source_contract() -> dict[str, object]:
+    return json.loads(KERN_SOURCE_CONTRACT.read_text(encoding="utf-8"))
+
+
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_kern_source_contract_pins_exact_successor_boundary(self) -> None:
+        contract = kern_source_contract()
+        self.assertEqual(
+            validate_kern_source_contract(contract, rule_transition()), []
+        )
+        self.assertEqual(contract["schema_version"], 1)
+        self.assertEqual(
+            contract["predecessor"],
+            {
+                "path": "tfm-validation-rule-transition-v2.json",
+                "schema_version": 2,
+                "raw_sha256": "4a0bb1453055d12037fbbab0c77999feaf9b24f2d71b7e8afeb38453d2788316",
+                "canonical_sha256": "773983c0d5a99c21067f79edd887db792092c4d59efb8d9c0af2c478fb5c00fc",
+            },
+        )
+        self.assertEqual(
+            contract["focused_source"],
+            {
+                "compatibility_source_sha256": "c62ab513ef167e93f71a23bd34f311e243210afd7c7a0f9b779614b71e398324",
+                "fix_word_scaling_section": {
+                    "lines": "11108..11130",
+                    "sha256": "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e",
+                },
+                "scale_normalization_section": {
+                    "lines": "11142..11148",
+                    "sha256": "e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906",
+                },
+                "kern_loop_section": {
+                    "lines": "11173..11174",
+                    "sha256": "d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1",
+                },
+            },
+        )
+        self.assertEqual(
+            contract["proof_boundary"],
+            {
+                "input": "LigKernCheckedTfm",
+                "output": "KernCheckedTfm",
+                "owned_rule_ids": ["TFM-KERN-001"],
+                "loop_cardinality": "nk",
+                "reads": ["effective_size", "kerns"],
+                "excluded_reads": ["extensibles", "parameters", "raw_suffix"],
+                "entry_zero_check": False,
+            },
+        )
+
+    def test_kern_source_contract_rejects_predecessor_source_and_scope_drift(
+        self,
+    ) -> None:
+        for field, replacement in (
+            ("predecessor", {}),
+            ("focused_source", {}),
+            ("proof_boundary", {}),
+        ):
+            changed = kern_source_contract()
+            changed[field] = replacement
+            self.assertTrue(
+                validate_kern_source_contract(changed, rule_transition()),
+                field,
+            )
+
+    def test_ligkern_replacement_review_and_kern_contract_are_documented(
+        self,
+    ) -> None:
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+            "docs/tex82-read-font-info-lig-kern.md",
+        ):
+            document = (ROOT / relative_path).read_text(encoding="utf-8")
+            for required in (
+                "6a93bc49-6f74-83ee-b517-7f02fcebb9f9",
+                "PROCEED_PRIVATE_TFM_KERN",
+                "confidence 0.93",
+                "tfm-kern-source-contract-v1.json",
+                "lines 11108..11130",
+                "306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e",
+                "lines 11142..11148",
+                "e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906",
+                "lines 11173..11174",
+                "d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1",
+                "whole `nk` table",
+                "no entry-zero check",
+            ):
+                self.assertIn(required, document, relative_path)
+
     def test_standalone_gate_reports_transitioned_proof_ownership(self) -> None:
         output = io.StringIO()
         with redirect_stdout(output):

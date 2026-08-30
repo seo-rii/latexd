@@ -86,6 +86,20 @@ restart/forward/kern count-1/count arithmetic, compiler and AST unsafe rejection
 and v2 `source_predicate_projections` with exactly eight unique lig/kern rule IDs.
 The replacement review remains mandatory before kern scaling.
 
+Replacement closure review `6a93bc49-6f74-83ee-b517-7f02fcebb9f9` returned
+`PROCEED_PRIVATE_TFM_KERN` at confidence 0.93 and closed those lig/kern evidence
+defects. The separately immutable `tfm-kern-source-contract-v1.json` pins
+fix-word scaling lines 11108..11130 with SHA-256
+`306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e`,
+normalization lines 11142..11148 with
+`e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906`, and the
+complete kern loop lines 11173..11174 with
+`d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1`.
+The only authorized successor consumes the exact lig/kern state, scales the
+whole `nk` table rather than only referenced entries, and performs no entry-zero check.
+Macro-construction policy and the `nk=32755` maximum must be RED before
+implementation; a dedicated kern closure review remains mandatory afterward.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

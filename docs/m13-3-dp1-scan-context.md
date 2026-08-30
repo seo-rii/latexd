@@ -440,6 +440,21 @@ restart/forward/kern count-1/count boundaries, module-level unsafe prohibition
 with the executable mutant, and total unique v2 `source_predicate_projections`.
 No `KernCheckedTfm` work begins before a replacement closure review.
 
+Replacement closure review `6a93bc49-6f74-83ee-b517-7f02fcebb9f9` returned
+`PROCEED_PRIVATE_TFM_KERN` at confidence 0.93. Its authorization is limited to
+one root-private successor consuming the exact lig/kern state. The immutable
+`tfm-kern-source-contract-v1.json` pins fix-word scaling lines 11108..11130 and
+SHA-256 `306907b8734bfa4dc990546e1fb84d0158c2b9af2338faed18808a06c4bfa58e`,
+normalization lines 11142..11148 and
+`e4db0f873ddda4dc750831a8ddcb436bb44dae7cb41044314837a1895a9c1906`, and the
+kern loop lines 11173..11174 and
+`d1b13b62579f82c3fec9ea7fbf275c751ea1e7eb31a02c2d703233c7c84760f1`.
+The successor must scale the whole `nk` table in source order and preserve the
+no entry-zero check boundary. Prospective RED evidence must first cover
+`include!`/attribute-macro construction, all signs, and the independent
+`nk=32755` maximum; every later table and integration remains blocked through a
+dedicated kern closure review.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
