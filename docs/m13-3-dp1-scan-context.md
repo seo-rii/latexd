@@ -421,6 +421,16 @@ and moves only `TFM-KERN-001` to the future kern state. The exact source order
 and private boundary are documented in
 `docs/tex82-read-font-info-lig-kern.md`.
 
+The authorized private `LigKernCheckedTfm` implementation now consumes and
+retains `BoxCheckedTfm`, decodes every instruction in source order, and checks
+restart, first boundary character, ordinary next/ligature/kern-index/skip, and
+the final boundary label. Evidence fixes 83/83 persisted corpus phase outcomes,
+8/8 exact lig/kern-owned rejections, 4,096 generated programs against an
+independent oracle, and the 32,753-instruction maximum. The AST gate permits
+exactly one production construction and authorized return path. In this phase,
+kern words remain unread and unscaled; kern scaling and every later table or
+integration remain blocked pending the dedicated closure review.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

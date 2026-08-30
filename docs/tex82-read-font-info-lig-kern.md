@@ -49,3 +49,22 @@ Kern scaling remains a distinct reviewed successor. Only after lig/kern
 closure may a private `KernCheckedTfm` consume `LigKernCheckedTfm`. Extensible
 recipes, parameters, complete validation, source-visible font loading,
 production ownership, checkpoints, and W3 remain blocked.
+
+## Implemented evidence
+
+The private `LigKernCheckedTfm` implementation now consumes and retains the
+exact `BoxCheckedTfm`, stores every decoded instruction, and retains the
+optional boundary character and boundary-program start. Its exact error space
+preserves instruction index and source predicate identity. The corpus bridge
+fixes 83/83 persisted corpus phase outcomes and
+8/8 exact lig/kern-owned rejections while requiring `TFM-KERN-001` to succeed
+through this phase.
+
+An independent source-order oracle covers 4,096 generated programs in addition
+to the complete selected single-instruction matrix. The
+32,753-instruction maximum proves the largest legal table geometry remains bounded. Mutated kern
+words and raw suffixes preserve the instruction result, so
+kern words remain unread and unscaled. The AST policy allows exactly one production construction
+and authorized return path for the proof state and rejects alternate creation,
+alias, macro, visibility, and clone paths. A dedicated Pro closure review is
+still required before any `KernCheckedTfm` implementation begins.

@@ -68,6 +68,15 @@ instruction source SHA-256
 and moves only `TFM-KERN-001` to `KernCheckedTfm`. The complete source-order
 contract is `docs/tex82-read-font-info-lig-kern.md`.
 
+The private `LigKernCheckedTfm` implementation now consumes and retains the
+exact box predecessor and validates the eight lig/kern-owned rules in source
+order. Its executable evidence covers 83/83 persisted corpus phase outcomes,
+8/8 exact lig/kern-owned rejections, 4,096 generated programs checked against
+an independent oracle, and the 32,753-instruction maximum. Structural policy
+allows exactly one production construction and authorized return path. The v2
+split is enforced operationally: kern words remain unread and unscaled, and
+`KernCheckedTfm` remains unimplemented pending the next closure review.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST
@@ -167,8 +176,9 @@ state below. Every intermediate representation remains root-module-private:
    charlist cycle validation;
 3. **Implemented privately:** exact at-size box scaling and all four scaled
    entry-zero checks;
-4. source-ordered lig/kern instruction and boundary-state validation, returning
-   private `LigKernCheckedTfm` without scaling kern words;
+4. **Implemented privately:** source-ordered lig/kern instruction and
+   boundary-state validation, returning private `LigKernCheckedTfm` without
+   scaling kern words;
 5. after a dedicated closure review, exact kern scaling that consumes
    `LigKernCheckedTfm` and returns private `KernCheckedTfm`;
 6. extensible recipes, every supplied parameter, and EOF behavior;

@@ -136,6 +136,49 @@ struct BoxCheckedTfm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CheckedLigKernInstruction {
+    skip_byte: u8,
+    next_character: u8,
+    operation_byte: u8,
+    remainder: u8,
+}
+
+struct LigKernCheckedTfm {
+    predecessor: BoxCheckedTfm,
+    instructions: Box<[CheckedLigKernInstruction]>,
+    boundary_character: Option<u8>,
+    boundary_program_start: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LigKernValidationRule {
+    RestartTargetOutOfRange {
+        instruction: u16,
+        target: u16,
+        count: u16,
+    },
+    NextCharacterMissing {
+        instruction: u16,
+        character: u8,
+    },
+    LigatureTargetMissing {
+        instruction: u16,
+        character: u8,
+    },
+    KernIndexOutOfRange {
+        instruction: u16,
+        index: u16,
+        count: u16,
+    },
+    ForwardSkipOutOfRange {
+        instruction: u16,
+        skip: u8,
+        target: u32,
+        count: u16,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoxValidationRule {
     InvalidFixWordSign {
         table: BoxMetric,
@@ -628,6 +671,101 @@ fn check_boxes(predecessor: CharacterCheckedTfm) -> Result<BoxCheckedTfm, BoxVal
     })
 }
 
+fn check_lig_kern(predecessor: BoxCheckedTfm) -> Result<LigKernCheckedTfm, LigKernValidationRule> {
+    let character_state = &predecessor.predecessor;
+    let header_state = &character_state.predecessor;
+    let instruction_count = header_state.raw_counts.nl;
+    let kern_count = header_state.raw_counts.nk;
+    let mut instructions = Vec::with_capacity(usize::from(instruction_count));
+    let mut boundary_character = None;
+
+    for (instruction_index, raw_instruction) in header_state.raw
+        [header_state.layout.lig_kern.clone()]
+    .chunks_exact(4)
+    .enumerate()
+    {
+        let instruction = match u16::try_from(instruction_index) {
+            Ok(instruction) => instruction,
+            Err(_) => unreachable!("header-checked TFM instruction indices fit u16"),
+        };
+        let skip_byte = raw_instruction[0];
+        let next_character = raw_instruction[1];
+        let operation_byte = raw_instruction[2];
+        let remainder = raw_instruction[3];
+        if skip_byte > 128 {
+            let target = u16::from(operation_byte) * 256 + u16::from(remainder);
+            if target >= instruction_count {
+                return Err(LigKernValidationRule::RestartTargetOutOfRange {
+                    instruction,
+                    target,
+                    count: instruction_count,
+                });
+            }
+            if skip_byte == 255 && instruction == 0 {
+                boundary_character = Some(next_character);
+            }
+        } else {
+            if boundary_character != Some(next_character) {
+                let word = usize::from(next_character) / 64;
+                let bit = u32::from(next_character % 64);
+                if character_state.existing_characters.0[word] & (1u64 << bit) == 0 {
+                    return Err(LigKernValidationRule::NextCharacterMissing {
+                        instruction,
+                        character: next_character,
+                    });
+                }
+            }
+            if operation_byte < 128 {
+                let word = usize::from(remainder) / 64;
+                let bit = u32::from(remainder % 64);
+                if character_state.existing_characters.0[word] & (1u64 << bit) == 0 {
+                    return Err(LigKernValidationRule::LigatureTargetMissing {
+                        instruction,
+                        character: remainder,
+                    });
+                }
+            } else {
+                let index = u16::from(operation_byte - 128) * 256 + u16::from(remainder);
+                if index >= kern_count {
+                    return Err(LigKernValidationRule::KernIndexOutOfRange {
+                        instruction,
+                        index,
+                        count: kern_count,
+                    });
+                }
+            }
+            if skip_byte < 128 {
+                let target = u32::from(instruction) + u32::from(skip_byte) + 1;
+                if target >= u32::from(instruction_count) {
+                    return Err(LigKernValidationRule::ForwardSkipOutOfRange {
+                        instruction,
+                        skip: skip_byte,
+                        target,
+                        count: instruction_count,
+                    });
+                }
+            }
+        }
+        instructions.push(CheckedLigKernInstruction {
+            skip_byte,
+            next_character,
+            operation_byte,
+            remainder,
+        });
+    }
+
+    let boundary_program_start = instructions.last().and_then(|instruction| {
+        (instruction.skip_byte == 255)
+            .then(|| u16::from(instruction.operation_byte) * 256 + u16::from(instruction.remainder))
+    });
+    Ok(LigKernCheckedTfm {
+        predecessor,
+        instructions: instructions.into_boxed_slice(),
+        boundary_character,
+        boundary_program_start,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::TypeId, collections::HashSet, ops::Range, path::Path, sync::Arc};
@@ -638,8 +776,9 @@ mod tests {
         BoxCheckedTfm, BoxMetric, BoxValidationRule, CHARACTER_METRIC_SOURCE_ORDER,
         CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
         CharacterValidationRule, CountField, EffectiveSizeSp, FrameTfmDigest, HeaderCheckedTfm,
-        MetricTable, PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp,
-        check_boxes, check_characters, check_preamble_header,
+        LigKernCheckedTfm, LigKernValidationRule, MetricTable, PreambleHeaderFailure,
+        PreambleHeaderRule, RawTfmDigest, ScaledSp, check_boxes, check_characters, check_lig_kern,
+        check_preamble_header,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -651,6 +790,8 @@ mod tests {
             std::fs::read(fixture_root.join("tfm-validity-oracle-v2/manifest.json")).unwrap();
         let rule_contract_bytes =
             std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap();
+        let rule_transition_bytes =
+            std::fs::read(fixture_root.join("tfm-validation-rule-transition-v2.json")).unwrap();
         let native_fixture_bytes =
             std::fs::read(fixture_root.join("tfm-validity-oracle-v1.json")).unwrap();
         for (label, bytes, expected_sha256) in [
@@ -668,6 +809,11 @@ mod tests {
                 "v1 native fixture",
                 native_fixture_bytes.as_slice(),
                 "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4",
+            ),
+            (
+                "v2 rule transition",
+                rule_transition_bytes.as_slice(),
+                "a2d5b7bf1763c9b3b68ccdab333088da6249c1c483998eb2b9f3f4a07b406b07",
             ),
         ] {
             let actual_sha256 = Sha256::digest(bytes)
@@ -693,6 +839,16 @@ mod tests {
         assert_eq!(
             manifest["source_oracle"]["sha256"],
             "9df44bf4b157acfb65fa0d5cc7de4d42ba7f869bae460e07daf984e1fbca19b4"
+        );
+        let transition: serde_json::Value = serde_json::from_slice(&rule_transition_bytes).unwrap();
+        assert_eq!(transition["schema_version"], 2);
+        assert_eq!(
+            transition["ownership_changes"],
+            serde_json::json!([{
+                "rule_id": "TFM-KERN-001",
+                "from": "LigKernCheckedTfm",
+                "to": "KernCheckedTfm",
+            }])
         );
         manifest
     }
@@ -1039,6 +1195,129 @@ mod tests {
     }
 
     #[test]
+    fn content_addressed_native_corpus_matches_lig_kern_proof_ownership() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let corpus_root = fixture_root.join("tfm-validity-oracle-v2");
+        let manifest = reviewed_corpus_manifest(&fixture_root);
+        let rule_contract: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("tfm-validation-rules-v1.json")).unwrap(),
+        )
+        .unwrap();
+        let proof_rules = |proof_state| {
+            rule_contract["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|rule| rule["proof_state"] == proof_state)
+                .map(|rule| rule["id"].as_str().unwrap())
+                .collect::<HashSet<_>>()
+        };
+        let header_rules = proof_rules("HeaderCheckedTfm");
+        let character_rules = proof_rules("CharacterCheckedTfm");
+        let box_rules = proof_rules("BoxCheckedTfm");
+        let mut lig_kern_rules = proof_rules("LigKernCheckedTfm");
+        assert!(lig_kern_rules.remove("TFM-KERN-001"));
+        assert_eq!(lig_kern_rules.len(), 8);
+
+        let cases = manifest["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 83);
+        for case in cases {
+            let case_id = case["id"].as_str().unwrap();
+            let blob_sha256 = case["blob_sha256"].as_str().unwrap();
+            let raw = std::fs::read(corpus_root.join("blobs").join(format!("{blob_sha256}.tfm")))
+                .unwrap();
+            let actual_blob_sha256 = Sha256::digest(&raw)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(actual_blob_sha256, blob_sha256, "{case_id}");
+            let input_size =
+                i32::try_from(case["validator_input_size_sp"].as_i64().unwrap()).unwrap();
+            let first_rule = case["first_rejecting_rule"].as_str();
+            let header = check_preamble_header(Arc::from(raw), input_size);
+
+            if case["expected_classification"] == "InvalidEffectiveSize" {
+                assert!(matches!(
+                    header,
+                    Err(PreambleHeaderFailure::InvalidEffectiveSize)
+                ));
+                continue;
+            }
+            if first_rule.is_some_and(|rule| header_rules.contains(rule)) {
+                assert!(matches!(header, Err(PreambleHeaderFailure::Malformed(_))));
+                continue;
+            }
+            let character = check_characters(header.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in header phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| character_rules.contains(rule)) {
+                assert!(character.is_err(), "{case_id} {blob_sha256}");
+                continue;
+            }
+            let box_state = check_boxes(character.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in character phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| box_rules.contains(rule)) {
+                assert!(box_state.is_err(), "{case_id} {blob_sha256}");
+                continue;
+            }
+
+            let result = check_lig_kern(box_state.unwrap_or_else(|failure| {
+                panic!("{case_id} {blob_sha256} failed in box phase: {failure:?}")
+            }));
+            if first_rule.is_some_and(|rule| lig_kern_rules.contains(rule)) {
+                let expected = match case_id {
+                    "invalid_boundary_label" => LigKernValidationRule::RestartTargetOutOfRange {
+                        instruction: 87,
+                        target: 88,
+                        count: 88,
+                    },
+                    "invalid_ligkern" => LigKernValidationRule::RestartTargetOutOfRange {
+                        instruction: 0,
+                        target: 256,
+                        count: 88,
+                    },
+                    "invalid_ligkern_next_character" => {
+                        LigKernValidationRule::NextCharacterMissing {
+                            instruction: 0,
+                            character: 255,
+                        }
+                    }
+                    "ligkern_next_in_range_absent" => LigKernValidationRule::NextCharacterMissing {
+                        instruction: 0,
+                        character: 127,
+                    },
+                    "invalid_ligature_target" => LigKernValidationRule::LigatureTargetMissing {
+                        instruction: 0,
+                        character: 255,
+                    },
+                    "ligature_target_in_range_absent" => {
+                        LigKernValidationRule::LigatureTargetMissing {
+                            instruction: 0,
+                            character: 127,
+                        }
+                    }
+                    "invalid_ligkern_kern_index" => LigKernValidationRule::KernIndexOutOfRange {
+                        instruction: 0,
+                        index: 10,
+                        count: 10,
+                    },
+                    "invalid_ligkern_skip" => LigKernValidationRule::ForwardSkipOutOfRange {
+                        instruction: 0,
+                        skip: 127,
+                        target: 128,
+                        count: 88,
+                    },
+                    _ => panic!("missing exact lig/kern rule for {case_id}"),
+                };
+                assert_eq!(result.err(), Some(expected), "{case_id} {blob_sha256}");
+            } else {
+                assert!(result.is_ok(), "{case_id} {blob_sha256}");
+            }
+        }
+    }
+
+    #[test]
     fn character_entrypoint_consumes_only_the_header_state() {
         let _: fn(HeaderCheckedTfm) -> Result<CharacterCheckedTfm, CharacterValidationRule> =
             check_characters;
@@ -1047,6 +1326,365 @@ mod tests {
     #[test]
     fn box_entrypoint_consumes_only_the_character_state() {
         let _: fn(CharacterCheckedTfm) -> Result<BoxCheckedTfm, BoxValidationRule> = check_boxes;
+    }
+
+    #[test]
+    fn lig_kern_entrypoint_consumes_only_the_box_state() {
+        let _: fn(BoxCheckedTfm) -> Result<LigKernCheckedTfm, LigKernValidationRule> =
+            check_lig_kern;
+    }
+
+    #[test]
+    fn empty_lig_kern_table_retains_the_exact_box_predecessor_and_empty_state() {
+        let state = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(seed_frame()), 1).unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(state.instructions.is_empty());
+        assert_eq!(state.boundary_character, None);
+        assert_eq!(state.boundary_program_start, None);
+        assert_eq!(state.predecessor.predecessor.records.len(), 0);
+        assert_eq!(state.predecessor.predecessor.predecessor.raw_counts.nl, 0);
+    }
+
+    #[test]
+    fn lig_kern_decodes_instructions_and_retains_both_boundary_states() {
+        let bytes = lig_kern_frame(
+            &[[1, 0, 0, 0]],
+            &[
+                [255, 42, 0, 2],
+                [128, 42, 0, 7],
+                [128, 7, 128, 0],
+                [255, 0, 0, 1],
+            ],
+            1,
+        );
+        let state = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(state.instructions.len(), 4);
+        assert_eq!(state.instructions[0].skip_byte, 255);
+        assert_eq!(state.instructions[1].next_character, 42);
+        assert_eq!(state.instructions[2].operation_byte, 128);
+        assert_eq!(state.instructions[3].remainder, 1);
+        assert_eq!(state.boundary_character, Some(42));
+        assert_eq!(state.boundary_program_start, Some(1));
+    }
+
+    #[test]
+    fn lig_kern_failures_preserve_instruction_source_order() {
+        let cases: Vec<(Vec<[u8; 4]>, u16, LigKernValidationRule)> = vec![
+            (
+                vec![[129, 0, 0, 1]],
+                0,
+                LigKernValidationRule::RestartTargetOutOfRange {
+                    instruction: 0,
+                    target: 1,
+                    count: 1,
+                },
+            ),
+            (
+                vec![[128, 8, 0, 8]],
+                0,
+                LigKernValidationRule::NextCharacterMissing {
+                    instruction: 0,
+                    character: 8,
+                },
+            ),
+            (
+                vec![[128, 7, 0, 8]],
+                0,
+                LigKernValidationRule::LigatureTargetMissing {
+                    instruction: 0,
+                    character: 8,
+                },
+            ),
+            (
+                vec![[128, 7, 128, 1]],
+                1,
+                LigKernValidationRule::KernIndexOutOfRange {
+                    instruction: 0,
+                    index: 1,
+                    count: 1,
+                },
+            ),
+            (
+                vec![[0, 7, 0, 7]],
+                0,
+                LigKernValidationRule::ForwardSkipOutOfRange {
+                    instruction: 0,
+                    skip: 0,
+                    target: 1,
+                    count: 1,
+                },
+            ),
+        ];
+        for (instructions, nk, expected) in cases {
+            let bytes = lig_kern_frame(&[[1, 0, 0, 0]], &instructions, nk);
+            let result = check_lig_kern(
+                check_boxes(
+                    check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+                )
+                .unwrap(),
+            );
+            assert_eq!(result.err(), Some(expected));
+        }
+
+        let compound = lig_kern_frame(&[[1, 0, 0, 0]], &[[0, 8, 128, 1]], 1);
+        let result = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(compound), 1).unwrap()).unwrap(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            result.err(),
+            Some(LigKernValidationRule::NextCharacterMissing {
+                instruction: 0,
+                character: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn only_the_first_marker_installs_boundary_character_and_only_final_marker_labels() {
+        let bytes = lig_kern_frame(
+            &[[1, 0, 0, 0]],
+            &[[129, 0, 0, 0], [255, 8, 0, 0], [128, 8, 0, 7]],
+            0,
+        );
+        let result = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            result.err(),
+            Some(LigKernValidationRule::NextCharacterMissing {
+                instruction: 2,
+                character: 8,
+            })
+        );
+
+        let bytes = lig_kern_frame(&[[1, 0, 0, 0]], &[[255, 8, 0, 1], [128, 8, 0, 7]], 0);
+        let state = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(state.boundary_character, Some(8));
+        assert_eq!(state.boundary_program_start, None);
+    }
+
+    #[test]
+    fn generated_lig_kern_programs_match_an_independent_source_order_oracle() {
+        let reference = |instructions: &[[u8; 4]], kern_count: u16| {
+            let count = u16::try_from(instructions.len()).unwrap();
+            let mut boundary_character = None;
+            for (instruction_index, [skip, next, operation, remainder]) in
+                instructions.iter().copied().enumerate()
+            {
+                let instruction = u16::try_from(instruction_index).unwrap();
+                if skip > 128 {
+                    let target = u16::from(operation) * 256 + u16::from(remainder);
+                    if target >= count {
+                        return Err(LigKernValidationRule::RestartTargetOutOfRange {
+                            instruction,
+                            target,
+                            count,
+                        });
+                    }
+                    if skip == 255 && instruction == 0 {
+                        boundary_character = Some(next);
+                    }
+                    continue;
+                }
+                if boundary_character != Some(next) && next != 7 && next != 9 {
+                    return Err(LigKernValidationRule::NextCharacterMissing {
+                        instruction,
+                        character: next,
+                    });
+                }
+                if operation < 128 {
+                    if remainder != 7 && remainder != 9 {
+                        return Err(LigKernValidationRule::LigatureTargetMissing {
+                            instruction,
+                            character: remainder,
+                        });
+                    }
+                } else {
+                    let index = u16::from(operation - 128) * 256 + u16::from(remainder);
+                    if index >= kern_count {
+                        return Err(LigKernValidationRule::KernIndexOutOfRange {
+                            instruction,
+                            index,
+                            count: kern_count,
+                        });
+                    }
+                }
+                if skip < 128 {
+                    let target = u32::from(instruction) + u32::from(skip) + 1;
+                    if target >= u32::from(count) {
+                        return Err(LigKernValidationRule::ForwardSkipOutOfRange {
+                            instruction,
+                            skip,
+                            target,
+                            count,
+                        });
+                    }
+                }
+            }
+            let boundary_program_start =
+                instructions
+                    .last()
+                    .and_then(|[skip, _, operation, remainder]| {
+                        (*skip == 255).then(|| u16::from(*operation) * 256 + u16::from(*remainder))
+                    });
+            Ok((boundary_character, boundary_program_start))
+        };
+
+        let mut programs = Vec::new();
+        for skip in [0, 127, 128, 129, 255] {
+            for next in [7, 8, 9] {
+                for operation in [0, 127, 128, 255] {
+                    for remainder in [7, 8, 9, 255] {
+                        programs.push(vec![[skip, next, operation, remainder]]);
+                    }
+                }
+            }
+        }
+        let mut generator = 0x6a93_a948_81a8_83eeu64;
+        for _ in 0..4096 {
+            let length = 1 + (generator as usize % 8);
+            let mut program = Vec::with_capacity(length);
+            for _ in 0..length {
+                let mut instruction = [0; 4];
+                for byte in &mut instruction {
+                    generator = generator
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    *byte = (generator >> 32) as u8;
+                }
+                program.push(instruction);
+            }
+            programs.push(program);
+        }
+
+        for program in programs {
+            let kern_count = 3;
+            let expected = reference(&program, kern_count);
+            let bytes = lig_kern_frame(
+                &[[1, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]],
+                &program,
+                kern_count,
+            );
+            let actual = check_lig_kern(
+                check_boxes(
+                    check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+                )
+                .unwrap(),
+            );
+            match (actual, expected) {
+                (Ok(actual), Ok((boundary_character, boundary_program_start))) => {
+                    assert_eq!(actual.boundary_character, boundary_character, "{program:?}");
+                    assert_eq!(
+                        actual.boundary_program_start, boundary_program_start,
+                        "{program:?}"
+                    );
+                    assert_eq!(actual.instructions.len(), program.len(), "{program:?}");
+                }
+                (Err(actual), Err(expected)) => assert_eq!(actual, expected, "{program:?}"),
+                _ => panic!("program {program:?}: success/error classification differs"),
+            }
+        }
+    }
+
+    #[test]
+    fn maximum_legal_lig_kern_table_is_bounded_and_decoded_completely() {
+        let instructions = vec![[128, 7, 0, 7]; 32_753];
+        let bytes = lig_kern_frame(&[[1, 0, 0, 0]], &instructions, 0);
+        let state = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes), 1).unwrap()).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            state.predecessor.predecessor.predecessor.raw_counts.lf,
+            32_767
+        );
+        assert_eq!(state.instructions.len(), 32_753);
+    }
+
+    #[test]
+    fn kern_words_and_raw_suffixes_do_not_change_lig_kern_semantics() {
+        let bytes = lig_kern_frame(&[[1, 0, 0, 0]], &[[128, 7, 128, 1]], 2);
+        let control = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(bytes.clone()), 65_536).unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let layout = control.predecessor.predecessor.predecessor.layout.clone();
+
+        let mut invalid_kern_words = bytes.clone();
+        invalid_kern_words[layout.kerns.clone()].fill(0x7f);
+        let kern_mutant = check_lig_kern(
+            check_boxes(
+                check_characters(
+                    check_preamble_header(Arc::from(invalid_kern_words), 65_536).unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(kern_mutant.instructions, control.instructions);
+        assert_eq!(kern_mutant.boundary_character, control.boundary_character);
+        assert_eq!(
+            kern_mutant.boundary_program_start,
+            control.boundary_program_start
+        );
+
+        let mut suffixed = bytes;
+        suffixed.extend((0..8193).map(|index| (index as u8).wrapping_mul(29)));
+        let suffix_state = check_lig_kern(
+            check_boxes(
+                check_characters(check_preamble_header(Arc::from(suffixed), 65_536).unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(suffix_state.instructions, control.instructions);
+        assert_eq!(
+            suffix_state
+                .predecessor
+                .predecessor
+                .predecessor
+                .frame_digest,
+            control.predecessor.predecessor.predecessor.frame_digest
+        );
+        assert_ne!(
+            suffix_state.predecessor.predecessor.predecessor.raw_digest,
+            control.predecessor.predecessor.predecessor.raw_digest
+        );
     }
 
     #[test]
@@ -2174,6 +2812,25 @@ mod tests {
             };
             let start = range.start + usize::from(index) * 4;
             bytes[start..start + 4].copy_from_slice(&word);
+        }
+        bytes
+    }
+
+    fn lig_kern_frame(records: &[[u8; 4]], instructions: &[[u8; 4]], kern_count: u16) -> Vec<u8> {
+        let mut bytes = character_frame(
+            records,
+            [2, 1, 1, 1, u16::try_from(instructions.len()).unwrap(), 0],
+        );
+        let extra_bytes = usize::from(kern_count) * 4;
+        bytes.resize(bytes.len() + extra_bytes, 0);
+        let word_count = u16::try_from(bytes.len() / 4).unwrap();
+        put_count(&mut bytes, 0, word_count);
+        put_count(&mut bytes, 9, kern_count);
+        let layout = check_preamble_header(Arc::from(bytes.clone()), 1)
+            .unwrap()
+            .layout;
+        for (slot, instruction) in bytes[layout.lig_kern].chunks_exact_mut(4).zip(instructions) {
+            slot.copy_from_slice(instruction);
         }
         bytes
     }

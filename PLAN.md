@@ -1646,6 +1646,16 @@ source pin 중 후자는
 정확한 source order와 구현 경계는 `docs/tex82-read-font-info-lig-kern.md`를
 따른다.
 
+승인된 private `LigKernCheckedTfm` implementation은 이제 `BoxCheckedTfm`을
+값으로 소비·보존하고, 모든 instruction을 source order로 decode하면서 restart,
+first boundary character, ordinary next/ligature/kern-index/forward-skip, final
+boundary label을 검사한다. 83/83 persisted corpus phase outcomes와
+8/8 exact lig/kern-owned rejections을 고정했고, 독립 oracle의 4,096 generated programs와
+32,753-instruction maximum도 통과한다. AST gate는 이 상태에도 exactly one
+production construction과 authorized return path만 허용한다. 이 단계에서
+kern words remain unread and unscaled이며, kern scaling은 전용 closure review
+전까지 계속 blocked다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

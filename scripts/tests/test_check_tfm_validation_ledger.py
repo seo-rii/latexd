@@ -122,6 +122,25 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 field,
             )
 
+    def test_private_lig_kern_implementation_evidence_is_documented(self) -> None:
+        for relative_path in (
+            "PLAN.md",
+            "docs/m13-3-dp1-scan-context.md",
+            "docs/tex82-read-font-info-validation-rules.md",
+            "docs/tex82-read-font-info-lig-kern.md",
+        ):
+            document = (ROOT / relative_path).read_text(encoding="utf-8")
+            for required in (
+                "private `LigKernCheckedTfm` implementation",
+                "83/83 persisted corpus phase outcomes",
+                "8/8 exact lig/kern-owned rejections",
+                "4,096 generated programs",
+                "32,753-instruction maximum",
+                "kern words remain unread and unscaled",
+                "exactly one production construction",
+            ):
+                self.assertIn(required, document, relative_path)
+
     def test_header_closure_review_authorizes_only_private_character_phase(
         self,
     ) -> None:
