@@ -58,3 +58,11 @@ be constructed until a separate completion design and ownership transition are
 reviewed. Public or crate visibility, loading, resolver/cache ownership,
 serialization, persistence, VM integration, checkpoint changes, W3 activation,
 and a snapshot epoch change remain prohibited.
+
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller. The
+hardened AST policy source SHA-256 is
+`17205d74773bc7726e04436e1055501a019d9474be672dca09f3bbf6327a93f9`;
+the reviewed production source remains unchanged at
+`83b35e9d74db22986f16c14032009fdb58345e65da419879f79eb01622560b5f`.

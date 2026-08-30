@@ -110,7 +110,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
 }
 
 #[test]
-fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants() {
+fn structural_policy_rejects_external_module_alias_wrapper_macro_and_visibility_mutants() {
     for source in [
         "fn check_characters() {} const ALIAS: fn() = check_characters;",
         "fn check_characters() {} fn wrapper() { check_characters(); }",
@@ -128,6 +128,8 @@ fn structural_policy_rejects_alias_wrapper_reexport_macro_and_visibility_mutants
     }
 
     for source in [
+        "mod bypass;",
+        "#[path = \"bypass.rs\"] mod bypass;",
         "pub(crate) fn check_characters() {}",
         "struct Proof { pub(crate) raw: () }",
         "struct Proof; impl Proof { pub(crate) fn leak() {} }",
@@ -243,6 +245,13 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             })
         {
             return;
+        }
+
+        if let Item::Mod(module) = item {
+            assert!(
+                module.content.is_some(),
+                "production validator must not use out-of-line child modules"
+            );
         }
 
         if let Item::Struct(structure) = item

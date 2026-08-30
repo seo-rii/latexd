@@ -233,6 +233,10 @@ parameter code and immutable contracts remain frozen, and no production caller,
 complete proof state, visibility, or integration may precede a separate review.
 See `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`.
 
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

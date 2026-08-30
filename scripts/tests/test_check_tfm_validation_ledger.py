@@ -111,6 +111,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
             "60ab499e6e920dc635d7e5bb11e9a2f236118e3d6c049306d7880f57adaff9ec",
             "e22ab8f1572275349b92ac7ff54555fbd4b29d1cce93a24f0b20793aa162ee8b",
             "0dcb7124f1b65764235883cc12f8f1c6c6382139be45667ee276b95cc8416a35",
+            "17205d74773bc7726e04436e1055501a019d9474be672dca09f3bbf6327a93f9",
             "confidence 0.88",
             "`6f8bdea`",
             "`98250d6`",
@@ -136,6 +137,24 @@ class TfmValidationLedgerTests(unittest.TestCase):
                 "whole-oracle/no-panic/completion-hardening",
                 "out-of-line child module",
                 "zero caller",
+            ):
+                self.assertIn(required, document, path)
+
+    def test_parameter_closure_ast_hardening_is_documented(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            ROOT / "docs/tex82-read-font-info-extensibles.md",
+            PARAMETER_SOURCE_DOCUMENT,
+            PARAMETER_PRO_CLOSURE_EVIDENCE,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "out-of-line module mutants are now rejected",
+                "`mod bypass;`",
+                '`#[path = "bypass.rs"] mod bypass;`',
+                "production code remains zero caller",
             ):
                 self.assertIn(required, document, path)
 

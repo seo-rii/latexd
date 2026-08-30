@@ -1820,6 +1820,10 @@ state construction, visibility 및 모든 integration은 별도 review 전까지
 blocked다. 정확한 identity와 제한은
 `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`에 기록한다.
 
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

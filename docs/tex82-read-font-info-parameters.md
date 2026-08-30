@@ -86,3 +86,7 @@ loading, resolver/cache ownership, persistence, VM/checkpoint/W3 work, or any
 other integration. Exact request, rendered result, commit, and artifact
 identities are recorded in
 `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`.
+
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.

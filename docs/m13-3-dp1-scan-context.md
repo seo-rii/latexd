@@ -593,6 +593,10 @@ VM/checkpoint/W3, and every integration surface remain blocked through another
 review. Exact identities are in
 `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`.
 
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font

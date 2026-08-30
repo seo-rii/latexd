@@ -172,3 +172,7 @@ Authorization is limited to test-only whole-oracle/no-panic/completion-hardening
 design; parameter production code, immutable artifacts, callers, visibility,
 complete-state construction, and integration remain frozen or blocked. Exact
 identities are in `docs/evidence/tex-tfm-parameter-pro-closure-v1.md`.
+
+Focused strict-TDD hardening now closes that residual structural gap:
+out-of-line module mutants are now rejected for both `mod bypass;` and
+`#[path = "bypass.rs"] mod bypass;`; production code remains zero caller.
