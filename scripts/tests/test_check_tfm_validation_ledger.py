@@ -427,20 +427,109 @@ class TfmValidationLedgerTests(unittest.TestCase):
             validate_transition_chain([v2, predecessor_drift], rule_contract())
         )
 
-    def test_transition_chain_malformed_entries_fail_closed(self) -> None:
-        malformed_projection = json.loads(json.dumps(rule_transition_v3()))
-        malformed_projection["source_predicate_projections"][0]["rule_ids"] = [{}]
-        self.assertTrue(
-            validate_rule_transition_v3(malformed_projection, rule_transition())
+    def test_transition_projection_shapes_return_controlled_errors(self) -> None:
+        validators = (
+            ("v2", rule_transition, rule_contract, validate_rule_transition),
+            (
+                "v3",
+                rule_transition_v3,
+                rule_transition,
+                validate_rule_transition_v3,
+            ),
         )
+        for version, transition_factory, predecessor_factory, validator in validators:
+            for malformed in (None, 1, []):
+                with self.subTest(version=version, top_level=malformed):
+                    self.assertTrue(validator(malformed, predecessor_factory()))
+                with self.subTest(version=version, predecessor=malformed):
+                    self.assertTrue(validator(transition_factory(), malformed))
+
+            for rule_ids in (None, 1, {}, [{}]):
+                transition = json.loads(json.dumps(transition_factory()))
+                transition["source_predicate_projections"][0]["rule_ids"] = rule_ids
+                with self.subTest(version=version, rule_ids=rule_ids):
+                    self.assertTrue(validator(transition, predecessor_factory()))
+
+            transition = json.loads(json.dumps(transition_factory()))
+            transition["source_predicate_projections"][0] = []
+            with self.subTest(version=version, projection="non-object"):
+                self.assertTrue(validator(transition, predecessor_factory()))
+
+    def test_transition_chain_shapes_return_controlled_errors(self) -> None:
+        for malformed in (None, 1, []):
+            with self.subTest(top_level=malformed):
+                self.assertTrue(validate_transition_chain(malformed, rule_contract()))
+
+        for malformed in (None, 1, []):
+            with self.subTest(transition_entry=malformed):
+                self.assertTrue(
+                    validate_transition_chain(
+                        [rule_transition(), malformed], rule_contract()
+                    )
+                )
+
+        for field in ("rule_id", "from", "to"):
+            malformed_move = json.loads(json.dumps(rule_transition_v3()))
+            malformed_move["ownership_changes"][0][field] = {}
+            with self.subTest(ownership_field=field):
+                self.assertTrue(
+                    validate_transition_chain(
+                        [rule_transition(), malformed_move], rule_contract()
+                    )
+                )
 
         malformed_move = json.loads(json.dumps(rule_transition_v3()))
-        malformed_move["ownership_changes"][0]["rule_id"] = {}
+        malformed_move["ownership_changes"][0] = []
         self.assertTrue(
             validate_transition_chain(
                 [rule_transition(), malformed_move], rule_contract()
             )
         )
+
+    def test_rule_contract_shapes_return_controlled_errors(self) -> None:
+        for malformed in (None, 1, []):
+            with self.subTest(top_level=malformed):
+                self.assertTrue(validate_rule_contract(malformed, fixture_case_ids()))
+
+        mutations = (
+            ("rule id object", ("rules", 0, "id"), {}),
+            ("rule id array", ("rules", 0, "id"), []),
+            ("invariant object", ("invariants", 0), {}),
+            ("proof state object", ("proof_states", 0), {}),
+            ("dependency object", ("rules", 0, "dependency_ids", 0), {}),
+            ("witness object", ("rules", 0, "witnesses", 0), {}),
+            ("owner object", ("rules", 0, "proof_state"), {}),
+        )
+        for name, path, replacement in mutations:
+            changed = json.loads(json.dumps(rule_contract()))
+            target = changed
+            for component in path[:-1]:
+                target = target[component]
+            target[path[-1]] = replacement
+            with self.subTest(name=name):
+                self.assertTrue(validate_rule_contract(changed, fixture_case_ids()))
+
+    def test_contract_consumers_return_controlled_errors_for_non_objects(self) -> None:
+        for malformed in (None, 1, []):
+            with self.subTest(validator="kern source", value=malformed):
+                self.assertTrue(
+                    validate_kern_source_contract(malformed, rule_transition())
+                )
+            with self.subTest(validator="extensible source", value=malformed):
+                self.assertTrue(
+                    validate_extensible_source_contract(
+                        malformed,
+                        rule_transition_v3(),
+                        kern_source_contract(),
+                    )
+                )
+            if malformed is not None:
+                with self.subTest(validator="ledger", value=malformed):
+                    self.assertTrue(
+                        validate_rule_ledger(
+                            ledger_text(), fixture_case_ids(), malformed
+                        )
+                    )
 
     def test_v2_transition_pins_ligkern_source_and_splits_only_kern_owner(
         self,

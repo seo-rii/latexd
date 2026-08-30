@@ -1744,6 +1744,20 @@ zero caller를 허용한다. RED record는
 Parameter/completion/public/production work는 dedicated extensible closure Pro review
 전까지 계속 blocked다.
 
+Extensible closure Pro review `6a93d6b7-9f68-83e8-a8c1-86073852b953`는
+confidence 0.90의 `REVISE_PRIVATE_TFM_EXTENSIBLE`을 반환했다. Rust recipe loop,
+exact geometry, predecessor/provenance, parameter/suffix isolation, typed storage,
+v2→v3 ownership content와 zero-caller policy에는 defect가 없었다. Blocking finding은
+malformed valid-JSON shape가 ledger checker의 iteration, `Counter`, `set`, dictionary
+또는 membership 연산에서 exception을 낼 수 있다는 점 하나다. Prospective RED는
+nested shape 20개 exception과 top-level consumer 8개 exception을 재현했다. Checker는
+이제 contract/transition/chain container와 projection/rule/dependency/witness/owner의
+string shape를 연산 전에 검증하고 controlled policy error를 반환한다. TFM Python
+65 tests와 33-rule/83-witness standalone v2→v3 ledger는 동일 owner count로 GREEN이다.
+Rust 및 immutable artifact는 변경하지 않았다. 정확한 evidence는
+`docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`에 기록하며, narrow renewed
+closure review가 승인하기 전에는 parameter transition/contract/RED를 시작하지 않는다.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

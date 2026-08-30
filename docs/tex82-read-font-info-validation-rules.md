@@ -165,6 +165,20 @@ constructor and no caller. Prospective RED identities are recorded in
 integration surface remain blocked through a dedicated extensible closure
 review.
 
+That initial closure review, UUID
+`6a93d6b7-9f68-83e8-a8c1-86073852b953`, returned
+`REVISE_PRIVATE_TFM_EXTENSIBLE` at confidence 0.90. It accepted the Rust
+extensible algorithm and v2-to-v3 ownership contents, but found that malformed
+JSON shapes could crash the ledger checker. Prospective tests reproduced
+top-level, nested projection, rule-id, dependency, witness, proof-state, and
+transition-entry failures before the checker was changed. The checker now
+returns controlled errors before iteration, hashing, `Counter`, `set`, or
+dictionary operations. The valid chain remains 33 rules/83 witnesses with
+active counts LigKern 8, Kern 1, Extensible 2, Tail 3. Immutable contracts and
+Rust are unchanged; parameter ownership remains blocked pending a narrow
+renewed review. See
+`docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`.
+
 The required character evidence hardening is now executable. Exact private assertions
 cover four adjacent metric precedence pairs, while exhaustive domains `1..=5` and 512
 generated inputs assert that `CharListTraversalLimit` remains unreachable. A `syn` AST

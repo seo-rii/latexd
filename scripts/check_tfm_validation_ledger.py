@@ -274,11 +274,13 @@ PINNED_KERN_PROOF_BOUNDARY = {
 
 
 def validate_extensible_source_contract(
-    contract: dict[str, object],
-    ownership_transition: dict[str, object],
-    input_source_contract: dict[str, object],
+    contract: object,
+    ownership_transition: object,
+    input_source_contract: object,
 ) -> list[str]:
     errors: list[str] = []
+    if not isinstance(contract, dict):
+        return ["extensible source contract is not an object"]
     expected_keys = {
         "format",
         "schema_version",
@@ -359,10 +361,10 @@ def validate_extensible_source_contract(
     return errors
 
 
-def validate_kern_source_contract(
-    contract: dict[str, object], predecessor: dict[str, object]
-) -> list[str]:
+def validate_kern_source_contract(contract: object, predecessor: object) -> list[str]:
     errors: list[str] = []
+    if not isinstance(contract, dict):
+        return ["kern source contract is not an object"]
     expected_keys = {
         "format",
         "schema_version",
@@ -407,10 +409,39 @@ def validate_kern_source_contract(
     return errors
 
 
-def validate_rule_transition(
-    transition: dict[str, object], predecessor: dict[str, object]
-) -> list[str]:
+def _validated_projection_rule_ids(
+    projections: object, context: str, errors: list[str]
+) -> list[str] | None:
+    if not isinstance(projections, list):
+        errors.append(f"{context} source predicate projections are invalid")
+        return None
+
+    projected_rule_ids: list[str] = []
+    valid = True
+    for projection in projections:
+        if not isinstance(projection, dict):
+            errors.append(f"{context} source predicate projection is invalid")
+            valid = False
+            continue
+        rule_ids = projection.get("rule_ids")
+        if not isinstance(rule_ids, list):
+            errors.append(f"{context} projected rule ids are invalid")
+            valid = False
+            continue
+        if any(not isinstance(rule_id, str) for rule_id in rule_ids):
+            errors.append(f"{context} projected rule ids are invalid")
+            valid = False
+            continue
+        projected_rule_ids.extend(rule_ids)
+    return projected_rule_ids if valid else None
+
+
+def validate_rule_transition(transition: object, predecessor: object) -> list[str]:
     errors: list[str] = []
+    if not isinstance(transition, dict):
+        return ["v2 transition is not an object"]
+    if not isinstance(predecessor, dict):
+        return ["v2 transition predecessor is not an object"]
     expected_keys = {
         "format",
         "schema_version",
@@ -453,13 +484,10 @@ def validate_rule_transition(
     projections = transition.get("source_predicate_projections")
     if projections != PINNED_V2_SOURCE_PREDICATE_PROJECTIONS:
         errors.append("v2 transition source predicate projections differ")
-    if isinstance(projections, list):
-        projected_rule_ids = [
-            rule_id
-            for projection in projections
-            if isinstance(projection, dict)
-            for rule_id in projection.get("rule_ids", [])
-        ]
+    projected_rule_ids = _validated_projection_rule_ids(
+        projections, "v2 transition", errors
+    )
+    if projected_rule_ids is not None:
         expected_lig_kern_rule_ids = [
             rule_id
             for rule_id in REVIEWED_V1_RULE_IDS
@@ -469,8 +497,6 @@ def validate_rule_transition(
             errors.append("v2 transition lig/kern projection coverage differs")
         if "TFM-KERN-001" in projected_rule_ids:
             errors.append("v2 transition lig/kern projection includes kern scaling")
-    else:
-        errors.append("v2 transition source predicate projections are invalid")
 
     rules = predecessor.get("rules")
     proof_states = predecessor.get("proof_states")
@@ -491,10 +517,12 @@ def validate_rule_transition(
     return errors
 
 
-def validate_rule_transition_v3(
-    transition: dict[str, object], predecessor: dict[str, object]
-) -> list[str]:
+def validate_rule_transition_v3(transition: object, predecessor: object) -> list[str]:
     errors: list[str] = []
+    if not isinstance(transition, dict):
+        return ["v3 transition is not an object"]
+    if not isinstance(predecessor, dict):
+        return ["v3 transition predecessor is not an object"]
     expected_keys = {
         "format",
         "schema_version",
@@ -540,26 +568,14 @@ def validate_rule_transition_v3(
     projections = transition.get("source_predicate_projections")
     if projections != PINNED_V3_SOURCE_PREDICATE_PROJECTIONS:
         errors.append("v3 transition source predicate projections differ")
-    if isinstance(projections, list):
-        projected_rule_ids = [
-            rule_id
-            for projection in projections
-            if isinstance(projection, dict)
-            for rule_id in projection.get("rule_ids", [])
-        ]
-        if any(not isinstance(rule_id, str) for rule_id in projected_rule_ids):
-            errors.append("v3 transition projected rule ids are invalid")
-        else:
-            if Counter(projected_rule_ids) != Counter(
-                ["TFM-EXT-001", "TFM-EXT-002"]
-            ):
-                errors.append("v3 transition extensible projection coverage differs")
-            if any(
-                rule_id.startswith("TFM-PARAM-") for rule_id in projected_rule_ids
-            ):
-                errors.append("v3 transition extensible projection includes parameters")
-    else:
-        errors.append("v3 transition source predicate projections are invalid")
+    projected_rule_ids = _validated_projection_rule_ids(
+        projections, "v3 transition", errors
+    )
+    if projected_rule_ids is not None:
+        if Counter(projected_rule_ids) != Counter(["TFM-EXT-001", "TFM-EXT-002"]):
+            errors.append("v3 transition extensible projection coverage differs")
+        if any(rule_id.startswith("TFM-PARAM-") for rule_id in projected_rule_ids):
+            errors.append("v3 transition extensible projection includes parameters")
 
     canonical_transition = json.dumps(
         transition,
@@ -578,11 +594,17 @@ def validate_rule_transition_v3(
     return errors
 
 
-def validate_transition_chain(
-    transitions: list[dict[str, object]], predecessor: dict[str, object]
-) -> list[str]:
+def validate_transition_chain(transitions: object, predecessor: object) -> list[str]:
     errors: list[str] = []
-    schema_versions = [transition.get("schema_version") for transition in transitions]
+    if not isinstance(transitions, list):
+        return ["transition chain is not an array"]
+    if not isinstance(predecessor, dict):
+        return ["transition chain predecessor is not an object"]
+
+    schema_versions = [
+        transition.get("schema_version") if isinstance(transition, dict) else None
+        for transition in transitions
+    ]
     if schema_versions != [2, 3]:
         errors.append("transition chain schema order differs; expected v2->v3")
     if transitions:
@@ -594,14 +616,25 @@ def validate_transition_chain(
     rules = predecessor.get("rules")
     if not isinstance(proof_states, list) or not isinstance(rules, list):
         return errors + ["transition chain predecessor collections are invalid"]
-    known_states = set(proof_states)
-    current_owners = {
-        rule.get("id"): rule.get("proof_state")
-        for rule in rules
-        if isinstance(rule, dict)
-    }
+    if any(not isinstance(state, str) for state in proof_states):
+        errors.append("transition chain predecessor proof states are invalid")
+    known_states = {state for state in proof_states if isinstance(state, str)}
+    current_owners: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            errors.append("transition chain predecessor rule is invalid")
+            continue
+        rule_id = rule.get("id")
+        owner = rule.get("proof_state")
+        if not isinstance(rule_id, str) or not isinstance(owner, str):
+            errors.append("transition chain predecessor rule fields are invalid")
+            continue
+        current_owners[rule_id] = owner
     moved_rule_ids: set[str] = set()
     for transition in transitions:
+        if not isinstance(transition, dict):
+            errors.append("transition chain entry is not an object")
+            continue
         schema_version = transition.get("schema_version")
         added_states = transition.get("proof_states_added")
         if not isinstance(added_states, list):
@@ -666,10 +699,10 @@ def validate_transition_chain(
     return errors
 
 
-def validate_rule_contract(
-    contract: dict[str, object], fixture_case_ids: set[str]
-) -> list[str]:
+def validate_rule_contract(contract: object, fixture_case_ids: set[str]) -> list[str]:
     errors: list[str] = []
+    if not isinstance(contract, dict):
+        return ["semantic contract is not an object"]
     canonical_contract = json.dumps(
         contract,
         ensure_ascii=False,
@@ -695,13 +728,19 @@ def validate_rule_contract(
     ):
         return errors + ["semantic contract collections are invalid"]
 
-    rule_ids = [rule.get("id") for rule in rules if isinstance(rule, dict)]
+    rule_ids = [
+        rule.get("id")
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    ]
+    if len(rule_ids) != len(rules):
+        errors.append("semantic contract rule ids are invalid")
     if tuple(rule_ids) != REVIEWED_V1_RULE_IDS:
         errors.append("reviewed v1 ordered rule ids differ; create a version transition")
     duplicates = sorted(
         rule_id
         for rule_id, count in Counter(rule_ids).items()
-        if count > 1 and isinstance(rule_id, str)
+        if count > 1
     )
     if duplicates:
         errors.append("semantic contract duplicate rule ids: " + ", ".join(duplicates))
@@ -714,8 +753,16 @@ def validate_rule_contract(
     ) != len(anchors):
         errors.append("semantic contract source anchors are missing or duplicated")
 
-    known_dependencies = set(rule_ids) | set(invariants)
-    known_proof_states = set(proof_states)
+    if any(not isinstance(invariant, str) for invariant in invariants):
+        errors.append("semantic contract invariants are invalid")
+    if any(not isinstance(proof_state, str) for proof_state in proof_states):
+        errors.append("semantic contract proof states are invalid")
+    known_dependencies = set(rule_ids) | {
+        invariant for invariant in invariants if isinstance(invariant, str)
+    }
+    known_proof_states = {
+        proof_state for proof_state in proof_states if isinstance(proof_state, str)
+    }
     referenced_cases: set[str] = set()
     for rule in rules:
         if not isinstance(rule, dict):
@@ -726,10 +773,13 @@ def validate_rule_contract(
         witnesses = rule.get("witnesses")
         proof_state = rule.get("proof_state")
         if not isinstance(dependencies, list) or any(
-            dependency not in known_dependencies for dependency in dependencies
+            not isinstance(dependency, str) or dependency not in known_dependencies
+            for dependency in dependencies
         ):
             errors.append(f"semantic contract dependencies are invalid for {rule_id}")
-        if not isinstance(witnesses, list):
+        if not isinstance(witnesses, list) or any(
+            not isinstance(witness, str) for witness in witnesses
+        ):
             errors.append(f"semantic contract witnesses are invalid for {rule_id}")
         else:
             unknown = sorted(set(witnesses) - fixture_case_ids)
@@ -739,7 +789,7 @@ def validate_rule_contract(
                     + ", ".join(unknown)
                 )
             referenced_cases.update(witnesses)
-        if proof_state not in known_proof_states:
+        if not isinstance(proof_state, str) or proof_state not in known_proof_states:
             errors.append(f"semantic contract proof state is invalid for {rule_id}")
         for field in (
             "predicate_sha256",
@@ -753,21 +803,27 @@ def validate_rule_contract(
     header_claims = {
         rule.get("id")
         for rule in rules
-        if isinstance(rule, dict) and rule.get("proof_state") == "HeaderCheckedTfm"
+        if isinstance(rule, dict)
+        and isinstance(rule.get("id"), str)
+        and rule.get("proof_state") == "HeaderCheckedTfm"
     }
     if header_claims != HEADER_CHECKED_RULES:
         errors.append("semantic contract HeaderCheckedTfm proof ownership differs")
     character_claims = {
         rule.get("id")
         for rule in rules
-        if isinstance(rule, dict) and rule.get("proof_state") == "CharacterCheckedTfm"
+        if isinstance(rule, dict)
+        and isinstance(rule.get("id"), str)
+        and rule.get("proof_state") == "CharacterCheckedTfm"
     }
     if character_claims != CHARACTER_CHECKED_RULES:
         errors.append("semantic contract CharacterCheckedTfm proof ownership differs")
     box_claims = {
         rule.get("id")
         for rule in rules
-        if isinstance(rule, dict) and rule.get("proof_state") == "BoxCheckedTfm"
+        if isinstance(rule, dict)
+        and isinstance(rule.get("id"), str)
+        and rule.get("proof_state") == "BoxCheckedTfm"
     }
     if box_claims != BOX_CHECKED_RULES:
         errors.append("semantic contract BoxCheckedTfm proof ownership differs")
@@ -780,10 +836,12 @@ def validate_rule_contract(
 def validate_rule_ledger(
     ledger: str,
     fixture_case_ids: set[str],
-    contract: dict[str, object] | None = None,
+    contract: object | None = None,
 ) -> list[str]:
     contract = RULE_CONTRACT if contract is None else contract
     errors = validate_rule_contract(contract, fixture_case_ids)
+    if not isinstance(contract, dict):
+        return errors
     lines = ledger.splitlines()
     try:
         header_index = next(
@@ -812,8 +870,12 @@ def validate_rule_ledger(
     )
     if duplicates:
         errors.append(f"duplicate rule ids: {', '.join(duplicates)}")
-    contract_rules = contract.get("rules", [])
-    expected_rule_ids = [rule.get("id") for rule in contract_rules]
+    contract_rules = contract.get("rules")
+    if not isinstance(contract_rules, list):
+        return errors
+    expected_rule_ids = [
+        rule.get("id") for rule in contract_rules if isinstance(rule, dict)
+    ]
     if rule_ids != expected_rule_ids:
         errors.append(
             "source rule order differs from the pinned read_font_info order: "
@@ -828,7 +890,11 @@ def validate_rule_ledger(
 
     referenced_cases: set[str] = set()
     unknown_witnesses: set[str] = set()
-    expected_by_id = {rule.get("id"): rule for rule in contract_rules}
+    expected_by_id = {
+        rule.get("id"): rule
+        for rule in contract_rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
     for rule_id, predicate, dependency, native_evidence, future_phase in rows:
         witnesses = re.findall(r"`([a-z][a-z0-9_]*)`", native_evidence)
         for token in witnesses:

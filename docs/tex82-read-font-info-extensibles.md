@@ -96,8 +96,27 @@ non-serializable, safe-Rust-only, and root-private. Parameter work remains
 blocked until a dedicated extensible closure Pro review.
 
 The completed gate is green with 113 crate unit tests, 6 exact integration
-tests, 8 boundary/AST integration tests, 3 compile-fail doctests, and 62 TFM
+tests, 8 boundary/AST integration tests, 3 compile-fail doctests, and 65 TFM
 Python tests including fresh pdfTeX box/validity oracles. The standalone ledger
 reports 33 rules, 83 witnesses, ordered v2-to-v3 ownership, and both focused
 source contracts. Package Clippy with `-D warnings`, canonical workspace
 Clippy, formatting, Python compilation, and diff checks are also green.
+
+## Initial closure review and checker remediation
+
+Extensible closure review `6a93d6b7-9f68-83e8-a8c1-86073852b953`
+returned `REVISE_PRIVATE_TFM_EXTENSIBLE` at confidence 0.90. It found no Rust
+recipe-validation or proof-boundary defect. The only blocking issue was that
+malformed but valid-JSON ledger shapes could raise from iteration, `Counter`,
+`set`, dictionary construction, or membership operations instead of returning
+controlled policy errors.
+
+Strict RED tests reproduced 20 nested-shape exceptions and eight top-level
+consumer exceptions. The checker now validates top-level objects, projection
+lists and string rule ids, transition entries and ownership fields, and v1
+rule/invariant/proof-state/dependency/witness fields before using them in those
+operations. Existing v1/v2/v3 and source-contract bytes are unchanged, and the
+valid chain retains the same owner counts. Exact review identities and the
+remediation record are in
+`docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`. Parameter work remains
+blocked pending a narrow renewed closure review.

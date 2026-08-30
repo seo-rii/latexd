@@ -520,6 +520,19 @@ parameter-owned witness passes through. The RED record is
 `docs/evidence/tex-tfm-extensible-tdd-red-v1.md`. The state remains root-private
 and uncalled pending an extensible closure review.
 
+Extensible closure review `6a93d6b7-9f68-83e8-a8c1-86073852b953`
+returned `REVISE_PRIVATE_TFM_EXTENSIBLE` at confidence 0.90. It found no defect
+in the Rust recipe loop, geometry, provenance, isolation, typed storage, or
+zero-caller boundary. The blocking issue was isolated to malformed valid-JSON
+shapes in the ownership checker. TDD remediation now guards top-level
+contracts, v2/v3 projection lists and string ids, chain entries and ownership
+fields, and v1 rule collections before iteration, hashing, `Counter`, `set`,
+dictionary, or membership operations. The 65-test TFM Python gate and
+standalone 33-rule/83-witness v2-to-v3 ledger are green with unchanged owner
+counts. Parameter work remains blocked until a narrow renewed closure review;
+the exact record is
+`docs/evidence/tex-tfm-extensible-pro-remediation-v1.md`.
+
 This proves that the current crate is a bounded dimension-subset extractor, not
 a full TFM validity oracle. It already rejects the invalid selected
 `fontdimen5`, but it does not inspect several unrelated tables that native font
