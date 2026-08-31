@@ -204,3 +204,11 @@ bounded `catch_unwind`. Final test-bearing source SHA-256 is
 the reviewed production prefix is unchanged and AST counts remain 7/0/7. The
 production marker remains blocked. Prospective RED and GREEN identities are in
 `docs/evidence/tex-tfm-whole-oracle-tdd-red-v1.md`.
+
+Whole-oracle closure review `6a93fc44-71f8-83ee-ba6a-f4df2fa5bc1c`
+returned `PROCEED_PRIVATE_TFM_ZERO_RULE_MARKER` at confidence 0.91. It
+authorizes only the private zero-rule marker and an exact AST transition from
+7/0/7 to 8/0/8 after prospective compile/registry RED. The marker must be
+root-private, read-free, single-field, and zero-caller; the
+production caller remains blocked. See
+`docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md`.

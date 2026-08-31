@@ -1856,6 +1856,14 @@ the reviewed production prefix is unchanged and AST counts remain 7/0/7. The
 production marker remains blocked. Prospective RED and GREEN identities are in
 `docs/evidence/tex-tfm-whole-oracle-tdd-red-v1.md`.
 
+Whole-oracle closure review `6a93fc44-71f8-83ee-ba6a-f4df2fa5bc1c`
+returned `PROCEED_PRIVATE_TFM_ZERO_RULE_MARKER` at confidence 0.91. It
+authorizes only the private zero-rule marker and an exact AST transition from
+7/0/7 to 8/0/8 after prospective compile/registry RED. The marker must be
+root-private, read-free, single-field, and zero-caller; the
+production caller remains blocked. See
+`docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md`.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

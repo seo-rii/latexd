@@ -71,6 +71,9 @@ COMPLETION_DESIGN_PRO_CLOSURE = (
 WHOLE_ORACLE_TDD_RED_EVIDENCE = (
     ROOT / "docs/evidence/tex-tfm-whole-oracle-tdd-red-v1.md"
 )
+WHOLE_ORACLE_PRO_CLOSURE_EVIDENCE = (
+    ROOT / "docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md"
+)
 
 
 def ledger_text() -> str:
@@ -111,6 +114,43 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_whole_chain_oracle_pro_closure_is_content_addressed(self) -> None:
+        evidence = WHOLE_ORACLE_PRO_CLOSURE_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "PROCEED_PRIVATE_TFM_ZERO_RULE_MARKER",
+            "6a93fc44-71f8-83ee-ba6a-f4df2fa5bc1c",
+            "review-20260830-184640-0d61e7c8",
+            "confidence 0.91",
+            "c9656230a264689e79f0a6ca242e86450191a584792c1f28eff4cf2f7d82f131",
+            "fc2c4c49d19e10ccc9c1574514c454e782bfc54cdfbdf5855caa00fda85aea70",
+            "cd44646d73319af61043ea3450fd042c4b2d82ab5721e60723b46c5b5a646bc4",
+            "7fc546790b25a798a65ad0f020e69f93561b6b09",
+            "8/0/8",
+            "zero-rule",
+            "zero-caller",
+            "another review before any caller",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_whole_oracle_review_authorizes_only_zero_rule_marker(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            PARAMETER_SOURCE_DOCUMENT,
+            COMPLETION_HARDENING_DESIGN,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "PROCEED_PRIVATE_TFM_ZERO_RULE_MARKER",
+                "6a93fc44-71f8-83ee-ba6a-f4df2fa5bc1c",
+                "docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md",
+                "8/0/8",
+                "only the private zero-rule marker",
+                "production caller remains blocked",
+            ):
+                self.assertIn(required, document, path)
+
     def test_whole_chain_oracle_red_and_green_are_content_addressed(self) -> None:
         evidence = WHOLE_ORACLE_TDD_RED_EVIDENCE.read_text(encoding="utf-8")
         for required in (
