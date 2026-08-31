@@ -180,10 +180,12 @@ number of private calls.”
 
 ## Rollback and prohibited scope
 
-The marker rollback baseline is `4f238e8`. Reverting `a98dd1c` removes the
-private marker and its tests/documents without changing the accepted private
-parameter implementation, ownership v1/v2/v3/v4, source contracts, corpus, or
-public dimension-subset API.
+The marker rollback baseline is `4f238e8`. To restore the whole tree, revert
+later completion-document status commits in reverse chronological order before
+reverting `a98dd1c`. Reverting `a98dd1c` alone returns production code to 7/0/7
+but does not by itself restore later documentation. The complete rollback does
+not change the accepted private parameter implementation, ownership v1/v2/v3/v4,
+source contracts, corpus, or public dimension-subset API.
 
 No production caller is authorized. No public or crate visibility is
 authorized. Loading, final adjustment/materialization, resolver/cache ownership,

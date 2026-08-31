@@ -119,6 +119,7 @@ def parameter_source_contract() -> dict[str, object]:
 class TfmValidationLedgerTests(unittest.TestCase):
     def test_completion_hardening_document_distinguishes_current_and_historical_status(self) -> None:
         document = COMPLETION_HARDENING_DESIGN.read_text(encoding="utf-8")
+        normalized = " ".join(document.split())
         self.assertIn(
             "Status: marker implemented; production caller design pending.",
             document,
@@ -131,6 +132,11 @@ class TfmValidationLedgerTests(unittest.TestCase):
         self.assertNotIn(
             "No `CompleteCheckedTfm` or `finish_validation` symbol exists yet.",
             document,
+        )
+        self.assertIn(
+            "revert later completion-document status commits in reverse "
+            "chronological order before reverting `a98dd1c`",
+            normalized,
         )
 
     def test_completion_marker_tdd_closure_is_content_addressed(self) -> None:
