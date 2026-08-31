@@ -212,3 +212,14 @@ authorizes only the private zero-rule marker and an exact AST transition from
 root-private, read-free, single-field, and zero-caller; the
 production caller remains blocked. See
 `docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md`.
+
+The private zero-rule completion marker is implemented with exactly one
+`ParameterCheckedTfm` predecessor field and one read-free shorthand
+construction. Structural policy is GREEN at 8/0/8 and rejects body/signature,
+field, visibility, derive/impl, alias/macro, unsafe, and alternate-constructor
+mutants. Validator source SHA-256 is
+`b9404150ae8b5e450fb4c0facb2fedff27cbc784cc602c4e0b50d5b5c4a6c56b`;
+policy SHA-256 is
+`6fce21c7c47e172d315f5b74bb20194ad0f131020d3958bed0ff675863ea91cc`.
+The production caller remains blocked. See
+`docs/evidence/tex-tfm-completion-marker-tdd-red-v1.md`.

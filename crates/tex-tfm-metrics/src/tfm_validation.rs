@@ -178,6 +178,10 @@ struct ParameterCheckedTfm {
     dimensions: Box<[ScaledSp]>,
 }
 
+struct CompleteCheckedTfm {
+    predecessor: ParameterCheckedTfm,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParameterValidationRule {
     InvalidFixWordSign { parameter: u16, sign: u8 },
@@ -992,6 +996,10 @@ fn check_parameters(
     })
 }
 
+fn finish_validation(predecessor: ParameterCheckedTfm) -> CompleteCheckedTfm {
+    CompleteCheckedTfm { predecessor }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1007,13 +1015,13 @@ mod tests {
     use super::{
         BoxCheckedTfm, BoxMetric, BoxValidationRule, CHARACTER_METRIC_SOURCE_ORDER,
         CharacterCheckedTfm, CharacterDomain, CharacterMetric, CharacterTag,
-        CharacterValidationRule, CheckedExtensibleRecipe, CountField, EffectiveSizeSp,
-        ExtensibleCheckedTfm, ExtensiblePart, ExtensibleValidationRule, FrameTfmDigest,
-        HeaderCheckedTfm, KernCheckedTfm, KernValidationRule, LigKernCheckedTfm,
+        CharacterValidationRule, CheckedExtensibleRecipe, CompleteCheckedTfm, CountField,
+        EffectiveSizeSp, ExtensibleCheckedTfm, ExtensiblePart, ExtensibleValidationRule,
+        FrameTfmDigest, HeaderCheckedTfm, KernCheckedTfm, KernValidationRule, LigKernCheckedTfm,
         LigKernValidationRule, MetricTable, ParameterCheckedTfm, ParameterValidationRule,
         PreambleHeaderFailure, PreambleHeaderRule, RawTfmDigest, ScaledSp, SignedSlant,
         check_boxes, check_characters, check_extensibles, check_kerns, check_lig_kern,
-        check_parameters, check_preamble_header,
+        check_parameters, check_preamble_header, finish_validation,
     };
 
     const MAX_TEX_FONT_SIZE_SP: i32 = 1 << 27;
@@ -1070,6 +1078,36 @@ mod tests {
             Ok(_) => WholeChainOutcome::Accepted,
             Err(rule) => WholeChainOutcome::Parameter(rule),
         }
+    }
+
+    #[test]
+    fn completion_marker_has_exact_private_by_value_signature_and_provenance() {
+        let _: fn(ParameterCheckedTfm) -> CompleteCheckedTfm = finish_validation;
+        let parameter = check_parameter_frame(kern_frame(&[], &[], &[]), 1).unwrap();
+        let retained = parameter
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .predecessor
+            .raw
+            .clone();
+
+        let complete = finish_validation(parameter);
+
+        assert!(Arc::ptr_eq(
+            &retained,
+            &complete
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .predecessor
+                .raw
+        ));
     }
 
     fn reviewed_corpus_manifest(fixture_root: &Path) -> serde_json::Value {

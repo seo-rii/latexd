@@ -74,6 +74,9 @@ WHOLE_ORACLE_TDD_RED_EVIDENCE = (
 WHOLE_ORACLE_PRO_CLOSURE_EVIDENCE = (
     ROOT / "docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md"
 )
+COMPLETION_MARKER_TDD_EVIDENCE = (
+    ROOT / "docs/evidence/tex-tfm-completion-marker-tdd-red-v1.md"
+)
 
 
 def ledger_text() -> str:
@@ -114,6 +117,42 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_completion_marker_tdd_closure_is_content_addressed(self) -> None:
+        evidence = COMPLETION_MARKER_TDD_EVIDENCE.read_text(encoding="utf-8")
+        for required in (
+            "58c17c1bce565b727224db17f0349ab0c955ba80ad1fb39065fab8d7ec42b2e9",
+            "aab815a557f909ca10cb76ef6f09f754e6a8ebed65d42458068f50fbbe17ad37",
+            "E0432",
+            "b9404150ae8b5e450fb4c0facb2fedff27cbc784cc602c4e0b50d5b5c4a6c56b",
+            "3a49454c224a6453d023961a62faa792aa346bb14f533d7fc4712aab82742977",
+            "6fce21c7c47e172d315f5b74bb20194ad0f131020d3958bed0ff675863ea91cc",
+            "predecessor-field read mutant",
+            "135/135",
+            "8/0/8",
+            "zero production references",
+            "another review before any caller",
+        ):
+            self.assertIn(required, evidence)
+
+    def test_completion_marker_is_implemented_without_caller_authorization(self) -> None:
+        for path in (
+            ROOT / "PLAN.md",
+            ROOT / "docs/m13-3-dp1-scan-context.md",
+            ROOT / "docs/tex82-read-font-info-validation-rules.md",
+            PARAMETER_SOURCE_DOCUMENT,
+            COMPLETION_HARDENING_DESIGN,
+        ):
+            document = path.read_text(encoding="utf-8")
+            for required in (
+                "zero-rule completion marker is implemented",
+                "8/0/8",
+                "b9404150ae8b5e450fb4c0facb2fedff27cbc784cc602c4e0b50d5b5c4a6c56b",
+                "6fce21c7c47e172d315f5b74bb20194ad0f131020d3958bed0ff675863ea91cc",
+                "production caller remains blocked",
+                "docs/evidence/tex-tfm-completion-marker-tdd-red-v1.md",
+            ):
+                self.assertIn(required, document, path)
+
     def test_whole_chain_oracle_pro_closure_is_content_addressed(self) -> None:
         evidence = WHOLE_ORACLE_PRO_CLOSURE_EVIDENCE.read_text(encoding="utf-8")
         for required in (

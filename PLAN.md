@@ -1864,6 +1864,17 @@ root-private, read-free, single-field, and zero-caller; the
 production caller remains blocked. See
 `docs/evidence/tex-tfm-whole-oracle-pro-closure-v1.md`.
 
+The private zero-rule completion marker is implemented with exactly one
+`ParameterCheckedTfm` predecessor field and one read-free shorthand
+construction. Structural policy is GREEN at 8/0/8 and rejects body/signature,
+field, visibility, derive/impl, alias/macro, unsafe, and alternate-constructor
+mutants. Validator source SHA-256 is
+`b9404150ae8b5e450fb4c0facb2fedff27cbc784cc602c4e0b50d5b5c4a6c56b`;
+policy SHA-256 is
+`6fce21c7c47e172d315f5b74bb20194ad0f131020d3958bed0ff675863ea91cc`.
+The production caller remains blocked. See
+`docs/evidence/tex-tfm-completion-marker-tdd-red-v1.md`.
+
 Exact-TFM implementation-review 제출은 shared broker startup 종료로 chat creation 전에
 실패했고, 후속 session probe는 `prior_exit_type=crashed`를 보고했다. UUID/verdict가 없으므로
 approval/rejection으로 해석하지 않는다. 선행 architecture verdict가 허용한 additive substrate만

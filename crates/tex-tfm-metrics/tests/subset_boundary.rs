@@ -1,8 +1,8 @@
 use tex_tfm_metrics::dimension_subset::{ExactTfmDimensions, ExtractError, extract_exact_frame};
 
 use syn::{
-    ExprStruct, ExprUnsafe, Field, ForeignItem, ImplItem, Item, ItemFn, Meta, Path as SynPath,
-    UseTree, Visibility,
+    Expr, ExprStruct, ExprUnsafe, Field, Fields, FnArg, ForeignItem, ImplItem, Item, ItemFn,
+    Member, Meta, Pat, Path as SynPath, ReturnType, Stmt, Type, UseTree, Visibility,
     visit::{self, Visit},
 };
 
@@ -43,6 +43,7 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
     assert_eq!(production.matches("check_kerns(").count(), 1);
     assert_eq!(production.matches("check_extensibles(").count(), 1);
     assert_eq!(production.matches("check_parameters(").count(), 1);
+    assert_eq!(production.matches("finish_validation(").count(), 1);
     for forbidden in [
         "impl From<",
         "impl TryFrom<",
@@ -60,6 +61,8 @@ fn staged_validator_states_and_entrypoints_remain_private_and_uncalled() {
         "Deserialize for ExtensibleCheckedTfm",
         "Serialize for ParameterCheckedTfm",
         "Deserialize for ParameterCheckedTfm",
+        "Serialize for CompleteCheckedTfm",
+        "Deserialize for CompleteCheckedTfm",
     ] {
         assert!(
             !production.contains(forbidden),
@@ -84,6 +87,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             "check_kerns",
             "check_extensibles",
             "check_parameters",
+            "finish_validation",
         ]
     );
     assert!(
@@ -101,6 +105,7 @@ fn staged_validator_ast_has_only_private_items_and_no_production_references() {
             ("KernCheckedTfm".into(), "check_kerns".into()),
             ("ExtensibleCheckedTfm".into(), "check_extensibles".into(),),
             ("ParameterCheckedTfm".into(), "check_parameters".into(),),
+            ("CompleteCheckedTfm".into(), "finish_validation".into(),),
         ]
     );
     assert_eq!(
@@ -158,6 +163,18 @@ fn structural_policy_rejects_external_module_alias_wrapper_macro_and_visibility_
         "#[forge] struct ParameterCheckedTfm;",
         "#[derive(Debug)] struct ParameterCheckedTfm;",
         "struct ParameterCheckedTfm; include!(\"tfm_validation_forge.rs\");",
+        "#[derive(Clone)] struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } impl CompleteCheckedTfm { fn inspect(&self) {} }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm, extra: () }",
+        "struct CompleteCheckedTfm(ParameterCheckedTfm);",
+        "struct CompleteCheckedTfm { predecessor: () }",
+        "struct CompleteCheckedTfm { pub(crate) predecessor: ParameterCheckedTfm }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } fn forge_completion() -> CompleteCheckedTfm { loop {} }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } fn finish_validation(predecessor: ParameterCheckedTfm) -> CompleteCheckedTfm { CompleteCheckedTfm { predecessor } } fn alternate(predecessor: ParameterCheckedTfm) -> CompleteCheckedTfm { CompleteCheckedTfm { predecessor } }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } fn finish_validation(predecessor: ParameterCheckedTfm) -> CompleteCheckedTfm { let _ = &predecessor.predecessor; CompleteCheckedTfm { predecessor } }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } fn finish_validation(predecessor: &ParameterCheckedTfm) -> CompleteCheckedTfm { loop {} }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } fn finish_validation(state: ParameterCheckedTfm) -> CompleteCheckedTfm { CompleteCheckedTfm { predecessor: state } }",
+        "struct CompleteCheckedTfm { predecessor: ParameterCheckedTfm } #[inline] fn finish_validation(predecessor: ParameterCheckedTfm) -> CompleteCheckedTfm { CompleteCheckedTfm { predecessor } }",
     ] {
         let syntax = syn::parse_file(source).unwrap();
         let rejected = std::panic::catch_unwind(|| {
@@ -263,6 +280,32 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
             );
         }
 
+        if let Item::Struct(structure) = item
+            && structure.ident == "CompleteCheckedTfm"
+        {
+            let Fields::Named(fields) = &structure.fields else {
+                panic!("completion proof state must use one named predecessor field");
+            };
+            assert_eq!(
+                fields.named.len(),
+                1,
+                "completion proof state must have exactly one field"
+            );
+            let field = fields.named.first().unwrap();
+            assert_eq!(
+                field.ident.as_ref().map(ToString::to_string).as_deref(),
+                Some("predecessor"),
+                "completion proof state field must be named predecessor"
+            );
+            let Type::Path(field_type) = &field.ty else {
+                panic!("completion predecessor must be ParameterCheckedTfm");
+            };
+            assert!(
+                field_type.qself.is_none() && field_type.path.is_ident("ParameterCheckedTfm"),
+                "completion predecessor must be ParameterCheckedTfm"
+            );
+        }
+
         if let Item::Impl(implementation) = item {
             let mut proof_states = ProofStatePathCollector::default();
             proof_states.visit_type(&implementation.self_ty);
@@ -313,6 +356,84 @@ impl<'ast> Visit<'ast> for PrivateValidatorPolicy {
 
     fn visit_item_fn(&mut self, function: &'ast ItemFn) {
         let function_name = function.sig.ident.to_string();
+        if function_name == "finish_validation" {
+            assert!(
+                function.attrs.is_empty()
+                    && function.sig.constness.is_none()
+                    && function.sig.asyncness.is_none()
+                    && function.sig.unsafety.is_none()
+                    && function.sig.abi.is_none()
+                    && function.sig.variadic.is_none()
+                    && function.sig.generics.params.is_empty()
+                    && function.sig.generics.where_clause.is_none(),
+                "completion constructor must have the exact plain function signature"
+            );
+            assert_eq!(
+                function.sig.inputs.len(),
+                1,
+                "completion constructor must have one by-value predecessor"
+            );
+            let Some(FnArg::Typed(argument)) = function.sig.inputs.first() else {
+                panic!("completion constructor must have one typed predecessor");
+            };
+            assert!(
+                argument.attrs.is_empty(),
+                "completion argument must be plain"
+            );
+            let Pat::Ident(pattern) = argument.pat.as_ref() else {
+                panic!("completion argument must be named predecessor");
+            };
+            assert!(
+                pattern.attrs.is_empty()
+                    && pattern.by_ref.is_none()
+                    && pattern.mutability.is_none()
+                    && pattern.subpat.is_none()
+                    && pattern.ident == "predecessor",
+                "completion argument must be the plain predecessor binding"
+            );
+            let Type::Path(argument_type) = argument.ty.as_ref() else {
+                panic!("completion argument must consume ParameterCheckedTfm");
+            };
+            assert!(
+                argument_type.qself.is_none() && argument_type.path.is_ident("ParameterCheckedTfm"),
+                "completion argument must consume ParameterCheckedTfm"
+            );
+            let ReturnType::Type(_, return_type) = &function.sig.output else {
+                panic!("completion constructor must return CompleteCheckedTfm");
+            };
+            let Type::Path(return_type) = return_type.as_ref() else {
+                panic!("completion constructor must return CompleteCheckedTfm");
+            };
+            assert!(
+                return_type.qself.is_none() && return_type.path.is_ident("CompleteCheckedTfm"),
+                "completion constructor must return CompleteCheckedTfm"
+            );
+            assert_eq!(
+                function.block.stmts.len(),
+                1,
+                "completion constructor must contain one read-free expression"
+            );
+            let Some(Stmt::Expr(Expr::Struct(construction), None)) = function.block.stmts.first()
+            else {
+                panic!("completion constructor must contain only its struct construction");
+            };
+            assert!(
+                construction.attrs.is_empty()
+                    && construction.qself.is_none()
+                    && construction.path.is_ident("CompleteCheckedTfm")
+                    && construction.rest.is_none()
+                    && construction.fields.len() == 1,
+                "completion constructor must construct exactly one predecessor field"
+            );
+            let field = construction.fields.first().unwrap();
+            assert!(
+                field.attrs.is_empty()
+                    && matches!(&field.member, Member::Named(name) if name == "predecessor")
+                    && field.colon_token.is_none()
+                    && matches!(&field.expr, Expr::Path(path) if path.qself.is_none() && path.path.is_ident("predecessor")),
+                "completion constructor must use predecessor field shorthand"
+            );
+        }
         let mut proof_states = ProofStatePathCollector::default();
         proof_states.visit_return_type(&function.sig.output);
         for proof_state in proof_states.names {
@@ -472,6 +593,7 @@ fn is_validator_entrypoint(name: &str) -> bool {
             | "check_kerns"
             | "check_extensibles"
             | "check_parameters"
+            | "finish_validation"
     )
 }
 
@@ -485,6 +607,7 @@ fn is_proof_state(name: &str) -> bool {
             | "KernCheckedTfm"
             | "ExtensibleCheckedTfm"
             | "ParameterCheckedTfm"
+            | "CompleteCheckedTfm"
     )
 }
 
@@ -497,6 +620,7 @@ fn authorized_proof_constructor(proof_state: &str) -> Option<&'static str> {
         "KernCheckedTfm" => Some("check_kerns"),
         "ExtensibleCheckedTfm" => Some("check_extensibles"),
         "ParameterCheckedTfm" => Some("check_parameters"),
+        "CompleteCheckedTfm" => Some("finish_validation"),
         _ => None,
     }
 }
