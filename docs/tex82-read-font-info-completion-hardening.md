@@ -1,9 +1,11 @@
 # TeX82 private TFM completion-hardening design
 
-Status: design only. This document does not authorize or implement a complete
-proof state, a production caller, or a visibility change. The implementation
-rollback baseline is `77a7304`; a separate Pro review must approve this design
-before any completion production symbol is added.
+Status: marker implemented; production caller design pending.
+
+This document preserves the reviewed historical design and records its
+subsequent closure. The private zero-rule marker was implemented in `a98dd1c`;
+it does not authorize a production caller or visibility change. Reverting that
+commit returns the validator to the reviewed 7/0/7 baseline at `4f238e8`.
 
 ## Authority and exact source boundary
 
@@ -38,22 +40,21 @@ rules. The effective final counts include `ParameterCheckedTfm: 3` and
 semantics, including `TFM-EOF-001..002`. There are no unowned post-parameter
 validity rules and no justification for moving an existing rule again.
 
-Consequently, the proposed completion transition has owned rule IDs: none. It
-must not create a v5 rule-ownership move merely to rename or duplicate the
-already accepted v4 projection. If approved, a separate additive completion
-contract may pin v4, every source contract, the accepted parameter source hash,
-and the excluded final-adjustment ranges above. It must not edit v1/v2/v3/v4
-bytes.
+Consequently, the completion transition has owned rule IDs: none. It did not
+create a v5 rule-ownership move merely to rename or duplicate the already
+accepted v4 projection. The additive completion evidence pins v4, every source
+contract, the accepted parameter source hash, and the excluded final-adjustment
+ranges above without editing v1/v2/v3/v4 bytes.
 
-## Exact future proof state
+## Exact marker proof state
 
-The only proposed successor shape is
+The implemented successor shape is
 `CompleteCheckedTfm { predecessor: ParameterCheckedTfm }`.
 
-The only proposed constructor is
+The implemented constructor is
 `finish_validation(ParameterCheckedTfm) -> CompleteCheckedTfm`.
 
-This future constructor is deliberately infallible and read-free:
+This constructor is deliberately infallible and read-free:
 
 - it accepts exactly one by-value `ParameterCheckedTfm`;
 - it performs no raw-byte, count, range, effective-size, EOF, suffix, path,
@@ -69,9 +70,10 @@ not a loaded font, native-validity claim outside the inventoried contract,
 materialized TeX memory object, public metric API, or permission to consume the
 state in production.
 
-No `CompleteCheckedTfm` or `finish_validation` symbol exists yet. Their
-prospective compile RED and AST-registry RED are required after design approval
-and before implementation.
+Before the marker work unit, no `CompleteCheckedTfm` or
+`finish_validation` symbol existed. Its prospective compile RED and
+AST-registry RED were captured after design approval and before implementation;
+the exact evidence is linked from the closure section below.
 
 ## Whole-chain outcome and first-failure order
 
@@ -85,7 +87,7 @@ SizePrecondition -> Header -> Character -> Box -> LigKern -> Kern -> Extensible 
 
 The driver must stop at the first returned failure. It must not call later
 stages after an error, preserve or recover a partially consumed proof state,
-flatten errors into strings, or treat the future marker as constructed. The
+flatten errors into strings, or call the implemented marker. The
 current header-first declared-frame proof intentionally precedes later semantic
 rules even where a streaming native loader might encounter another defect
 first.
@@ -143,12 +145,14 @@ declared counts, first expected owner, and blob digest so it is replayable.
 
 ## AST and caller transition
 
-The accepted current policy is exactly `7 definitions, 0 references, 7 constructions`.
-Test helpers live under `#[cfg(test)]` and do not change those production counts.
+The accepted pre-marker policy was exactly
+`7 definitions, 0 references, 7 constructions`. Test helpers live under
+`#[cfg(test)]` and do not change production counts.
 
-After a separate Pro review authorizes only the zero-caller marker, the policy
-would become exactly `8 definitions, 0 references, 8 constructions`: the
-eighth definition/returner/construction is `finish_validation` and
+After the separate Pro review authorized only the zero-caller marker, the
+implemented policy became exactly
+`8 definitions, 0 references, 8 constructions`: the eighth
+definition/returner/construction is `finish_validation` and
 `CompleteCheckedTfm`. Out-of-line production child modules remain forbidden.
 
 A later private whole-chain production entrypoint would create real references
@@ -157,28 +161,29 @@ new caller-count contract, prospective RED, exact error sum type, rollback, and
 another review. The zero-reference assertion must never be weakened to “any
 number of private calls.”
 
-## Ordered implementation gates
+## Ordered marker implementation gates
 
-1. Commit this design and its document assertions with no Rust production
+1. The design and document assertions were committed with no Rust production
    change.
-2. Obtain a separate Pro review of the zero-rule marker, final-adjustment
+2. A separate Pro review covered the zero-rule marker, final-adjustment
    exclusion, whole-chain oracle, no-panic model, and AST transition.
-3. If approved, add test-only whole-chain parity and generated no-panic tests;
-   keep production counts at 7/0/7.
-4. Rerun package tests, boundary/AST tests, compile-fail doctests, native oracle,
+3. Test-only whole-chain parity and generated no-panic tests were added while
+   production counts remained 7/0/7.
+4. Package tests, boundary/AST tests, compile-fail doctests, native oracle,
    ledger, package and canonical workspace Clippy, rustfmt, compileall, and diff
-   checks.
-5. Only under explicit approval, record prospective missing-symbol and
-   7-to-8-registry RED, then add the private zero-caller marker in a separate
-   rollback unit.
-6. Request another narrow review before any production function calls the
-   marker or any earlier validator stage.
+   checks passed.
+5. After explicit approval, prospective missing-symbol and 7-to-8-registry RED
+   were recorded before the private zero-caller marker was added as commit
+   `a98dd1c`.
+6. Another narrow review remains required before any production function calls
+   the marker or any earlier validator stage.
 
 ## Rollback and prohibited scope
 
-The rollback baseline is `77a7304`. Design or test-only changes can be removed
-without changing the accepted private parameter implementation, ownership
-v1/v2/v3/v4, source contracts, corpus, or public dimension-subset API.
+The marker rollback baseline is `4f238e8`. Reverting `a98dd1c` removes the
+private marker and its tests/documents without changing the accepted private
+parameter implementation, ownership v1/v2/v3/v4, source contracts, corpus, or
+public dimension-subset API.
 
 No production caller is authorized. No public or crate visibility is
 authorized. Loading, final adjustment/materialization, resolver/cache ownership,

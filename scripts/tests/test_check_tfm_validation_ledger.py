@@ -117,6 +117,22 @@ def parameter_source_contract() -> dict[str, object]:
 
 
 class TfmValidationLedgerTests(unittest.TestCase):
+    def test_completion_hardening_document_distinguishes_current_and_historical_status(self) -> None:
+        document = COMPLETION_HARDENING_DESIGN.read_text(encoding="utf-8")
+        self.assertIn(
+            "Status: marker implemented; production caller design pending.",
+            document,
+        )
+        self.assertIn(
+            "Before the marker work unit, no `CompleteCheckedTfm` or\n"
+            "`finish_validation` symbol existed.",
+            document,
+        )
+        self.assertNotIn(
+            "No `CompleteCheckedTfm` or `finish_validation` symbol exists yet.",
+            document,
+        )
+
     def test_completion_marker_tdd_closure_is_content_addressed(self) -> None:
         evidence = COMPLETION_MARKER_TDD_EVIDENCE.read_text(encoding="utf-8")
         for required in (
@@ -289,7 +305,7 @@ class TfmValidationLedgerTests(unittest.TestCase):
             "allocator exhaustion",
             "single-owner native witnesses",
             "multi-defect generated cases",
-            "rollback baseline is `77a7304`",
+            "marker rollback baseline is `4f238e8`",
             "No production caller",
             "No public or crate visibility",
             "separate Pro review",
