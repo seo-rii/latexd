@@ -133,4 +133,61 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex; run explicitly for the native adapter gate"]
+    async fn external_pdflatex_pages_keep_native_layout_and_report_external_work() {
+        let binary = which::which("pdflatex").expect("pdflatex installed for native adapter gate");
+        let temp = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_owned()).unwrap();
+        std::fs::write(root.join("main.tex"), r"\documentclass{article}\begin{document}Alpha $\frac{a}{b}$\newpage Bravo\end{document}").unwrap();
+        let build_root = root.join(".latexd/build");
+        let driver = CompilerDriver::new(
+            Some(binary.to_string_lossy().into_owned()),
+            vec![
+                "-no-shell-escape".into(),
+                "-interaction=nonstopmode".into(),
+                "-halt-on-error".into(),
+                "-recorder".into(),
+                "-output-directory={out_dir}".into(),
+                "{main}".into(),
+            ],
+        );
+        let outcome = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).unwrap(),
+                toplevel: "main.tex".into(),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec!["main.tex".into()],
+            })
+            .await
+            .unwrap();
+        assert_eq!(outcome.renderer_page_metadata.len(), 2);
+        assert_eq!(outcome.page_artifacts.len(), 2);
+        let full = lopdf::Document::load(&outcome.pdf_path).unwrap();
+        for (index, page) in outcome.renderer_page_metadata.iter().enumerate() {
+            let standalone =
+                lopdf::Document::load(build_root.join(&page.pdf_artifact_path)).unwrap();
+            assert_eq!(standalone.get_pages().len(), 1);
+            assert_eq!(
+                standalone.extract_text(&[1]).unwrap(),
+                full.extract_text(&[index as u32 + 1]).unwrap()
+            );
+            let original_content = full.get_page_content(full.get_pages()[&(index as u32 + 1)]);
+            let extracted_content = standalone.get_page_content(standalone.get_pages()[&1]);
+            assert_eq!(original_content, extracted_content);
+        }
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(build_root.join("rev-1/build-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let trace: CompileTrace = serde_json::from_value(metadata["trace"].clone()).unwrap();
+        assert_eq!(trace.engine, "external");
+        assert_eq!(trace.output_mode, "external_native_layout");
+        assert_eq!(trace.vm_executions, 0);
+        assert_eq!(trace.dispatched_tokens, 0);
+        assert_eq!(trace.external_processes, 1);
+        assert_eq!(trace.output_pages, 2);
+    }
 }

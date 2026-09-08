@@ -2,6 +2,7 @@
 mod aux_shipout_tests;
 mod compile_trace;
 pub mod compiler;
+mod external_pages;
 mod pdf_export;
 mod prepared_asset_cache;
 mod preview_leases;

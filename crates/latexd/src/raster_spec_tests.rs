@@ -240,3 +240,98 @@ fn raster_spec_clips_viewports_and_bounds_manifest_allocation() {
         assert!(RasterSpec::from_size_scale([dimension, 640.0], 1.0, None).is_err());
     }
 }
+
+#[tokio::test]
+async fn fractional_external_page_manifest_and_ghostscript_tiles_preserve_last_pixel() {
+    use lopdf::{Document, Object, Stream, dictionary};
+
+    if std::process::Command::new("gs")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipping Ghostscript geometry integration: gs unavailable");
+        return;
+    }
+    let (_temp, mut state) = raster_test_state();
+    Arc::get_mut(&mut state)
+        .expect("unique state")
+        .tile_renderer = TileRendererConfig::GsCli {
+        program: "gs".into(),
+    };
+    let mut document = Document::with_version("1.7");
+    let pages = document.new_object_id();
+    let contents = document.add_object(Stream::new(
+        dictionary! {},
+        b"1 0 0 rg 0 0 595.276 841.89 re f".to_vec(),
+    ));
+    let page = document.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages, "Contents" => contents,
+        "MediaBox" => vec![0.into(), 0.into(), Object::Real(595.276), Object::Real(841.89)],
+    });
+    document.objects.insert(
+        pages,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Count" => 1, "Kids" => vec![Object::Reference(page)],
+        }),
+    );
+    let catalog = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+    document.trailer.set("Root", catalog);
+    let mut bytes = vec![];
+    document.save_to(&mut bytes).unwrap();
+    let (metadata, _) =
+        crate::external_pages::extract_page_artifacts(&bytes, &state.build_root, 1, "main.pdf")
+            .unwrap();
+    assert_eq!((metadata[0].width_pt, metadata[0].height_pt), (595, 842));
+    let page_id = metadata[0].page_id.clone();
+    let page = load_revision_page_input(&state, 1, &page_id).await.unwrap();
+    assert_eq!(page.natural_size_pt, metadata[0].natural_size_pt);
+    let router = build_router(state.clone());
+    for (scale, width, height) in [(1.23, 732, 1036), (2.0, 1191, 1684), (4.0, 2381, 3368)] {
+        let response = request(&router, &format!(
+            "/api/tiles/1/{page_id}?scale={scale}&tile_size=256&left=0&top=0&width=10000&height=10000"
+        )).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let manifest: TileManifestResponse =
+            serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(
+            (
+                manifest.raster_spec.width_px,
+                manifest.raster_spec.height_px
+            ),
+            (width, height)
+        );
+        let full = cache_raster_image(&state, &page, scale).await.unwrap();
+        assert_eq!((full.width, full.height), (width, height));
+        let edge = manifest.items.last().unwrap();
+        let response = request(&router, &edge.png_url).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let tile =
+            image::load_from_memory(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap())
+                .unwrap()
+                .into_rgba8();
+        let rect = manifest
+            .raster_spec
+            .tile_rect(edge.tile_x, edge.tile_y)
+            .unwrap();
+        assert_eq!((tile.width(), tile.height()), (rect.width, rect.height));
+        assert_eq!(
+            (rect.x + tile.width(), rect.y + tile.height()),
+            (width, height)
+        );
+        let expected = tex_render_gs::crop_tiles_from_full(&page, scale, &[rect], &full).unwrap();
+        assert_eq!(tile.as_raw(), &expected[0].image.rgba);
+        assert!(
+            tile.get_pixel(tile.width() - 1, tile.height() - 1)[3] > 0,
+            "last painted edge pixel must be included"
+        );
+    }
+    assert_eq!(
+        render_session_metrics_snapshot(&state)
+            .await
+            .full_page_raster
+            .renderer_invocations,
+        3
+    );
+}

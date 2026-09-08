@@ -3396,8 +3396,54 @@ impl CompilerDriver {
             )
         };
         trace.phase("external_execution_and_dependency_trace");
-        trace.trace.output_mode = "pdf_passthrough".into();
-        trace.trace.output_pages = 0;
+        let output_size = fs::metadata(&pdf_path)
+            .map(|metadata| metadata.len())
+            .map_err(|error| CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(request.toplevel.to_string()),
+                    line: None,
+                    message: format!("failed to inspect external PDF: {error}"),
+                }],
+                message: format!("failed to inspect external PDF: {error}"),
+            })?;
+        if output_size > 256 * 1024 * 1024 {
+            return Err(CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(request.toplevel.to_string()),
+                    line: None,
+                    message: "external PDF exceeds the 256 MiB output budget".into(),
+                }],
+                message: "external PDF exceeds the 256 MiB output budget".into(),
+            });
+        }
+        let (renderer_page_metadata, page_artifacts) = match fs::read(&pdf_path)
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes| {
+                crate::external_pages::extract_page_artifacts(
+                    &bytes,
+                    &request.build_root,
+                    request.rev,
+                    pdf_path
+                        .file_name()
+                        .context("missing original PDF filename")?,
+                )
+            }) {
+            Ok(pages) => pages,
+            Err(error) => {
+                tracing::warn!(rev = request.rev, %error, "external PDF page adapter unavailable; keeping full-PDF passthrough");
+                (Vec::new(), Vec::new())
+            }
+        };
+        trace.phase("external_pdf_page_export");
+        trace.trace.output_mode = if renderer_page_metadata.is_empty() {
+            "pdf_passthrough"
+        } else {
+            "external_native_layout"
+        }
+        .into();
+        trace.trace.output_pages = renderer_page_metadata.len();
         trace.trace.full_pdf_exports = 1;
         let build_meta_path = rev_dir.join("build-meta.json");
         let build_meta = BuildMeta {
@@ -3410,8 +3456,8 @@ impl CompilerDriver {
             execution_page_count: 0,
             rebuilt_page_count: 0,
             reused_page_count: 0,
-            renderer_page_count: 0,
-            renderer_rebuilt_page_count: 0,
+            renderer_page_count: renderer_page_metadata.len(),
+            renderer_rebuilt_page_count: renderer_page_metadata.len(),
             renderer_reused_page_count: 0,
             semantic_pass_count: 0,
             semantic_rerun_count: 0,
@@ -3454,9 +3500,9 @@ impl CompilerDriver {
             pdf_path,
             diagnostics,
             dep_trace,
-            page_artifacts: Vec::new(),
+            page_artifacts,
             page_metadata: Vec::new(),
-            renderer_page_metadata: Vec::new(),
+            renderer_page_metadata,
             reused_checkpoint_id: None,
             unchanged_tail: None,
             page_patches: Vec::new(),
