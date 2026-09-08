@@ -5,12 +5,18 @@ import { expect, test } from "@playwright/test";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 
-test("static viewer renders display-list pages and retains PDF comparison output", async ({ context, page }) => {
-  await context.addCookies([{
-    name: "dev_bypass_waf",
-    value: "seorii_bypass_token_is_this",
-    url: "http://127.0.0.1:4390"
-  }]);
+test.beforeEach(async ({ context }) => {
+  const wafCookie = process.env.LATEXD_TEST_WAF_COOKIE;
+  if (wafCookie) {
+    await context.addCookies([{
+      name: "dev_bypass_waf",
+      value: wafCookie,
+      url: "http://127.0.0.1:4390"
+    }]);
+  }
+});
+
+test("static viewer renders display-list pages and retains PDF comparison output", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -122,12 +128,7 @@ test("static viewer renders display-list pages and retains PDF comparison output
   expect(pageErrors).toEqual([]);
 });
 
-test("unchanged display-list pages retain DOM identity and scroll position", async ({ context, page }) => {
-  await context.addCookies([{
-    name: "dev_bypass_waf",
-    value: "seorii_bypass_token_is_this",
-    url: "http://127.0.0.1:4390"
-  }]);
+test("unchanged display-list pages retain DOM identity and scroll position", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -184,12 +185,7 @@ Page three stable.
   expect(pageErrors).toEqual([]);
 });
 
-test("browser project images survive failed builds and release replaced URLs", async ({ context, page }) => {
-  await context.addCookies([{
-    name: "dev_bypass_waf",
-    value: "seorii_bypass_token_is_this",
-    url: "http://127.0.0.1:4390"
-  }]);
+test("browser project images survive failed builds and release replaced URLs", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -243,5 +239,74 @@ Image removed.
       return false;
     }
   }, imageUrl!)).toBe(false);
+  expect(pageErrors).toEqual([]);
+});
+
+test("a busy compiler worker leaves controls responsive and is terminated on a new edit", async ({ page }) => {
+  // Deterministically hold a worker inside synchronous execution. This uses the
+  // production worker bundle for normal requests before and after cancellation.
+  await page.route("**/browser-compiler.worker-*.js", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      body: `${await response.text()}
+        const compile = globalThis.onmessage;
+        globalThis.onmessage = (event) => {
+          const source = new TextDecoder().decode(event.data.files["main.tex"]);
+          if (source.includes("TEST_BLOCK_WORKER")) {
+            postMessage({ type: "test_busy" });
+            while (true) {}
+          }
+          return compile(event);
+        };
+      `
+    });
+  });
+  await page.addInitScript(() => {
+    const state = { busy: false, created: 0, terminated: 0 };
+    (window as unknown as { compilerTest: typeof state }).compilerTest = state;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        state.created += 1;
+        this.addEventListener("message", ({ data }) => {
+          if (data.type === "test_busy") state.busy = true;
+        });
+      }
+      terminate() {
+        state.terminated += 1;
+        super.terminate();
+      }
+    };
+  });
+
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("./", { waitUntil: "domcontentloaded" });
+  const preview = page.locator('[aria-label="WebAssembly document preview"]');
+  await expect(preview).toHaveAttribute("data-build-revision", "1", { timeout: 15_000 });
+  const pdfLink = page.getByRole("link", { name: "Download PDF" });
+  const initialPdf = await pdfLink.getAttribute("href");
+  const editor = page.getByPlaceholder("Type LaTeX here…");
+  const source = await editor.inputValue();
+  await editor.fill(`${source}\n% TEST_BLOCK_WORKER`);
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { compilerTest: { busy: boolean } }
+  ).compilerTest.busy)).toBe(true);
+
+  await page.getByRole("button", { name: "Zoom in" }).click({ timeout: 2_000 });
+  await expect(preview).toHaveAttribute("data-zoom-percent", "110");
+  await expect(pdfLink).toHaveAttribute("href", initialPdf!);
+  await expect(preview).toHaveAttribute("data-build-revision", "1");
+
+  await editor.fill(source.replace("Try it", "Recovered after cancellation"), { timeout: 2_000 });
+  await expect(page.locator(".display-list-page").getByText("Recovered after cancellation", {
+    exact: true
+  })).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { compilerTest: { created: number; terminated: number } }
+  ).compilerTest)).toMatchObject({ created: 2, terminated: 1 });
+  await expect(pdfLink).not.toHaveAttribute("href", initialPdf!);
   expect(pageErrors).toEqual([]);
 });

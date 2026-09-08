@@ -8,8 +8,7 @@
     type LatexdServerMessage
   } from "$lib";
   import {
-    compileInBrowser,
-    compileProjectInBrowser,
+    createBrowserCompiler,
     type BrowserBuildMetadata,
     type BrowserFontAsset,
     type BrowserPageDisplayList
@@ -69,6 +68,7 @@
   let browserEventCount = $state(0);
   let browserCompileTimer: ReturnType<typeof setTimeout> | null = null;
   let browserCompileSerial = 0;
+  const browserCompiler = createBrowserCompiler();
   let browserFiles = $state<Record<string, Uint8Array>>({});
   let browserTextFiles = $state<Record<string, string>>({});
   let browserRenderedTextFiles = $state<Record<string, string>>({});
@@ -111,6 +111,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     }
     return () => {
       browserCompileSerial += 1;
+      browserCompiler.dispose();
       if (browserCompileTimer) {
         clearTimeout(browserCompileTimer);
         browserCompileTimer = null;
@@ -201,6 +202,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
 
   async function compileBrowserSource(source: string) {
     const requestId = ++browserCompileSerial;
+    const sourceFile = activeFile || "main.tex";
     previewState.building = true;
     editorStatus = "saving";
     editorMessage = "Compiling main.tex locally with WebAssembly…";
@@ -208,12 +210,13 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       const encoder = new TextEncoder();
       const projectFiles = {
         ...browserFiles,
-        [activeFile || "main.tex"]: encoder.encode(source)
+        [sourceFile]: encoder.encode(source)
       };
+      const nextTextFiles = { ...browserTextFiles, [sourceFile]: source };
       const entry = projectFiles["main.tex"] ? "main.tex" : activeFile;
       const result = Object.keys(projectFiles).length === 1 && entry === "main.tex"
-        ? await compileInBrowser(source, requestId)
-        : await compileProjectInBrowser(projectFiles, entry, requestId);
+        ? await browserCompiler.compileSource(source, requestId)
+        : await browserCompiler.compileProject(projectFiles, entry, requestId);
       if (requestId !== browserCompileSerial) {
         return;
       }
@@ -229,10 +232,6 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       );
       const previousPdfUrl = browserPdfUrl;
       const previousAssetUrls = browserAssetUrls;
-      const nextTextFiles = {
-        ...browserTextFiles,
-        [activeFile || "main.tex"]: source
-      };
       browserPages = result.page_artifact.pages;
       browserFonts = result.page_artifact.fonts;
       browserBuildMetadata = result.build_metadata;
@@ -252,7 +251,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       previewState.currentRev += 1;
       previewState.lastAppliedRev = previewState.currentRev;
       previewState.lastBuildSucceeded = true;
-      lastSavedContent = source;
+      lastSavedContent = nextTextFiles[activeFile] ?? source;
       editorStatus = "saved";
       editorMessage = `Compiled locally: ${browserPages.length} page(s), ${result.event_count} render events.`;
     } catch (error) {
@@ -597,6 +596,17 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
   function handleEditorInput() {
     if (!activeFile) {
       return;
+    }
+    if (browserMode) {
+      if (browserCompileTimer) {
+        clearTimeout(browserCompileTimer);
+        browserCompileTimer = null;
+      }
+      if (previewState.building) {
+        browserCompileSerial += 1;
+        browserCompiler.cancel();
+        previewState.building = false;
+      }
     }
     if (editorText === lastSavedContent) {
       editorStatus = "ready";
