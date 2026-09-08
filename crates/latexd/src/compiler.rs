@@ -1326,15 +1326,10 @@ struct ShipoutReplayPlan {
     fallback_reason: Option<&'static str>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct ReplayTrace {
-    checkpoint_fallback: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct BuildMeta {
     #[serde(default)]
-    trace: ReplayTrace,
+    trace: crate::compile_trace::CompileTrace,
     aux_sensitive: bool,
     dirty_files: Vec<Utf8PathBuf>,
     start_checkpoint_id: Option<String>,
@@ -1451,7 +1446,13 @@ impl CompilerDriver {
     }
 
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
-        let mut trace = ReplayTrace::default();
+        let mut trace = crate::compile_trace::TraceClock::new(
+            if self.compiler_bin.as_deref() == Some("internal") {
+                "internal"
+            } else {
+                "external"
+            },
+        );
         let rev_dir = request.build_root.join(format!("rev-{}", request.rev));
         tokio::fs::create_dir_all(rev_dir.as_std_path())
             .await
@@ -1474,6 +1475,10 @@ impl CompilerDriver {
         );
 
         if self.compiler_bin.as_deref() == Some("internal") {
+            let work_meter = tex_vm::work_metrics::VmWorkMeter::start();
+            let bootstrap_scope = tex_bootstrap::build_policy::BootstrapBuildScope::start(
+                tex_bootstrap::build_policy::LegacyPdfPolicy::MetadataOnly,
+            );
             let world = tex_world::ProjectWorld {
                 root: request.root.clone(),
                 manifest: request.manifest.clone(),
@@ -1541,6 +1546,7 @@ impl CompilerDriver {
                     })
                 })
                 .unwrap_or("");
+            trace.phase("input_and_checkpoint_selection");
             let mut replay_plan = None;
             let (build, preamble_checkpoint, reused_checkpoint_id) = if aux_sensitive {
                 let base_snapshot = compile_mini_kernel_snapshot();
@@ -1805,7 +1811,7 @@ impl CompilerDriver {
                             ),
                         })? {
                             if let Some(reason) = plan.fallback_reason {
-                                trace.checkpoint_fallback.get_or_insert_with(|| reason.to_string());
+                                trace.trace.checkpoint_fallback.get_or_insert_with(|| reason.to_string());
                             }
                             if plan.checkpoint_id != *seed_checkpoint_id {
                                 let replayed_build = build_project_pdf_from_checkpoint_with_mounts(
@@ -1887,6 +1893,7 @@ impl CompilerDriver {
                     })? {
                         if let Some(reason) = plan.fallback_reason {
                             trace
+                                .trace
                                 .checkpoint_fallback
                                 .get_or_insert_with(|| reason.to_string());
                         }
@@ -1973,6 +1980,7 @@ impl CompilerDriver {
                     )?;
                 (build, preamble_checkpoint, None)
             };
+            trace.phase("execution_aux_and_legacy_layout");
             if has_fatal_internal_diagnostics(&build.run.diagnostics) {
                 return Err(internal_diagnostics_failure(&request.toplevel, build));
             }
@@ -2004,6 +2012,7 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build render IR artifacts: {error}"),
             })?;
+            trace.phase("semantic_layout_assets_and_full_pdf");
             for envelope in &render_ir_capture.events.events {
                 if let Some(diagnostic) = map_missing_graphic_render_diagnostic(envelope)
                     && !internal_diagnostics.contains(&diagnostic)
@@ -2072,6 +2081,7 @@ impl CompilerDriver {
                     message: format!("failed to write internal PDF {}: {error}", pdf_path),
                 },
             )?;
+            trace.phase("debug_and_full_pdf_export");
             let page_dir = rev_dir.join("pages");
             fs::create_dir_all(page_dir.as_std_path()).map_err(|error| CompileFailure {
                 diagnostics: vec![Diagnostic {
@@ -2190,6 +2200,7 @@ impl CompilerDriver {
             });
             if unchanged_tail.is_some() && checkpoint_tail.is_none() {
                 trace
+                    .trace
                     .checkpoint_fallback
                     .get_or_insert_with(|| "output_tail_requires_checkpoint_recapture".into());
             }
@@ -2340,11 +2351,12 @@ impl CompilerDriver {
                     &renderer_state.pages,
                 )
             });
+            trace.phase("page_export_and_output_diff");
             let shipout_checkpoints = if !should_capture_shipout_checkpoints(
                 build.run.render_events.len(),
                 build.page_metadata.len(),
             ) {
-                trace.checkpoint_fallback.get_or_insert_with(|| "durable_event_prefix_serialization_budget".into());
+                trace.trace.checkpoint_fallback.get_or_insert_with(|| "durable_event_prefix_serialization_budget".into());
                 Vec::new()
             } else if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
@@ -2913,9 +2925,30 @@ impl CompilerDriver {
                     },
                 )?;
             }
+            trace.phase("checkpoint_reexecution_and_state_persistence");
+            let bootstrap_work = bootstrap_scope.snapshot();
+            trace.trace.legacy_layout_runs = bootstrap_work.legacy_layout_runs;
+            trace.trace.legacy_layout_source_bytes = bootstrap_work.legacy_layout_source_bytes;
+            trace.trace.legacy_pdf_exports = bootstrap_work.legacy_pdf_exports;
+            trace.trace.legacy_pdf_bytes = bootstrap_work.legacy_pdf_bytes;
+            trace.trace.legacy_layout_us = bootstrap_work.legacy_layout_us;
+            trace.trace.legacy_pdf_us = bootstrap_work.legacy_pdf_us;
+            let work = work_meter.snapshot();
+            trace.trace.vm_executions = work.executions;
+            trace.trace.dispatched_tokens = work.dispatched_tokens;
+            trace.trace.output_mode = "supported_approximate".into();
+            trace.trace.full_pdf_exports = 1;
+            trace.trace.debug_artifact_exports = 1;
+            trace.trace.semantic_passes = semantic_pass_count;
+            trace.trace.output_pages = renderer_pages.len();
+            trace.trace.reused_output_pages = renderer_reused_page_count;
+            trace.trace.emitted_render_events = render_ir_capture.events.events.len();
+            trace.trace.restored_prefix_source_bytes = replay_plan
+                .as_ref()
+                .map_or(0, |plan| u64::from(plan.checkpoint.source_offset_utf8));
             let build_meta_path = rev_dir.join("build-meta.json");
             let build_meta = BuildMeta {
-                trace,
+                trace: trace.finish(),
                 aux_sensitive,
                 dirty_files: request.changed_files.clone(),
                 start_checkpoint_id: reused_checkpoint_id.clone(),
@@ -3142,10 +3175,12 @@ impl CompilerDriver {
 
         copy_previous_external_aux_files(&request.build_root, request.rev, main_stem, &rev_dir);
 
+        trace.phase("external_command_setup");
         let mut diagnostics = Vec::new();
         for (program, args, expected_output_path, expected_output_kind, is_tex_engine) in commands {
             let pass_count = if is_tex_engine { 3 } else { 1 };
             for pass_index in 0..pass_count {
+                trace.trace.external_processes += 1;
                 execute_external_command(
                     &program,
                     &args,
@@ -3160,6 +3195,7 @@ impl CompilerDriver {
                     if let Some((bibliography_program, bibliography_args)) =
                         bibliography_command(&rev_dir, main_stem)
                     {
+                        trace.trace.external_processes += 1;
                         execute_external_command(
                             &bibliography_program,
                             &bibliography_args,
@@ -3250,9 +3286,13 @@ impl CompilerDriver {
                     .chain([request.toplevel.clone()]),
             )
         };
+        trace.phase("external_execution_and_dependency_trace");
+        trace.trace.output_mode = "pdf_passthrough".into();
+        trace.trace.output_pages = 0;
+        trace.trace.full_pdf_exports = 1;
         let build_meta_path = rev_dir.join("build-meta.json");
         let build_meta = BuildMeta {
-            trace,
+            trace: trace.finish(),
             aux_sensitive: false,
             dirty_files: request.changed_files.clone(),
             start_checkpoint_id: None,

@@ -73,6 +73,7 @@ pub use magnification::{
     VmMagnificationStateV1,
 };
 pub use outcome::{VmModuleTrace, VmOutcome};
+pub mod work_metrics;
 use save_stack::SaveStack;
 use semantic_bibliography::SemanticBibliographyState;
 use semantic_caption::SemanticCaptionState;
@@ -16568,6 +16569,7 @@ impl<'i> Vm<'i> {
         self.render_event_sources.clear();
         self.execution_occurrences.clear();
 
+        work_metrics::record_execution(executed_tokens);
         VmOutcome {
             output: mem::take(&mut self.output),
             render_events: self.render_events.finish_batch(),

@@ -1,3 +1,5 @@
+pub mod build_policy;
+
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
@@ -652,6 +654,7 @@ pub struct ProjectPdfBuild {
     pub run: ProjectRunResult,
     pub layout: DocumentLayout,
     pub page_metadata: Vec<ProjectPageMeta>,
+    /// Empty only inside an explicit MetadataOnly bootstrap build scope.
     pub pdf_bytes: Vec<u8>,
 }
 
@@ -1316,7 +1319,9 @@ pub fn run_project_from_checkpoint_with_mounts(
 }
 
 fn build_project_pdf_from_run(run: ProjectRunResult) -> ProjectPdfBuild {
+    let layout_started = std::time::Instant::now();
     let layout = layout_text(&run.output, layout_options_for_profile(&run.layout_profile));
+    build_policy::record_layout(run.output.len(), layout_started.elapsed());
     let output_len = run.output.len().max(1);
     let primary_source_len = run
         .source_lengths
@@ -1599,7 +1604,14 @@ fn build_project_pdf_from_run(run: ProjectRunResult) -> ProjectPdfBuild {
             }
         })
         .collect();
-    let pdf_bytes = render_pdf(&layout);
+    let pdf_bytes = if build_policy::export_legacy_pdf() {
+        let export_started = std::time::Instant::now();
+        let bytes = render_pdf(&layout);
+        build_policy::record_pdf(bytes.len(), export_started.elapsed());
+        bytes
+    } else {
+        Vec::new()
+    };
 
     ProjectPdfBuild {
         run,
