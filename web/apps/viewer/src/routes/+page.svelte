@@ -406,6 +406,15 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
   }
 
   async function syncFromRealtimeMessage(message: LatexdServerMessage) {
+    if (
+      message.type === "preview_committed"
+      || viewerController?.getState()?.atomicPreview
+    ) {
+      // The core validates the base revision and publishes the complete source
+      // snapshot through state-changed. Applying raw frames here could expose a
+      // rejected commit, a legacy frame, or an obsolete build completion first.
+      return;
+    }
     if (message.type === "build_started") {
       previewState.currentRev = Math.max(previewState.currentRev, message.rev);
       previewState.building = true;

@@ -12,6 +12,7 @@ camino.workspace = true
 clap.workspace = true
 hmr-protocol = { path = "../hmr-protocol" }
 image.workspace = true
+lopdf.workspace = true
 notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true

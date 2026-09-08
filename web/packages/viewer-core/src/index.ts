@@ -94,8 +94,11 @@ export interface ViewerTransport {
 }
 
 export const initialState = {
+  // Build notifications advance currentRev; preview responses belong to lastAppliedRev.
   currentRev: 0,
   lastAppliedRev: 0,
+  atomicPreview: false,
+  previewResyncRev: 0,
   pdfUrl: null,
   renderIrArtifacts: null,
   pageIds: [],
@@ -144,6 +147,31 @@ function activePageForState(state) {
 
 function pageExistsForState(state, pageId) {
   return state.pages.some((page) => page.pageId === pageId);
+}
+
+function reanchorCurrentPage(state, pageIds: string[], replacementPageId = null) {
+  if (pageIds.length === 0) {
+    return 1;
+  }
+  const previousIndex = state.currentPage - 1;
+  const nextIndexById = new Map(pageIds.map((pageId, index) => [pageId, index]));
+  const replacementIndex = nextIndexById.get(replacementPageId);
+  if (replacementIndex !== undefined) {
+    return replacementIndex + 1;
+  }
+  // Preserve the selected identity, then the nearest surviving old neighbour.
+  // Prefer the following page when both neighbours are equally close.
+  for (let distance = 0; distance < state.pageIds.length; distance += 1) {
+    for (const index of distance === 0
+      ? [previousIndex]
+      : [previousIndex + distance, previousIndex - distance]) {
+      const nextIndex = nextIndexById.get(state.pageIds[index]);
+      if (nextIndex !== undefined) {
+        return nextIndex + 1;
+      }
+    }
+  }
+  return Math.max(1, Math.min(state.currentPage, pageIds.length));
 }
 
 function retainPageEntries(previousPages, nextPages, entries, mapEntry = (entry) => entry) {
@@ -625,6 +653,85 @@ function reanchorSourceSelection(source, pageId, syncMap) {
 
 export function reduce(state, message) {
   switch (message.type) {
+    case "preview_resync_required":
+      return {
+        ...state,
+        atomicPreview: true,
+        previewResyncRev: Math.max(state.lastAppliedRev, message.preview_rev, 1)
+      };
+    case "preview_committed": {
+      const rev = message.new_preview_rev;
+      if (!Number.isSafeInteger(rev) || rev <= state.lastAppliedRev) {
+        return state;
+      }
+      if (message.base_preview_rev !== state.lastAppliedRev) {
+        return {
+          ...state,
+          atomicPreview: true,
+          previewResyncRev: Math.max(state.previewResyncRev, rev)
+        };
+      }
+      // Compute an anchor from the patch, but publish only its complete manifest.
+      // No temporary page order or source map is ever exposed to the renderer.
+      const anchored = reduce({ ...state, atomicPreview: false }, {
+        type: "patch_pages", rev: state.currentRev, ops: message.ops ?? []
+      });
+      const applied = reduce({ ...anchored, atomicPreview: false }, {
+        type: "full_pdf_ready", rev: Math.max(rev, state.currentRev),
+        pdf_url: message.pdf_url, page_ids: message.page_ids,
+        page_artifacts: message.page_artifacts
+      });
+      return {
+        ...applied,
+        atomicPreview: true,
+        previewResyncRev: state.previewResyncRev > rev ? state.previewResyncRev : 0,
+        lastAppliedRev: rev,
+        renderIrArtifacts: message.render_ir_artifacts ?? null,
+        sourceFiles: sourceFilesFromSnapshot((message.source_snapshot ?? []).map((entry) => ({
+          ...entry, rev
+        }))),
+        building: state.currentRev > rev ? state.building : false,
+        lastBuildSucceeded: state.currentRev > rev ? state.lastBuildSucceeded : true
+      };
+    }
+    case "ui_preview_snapshot": {
+      const snapshot = message.snapshot;
+      if (snapshot.last_applied_rev < state.lastAppliedRev
+        || snapshot.last_applied_rev < state.previewResyncRev) {
+        return state;
+      }
+      const pageIds = snapshot.page_artifacts?.length > 0
+        ? snapshot.page_artifacts.map((page) => page.page_id)
+        : snapshot.page_ids ?? [];
+      const currentBuild = snapshot.current_rev >= state.currentRev;
+      return {
+        ...state,
+        atomicPreview: snapshot.preview_protocol_version >= 1 || state.atomicPreview,
+        previewResyncRev: 0,
+        currentRev: Math.max(state.currentRev, snapshot.current_rev),
+        lastAppliedRev: snapshot.last_applied_rev,
+        pdfUrl: snapshot.pdf_url,
+        renderIrArtifacts: snapshot.render_ir_artifacts ?? null,
+        pageIds,
+        currentPage: reanchorCurrentPage(state, pageIds),
+        pages: snapshot.page_artifacts?.map((page) => ({
+          pageId: page.page_id, pdfUrl: page.pdf_url, svgUrl: page.svg_url ?? null
+        })) ?? [],
+        sourceFiles: sourceFilesFromSnapshot((snapshot.source_snapshot ?? []).map((entry) => ({
+          ...entry, rev: snapshot.last_applied_rev
+        }))),
+        syncMaps: {},
+        selectedSource: null,
+        hoveredSource: null,
+        tileLayers: {},
+        pendingPagePatchOps: [],
+        diagnostics: currentBuild ? snapshot.diagnostics : state.diagnostics,
+        changedFiles: currentBuild ? snapshot.changed_files : state.changedFiles,
+        building: currentBuild ? snapshot.building : state.building,
+        lastBuildSucceeded: currentBuild ? snapshot.last_build_succeeded : state.lastBuildSucceeded,
+        editorBridgeEnabled: snapshot.editor_bridge_enabled ?? false
+      };
+    }
     case "build_started":
       if (message.rev < state.currentRev) {
         return state;
@@ -646,6 +753,9 @@ export function reduce(state, message) {
         diagnostics: message.items
       };
     case "full_pdf_ready":
+      if (state.atomicPreview) {
+        return state;
+      }
       if (message.rev < state.currentRev) {
         return state;
       }
@@ -683,9 +793,7 @@ export function reduce(state, message) {
           sourceFiles: {},
           tileLayers,
           pendingPagePatchOps: [],
-          currentPage: pageIds.length > 0
-            ? Math.min(state.currentPage, pageIds.length)
-            : state.currentPage,
+          currentPage: reanchorCurrentPage(state, pageIds),
           hoveredSource,
           selectedSource,
           building: false,
@@ -693,6 +801,9 @@ export function reduce(state, message) {
         };
       }
     case "patch_pages":
+      if (state.atomicPreview) {
+        return state;
+      }
       if (message.rev < state.currentRev) {
         return state;
       }
@@ -701,9 +812,13 @@ export function reduce(state, message) {
         const pages = state.pages.length > 0
           ? state.pages.map((page) => ({ ...page }))
           : [];
+        let selectedPageId = state.pageIds[state.currentPage - 1] ?? null;
         for (const op of ops) {
           if (op.op === "replace_page") {
             if (op.index >= 0 && op.index < pages.length) {
+              if (pages[op.index].pageId === selectedPageId) {
+                selectedPageId = op.page_id;
+              }
               pages[op.index] = { pageId: op.page_id, pdfUrl: op.pdf_url };
               pages[op.index].svgUrl = op.svg_url ?? null;
             }
@@ -740,9 +855,7 @@ export function reduce(state, message) {
           syncMaps,
           tileLayers,
           pendingPagePatchOps: [...state.pendingPagePatchOps, ...ops],
-          currentPage: pageIds.length > 0
-            ? Math.min(state.currentPage, pageIds.length)
-            : state.currentPage,
+          currentPage: reanchorCurrentPage(state, pageIds, selectedPageId),
           hoveredSource,
           selectedSource
         };
@@ -778,9 +891,6 @@ export function reduce(state, message) {
         scrollTop: Math.max(0, message.scrollTop)
       };
     case "ui_tiles_ready":
-      if (message.rev < state.currentRev) {
-        return state;
-      }
       if (message.rev !== state.lastAppliedRev) {
         return state;
       }
@@ -820,9 +930,6 @@ export function reduce(state, message) {
         };
       }
     case "ui_syncmap_ready":
-      if (message.rev < state.currentRev) {
-        return state;
-      }
       if (message.rev !== state.lastAppliedRev) {
         return state;
       }
@@ -853,9 +960,6 @@ export function reduce(state, message) {
         };
       }
     case "ui_source_file_ready":
-      if (message.rev < state.currentRev) {
-        return state;
-      }
       if (message.rev !== state.lastAppliedRev) {
         return state;
       }
@@ -871,7 +975,7 @@ export function reduce(state, message) {
         }
       };
     case "source_snapshot":
-      if (message.rev < state.currentRev) {
+      if (state.atomicPreview) {
         return state;
       }
       if (message.rev !== state.lastAppliedRev) {
@@ -900,6 +1004,9 @@ export function reduce(state, message) {
         selectedSource: message.item
       };
     case "ui_source_jump_resolved":
+      if (message.rev !== state.lastAppliedRev) {
+        return state;
+      }
       if (!pageExistsForState(state, message.page_id)) {
         return state;
       }
@@ -910,6 +1017,9 @@ export function reduce(state, message) {
         selectedSource: message.item
       };
     case "ui_open_source_resolved":
+      if (message.rev !== state.lastAppliedRev) {
+        return state;
+      }
       if (!pageExistsForState(state, message.page_id)) {
         return state;
       }
@@ -920,6 +1030,9 @@ export function reduce(state, message) {
         selectedSource: message.item
       };
     case "ui_source_hover_resolved":
+      if (message.rev !== state.lastAppliedRev) {
+        return state;
+      }
       if (!pageExistsForState(state, message.page_id)) {
         return state;
       }
@@ -996,6 +1109,8 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
 
   let state = initialState;
   let destroyed = false;
+  let stateFetch: Promise<void> | null = null;
+  let stateRetry: ReturnType<typeof setTimeout> | null = null;
   let socket: ViewerSocket | null = null;
   let reconnectHandle: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
@@ -1011,6 +1126,14 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   const sourceFileInflight = new Map();
   const syncInteractionSerials = new Map();
   let lastViewportPayload = null;
+  let lastLeaseRev: number | null = null;
+  function sendPreviewLease() {
+    if (socket?.readyState === 1 && lastLeaseRev !== state.lastAppliedRev) {
+      socket.send(JSON.stringify({ type: "preview_lease", rev: state.lastAppliedRev }));
+      lastLeaseRev = state.lastAppliedRev;
+    }
+  }
+  let renderedPageIds = [];
   const scrollPageIntoFrame = (pageId) => {
     const pageNode = pageNodes.get(pageId);
     if (!pageNode) {
@@ -1162,6 +1285,16 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   const render = () => {
+    const pageInventoryChanged = renderedPageIds.length !== state.pageIds.length
+      || renderedPageIds.some((pageId, index) => pageId !== state.pageIds[index]);
+    const previousActiveNode = pageInventoryChanged
+      ? [...pageNodes.values()].find((node) => node.dataset.active === "true")
+      : null;
+    const previousActiveRect = previousActiveNode?.getBoundingClientRect();
+    const anchorOffset = previousActiveRect?.height > 0
+      ? previousActiveRect.top - elements.frame.getBoundingClientRect().top
+      : null;
+    renderedPageIds = state.pageIds.slice();
     elements.revision.textContent = String(state.currentRev);
     elements.pageLabel.textContent = state.pageIds.length > 0
       ? `${state.currentPage} / ${state.pageIds.length}`
@@ -1462,6 +1595,17 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     elements.preview.hidden = true;
     elements.placeholder.hidden = true;
     elements.previewStack.hidden = false;
+    if (anchorOffset !== null && activePageId) {
+      const nextActiveRect = pageNodes.get(activePageId)?.getBoundingClientRect();
+      if (nextActiveRect?.height > 0) {
+        elements.frame.scrollTop = Math.max(0,
+          elements.frame.scrollTop
+          + nextActiveRect.top - elements.frame.getBoundingClientRect().top
+          - anchorOffset
+        );
+        state = reduce(state, { type: "ui_scroll_changed", scrollTop: elements.frame.scrollTop });
+      }
+    }
     queueTileRefresh();
   };
 
@@ -1469,6 +1613,10 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     const previousHovered = state.hoveredSource;
     const previousSelected = state.selectedSource;
     state = reduce(state, message);
+    sendPreviewLease();
+    if (state.previewResyncRev > 0) {
+      refreshPreviewSnapshot();
+    }
     render();
     const eventDetailForSource = (source) => ({
       rev: state.lastAppliedRev,
@@ -1685,6 +1833,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         const resolvedDetail = resolvedSourceRequestDetail(requestRev, request, jump, source);
         dispatch({
           type: messageType,
+          rev: requestRev,
           page_id: jump.page_id,
           page_index: jump.page_index,
           item: resolvedDetail.item
@@ -1807,6 +1956,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         ) {
           dispatch({
             type: "ui_open_source_resolved",
+            rev: requestRev,
             page_id: response.page_id,
             page_index: response.page_index ?? Math.max(0, state.pageIds.indexOf(response.page_id)),
             item: resolvedDetail.item
@@ -1929,63 +2079,38 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   });
   viewerWindow.addEventListener("resize", queueTileRefresh);
 
-  transport.fetchState()
-    .then((snapshot) => {
-      if (destroyed) {
-        return;
-      }
-      if (
-        snapshot.current_rev < state.currentRev
-        || snapshot.last_applied_rev < state.lastAppliedRev
-      ) {
-        return;
-      }
-      state = {
-        ...state,
-        currentRev: snapshot.current_rev,
-        lastAppliedRev: snapshot.last_applied_rev,
-        pdfUrl: snapshot.pdf_url,
-        renderIrArtifacts: snapshot.render_ir_artifacts ?? null,
-        pageIds: snapshot.page_artifacts?.length > 0
-          ? snapshot.page_artifacts.map((page) => page.page_id)
-          : snapshot.page_ids ?? [],
-        pages: snapshot.page_artifacts?.map((page) => ({
-          pageId: page.page_id,
-          pdfUrl: page.pdf_url,
-          svgUrl: page.svg_url ?? null
-        })) ?? [],
-        sourceFiles: sourceFilesFromSnapshot(
-          (snapshot.source_snapshot ?? []).map((entry) => ({
-            ...entry,
-            rev: snapshot.last_applied_rev
-          }))
-        ),
-        tileLayers: {},
-        diagnostics: snapshot.diagnostics,
-        changedFiles: snapshot.changed_files,
-        building: snapshot.building,
-        lastBuildSucceeded: snapshot.last_build_succeeded,
-        editorBridgeEnabled: snapshot.editor_bridge_enabled ?? false
-      };
-      render();
-      emitEvent({
-        type: "state-changed",
-        state
+  function refreshPreviewSnapshot() {
+    if (destroyed || stateFetch) {
+      return;
+    }
+    stateFetch = Promise.resolve().then(() => transport.fetchState())
+      .then((snapshot) => {
+        if (!destroyed) {
+          dispatch({ type: "ui_preview_snapshot", snapshot });
+        }
+      })
+      .catch(() => {
+        if (!destroyed) {
+          render();
+        }
+      })
+      .finally(() => {
+        stateFetch = null;
+        if (!destroyed && state.previewResyncRev > 0 && stateRetry === null) {
+          stateRetry = setTimeout(() => {
+            stateRetry = null;
+            refreshPreviewSnapshot();
+          }, 250);
+        }
       });
-    })
-    .catch(() => {
-      if (destroyed) {
-        return;
-      }
-      render();
-      emitEvent({
-        type: "state-changed",
-        state
-      });
-    });
+  }
+  refreshPreviewSnapshot();
 
   const handleSocketOpen = () => {
     reconnectAttempt = 0;
+    lastLeaseRev = null;
+    sendPreviewLease();
+    refreshPreviewSnapshot();
     lastViewportPayload = null;
     queueTileRefresh();
   };
@@ -2067,6 +2192,17 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   return {
     destroy() {
       destroyed = true;
+      if (socket?.readyState === 1) {
+        try {
+          socket.send(JSON.stringify({ type: "preview_lease", rev: 0 }));
+        } catch {
+          // Disconnect also releases the connection-owned lease on the server.
+        }
+      }
+      if (stateRetry !== null) {
+        clearTimeout(stateRetry);
+        stateRetry = null;
+      }
       if (reconnectHandle !== null) {
         clearTimeout(reconnectHandle);
         reconnectHandle = null;

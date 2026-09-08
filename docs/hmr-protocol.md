@@ -16,6 +16,17 @@ Current server messages are defined in
 
 ```rust
 enum ServerMsg {
+    PreviewResyncRequired { preview_rev: RevId },
+    PreviewCommitted {
+        base_preview_rev: RevId,
+        new_preview_rev: RevId,
+        pdf_url: String,
+        page_ids: Vec<String>,
+        page_artifacts: Vec<PagePreviewArtifact>,
+        ops: Vec<PagePatchOp>,
+        source_snapshot: Vec<SourceSnapshotFile>,
+        render_ir_artifacts: Option<RenderIrArtifactUrls>,
+    },
     BuildStarted {
         rev: RevId,
         changed_files: Vec<String>,
@@ -49,6 +60,7 @@ Current client messages:
 
 ```rust
 enum ClientMsg {
+    PreviewLease { rev: RevId },
     OpenDocument {
         doc: String,
     },
@@ -75,41 +87,34 @@ UI as building and surface the dirty input set.
 
 Carries the current revision diagnostics. This is sent for both successful and failed builds.
 
-### `PatchPages`
+### `PreviewCommitted`
 
-Optional incremental page patch set for the revision. This only describes structural page
-changes such as replace/insert/delete operations for revision-stable `page_id`s.
+The daemon publishes page order, immutable PDF/SVG URLs, source snapshot, and optional
+render-IR URLs in a single message. `base_preview_rev` is the previously published preview;
+`new_preview_rev` is the committed build. `ops` describes structural changes and helps
+preserve the selected page. The complete `page_artifacts` list is authoritative.
 
-### `FullPdfReady`
+The viewer accepts a new commit only when its applied revision equals `base_preview_rev`.
+On a base mismatch it keeps the last-good preview and reloads `/api/state`; it does not
+apply any subset of the operations. Duplicate or older commits are ignored. Page order and
+source data change together, while prior sync maps are invalidated. A delayed valid commit
+can update the preview even after a newer build has started, without rolling back that
+newer build's diagnostic state.
 
-Sent after the daemon has materialized the full preview for the revision. This carries the
-revision PDF URL plus per-page artifact URLs:
+The daemon advertises `preview_protocol_version: 1` in `/api/state`. Legacy `PatchPages`,
+`FullPdfReady`, and `SourceSnapshot` variants remain decodable for older transports but
+are no longer emitted by the daemon. After negotiating atomic previews the viewer ignores
+these split messages. Reconnection always refreshes `/api/state`, even if no new build is
+pending. A missed or stale state response is retried while a base-mismatch resync is pending.
 
-```rust
-struct PagePreviewArtifact {
-    page_id: String,
-    pdf_url: String,
-    svg_url: Option<String>,
-}
-```
-
-The viewer uses `page_artifacts` as the canonical preview page list. `page_ids` is retained
-as a compact identity list and fallback.
-
-### `SourceSnapshot`
-
-Sent after a successful build to stream the current source text snapshot into the viewer:
-
-```rust
-struct SourceSnapshotFile {
-    file: String,
-    content: String,
-    line_count: usize,
-}
-```
-
-The bundled SvelteKit editor uses this to update its in-browser source cache without polling
-`/api/source-files/<rev>` after every applied revision.
+Successful publication first prepares and syncs a manifest at
+`.latexd/build/rev-<rev>/preview.pending`. After checking queued edits, an atomic rename to
+`published-preview.json` is the commit point. Uncommitted drafts cannot replace the last
+normal preview. Startup validates referenced artifacts and sources, restores the last
+published preview, and reserves a revision beyond all existing build directories. A
+missing/corrupt manifest or missing referenced artifact causes a clean preview rebuild;
+old revision ids are still not reused. The published manifest is a GC root independently
+of the recent-revision retention window.
 
 ### `BuildFinished`
 
@@ -122,10 +127,8 @@ For a successful build, the daemon emits messages in this order:
 
 1. `BuildStarted`
 2. `Diagnostics`
-3. `PatchPages` when structural page changes exist
-4. `FullPdfReady`
-5. `SourceSnapshot`
-6. `BuildFinished { success: true }`
+3. `PreviewCommitted` with the complete page/source manifest
+4. `BuildFinished { success: true }`
 
 For a failed build:
 
@@ -134,6 +137,39 @@ For a failed build:
 3. `BuildFinished { success: false }`
 
 The viewer should keep the last successful preview mounted across failed revisions.
+
+## Full PDF Export
+
+A native daemon preview publishes ordered page PDFs/SVGs, source/sync data, and the
+renderer display list. Whole-document PDF and large diagnostic artifacts are omitted
+from that path. The immutable full-PDF URL remains usable: requesting
+`/artifacts/rev/<rev>/<document>.pdf` or `/artifacts/latest.pdf` exports the ordered pages
+from `rev-<rev>/pdf-export.json` on demand. Existing external compiler PDFs are served
+directly. CLI/oracle compilation keeps eager exports unless it opts into preview mode.
+
+Concurrent downloads share one export job. Its revision pin outlives cancelled requests;
+the resulting file is synced and renamed atomically, and failed exports never publish a
+partial file. Export preserves each page's content, inherited geometry/resources, and
+named destinations. Limits cover aggregate input bytes, decoded resources, object count,
+and serialized output size. Startup can restore a published preview whose full PDF has
+not yet been requested, provided its export recipe and referenced page artifacts are valid.
+
+## Preview Ownership and Collection
+
+Each WebSocket connection owns at most one preview revision. The viewer sends
+`{ "type": "preview_lease", "rev": <applied revision> }` on socket open and after an
+atomic preview commit or state reload. A build starting or failing does not move this
+lease. Replacing the revision releases the old root; revision zero explicitly releases
+it. Disconnect drops ownership automatically. An unknown, collected, or newer-than-published
+revision is rejected with `PreviewResyncRequired`, and the client reloads `/api/state`.
+
+Active client revisions and in-flight HTTP/render revisions join the recent manifests
+and the durable published manifest as GC roots. The collector retains their referenced
+artifact owner directories. New root acquisition is serialized with mark/sweep, while
+RAII ownership release does not require a background cleanup task. A render queue envelope
+owns its input revision through queueing and native execution even if the HTTP response
+future is cancelled. Once clients and jobs release a revision, its unreferenced files can
+be reclaimed on the next collection.
 
 ## Viewport Prewarm Flow
 

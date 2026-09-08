@@ -52,6 +52,7 @@ use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
 pub struct CompilerDriver {
     compiler_bin: Option<String>,
     compiler_args: Vec<String>,
+    preview_artifacts: bool,
 }
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
@@ -1442,10 +1443,47 @@ impl CompilerDriver {
         Self {
             compiler_bin,
             compiler_args,
+            preview_artifacts: false,
         }
     }
 
+    /// Defer full PDF export and omit debug artifacts from preview builds.
+    /// Execution still uses the eager checkpoint policy in this implementation.
+    pub fn with_preview_artifacts(mut self) -> Self {
+        self.preview_artifacts = true;
+        self
+    }
+
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
+        self.compile_with_previous_revision(request, None)
+            .await
+    }
+
+    /// The daemon's dirty hashes describe its last published revision. Do not
+    /// resume an intervening successful-but-unpublished build against that readset.
+    pub(crate) async fn compile_for_preview(
+        &self,
+        request: CompileRequest,
+        applied_rev: u64,
+    ) -> Result<CompileOutcome, CompileFailure> {
+        // Recovery across an unpublished/failed revision is deliberately cold.
+        // Replay and scanner lookahead do not yet share a complete rollback
+        // contract, so even the last-good checkpoint can retain stale effects.
+        let reusable_rev = if request.rev == applied_rev.saturating_add(1) {
+            applied_rev
+        } else {
+            0
+        };
+        self.compile_with_previous_revision(request, Some(reusable_rev))
+            .await
+    }
+
+    async fn compile_with_previous_revision(
+        &self,
+        request: CompileRequest,
+        previous_rev: Option<u64>,
+    ) -> Result<CompileOutcome, CompileFailure> {
+        let previous_revision_limit = previous_rev.map_or(request.rev, |rev| rev.saturating_add(1));
         let mut trace = crate::compile_trace::TraceClock::new(
             if self.compiler_bin.as_deref() == Some("internal") {
                 "internal"
@@ -1501,7 +1539,7 @@ impl CompilerDriver {
                 })?;
             let preamble_key = preamble_key_for_source(&toplevel_source);
             let previous_build =
-                load_latest_previous_internal_build(&request.build_root, request.rev).map_err(
+                load_latest_previous_internal_build(&request.build_root, previous_revision_limit).map_err(
                     |error| CompileFailure {
                         diagnostics: vec![Diagnostic {
                             level: DiagnosticLevel::Error,
@@ -2001,7 +2039,7 @@ impl CompilerDriver {
                         &materialized.rewrite_spans
                     }),
                 &prepared_asset_cache_root,
-                true,
+                !self.preview_artifacts,
             )
             .map_err(|error| CompileFailure {
                 diagnostics: vec![Diagnostic {
@@ -2053,34 +2091,56 @@ impl CompilerDriver {
                     }
                 }
             }
-            render_ir_capture
-                .write_debug_artifacts(&render_ir_artifact_dir)
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
+            if self.preview_artifacts {
+                // The viewer/source map consumes display lists. Event/Document IR,
+                // duplicate debug SVGs and full PDF are export/diagnostic work.
+                fs::create_dir_all(&render_ir_artifact_dir)
+                    .and_then(|_| {
+                        fs::write(
+                            render_ir_artifact_dir.join("page-display-list.json"),
+                            serde_json::to_vec(&render_ir_capture.page_display_lists)
+                                .expect("display lists serialize"),
+                        )
+                    })
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!("failed to persist preview display lists: {error}"),
+                        }],
+                        message: format!("failed to persist preview display lists: {error}"),
+                    })?;
+            } else {
+                render_ir_capture
+                    .write_debug_artifacts(&render_ir_artifact_dir)
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!(
+                                "failed to write render IR artifacts {}: {error}",
+                                render_ir_artifact_dir
+                            ),
+                        }],
                         message: format!(
                             "failed to write render IR artifacts {}: {error}",
                             render_ir_artifact_dir
                         ),
-                    }],
-                    message: format!(
-                        "failed to write render IR artifacts {}: {error}",
-                        render_ir_artifact_dir
-                    ),
-                })?;
-            fs::write(pdf_path.as_std_path(), &render_ir_capture.display_list_pdf).map_err(
-                |error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
+                    })?;
+                fs::write(pdf_path.as_std_path(), &render_ir_capture.display_list_pdf).map_err(
+                    |error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!("failed to write internal PDF {}: {error}", pdf_path),
+                        }],
                         message: format!("failed to write internal PDF {}: {error}", pdf_path),
-                    }],
-                    message: format!("failed to write internal PDF {}: {error}", pdf_path),
-                },
-            )?;
+                    },
+                )?;
+            }
             trace.phase("debug_and_full_pdf_export");
             let page_dir = rev_dir.join("pages");
             fs::create_dir_all(page_dir.as_std_path()).map_err(|error| CompileFailure {
@@ -2239,7 +2299,7 @@ impl CompilerDriver {
                     previous.rev,
                     previous_renderer_metadata
                         .iter()
-                        .map(|page| (page.page_id.clone(), page.content_hash.clone()))
+                        .map(|page| (page.page_id.clone(), page))
                         .collect::<BTreeMap<_, _>>(),
                 )
             });
@@ -2248,30 +2308,49 @@ impl CompilerDriver {
             let mut renderer_reused_page_count = 0usize;
             let mut renderer_rebuilt_page_count = 0usize;
             for page in &render_ir_capture.page_display_lists {
-                let reused_artifact_rev =
+                let reused_artifact =
                     previous_reusable_pages
                         .as_ref()
                         .and_then(|(previous_rev, pages)| {
-                            let previous_hash = pages.get(&page.page_id)?;
-                            if previous_hash != &page.content_hash {
+                            let previous_page = pages.get(&page.page_id)?;
+                            if previous_page.content_hash != page.content_hash {
                                 return None;
                             }
-                            Some(*previous_rev)
+                            // A reused page may still belong to a much older revision.
+                            // Metadata, rather than the last build number, owns that path.
+                            let pdf_path = if previous_page.pdf_artifact_path.as_str().is_empty() {
+                                Utf8PathBuf::from(format!(
+                                    "rev-{previous_rev}/pages/{}.pdf",
+                                    page.page_id
+                                ))
+                            } else {
+                                previous_page.pdf_artifact_path.clone()
+                            };
+                            let (owner, relative_path) =
+                                pdf_path.as_str().strip_prefix("rev-")?.split_once('/')?;
+                            let owner_rev = owner.parse::<u64>().ok()?;
+                            if relative_path != format!("pages/{}.pdf", page.page_id)
+                                || !request.build_root.join(&pdf_path).is_file()
+                                || !request
+                                    .build_root
+                                    .join(pdf_path.with_extension("svg"))
+                                    .is_file()
+                            {
+                                return None;
+                            }
+                            Some((owner_rev, pdf_path))
                         });
-                if let Some(previous_rev) = reused_artifact_rev {
+                if let Some((owner_rev, pdf_path)) = reused_artifact {
                     renderer_reused_page_count += 1;
-                    page_pdf_paths.insert(
-                        page.page_id.clone(),
-                        Utf8PathBuf::from(format!("rev-{previous_rev}/pages/{}.pdf", page.page_id)),
-                    );
+                    page_pdf_paths.insert(page.page_id.clone(), pdf_path);
                     page_artifacts.push(PagePreviewArtifact {
                         page_id: page.page_id.clone(),
                         pdf_url: viewer_prefixed_path(&format!(
-                            "/artifacts/rev/{previous_rev}/pages/{}.pdf",
+                            "/artifacts/rev/{owner_rev}/pages/{}.pdf",
                             page.page_id
                         )),
                         svg_url: Some(viewer_prefixed_path(&format!(
-                            "/artifacts/rev/{previous_rev}/pages/{}.svg",
+                            "/artifacts/rev/{owner_rev}/pages/{}.svg",
                             page.page_id
                         ))),
                     });
@@ -2351,6 +2430,23 @@ impl CompilerDriver {
                     &renderer_state.pages,
                 )
             });
+            if self.preview_artifacts {
+                crate::pdf_export::write_recipe(
+                    &request.build_root,
+                    request.rev,
+                    &pdf_path,
+                    &renderer_state.metadata,
+                )
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!("failed to persist PDF export recipe: {error}"),
+                    }],
+                    message: format!("failed to persist PDF export recipe: {error}"),
+                })?;
+            }
             trace.phase("page_export_and_output_diff");
             let shipout_checkpoints = if !should_capture_shipout_checkpoints(
                 build.run.render_events.len(),
@@ -2937,8 +3033,8 @@ impl CompilerDriver {
             trace.trace.vm_executions = work.executions;
             trace.trace.dispatched_tokens = work.dispatched_tokens;
             trace.trace.output_mode = "supported_approximate".into();
-            trace.trace.full_pdf_exports = 1;
-            trace.trace.debug_artifact_exports = 1;
+            trace.trace.full_pdf_exports = usize::from(!self.preview_artifacts);
+            trace.trace.debug_artifact_exports = usize::from(!self.preview_artifacts);
             trace.trace.semantic_passes = semantic_pass_count;
             trace.trace.output_pages = renderer_pages.len();
             trace.trace.reused_output_pages = renderer_reused_page_count;
@@ -3062,6 +3158,7 @@ impl CompilerDriver {
                         commands.push((
                             program.to_string_lossy().into_owned(),
                             vec![
+                                "-no-shell-escape".to_string(),
                                 "-interaction=nonstopmode".to_string(),
                                 "-halt-on-error".to_string(),
                                 "-recorder".to_string(),
@@ -3090,6 +3187,7 @@ impl CompilerDriver {
                         commands.push((
                             program.to_string_lossy().into_owned(),
                             vec![
+                                "-no-shell-escape".to_string(),
                                 "-interaction=nonstopmode".to_string(),
                                 "-halt-on-error".to_string(),
                                 "-recorder".to_string(),
@@ -3144,6 +3242,7 @@ impl CompilerDriver {
                     commands.push((
                         latex_program.to_string_lossy().into_owned(),
                         vec![
+                            "-no-shell-escape".to_string(),
                             "-interaction=nonstopmode".to_string(),
                             "-halt-on-error".to_string(),
                             "-recorder".to_string(),
@@ -3173,7 +3272,12 @@ impl CompilerDriver {
             }
         }
 
-        copy_previous_external_aux_files(&request.build_root, request.rev, main_stem, &rev_dir);
+        copy_previous_external_aux_files(
+            &request.build_root,
+            previous_revision_limit,
+            main_stem,
+            &rev_dir,
+        );
 
         trace.phase("external_command_setup");
         let mut diagnostics = Vec::new();
@@ -6972,6 +7076,104 @@ mod tests {
             renderer_metadata.len()
         );
         assert_eq!(build_meta.renderer_rebuilt_page_count, 0);
+    }
+
+    #[tokio::test]
+    async fn artifact_lifetime_reuses_the_original_owner_across_restarted_compilers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let build_root = root.join(".latexd/build");
+        let mut original_tail = None;
+        for rev in 1..=20 {
+            let word = ["Alpha", "Bravo", "Delta", "Gamma"][(rev as usize - 1) % 4];
+            fs::write(
+                root.join("main.tex"),
+                format!(r"\begin{{document}}{word}\newpage Stable tail.\end{{document}}"),
+            )
+            .expect("main tex");
+            // Each driver starts without memory caches and must recover ownership
+            // from the previous revision's persisted metadata.
+            let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+                .compile(CompileRequest {
+                    root: root.clone(),
+                    manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                    toplevel: Utf8PathBuf::from("main.tex"),
+                    rev,
+                    build_root: build_root.clone(),
+                    changed_files: vec![Utf8PathBuf::from("main.tex")],
+                })
+                .await
+                .expect("internal compile");
+            crate::prune_old_build_revisions(&build_root, rev).await;
+            assert_eq!(outcome.renderer_page_metadata.len(), 2);
+            let tail = &outcome.renderer_page_metadata[1];
+            let expected_path = original_tail.get_or_insert_with(|| tail.pdf_artifact_path.clone());
+            assert_eq!(&tail.pdf_artifact_path, expected_path, "revision {rev}");
+            assert!(build_root.join(expected_path.as_path()).is_file());
+            assert!(
+                build_root
+                    .join(expected_path.with_extension("svg"))
+                    .is_file()
+            );
+            let artifact = &outcome.page_artifacts[1];
+            assert!(artifact.pdf_url.contains("/artifacts/rev/1/pages/"));
+            assert!(
+                artifact
+                    .svg_url
+                    .as_ref()
+                    .expect("svg URL")
+                    .contains("/artifacts/rev/1/pages/")
+            );
+            if rev > 1 {
+                assert!(
+                    !build_root
+                        .join(format!("rev-{rev}/pages/{}.pdf", tail.page_id))
+                        .exists()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn artifact_lifetime_regenerates_pages_when_pdf_or_svg_is_missing() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Stable.\end{document}",
+        )
+        .expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        for rev in 1..=4 {
+            let outcome = driver
+                .compile(CompileRequest {
+                    root: root.clone(),
+                    manifest: manifest.clone(),
+                    toplevel: Utf8PathBuf::from("main.tex"),
+                    rev,
+                    build_root: build_root.clone(),
+                    changed_files: Vec::new(),
+                })
+                .await
+                .expect("internal compile");
+            let page = &outcome.renderer_page_metadata[0];
+            let owner_rev = if rev == 4 { 3 } else { rev };
+            assert_eq!(
+                page.pdf_artifact_path,
+                Utf8PathBuf::from(format!("rev-{owner_rev}/pages/{}.pdf", page.page_id))
+            );
+            let pdf_path = build_root.join(&page.pdf_artifact_path);
+            let svg_path = pdf_path.with_extension("svg");
+            assert!(pdf_path.is_file());
+            assert!(svg_path.is_file());
+            if rev == 1 {
+                fs::remove_file(svg_path).expect("remove cached SVG");
+            } else if rev == 2 {
+                fs::remove_file(pdf_path).expect("remove cached PDF");
+            }
+        }
     }
 
     #[test]

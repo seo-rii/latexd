@@ -21,6 +21,7 @@ export interface RenderIrArtifactUrls {
 }
 
 export interface PreviewStateResponse {
+  preview_protocol_version?: number;
   current_rev: number;
   last_applied_rev: number;
   pdf_url: string | null;
@@ -41,6 +42,18 @@ export interface PreviewStateResponse {
 }
 
 export type LatexdServerMessage =
+  | { type: "preview_resync_required"; preview_rev: number }
+  | {
+    type: "preview_committed";
+    base_preview_rev: number;
+    new_preview_rev: number;
+    pdf_url: string;
+    page_ids: string[];
+    page_artifacts: PreviewStateResponse["page_artifacts"];
+    ops: unknown[];
+    source_snapshot: LatexdSourceSnapshotFile[];
+    render_ir_artifacts: RenderIrArtifactUrls | null;
+  }
   | {
     type: "build_started";
     rev: number;

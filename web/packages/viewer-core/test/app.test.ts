@@ -13,6 +13,171 @@ import {
   selectNearestSyncItem
 } from "../src/index.ts";
 
+function previewManifest(rev: number, pageIds: string[]) {
+  return {
+    type: "full_pdf_ready",
+    rev,
+    pdf_url: `/artifacts/rev/${rev}/main.pdf`,
+    page_ids: pageIds,
+    page_artifacts: pageIds.map((pageId) => ({
+      page_id: pageId,
+      pdf_url: `/artifacts/rev/${rev}/pages/${pageId}.pdf`,
+      svg_url: `/artifacts/rev/${rev}/pages/${pageId}.svg`
+    }))
+  };
+}
+
+const previewResponses = [
+  {
+    type: "ui_tiles_ready",
+    page_id: "page-b",
+    zoom_bucket: 150,
+    tile_size: 256,
+    items: [{ tile_x: 0, tile_y: 1, png_url: "/tile-b.png" }]
+  },
+  {
+    type: "ui_syncmap_ready",
+    page_id: "page-b",
+    page_width_px: 612,
+    page_height_px: 792,
+    items: [{ file: "main.tex", start_utf8: 0, end_utf8: 8 }]
+  },
+  { type: "ui_source_file_ready", file: "main.tex", content: "old text", line_count: 1 },
+  { type: "source_snapshot", files: [{ file: "main.tex", content: "old text", line_count: 1 }] },
+  ...["ui_source_jump_resolved", "ui_open_source_resolved", "ui_source_hover_resolved"].map((type) => ({
+    type,
+    page_id: "page-b",
+    page_index: 1,
+    item: { pageId: "page-b", file: "main.tex", startUtf8: 0, endUtf8: 8 }
+  }))
+];
+
+for (const failed of [false, true]) {
+  test(`last good preview accepts tiles and source responses during a ${failed ? "failed" : "pending"} newer build`, () => {
+    let state = reduce(initialState, previewManifest(2, ["page-a", "page-b"]));
+    state = reduce(state, { type: "build_started", rev: 3, changed_files: ["main.tex"] });
+    if (failed) {
+      state = reduce(state, { type: "build_finished", rev: 3, success: false });
+    }
+    // Scrolling and zooming can require previously uncached preview data.
+    state = reduce(state, { type: "ui_page_changed", page: 2 });
+    state = reduce(state, { type: "ui_zoom_changed", zoom: 1.5 });
+    for (const response of previewResponses) {
+      assert.strictEqual(reduce(state, { ...response, rev: 1 }), state, `${response.type}: older preview`);
+      assert.strictEqual(reduce(state, { ...response, rev: 3 }), state, `${response.type}: unpublished build`);
+      const next = reduce(state, { ...response, rev: 2 });
+      assert.notStrictEqual(next, state, `${response.type}: last good preview`);
+      state = next;
+    }
+    assert.equal(state.currentRev, 3);
+    assert.equal(state.lastAppliedRev, 2);
+    assert.equal(state.building, !failed);
+    assert.equal(state.tileLayers["page-b"].items[0].png_url, "/tile-b.png");
+    assert.equal(state.syncMaps["page-b"].rev, 2);
+    assert.equal(state.sourceFiles["main.tex"].content, "old text");
+    assert.equal(state.selectedSource.pageId, "page-b");
+    assert.equal(state.hoveredSource.pageId, "page-b");
+
+    // Even unchanged page identities cannot admit responses for a replaced preview.
+    state = reduce(state, previewManifest(4, ["page-a", "page-b"]));
+    for (const response of previewResponses) {
+      assert.strictEqual(reduce(state, { ...response, rev: 2 }), state, `${response.type}: replaced preview`);
+    }
+  });
+}
+
+for (const mode of ["patch", "manifest"]) {
+  test(`${mode} updates keep the selected page through insertion, deletion, and reorder`, () => {
+    let state = reduce(initialState, previewManifest(1, ["page-a", "page-b"]));
+    state = reduce(state, { type: "ui_page_changed", page: 2 });
+    const updates = [
+      {
+        ids: ["page-x", "page-a", "page-b"],
+        ops: [{ op: "insert_page", index: 0, page_id: "page-x", pdf_url: "/x.pdf" }],
+        expectedPage: 3
+      },
+      {
+        ids: ["page-x", "page-b"],
+        ops: [{ op: "delete_page", index: 1 }],
+        expectedPage: 2
+      },
+      {
+        ids: ["page-b", "page-x"],
+        ops: [
+          { op: "delete_page", index: 1 },
+          { op: "insert_page", index: 0, page_id: "page-b", pdf_url: "/b.pdf" }
+        ],
+        expectedPage: 1
+      }
+    ];
+    for (const [index, update] of updates.entries()) {
+      const rev = index + 2;
+      if (mode === "patch") {
+        state = reduce(state, { type: "patch_pages", rev, ops: update.ops });
+        assert.equal(state.currentPage, update.expectedPage);
+      }
+      state = reduce(state, previewManifest(rev, update.ids));
+      assert.equal(state.currentPage, update.expectedPage);
+      assert.equal(state.pageIds[state.currentPage - 1], "page-b");
+    }
+  });
+
+  test(`${mode} deletion selects the nearest surviving old page before clamping`, () => {
+    let state = reduce(initialState, previewManifest(1, ["page-a", "page-b", "page-c", "page-d"]));
+    state = reduce(state, { type: "ui_page_changed", page: 3 });
+    const ids = ["page-x", "page-y", "page-a", "page-b", "page-d"];
+    if (mode === "patch") {
+      state = reduce(state, {
+        type: "patch_pages",
+        rev: 2,
+        ops: [
+          { op: "delete_page", index: 2 },
+          { op: "insert_page", index: 0, page_id: "page-y", pdf_url: "/y.pdf" },
+          { op: "insert_page", index: 0, page_id: "page-x", pdf_url: "/x.pdf" }
+        ]
+      });
+      assert.equal(state.currentPage, 5);
+    }
+    state = reduce(state, previewManifest(2, ids));
+    assert.equal(state.pageIds[state.currentPage - 1], "page-d");
+    state = reduce(state, previewManifest(3, ["page-x", "page-y", "page-a", "page-b"]));
+    assert.equal(state.pageIds[state.currentPage - 1], "page-b");
+    state = reduce(state, previewManifest(4, []));
+    assert.equal(state.currentPage, 1);
+  });
+}
+
+test("page anchors distinguish repeated paint artifacts by page identity", () => {
+  const first = previewManifest(1, ["copy-1", "copy-2"]);
+  for (const artifact of first.page_artifacts) {
+    artifact.pdf_url = "/identical.pdf";
+    artifact.svg_url = "/identical.svg";
+  }
+  let state = reduce(initialState, first);
+  state = reduce(state, { type: "ui_page_changed", page: 2 });
+  const reordered = { ...first, rev: 2, page_artifacts: [...first.page_artifacts].reverse() };
+  state = reduce(state, reordered);
+  assert.equal(state.currentPage, 1);
+  assert.equal(state.pageIds[state.currentPage - 1], "copy-2");
+});
+
+test("replacing the selected page retains its position after preceding insertions", () => {
+  let state = reduce(initialState, previewManifest(1, ["page-a", "page-b", "page-c"]));
+  state = reduce(state, { type: "ui_page_changed", page: 2 });
+  state = reduce(state, {
+    type: "patch_pages",
+    rev: 2,
+    ops: [
+      { op: "insert_page", index: 0, page_id: "page-x", pdf_url: "/x.pdf" },
+      { op: "replace_page", index: 2, page_id: "page-b-edited", pdf_url: "/b-edited.pdf" }
+    ]
+  });
+  assert.equal(state.currentPage, 3);
+  assert.equal(state.pageIds[state.currentPage - 1], "page-b-edited");
+  state = reduce(state, previewManifest(2, ["page-x", "page-a", "page-b-edited", "page-c"]));
+  assert.equal(state.currentPage, 3);
+});
+
 test("successful build installs PDF url", () => {
   let state = reduce(initialState, {
     type: "build_started",
@@ -363,6 +528,7 @@ test("syncmap refresh clears stale selection outside the new page source window"
   });
   state = reduce(state, {
     type: "ui_source_hover_resolved",
+    rev: 13,
     page_id: "page-a",
     page_index: 0,
     item: {
@@ -1363,6 +1529,7 @@ test("source jump result focuses the matching page and source band", () => {
   });
   state = reduce(state, {
     type: "ui_source_jump_resolved",
+    rev: 11,
     page_id: "page-b",
     page_index: 1,
     item: {
@@ -1420,6 +1587,7 @@ test("source hover result focuses the matching page without clearing selection",
   });
   state = reduce(state, {
     type: "ui_source_hover_resolved",
+    rev: 12,
     page_id: "page-b",
     page_index: 1,
     item: {
@@ -1473,6 +1641,7 @@ test("source jump result preserves page-local source and output windows", () => 
     }),
     {
       type: "ui_source_jump_resolved",
+      rev: 14,
       page_id: "page-a",
       page_index: 0,
       item: {
@@ -1764,6 +1933,7 @@ test("open source result focuses the matching page and preserves page-local wind
     }),
     {
       type: "ui_open_source_resolved",
+      rev: 15,
       page_id: "page-b",
       page_index: 1,
       item: {

@@ -2,7 +2,15 @@
 mod aux_shipout_tests;
 mod compile_trace;
 pub mod compiler;
+mod pdf_export;
 mod prepared_asset_cache;
+mod preview_leases;
+mod preview_persistence;
+#[cfg(test)]
+mod preview_revision_tests;
+mod project_revision;
+#[cfg(test)]
+mod project_revision_tests;
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -43,9 +51,10 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 
 use crate::compiler::{
-    CompileRequest, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
+    CompileFailure, CompileRequest, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
     render_ir_display_list_svg_file_name,
 };
+use crate::project_revision::ProjectRevision;
 
 #[derive(Debug, Clone)]
 pub struct ServeArgs {
@@ -269,8 +278,10 @@ impl RenderSessionRenderer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PreviewSnapshot {
+    #[serde(default)]
+    pub preview_protocol_version: u32,
     pub current_rev: u64,
     pub last_applied_rev: u64,
     pub pdf_url: Option<String>,
@@ -288,15 +299,7 @@ pub struct PreviewSnapshot {
     pub editor_bridge_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
-pub struct RenderIrArtifactUrls {
-    pub legacy_output_url: String,
-    pub events_url: String,
-    pub document_ir_url: String,
-    pub page_display_list_url: String,
-    pub display_list_pdf_url: String,
-    pub display_list_svg_urls: Vec<String>,
-}
+pub use hmr_protocol::RenderIrArtifactUrls;
 
 #[derive(Debug, Clone, Default)]
 struct LivePreviewState {
@@ -345,6 +348,7 @@ struct RenderSessionTileCacheKey {
 struct BuildCache {
     tracked_inputs: BTreeSet<Utf8PathBuf>,
     input_hashes: BTreeMap<Utf8PathBuf, Option<String>>,
+    observed_paths: BTreeSet<Utf8PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -355,7 +359,45 @@ struct RenderSessionKey {
 
 #[derive(Debug, Clone)]
 struct RenderSessionHandle {
-    tx: mpsc::Sender<RenderSessionRequest>,
+    tx: RenderSessionSender,
+}
+
+#[derive(Debug, Clone)]
+struct RenderSessionSender {
+    tx: mpsc::Sender<PinnedRenderRequest>,
+    build_root: Utf8PathBuf,
+}
+
+struct PinnedRenderRequest {
+    request: RenderSessionRequest,
+    _pin: Option<preview_leases::RevisionPin>,
+}
+
+impl RenderSessionSender {
+    async fn send(
+        &self,
+        request: RenderSessionRequest,
+    ) -> Result<(), mpsc::error::SendError<RenderSessionRequest>> {
+        let rev = match &request {
+            RenderSessionRequest::AttachRevision { rev, .. }
+            | RenderSessionRequest::LookupRevisionPages { rev, .. }
+            | RenderSessionRequest::LookupPage { rev, .. } => Some(*rev),
+            RenderSessionRequest::PrewarmPage { page, .. }
+            | RenderSessionRequest::RenderPage { page, .. }
+            | RenderSessionRequest::RenderTiles { page, .. } => Some(page.revision),
+            #[cfg(test)]
+            RenderSessionRequest::DetachRevision { .. } => None,
+            RenderSessionRequest::DebugState { .. } => None,
+        };
+        let pin = match rev {
+            Some(rev) => Some(preview_leases::pin_job(&self.build_root, rev).await),
+            None => None,
+        };
+        self.tx
+            .send(PinnedRenderRequest { request, _pin: pin })
+            .await
+            .map_err(|error| mpsc::error::SendError(error.0.request))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -890,24 +932,20 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 
     let (events, _) = broadcast::channel(64);
     let editor_bridge_enabled = args.editor_bridge.is_some();
+    let recovered = preview_persistence::recover(&build_root, editor_bridge_enabled).await?;
     let state = Arc::new(AppState {
         root: root.clone(),
         build_root,
         artifacts_root,
         world: world.clone(),
-        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args),
+        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args)
+            .with_preview_artifacts(),
         tile_renderer: args.tile_renderer,
         editor_bridge: args.editor_bridge,
         raster_cache: RwLock::new(BTreeMap::new()),
         inflight_rasters: RwLock::new(BTreeMap::new()),
         build_cache: RwLock::new(BuildCache::default()),
-        live: RwLock::new(LivePreviewState {
-            snapshot: PreviewSnapshot {
-                editor_bridge_enabled,
-                ..PreviewSnapshot::default()
-            },
-            ..LivePreviewState::default()
-        }),
+        live: RwLock::new(recovered),
         events,
     });
 
@@ -1043,14 +1081,30 @@ pub(crate) fn viewer_prefixed_path_for(base_path: &str, path: &str) -> String {
 }
 
 impl AppState {
+    async fn start_revision(&self, changed_files: Vec<String>) -> Result<u64> {
+        let mut live = self.live.write().await;
+        let rev = live
+            .snapshot
+            .current_rev
+            .checked_add(1)
+            .context("build revision space exhausted")?;
+        preview_persistence::reserve_revision(&self.build_root, rev).await?;
+        live.snapshot.apply_started(rev, changed_files);
+        Ok(rev)
+    }
+
     async fn run_build_loop(
         self: Arc<Self>,
         mut rebuild_rx: mpsc::UnboundedReceiver<Vec<Utf8PathBuf>>,
     ) {
         let mut pending = BTreeSet::new();
-        while let Some(first_batch) = rebuild_rx.recv().await {
-            for path in first_batch {
-                pending.insert(path);
+        let mut superseded = false;
+        loop {
+            if pending.is_empty() {
+                let Some(first_batch) = rebuild_rx.recv().await else {
+                    break;
+                };
+                pending.extend(first_batch);
             }
 
             let debounce = tokio::time::sleep(Duration::from_millis(150));
@@ -1095,13 +1149,18 @@ impl AppState {
                         line: None,
                         message: format!("failed to evaluate dirty inputs: {error}"),
                     }];
-                    let rev = {
-                        let mut live = self.live.write().await;
-                        let next_rev = live.snapshot.current_rev + 1;
-                        live.snapshot.apply_started(next_rev, changed_files.clone());
-                        live.snapshot.apply_failure(next_rev, diagnostics.clone());
-                        next_rev
+                    let rev = match self.start_revision(changed_files.clone()).await {
+                        Ok(rev) => rev,
+                        Err(error) => {
+                            error!("cannot reserve failed build revision: {error}");
+                            continue;
+                        }
                     };
+                    self.live
+                        .write()
+                        .await
+                        .snapshot
+                        .apply_failure(rev, diagnostics.clone());
                     let _ = self.events.send(ServerMsg::BuildStarted {
                         rev,
                         changed_files: changed_files.clone(),
@@ -1118,27 +1177,57 @@ impl AppState {
                 }
             };
 
-            if !rebuild_plan.needs_rebuild {
+            if !rebuild_plan.needs_rebuild && !superseded {
                 info!(
                     changed = %changed_files.join(", "),
                     "skipping rebuild because tracked input hashes are unchanged"
                 );
                 continue;
             }
+            superseded = false;
 
-            let rev = {
-                let mut live = self.live.write().await;
-                let next_rev = live.snapshot.current_rev + 1;
-                live.snapshot
-                    .apply_started(next_rev, rebuild_plan.changed_inputs.clone());
-                next_rev
+            let rev = match self
+                .start_revision(rebuild_plan.changed_inputs.clone())
+                .await
+            {
+                Ok(rev) => rev,
+                Err(error) => {
+                    error!("cannot reserve build revision: {error}");
+                    continue;
+                }
             };
             let _ = self.events.send(ServerMsg::BuildStarted {
                 rev,
                 changed_files: rebuild_plan.changed_inputs.clone(),
             });
 
-            let toplevel = self.world.manifest.toplevels.first().cloned();
+            let project_revision =
+                match ProjectRevision::capture(&self.root, &self.build_root).await {
+                    Ok(revision) => revision,
+                    Err(error) => {
+                        let diagnostics = vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: None,
+                            line: None,
+                            message: format!("failed to capture project inputs: {error}"),
+                        }];
+                        self.live
+                            .write()
+                            .await
+                            .snapshot
+                            .apply_failure(rev, diagnostics.clone());
+                        let _ = self.events.send(ServerMsg::Diagnostics {
+                            rev,
+                            items: diagnostics,
+                        });
+                        let _ = self.events.send(ServerMsg::BuildFinished {
+                            rev,
+                            success: false,
+                        });
+                        continue;
+                    }
+                };
+            let toplevel = project_revision.manifest.toplevels.first().cloned();
             let Some(toplevel) = toplevel else {
                 let diagnostics = vec![Diagnostic {
                     level: DiagnosticLevel::Error,
@@ -1161,50 +1250,172 @@ impl AppState {
                 continue;
             };
 
+            let previous_preview_rev = self.live.read().await.snapshot.last_applied_rev;
             let outcome = self
                 .compiler
-                .compile(CompileRequest {
-                    root: self.root.clone(),
-                    manifest: self.world.manifest.clone(),
-                    toplevel: toplevel.clone(),
-                    rev,
-                    build_root: self.build_root.clone(),
-                    changed_files: rebuild_plan
-                        .changed_inputs
-                        .iter()
-                        .map(Utf8PathBuf::from)
-                        .collect(),
-                })
+                .compile_for_preview(
+                    CompileRequest {
+                        root: project_revision.root.clone(),
+                        manifest: project_revision.manifest.clone(),
+                        toplevel: toplevel.clone(),
+                        rev,
+                        build_root: self.build_root.clone(),
+                        changed_files: rebuild_plan
+                            .changed_inputs
+                            .iter()
+                            .map(Utf8PathBuf::from)
+                            .collect(),
+                    },
+                    previous_preview_rev,
+                )
                 .await;
 
-            match outcome {
-                Ok(outcome) => {
-                    let latest_pdf_path = self.artifacts_root.join("latest.pdf");
-                    if let Err(error) = tokio::fs::copy(
-                        outcome.pdf_path.as_std_path(),
-                        latest_pdf_path.as_std_path(),
+            let outcome = match outcome {
+                Ok(outcome) => match project_revision
+                    .validate_recorded_inputs(
+                        &self.root,
+                        &self.build_root.join(format!("rev-{rev}")),
+                        &toplevel,
                     )
                     .await
-                    {
-                        let diagnostics = vec![Diagnostic {
+                {
+                    Ok(()) => Ok(outcome),
+                    Err(error) => Err(CompileFailure {
+                        diagnostics: vec![Diagnostic {
                             level: DiagnosticLevel::Error,
                             file: Some(toplevel.to_string()),
                             line: None,
-                            message: format!("failed to copy rendered PDF: {error}"),
-                        }];
-                        {
-                            let mut live = self.live.write().await;
-                            live.snapshot.apply_failure(rev, diagnostics.clone());
+                            message: error.to_string(),
+                        }],
+                        message: error.to_string(),
+                    }),
+                },
+                Err(failure) => Err(failure),
+            };
+            match outcome {
+                Ok(outcome) => {
+                    let mut tracked_inputs = outcome
+                        .dep_trace
+                        .inputs
+                        .iter()
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
+                    tracked_inputs.extend(project_revision.manifest.toplevels.iter().cloned());
+                    for candidate in ["00README", "00README.yaml", "00README.yml", "00README.json"]
+                    {
+                        tracked_inputs.insert(Utf8PathBuf::from(candidate));
+                    }
+                    let mut consumed_cache = BuildCache::default();
+                    consumed_cache.record_success(&project_revision, tracked_inputs);
+                    while let Ok(paths) = rebuild_rx.try_recv() {
+                        pending.extend(paths);
+                    }
+                    let verify_paths = consumed_cache
+                        .tracked_inputs
+                        .iter()
+                        .cloned()
+                        .chain(pending.iter().cloned())
+                        .collect::<BTreeSet<_>>();
+                    let changed_during_build = BuildCache::plan_rebuild(
+                        &self.root,
+                        &consumed_cache,
+                        &verify_paths.into_iter().collect::<Vec<_>>(),
+                    )
+                    .await;
+                    match changed_during_build {
+                        Ok(plan) if plan.needs_rebuild => {
+                            pending.extend(plan.changed_inputs.into_iter().map(Utf8PathBuf::from));
+                            superseded = true;
                         }
-                        let _ = self.events.send(ServerMsg::Diagnostics {
+                        Err(error) => {
+                            warn!(
+                                "could not validate compiled inputs before preview commit: {error}"
+                            );
+                            pending.extend(consumed_cache.tracked_inputs.iter().cloned());
+                            superseded = true;
+                        }
+                        _ => {}
+                    }
+                    if superseded {
+                        info!(
                             rev,
-                            items: diagnostics,
-                        });
-                        let _ = self.events.send(ServerMsg::BuildFinished {
-                            rev,
-                            success: false,
-                        });
+                            "compiled input revision was superseded; rebuilding before preview commit"
+                        );
+                        // Compilation succeeded, but only the follow-up revision may publish.
+                        self.live.write().await.snapshot.building = false;
+                        let _ = self
+                            .events
+                            .send(ServerMsg::BuildFinished { rev, success: true });
                         continue;
+                    }
+                    let source_path = self.build_root.join(format!("rev-{rev}/sources.json"));
+                    // Internal sources.json also owns continuation/rewrite state.
+                    // It was already written from these frozen inputs; only the
+                    // external path needs a new viewer source snapshot.
+                    if !source_path.exists() {
+                        let source_texts = project_revision
+                            .sources
+                            .iter()
+                            .filter(|(path, _)| consumed_cache.tracked_inputs.contains(*path))
+                            .map(|(path, text)| (path.clone(), text.clone()))
+                            .collect::<BTreeMap<_, _>>();
+                        let source_bytes = serde_json::to_vec(
+                            &serde_json::json!({ "rev": rev, "files": source_texts }),
+                        )
+                        .expect("source snapshot is serializable");
+                        if let Err(error) = tokio::fs::write(&source_path, source_bytes).await {
+                            let diagnostics = vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: None,
+                                line: None,
+                                message: format!(
+                                    "failed to persist compiled source snapshot: {error}"
+                                ),
+                            }];
+                            self.live
+                                .write()
+                                .await
+                                .snapshot
+                                .apply_failure(rev, diagnostics.clone());
+                            let _ = self.events.send(ServerMsg::Diagnostics {
+                                rev,
+                                items: diagnostics,
+                            });
+                            let _ = self.events.send(ServerMsg::BuildFinished {
+                                rev,
+                                success: false,
+                            });
+                            continue;
+                        }
+                    }
+                    if outcome.pdf_path.is_file() {
+                        let latest_pdf_path = self.artifacts_root.join("latest.pdf");
+                        if let Err(error) = tokio::fs::copy(
+                            outcome.pdf_path.as_std_path(),
+                            latest_pdf_path.as_std_path(),
+                        )
+                        .await
+                        {
+                            let diagnostics = vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: Some(toplevel.to_string()),
+                                line: None,
+                                message: format!("failed to copy rendered PDF: {error}"),
+                            }];
+                            {
+                                let mut live = self.live.write().await;
+                                live.snapshot.apply_failure(rev, diagnostics.clone());
+                            }
+                            let _ = self.events.send(ServerMsg::Diagnostics {
+                                rev,
+                                items: diagnostics,
+                            });
+                            let _ = self.events.send(ServerMsg::BuildFinished {
+                                rev,
+                                success: false,
+                            });
+                            continue;
+                        }
                     }
 
                     let pdf_file = outcome
@@ -1268,58 +1479,104 @@ impl AppState {
                         None
                     };
                     let source_snapshot = build_source_snapshot(self.as_ref(), rev).await;
+                    let mut candidate = self.live.read().await.clone();
+                    candidate.latest_pdf_path = Some(outcome.pdf_path.clone());
+                    candidate.page_metadata = outcome.renderer_page_metadata.clone();
+                    candidate.snapshot.apply_success(
+                        rev,
+                        outcome.diagnostics.clone(),
+                        pdf_url.clone(),
+                        outcome.renderer_page_metadata.len(),
+                        outcome
+                            .renderer_page_metadata
+                            .iter()
+                            .map(|page| page.page_id.clone())
+                            .collect(),
+                        outcome.page_artifacts.clone(),
+                    );
+                    candidate.snapshot.render_ir_artifacts = render_ir_artifacts.clone();
+                    candidate.snapshot.source_snapshot = source_snapshot.clone();
+                    candidate.snapshot.preview_protocol_version = 1;
+                    let prepared = match preview_persistence::prepare(&self.build_root, &candidate)
+                        .await
                     {
-                        let mut live = self.live.write().await;
-                        live.latest_pdf_path = Some(latest_pdf_path);
-                        live.page_metadata = outcome.renderer_page_metadata.clone();
-                        live.snapshot.apply_success(
-                            rev,
-                            outcome.diagnostics.clone(),
-                            pdf_url.clone(),
-                            outcome.renderer_page_metadata.len(),
-                            outcome
-                                .renderer_page_metadata
-                                .iter()
-                                .map(|page| page.page_id.clone())
-                                .collect(),
-                            outcome.page_artifacts.clone(),
-                        );
-                        live.snapshot.render_ir_artifacts = render_ir_artifacts;
-                        live.snapshot.source_snapshot = source_snapshot.clone();
-                    }
-                    {
-                        let mut build_cache = self.build_cache.write().await;
-                        let mut tracked_inputs = outcome
-                            .dep_trace
-                            .inputs
-                            .into_iter()
-                            .collect::<BTreeSet<_>>();
-                        for toplevel in &self.world.manifest.toplevels {
-                            tracked_inputs.insert(toplevel.clone());
+                        Ok(prepared) => prepared,
+                        Err(error) => {
+                            let diagnostics = vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: None,
+                                line: None,
+                                message: format!("failed to prepare preview publication: {error}"),
+                            }];
+                            self.live
+                                .write()
+                                .await
+                                .snapshot
+                                .apply_failure(rev, diagnostics.clone());
+                            let _ = self.events.send(ServerMsg::Diagnostics {
+                                rev,
+                                items: diagnostics,
+                            });
+                            let _ = self.events.send(ServerMsg::BuildFinished {
+                                rev,
+                                success: false,
+                            });
+                            continue;
                         }
-                        for candidate in
-                            ["00README", "00README.yaml", "00README.yml", "00README.json"]
-                        {
-                            let path = Utf8PathBuf::from(candidate);
-                            if self.root.join(&path).exists() {
-                                tracked_inputs.insert(path);
+                    };
+                    {
+                        // Acquire both owners before the commit gate. Readers must
+                        // never observe a new preview with the previous input cache.
+                        let mut build_cache = self.build_cache.write().await;
+                        let mut live = self.live.write().await;
+                        // Drain edits accepted during artifact publication too. There
+                        // are no awaits between this gate and the preview state commit.
+                        while let Ok(paths) = rebuild_rx.try_recv() {
+                            for path in paths {
+                                if !path.starts_with(".latexd") && !path.starts_with(".git") {
+                                    pending.insert(path);
+                                    superseded = true;
+                                }
                             }
                         }
-                        build_cache.record_success(&self.root, tracked_inputs).await;
+                        if superseded {
+                            live.snapshot.building = false;
+                            drop(live);
+                            let _ = self
+                                .events
+                                .send(ServerMsg::BuildFinished { rev, success: true });
+                            continue;
+                        }
+                        if let Err(error) = prepared.commit() {
+                            let diagnostics = vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: None,
+                                line: None,
+                                message: format!("failed to commit preview publication: {error}"),
+                            }];
+                            live.snapshot.apply_failure(rev, diagnostics.clone());
+                            drop(live);
+                            let _ = self.events.send(ServerMsg::Diagnostics {
+                                rev,
+                                items: diagnostics,
+                            });
+                            let _ = self.events.send(ServerMsg::BuildFinished {
+                                rev,
+                                success: false,
+                            });
+                            continue;
+                        }
+                        *build_cache = consumed_cache;
+                        *live = candidate;
                     }
                     attach_render_revision(&self, rev, &outcome.renderer_page_metadata).await;
                     let _ = self.events.send(ServerMsg::Diagnostics {
                         rev,
                         items: outcome.diagnostics.clone(),
                     });
-                    if !outcome.page_patches.is_empty() {
-                        let _ = self.events.send(ServerMsg::PatchPages {
-                            rev,
-                            ops: outcome.page_patches.clone(),
-                        });
-                    }
-                    let _ = self.events.send(ServerMsg::FullPdfReady {
-                        rev,
+                    let _ = self.events.send(ServerMsg::PreviewCommitted {
+                        base_preview_rev: previous_preview_rev,
+                        new_preview_rev: rev,
                         pdf_url,
                         page_ids: outcome
                             .renderer_page_metadata
@@ -1327,10 +1584,13 @@ impl AppState {
                             .map(|page| page.page_id.clone())
                             .collect(),
                         page_artifacts: outcome.page_artifacts.clone(),
-                    });
-                    let _ = self.events.send(ServerMsg::SourceSnapshot {
-                        rev,
-                        files: source_snapshot,
+                        ops: if rev.saturating_sub(1) == previous_preview_rev {
+                            outcome.page_patches.clone()
+                        } else {
+                            Vec::new()
+                        },
+                        source_snapshot,
+                        render_ir_artifacts,
                     });
                     let _ = self
                         .events
@@ -1384,7 +1644,17 @@ impl BuildCache {
 
         let mut dirty_inputs = Vec::new();
         for path in changed_paths {
+            if path.starts_with(".latexd") || path.starts_with(".git") {
+                continue;
+            }
             if !cache.tracked_inputs.contains(path) {
+                // Until resolver-level negative readsets exist, conservatively
+                // invalidate any observed namespace change (new/deleted assets,
+                // packages and directories), while ignoring unrelated content edits.
+                let exists = tokio::fs::try_exists(root.join(path)).await?;
+                if exists != cache.observed_paths.contains(path) {
+                    dirty_inputs.push(path.to_string());
+                }
                 continue;
             }
 
@@ -1400,20 +1670,18 @@ impl BuildCache {
         })
     }
 
-    async fn record_success(&mut self, root: &Utf8Path, tracked_inputs: BTreeSet<Utf8PathBuf>) {
+    fn record_success(
+        &mut self,
+        revision: &ProjectRevision,
+        tracked_inputs: BTreeSet<Utf8PathBuf>,
+    ) {
         self.tracked_inputs = tracked_inputs;
-        self.input_hashes.clear();
-        for path in &self.tracked_inputs {
-            match hash_input(root, path).await {
-                Ok(hash) => {
-                    self.input_hashes.insert(path.clone(), hash);
-                }
-                Err(error) => {
-                    warn!("failed to hash tracked input {}: {error}", path);
-                    self.input_hashes.insert(path.clone(), None);
-                }
-            }
-        }
+        self.input_hashes = self
+            .tracked_inputs
+            .iter()
+            .map(|path| (path.clone(), revision.hashes.get(path).cloned()))
+            .collect();
+        self.observed_paths = revision.paths.clone();
     }
 }
 
@@ -1575,7 +1843,13 @@ async fn renderer_session_metrics(
 }
 
 async fn latest_pdf(State(state): State<Arc<AppState>>) -> Response {
-    let path = state.live.read().await.latest_pdf_path.clone();
+    let (path, _revision_pin) = {
+        let live = state.live.read().await;
+        // Keep publication blocked until ownership covers the selected revision.
+        // Otherwise a later commit and GC could delete it before pin acquisition.
+        let pin = preview_leases::pin_job(&state.build_root, live.snapshot.last_applied_rev).await;
+        (live.latest_pdf_path.clone(), pin)
+    };
     let Some(path) = path else {
         return (
             StatusCode::NOT_FOUND,
@@ -1588,6 +1862,12 @@ async fn latest_pdf(State(state): State<Arc<AppState>>) -> Response {
             .into_response();
     };
 
+    if let Err(error) = pdf_export::ensure_pdf(&state.build_root, &path).await {
+        return text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to export preview PDF: {error}"),
+        );
+    }
     match tokio::fs::read(path.as_std_path()).await {
         Ok(bytes) => (
             StatusCode::OK,
@@ -1614,6 +1894,7 @@ async fn revision_artifact(
     Path((rev, path)): Path<(u64, String)>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let Ok(relative_path) = normalize_relative_path(Utf8Path::new(&path)) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -1646,6 +1927,26 @@ async fn revision_artifact(
         .build_root
         .join(format!("rev-{rev}"))
         .join(relative_path);
+    if artifact_path.extension() == Some("pdf") && !artifact_path.is_file() {
+        match pdf_export::validated_recipe(&state.build_root, &artifact_path) {
+            Ok(true) => {
+                if let Err(error) = pdf_export::ensure_pdf(&state.build_root, &artifact_path).await
+                {
+                    return text_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to export revision PDF: {error}"),
+                    );
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                return text_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("invalid PDF export recipe: {error}"),
+                );
+            }
+        }
+    }
     let content_type = match artifact_path.extension() {
         Some("svg") => "image/svg+xml; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
@@ -1888,6 +2189,7 @@ async fn revision_page_png(
     Query(query): Query<RasterQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let Some(page_id) = parse_png_path_suffix(&page_png) else {
         return text_response(StatusCode::NOT_FOUND, "requested page id was not found");
     };
@@ -1912,6 +2214,7 @@ async fn page_syncmap(
     Path((rev, page_id)): Path<(u64, String)>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let source_texts = load_revision_source_texts(&state.build_root, rev).await;
     if let Ok(Some(syncmap_pages)) = load_revision_syncmap_artifacts(&state.build_root, rev).await {
         let Some(page) = syncmap_pages
@@ -1982,6 +2285,7 @@ async fn source_jump(
     Query(query): Query<SourceJumpQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let parsed_source_hash = parse_canonical_source_hash(query.source_hash.as_deref());
     let file = if let Some((file, _, _, _)) = parsed_source_hash.as_ref() {
         file.clone()
@@ -2059,12 +2363,22 @@ async fn source_file(
     Query(query): Query<SourceFileQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let Ok(file) = normalize_relative_path(Utf8Path::new(&query.file)) else {
         return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
     };
     let source_texts = load_revision_source_texts(&state.build_root, rev).await;
     let content = if let Some(content) = source_texts.get(&file).cloned() {
         content
+    } else if state
+        .build_root
+        .join(format!("rev-{rev}/sources.json"))
+        .exists()
+    {
+        return text_response(
+            StatusCode::NOT_FOUND,
+            "requested source file was not found in the revision snapshot",
+        );
     } else {
         match tokio::fs::read_to_string(state.root.join(&file).as_std_path()).await {
             Ok(content) => content,
@@ -2089,6 +2403,7 @@ async fn source_file(
 }
 
 async fn source_files(Path(rev): Path<u64>, State(state): State<Arc<AppState>>) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let mut files = build_source_snapshot(&state, rev)
         .await
         .into_iter()
@@ -2179,6 +2494,7 @@ async fn open_source(
     State(state): State<Arc<AppState>>,
     Json(request): Json<OpenSourceRequest>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let launch_requested = request.launch.unwrap_or(true);
     let should_launch = launch_requested && state.editor_bridge.is_some();
     let parsed_source_hash = parse_canonical_source_hash(request.source_hash.as_deref());
@@ -2199,6 +2515,15 @@ async fn open_source(
     let source_texts = load_revision_source_texts(&state.build_root, rev).await;
     let source_text = if let Some(text) = source_texts.get(&file) {
         Some(text.clone())
+    } else if state
+        .build_root
+        .join(format!("rev-{rev}/sources.json"))
+        .exists()
+    {
+        return text_response(
+            StatusCode::NOT_FOUND,
+            "requested source file was not found in the revision snapshot",
+        );
     } else {
         tokio::fs::read_to_string(state.root.join(&file).as_std_path())
             .await
@@ -2327,6 +2652,7 @@ async fn revision_tile_png(
     Query(query): Query<RasterQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let Some(tile_y) = parse_png_u32_path_suffix(&tile_y_png) else {
         return text_response(StatusCode::NOT_FOUND, "requested tile was not found");
     };
@@ -2469,6 +2795,7 @@ async fn required_tiles(
     Query(query): Query<RequiredTilesQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let page = match load_revision_page_input(&state, rev, &page_id).await {
         Ok(page) => page,
         Err(response) => return response,
@@ -2624,7 +2951,12 @@ async fn load_live_workspace_source_snapshot(
 
 async fn build_source_snapshot(state: &AppState, rev: u64) -> Vec<SourceSnapshotFile> {
     let source_texts = load_revision_source_texts(&state.build_root, rev).await;
-    if !source_texts.is_empty() {
+    if !source_texts.is_empty()
+        || state
+            .build_root
+            .join(format!("rev-{rev}/sources.json"))
+            .exists()
+    {
         return source_texts
             .into_iter()
             .map(|(file, content)| SourceSnapshotFile {
@@ -3572,7 +3904,7 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
     if let Some(handle) = sessions.get(&key) {
         return handle.clone();
     }
-    let (tx, mut rx) = mpsc::channel::<RenderSessionRequest>(16);
+    let (tx, mut rx) = mpsc::channel::<PinnedRenderRequest>(16);
     let config = state.tile_renderer.clone();
     let metrics = render_session_metrics_handle(state);
     metrics
@@ -3717,7 +4049,9 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     }
                 }
             };
-        while let Some(request) = rx.recv().await {
+        while let Some(PinnedRenderRequest { request, _pin }) = rx.recv().await {
+            // The envelope owns its revision through queueing, request cancellation,
+            // native execution, and response delivery; the receiver need not survive.
             match request {
                 RenderSessionRequest::AttachRevision {
                     rev,
@@ -4120,7 +4454,12 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
             }
         }
     });
-    let handle = RenderSessionHandle { tx };
+    let handle = RenderSessionHandle {
+        tx: RenderSessionSender {
+            tx,
+            build_root: state.build_root.clone(),
+        },
+    };
     sessions.insert(key, handle.clone());
     handle
 }
@@ -4169,6 +4508,7 @@ async fn render_page_with_session(
     page: &PageRenderInput,
     scale: f32,
 ) -> anyhow::Result<tex_render_gs::RasterImage> {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, page.revision).await;
     for _ in 0..2 {
         let handle = render_session_handle(state);
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -4338,6 +4678,7 @@ async fn cache_raster_image(
     page: &PageRenderInput,
     scale: f32,
 ) -> anyhow::Result<tex_render_gs::RasterImage> {
+    let _revision_pin = preview_leases::pin_job(&state.build_root, page.revision).await;
     let zoom_bucket = (scale * 100.0).round().clamp(1.0, u16::MAX as f32) as u16;
     let key = RasterCacheKey {
         rev: page.revision,
@@ -4442,6 +4783,8 @@ fn insert_raster_cache_entry(
 }
 
 async fn prune_old_build_revisions(build_root: &Utf8Path, current_rev: u64) {
+    let roots_guard = preview_leases::gc_roots(build_root).await;
+    let active_roots = roots_guard.revisions();
     let oldest_retained_rev =
         current_rev.saturating_sub(RETAINED_BUILD_REVISIONS.saturating_sub(1));
     let mut entries = match tokio::fs::read_dir(build_root.as_std_path()).await {
@@ -4452,13 +4795,14 @@ async fn prune_old_build_revisions(build_root: &Utf8Path, current_rev: u64) {
             return;
         }
     };
+    let mut revisions = BTreeMap::new();
     loop {
         let entry = match entries.next_entry().await {
             Ok(Some(entry)) => entry,
             Ok(None) => break,
             Err(error) => {
                 warn!("failed to scan a build revision in {build_root}: {error}");
-                break;
+                return;
             }
         };
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -4470,11 +4814,98 @@ async fn prune_old_build_revisions(build_root: &Utf8Path, current_rev: u64) {
         else {
             continue;
         };
-        if rev >= oldest_retained_rev {
+        revisions.insert(rev, entry.path());
+    }
+
+    // The recent manifests are roots. Page PDFs and their sibling SVGs are
+    // self-contained, so keeping their owner directories also keeps resources.
+    // An owner directory alone is not another live manifest: tracing its old
+    // pages would retain unrelated historical revisions indefinitely.
+    let published = match preview_persistence::published_page_metadata(build_root).await {
+        Ok(published) => published,
+        Err(error) => {
+            warn!("skipping revision pruning: cannot read published preview root: {error}");
+            return;
+        }
+    };
+    // The durable preview manifest is authoritative even when the per-revision
+    // cache metadata has been removed or corrupted after a successful commit.
+    let mut root_metadata = BTreeMap::new();
+    if let Some((rev, pages)) = published {
+        root_metadata.insert(rev, pages);
+    }
+    if active_roots
+        .iter()
+        .any(|rev| *rev != 0 && !revisions.contains_key(rev) && !root_metadata.contains_key(rev))
+    {
+        warn!("skipping revision pruning: an active revision directory is missing");
+        return;
+    }
+    let mut retained = root_metadata.keys().copied().collect::<BTreeSet<_>>();
+    for (&rev, path) in revisions
+        .iter()
+        .filter(|(rev, _)| **rev >= oldest_retained_rev || active_roots.contains(*rev))
+    {
+        retained.insert(rev);
+        if root_metadata.contains_key(&rev) {
             continue;
         }
-        if let Err(error) = tokio::fs::remove_dir_all(entry.path()).await {
-            warn!("failed to prune old build revision {name}: {error}");
+        let metadata_path = path.join("page-metadata.json");
+        let bytes = match tokio::fs::read(&metadata_path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if active_roots.contains(&rev) {
+                    warn!("skipping revision pruning: active revision {rev} has no page metadata");
+                    return;
+                }
+                continue;
+            }
+            Err(error) => {
+                warn!(
+                    "skipping revision pruning: failed to read {}: {error}",
+                    metadata_path.display()
+                );
+                return;
+            }
+        };
+        let pages: Vec<PageArtifactMeta> = match serde_json::from_slice(&bytes) {
+            Ok(pages) => pages,
+            Err(error) => {
+                warn!(
+                    "skipping revision pruning: failed to parse {}: {error}",
+                    metadata_path.display()
+                );
+                return;
+            }
+        };
+        root_metadata.insert(rev, pages);
+    }
+    for pages in root_metadata.into_values() {
+        for page in pages {
+            if page.pdf_artifact_path.as_str().is_empty() {
+                continue;
+            }
+            let Some(owner_rev) = page
+                .pdf_artifact_path
+                .as_str()
+                .strip_prefix("rev-")
+                .and_then(|path| path.split_once('/'))
+                .and_then(|(owner, _)| owner.parse::<u64>().ok())
+            else {
+                warn!(
+                    "skipping revision pruning: invalid page artifact path {}",
+                    page.pdf_artifact_path
+                );
+                return;
+            };
+            retained.insert(owner_rev);
+        }
+    }
+    for (rev, path) in revisions {
+        if !retained.contains(&rev)
+            && let Err(error) = tokio::fs::remove_dir_all(path).await
+        {
+            warn!("failed to prune old build revision rev-{rev}: {error}");
         }
     }
 }
@@ -4541,6 +4972,9 @@ async fn ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl In
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()> {
+    let lease = preview_leases::ClientLease::new(&state.build_root).await;
+    let applied_rev = state.live.read().await.snapshot.last_applied_rev;
+    lease.set_revision(applied_rev, applied_rev).await;
     let mut receiver = state.events.subscribe();
     loop {
         tokio::select! {
@@ -4560,6 +4994,13 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()
                     Some(Ok(Message::Close(_))) | None => return Ok(()),
                     Some(Ok(Message::Text(payload))) => {
                         match serde_json::from_str::<ClientMsg>(&payload) {
+                            Ok(ClientMsg::PreviewLease { rev }) => {
+                                let applied_rev = state.live.read().await.snapshot.last_applied_rev;
+                                if !lease.set_revision(rev, applied_rev).await {
+                                    let payload = serde_json::to_string(&ServerMsg::PreviewResyncRequired { preview_rev: applied_rev })?;
+                                    socket.send(Message::Text(payload.into())).await?;
+                                }
+                            }
                             Ok(message) => {
                                 let state = state.clone();
                                 tokio::spawn(async move {
@@ -4594,6 +5035,7 @@ async fn prewarm_viewport_rasters(state: &Arc<AppState>, message: ClientMsg) {
     if rev == 0 {
         return;
     }
+    let _revision_pin = preview_leases::pin_job(&state.build_root, rev).await;
     let mut targets = Vec::new();
     let mut queued_targets = BTreeSet::new();
     let mut push_target = |page: &PageArtifactMeta, scale: f32| {
@@ -4847,9 +5289,10 @@ mod tests {
         fs::write(root.join("notes.txt"), "scratch").expect("notes");
 
         let mut cache = BuildCache::default();
-        cache
-            .record_success(&root, BTreeSet::from([Utf8PathBuf::from("main.tex")]))
-            .await;
+        let revision = super::ProjectRevision::capture(&root, &root.join(".latexd/build"))
+            .await
+            .expect("input snapshot");
+        cache.record_success(&revision, BTreeSet::from([Utf8PathBuf::from("main.tex")]));
 
         let unchanged = BuildCache::plan_rebuild(&root, &cache, &[Utf8PathBuf::from("main.tex")])
             .await
@@ -4988,9 +5431,10 @@ mod tests {
         fs::write(root.join("main.tex"), "hello").expect("main tex");
 
         let mut cache = BuildCache::default();
-        cache
-            .record_success(&root, BTreeSet::from([Utf8PathBuf::from("main.tex")]))
-            .await;
+        let revision = super::ProjectRevision::capture(&root, &root.join(".latexd/build"))
+            .await
+            .expect("input snapshot");
+        cache.record_success(&revision, BTreeSet::from([Utf8PathBuf::from("main.tex")]));
         fs::remove_file(root.join("main.tex")).expect("remove main tex");
 
         let changed = BuildCache::plan_rebuild(&root, &cache, &[Utf8PathBuf::from("main.tex")])
@@ -5412,6 +5856,123 @@ mod tests {
             assert!(build_root.join(format!("rev-{rev}")).exists());
         }
         assert!(build_root.join("not-a-revision").exists());
+    }
+
+    #[tokio::test]
+    async fn artifact_lifetime_pruning_preserves_live_owners_and_serves_after_restart() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "stable").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        for rev in 1..=20 {
+            let rev_dir = build_root.join(format!("rev-{rev}"));
+            fs::create_dir_all(rev_dir.join("pages")).expect("revision pages");
+            if rev == 1 {
+                fs::write(rev_dir.join("pages/stable.pdf"), b"%PDF-stable").expect("PDF");
+                fs::write(rev_dir.join("pages/stable.svg"), b"<svg>stable</svg>").expect("SVG");
+            }
+            let pages = vec![PageArtifactMeta {
+                page_id: "stable".to_string(),
+                index: 0,
+                line_count: 1,
+                width_pt: 612,
+                height_pt: 792,
+                content_hash: "stable-hash".to_string(),
+                text_start_utf8: 0,
+                text_end_utf8: 6,
+                pdf_artifact_path: "rev-1/pages/stable.pdf".into(),
+                source_spans: Vec::new(),
+            }];
+            fs::write(
+                rev_dir.join("page-metadata.json"),
+                serde_json::to_vec(&pages).expect("metadata"),
+            )
+            .expect("write metadata");
+            prune_old_build_revisions(&build_root, rev).await;
+            assert!(
+                build_root.join("rev-1/pages/stable.pdf").is_file(),
+                "revision {rev}"
+            );
+            assert!(
+                build_root.join("rev-1/pages/stable.svg").is_file(),
+                "revision {rev}"
+            );
+        }
+        assert!(!build_root.join("rev-12").exists());
+        assert!(build_root.join("rev-13").exists());
+
+        // Recreate daemon state with empty render caches. The latest manifest and
+        // its original owner URLs must still resolve from disk alone.
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let input = load_revision_page_input(&state, 20, "stable")
+            .await
+            .expect("page input");
+        assert_eq!(
+            input.pdf_path,
+            build_root.join("rev-1/pages/stable.pdf").as_str()
+        );
+        let router = build_router(state);
+        for (extension, expected) in [
+            ("pdf", b"%PDF-stable".as_slice()),
+            ("svg", b"<svg>stable</svg>".as_slice()),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/artifacts/rev/1/pages/stable.{extension}"))
+                        .body(Body::empty())
+                        .expect("artifact request"),
+                )
+                .await
+                .expect("artifact response");
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("body")
+                    .as_ref(),
+                expected
+            );
+        }
+
+        // Once every retained manifest drops the page, its owner can be collected.
+        for rev in 21..=28 {
+            let rev_dir = build_root.join(format!("rev-{rev}"));
+            fs::create_dir_all(&rev_dir).expect("revision dir");
+            fs::write(rev_dir.join("page-metadata.json"), b"[]").expect("empty metadata");
+            prune_old_build_revisions(&build_root, rev).await;
+        }
+        assert!(!build_root.join("rev-1").exists());
+    }
+
+    #[tokio::test]
+    async fn artifact_lifetime_pruning_skips_sweep_when_a_live_manifest_is_invalid() {
+        let tempdir = tempdir().expect("tempdir");
+        let build_root =
+            Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(build_root.join("rev-1")).expect("owner dir");
+        fs::create_dir_all(build_root.join("rev-20")).expect("live dir");
+        fs::write(
+            build_root.join("rev-20/page-metadata.json"),
+            b"invalid JSON",
+        )
+        .expect("invalid metadata");
+        prune_old_build_revisions(&build_root, 20).await;
+        assert!(build_root.join("rev-1").exists());
     }
 
     #[tokio::test]
@@ -6163,7 +6724,15 @@ mod tests {
         render_sessions()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(key, RenderSessionHandle { tx });
+            .insert(
+                key,
+                RenderSessionHandle {
+                    tx: super::RenderSessionSender {
+                        tx,
+                        build_root: state.build_root.clone(),
+                    },
+                },
+            );
         let page = PageRenderInput {
             page_id: "page-a".to_string(),
             revision: 71,

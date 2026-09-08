@@ -33,6 +33,16 @@ pub struct SourceSnapshotFile {
     pub line_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct RenderIrArtifactUrls {
+    pub legacy_output_url: String,
+    pub events_url: String,
+    pub document_ir_url: String,
+    pub page_display_list_url: String,
+    pub display_list_pdf_url: String,
+    pub display_list_svg_urls: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum PagePatchOp {
@@ -58,6 +68,21 @@ pub enum PagePatchOp {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
+    PreviewResyncRequired {
+        preview_rev: RevId,
+    },
+    /// Pages and interaction sources are published in one transaction. A client
+    /// missing the base must reload /api/state instead of applying partial ops.
+    PreviewCommitted {
+        base_preview_rev: RevId,
+        new_preview_rev: RevId,
+        pdf_url: String,
+        page_ids: Vec<String>,
+        page_artifacts: Vec<PagePreviewArtifact>,
+        ops: Vec<PagePatchOp>,
+        source_snapshot: Vec<SourceSnapshotFile>,
+        render_ir_artifacts: Option<RenderIrArtifactUrls>,
+    },
     BuildStarted {
         rev: RevId,
         changed_files: Vec<String>,
@@ -89,6 +114,9 @@ pub enum ServerMsg {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMsg {
+    PreviewLease {
+        rev: RevId,
+    },
     OpenDocument {
         doc: String,
     },
@@ -107,6 +135,33 @@ mod tests {
         ClientMsg, Diagnostic, DiagnosticLevel, PagePatchOp, PagePreviewArtifact, ServerMsg,
         SourceSnapshotFile,
     };
+
+    #[test]
+    fn roundtrips_atomic_preview_commit_with_base_and_sources() {
+        let message = ServerMsg::PreviewCommitted {
+            base_preview_rev: 3,
+            new_preview_rev: 5,
+            pdf_url: "/artifacts/rev/5/main.pdf".into(),
+            page_ids: vec!["page-a".into()],
+            page_artifacts: vec![PagePreviewArtifact {
+                page_id: "page-a".into(),
+                pdf_url: "/artifacts/rev/1/pages/a.pdf".into(),
+                svg_url: None,
+            }],
+            ops: Vec::new(),
+            source_snapshot: vec![SourceSnapshotFile {
+                file: "main.tex".into(),
+                content: "new source".into(),
+                line_count: 1,
+            }],
+            render_ir_artifacts: None,
+        };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["type"], "preview_committed");
+        assert_eq!(json["base_preview_rev"], 3);
+        assert_eq!(json["new_preview_rev"], 5);
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), message);
+    }
 
     #[test]
     fn roundtrips_server_messages() {
@@ -214,5 +269,19 @@ mod tests {
             serde_json::from_str::<ClientMsg>(&serialized).expect("deserialize client msg");
 
         assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn roundtrips_preview_lease_release_and_resync_request() {
+        for rev in [0, 8] {
+            let message = ClientMsg::PreviewLease { rev };
+            let json = serde_json::to_value(&message).unwrap();
+            assert_eq!(json["type"], "preview_lease");
+            assert_eq!(serde_json::from_value::<ClientMsg>(json).unwrap(), message);
+        }
+        let message = ServerMsg::PreviewResyncRequired { preview_rev: 9 };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["type"], "preview_resync_required");
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), message);
     }
 }

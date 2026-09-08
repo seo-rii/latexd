@@ -420,6 +420,85 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
   }
 }
 
+test("atomic preview base mismatch reloads state and preserves the old preview until resolution", async () => {
+  const options: any = {
+    stateResponse: {
+      preview_protocol_version: 1,
+      source_snapshot: [{ file: "main.tex", content: "source 15", line_count: 1 }]
+    }
+  };
+  await withViewerBrowserHarness(options, async ({ viewer, sockets, flush, fetchCalls }) => {
+    const original = viewer.getState();
+    let resolveState;
+    options.stateResponsePromise = new Promise((resolve) => { resolveState = resolve; });
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "preview_committed", base_preview_rev: 16, new_preview_rev: 17,
+      pdf_url: "/artifacts/rev/17/main.pdf", page_ids: ["page-b"],
+      page_artifacts: [{ page_id: "page-b", pdf_url: "/artifacts/rev/17/pages/page-b.pdf" }],
+      source_snapshot: [{ file: "main.tex", content: "source 17", line_count: 1 }], ops: []
+    }) }));
+    await flush();
+    assert.equal(fetchCalls.filter((call) => call.url.endsWith("/api/state")).length, 2);
+    assert.equal(viewer.getState().lastAppliedRev, 15);
+    assert.strictEqual(viewer.getState().pages, original.pages);
+    assert.strictEqual(viewer.getState().sourceFiles, original.sourceFiles);
+    resolveState({
+      preview_protocol_version: 1, current_rev: 18, last_applied_rev: 17,
+      pdf_url: "/artifacts/rev/17/main.pdf", page_ids: ["page-b"],
+      page_artifacts: [{ page_id: "page-b", pdf_url: "/artifacts/rev/17/pages/page-b.pdf" }],
+      source_snapshot: [{ file: "main.tex", content: "source 17", line_count: 1 }],
+      building: false, last_build_succeeded: false
+    });
+    await flush();
+    assert.equal(viewer.getState().lastAppliedRev, 17);
+    assert.equal(viewer.getState().currentRev, 18);
+    assert.equal(viewer.getState().previewResyncRev, 0);
+    assert.deepEqual(viewer.getState().pageIds, ["page-b"]);
+    assert.equal(viewer.getState().sourceFiles["main.tex"].content, "source 17");
+  });
+});
+
+test("socket reconnection reloads the latest preview without waiting for another build", async () => {
+  const options: any = { stateResponse: { preview_protocol_version: 1 } };
+  await withViewerBrowserHarness(options, async ({ viewer, sockets, flush, fetchCalls }) => {
+    assert.equal(viewer.getState().lastAppliedRev, 15);
+    options.stateResponse = {
+      preview_protocol_version: 1, current_rev: 16, last_applied_rev: 16,
+      source_snapshot: [{ file: "main.tex", content: "reconnected source", line_count: 1 }]
+    };
+    sockets[0].readyState = 1;
+    sockets[0].dispatchEvent(new Event("open"));
+    await flush();
+    assert.equal(fetchCalls.filter((call) => call.url.endsWith("/api/state")).length, 2);
+    assert.equal(viewer.getState().lastAppliedRev, 16);
+    assert.equal(viewer.getState().sourceFiles["main.tex"].content, "reconnected source");
+  });
+});
+
+test("viewer leases the applied preview, replaces it on commit, and releases on destroy", async () => {
+  await withViewerBrowserHarness({ stateResponse: { preview_protocol_version: 1 } }, async ({ viewer, sockets, flush }) => {
+    const frames = [];
+    sockets[0].send = (payload) => frames.push(JSON.parse(payload));
+    sockets[0].readyState = 1;
+    sockets[0].dispatchEvent(new Event("open"));
+    await flush();
+    assert.deepEqual(frames.filter((frame) => frame.type === "preview_lease"), [{ type: "preview_lease", rev: 15 }]);
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "build_started", rev: 16, changed_files: ["main.tex"]
+    }) }));
+    assert.equal(frames.filter((frame) => frame.type === "preview_lease").length, 1, "build notices do not release last-good preview");
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "preview_committed", base_preview_rev: 15, new_preview_rev: 16,
+      pdf_url: "/artifacts/rev/16/main.pdf", page_ids: [], page_artifacts: [],
+      source_snapshot: [], ops: []
+    }) }));
+    assert.equal(viewer.getState().lastAppliedRev, 16);
+    assert.deepEqual(frames.filter((frame) => frame.type === "preview_lease").at(-1), { type: "preview_lease", rev: 16 });
+    viewer.destroy();
+    assert.deepEqual(frames.at(-1), { type: "preview_lease", rev: 0 });
+  });
+});
+
 function installScrollablePreviewGeometry(elements, options = {}) {
   const frame = elements.get("frame");
   const previewStack = elements.get("preview-stack");
