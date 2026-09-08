@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`latexd` already has `gs-cli`, `gs-api`, a runtime pool, raster caches, disk-backed cache, and viewport prewarm. The missing piece is a true long-lived renderer session that keeps Ghostscript page/device setup alive across cold misses.
+`latexd` already has `gs-cli`, `gs-api`, a runtime pool, raster caches, disk-backed cache, and viewport prewarm. The next backend experiment is a renderer session that keeps Ghostscript page/device setup alive across uncached page/spec requests. The current production tile path uses a bounded decoded full-page cache and crops requested rectangles.
 
 This document narrows that work so it does not sprawl into unrelated M7/M8/M9 areas.
 
@@ -14,13 +14,13 @@ This document narrows that work so it does not sprawl into unrelated M7/M8/M9 ar
 - Viewer-driven `viewport_changed` prewarms likely pages, but only after build output exists.
 - `latexd` now also has a Phase 1 shared renderer actor/session wrapper at the daemon layer: full-page cold misses for the same document root + renderer mode go through one shared render lane instead of constructing a fresh renderer path per miss.
 - Phase 2 has also started in a broader narrow form: the actor can now attach/detach recent revision page metadata, answer attached-page lookups before the HTTP handlers fall back to disk metadata, answer full revision page-metadata-set lookups for sync/source-jump style request paths, keep a small recent-revision window of attached revisions alive, expose that attached revision window through the debug surface, and retain/evict attached revisions through an actor-owned LRU + page-budget policy instead of build-loop `rev - N` detach.
-- Phase 3 has also started in a narrow form: tile requests now go through the same actor/session lane and call renderer-native `render_tiles` instead of rendering a full PNG and cropping it inside the HTTP handler. The actor now also keeps a small recent rect-tile cache keyed by revision/page/content-hash/zoom/rect, so repeated identical tile requests and mixed cached+uncached batches can reuse cached tiles and only render missing rectangles. Broader rectangle batch ownership, per-page display-list retention, and `gs-cli` staying purely as fallback/oracle are still follow-up work.
-- Phase 4 has also started in a narrow form: viewport prewarm no longer fills the full-page raster cache eagerly. It now prioritizes current page, then visible pages, then adjacent pages, suppresses duplicate in-flight warm work for the same revision/page/zoom bucket, and sends actor-owned prewarm requests that warm renderer-native tile/session state without writing PNG cache entries. The actor now also keeps a per-page warm-bucket budget so one page's zoom churn does not evict every other warmed page. Longer-lived warm ownership tuning is still follow-up work.
-- Phase 5 has also started in a narrow form: the daemon now keeps actor spawn/restart/attach/detach/evict/full-render/tile-render/prewarm/fallback counters, a small recent event ring keyed by revision/page id, emits matching structured debug logs, and exposes them through a debug metrics surface. Render/tile/prewarm/fallback events now also carry coarse duration data in that recent-event/debug surface, and the debug snapshot also exposes aggregate latency summaries plus live attached-page-count / revision-window / page-budget context for render/tile/prewarm/fallback paths. Broader latency observability remains follow-up work.
+- Tile requests share the actor/session lane and its recent rect-tile cache. The GS CLI and API backends still rasterize full pages: a new actor-owned decoded RGBA cache now retains up to 8 rasters / 64 MiB by paint hash, page dimensions and canonical zoom. Separate tile misses, prewarm and full-page requests reuse that raster, including unchanged paint across revisions. Only uncached rectangles are sliced; repeated rectangles in one batch are deduplicated while response order is preserved. Oversized pages bypass retention without evicting useful cached pages. Direct Ghostscript rectangle-request rendering remains unimplemented.
+- Phase 4 has also started in a narrow form: viewport prewarm does not write full-page PNG cache entries, but a cold prewarm does rasterize a full page into the bounded decoded cache. It now prioritizes current page, then visible pages, then adjacent pages, suppresses duplicate in-flight warm work for the same revision/page/zoom bucket, and sends actor-owned prewarm requests that populate the decoded raster and first-tile caches without writing PNG cache entries. The actor now also keeps a per-page warm-bucket budget so one page's zoom churn does not evict every other warmed page. Longer-lived warm ownership tuning is still follow-up work.
+- Phase 5 has also started in a narrow form: the daemon now keeps actor spawn/restart/attach/detach/evict/full-render/tile-render/prewarm/fallback counters, a small recent event ring keyed by revision/page id, emits matching structured debug logs, and exposes them through a debug metrics surface. Render/tile/prewarm/fallback events now also carry coarse duration data in that recent-event/debug surface, and the debug snapshot also exposes aggregate latency summaries plus live attached-page-count / revision-window / page-budget context for render/tile/prewarm/fallback paths. The debug snapshot additionally reports active-actor full-page cache entries/bytes/hits/misses/evictions/oversized bypasses, actual backend invocation count (including failures), successful full-page pixels rasterized and tiles sliced. These distinguish output reuse from avoided raster work; active-actor raster counters reset when that actor is replaced. Broader latency observability remains follow-up work.
 
 ## Constraints
 
-- Ghostscript `gsapi_*` calls remain single-thread-affine.
+- Actor Ghostscript `gsapi_*` calls, runtime creation, instance resets and destruction use one dedicated OS thread. The actor does not adopt a runtime initialized on another thread.
 - Transparent PDFs cannot rely on `display_update`; rectangle request must be the steady-state path.
 - The renderer is a preview accelerator. It must not become the owner of document invalidation or checkpoint policy.
 
@@ -54,7 +54,7 @@ Done when:
 
 ## Phase 3: Rectangle-Request Tile Path
 
-Target: stop rendering a full PNG just to crop tiles.
+Target: evaluate direct rectangles after measuring the bounded full-page cache baseline. Current slicing reuses a decoded page without cloning its full buffer; it does not reduce the pixels of the first raster.
 
 - Add a dedicated `GsApiTileRenderer` path that enters rectangle-request mode once per page/session.
 - Keep a per-page display-list handle inside the actor.
@@ -101,7 +101,7 @@ Done when:
 1. Phase 1 actor/session wrapper
 2. Phase 2 revision attachment
 3. Phase 5 metrics/failure hooks
-4. Phase 3 rectangle-request tile rendering
+4. Bounded decoded full-page reuse baseline (implemented), then Phase 3 rectangle-request backend experiment
 5. Phase 4 session-aware prewarm tuning
 
 This order keeps the first step small: stabilize ownership and lifecycle before chasing rectangle-request performance.

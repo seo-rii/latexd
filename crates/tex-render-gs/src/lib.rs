@@ -7,14 +7,30 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use libloading::Library;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PageRenderInput {
     pub page_id: String,
     pub revision: u64,
     pub content_hash: String,
     pub width_px: u32,
     pub height_px: u32,
+    /// Exact visible dimensions in PDF points, after crop, units, and rotation.
+    pub natural_size_pt: Option<[f64; 2]>,
     pub pdf_path: String,
+}
+
+impl PageRenderInput {
+    pub fn size_pt(&self) -> [f64; 2] {
+        self.natural_size_pt
+            .unwrap_or([f64::from(self.width_px), f64::from(self.height_px)])
+    }
+
+    /// Match the canonical hundredth-scale raster requested by tile URLs.
+    pub fn raster_dimensions(&self, scale: f32) -> [u32; 2] {
+        let scale = f64::from(bucket_for_scale(scale)) / 100.0;
+        self.size_pt()
+            .map(|dimension| ((dimension * scale).round() as u32).max(1))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,7 +215,10 @@ impl GsApiRuntime {
         let output_path_text = output_path
             .to_str()
             .ok_or_else(|| anyhow!("temporary output path is not valid UTF-8"))?;
-        let density = format!("-r{}", 72.0 * scale.max(0.1));
+        let density = format!(
+            "-r{}",
+            72.0 * f64::from(bucket_for_scale(scale).max(10)) / 100.0
+        );
         let output_arg = format!("-sOutputFile={output_path_text}");
         let args = [
             "gsapi",
@@ -321,12 +340,11 @@ impl Drop for GsApiRuntime {
 
 impl Renderer for MockRenderer {
     fn render_full_page(&mut self, page: &PageRenderInput, scale: f32) -> Result<RasterImage> {
-        let width = scaled_dimension(page.width_px, scale);
-        let height = scaled_dimension(page.height_px, scale);
+        let [width, height] = page.raster_dimensions(scale);
         Ok(mock_image(
             width,
             height,
-            &format!("{}:{scale}", page.page_id),
+            &format!("{}:{scale}", page.content_hash),
         ))
     }
 
@@ -370,7 +388,7 @@ impl Renderer for CliRenderer {
         scale: f32,
         rects: &[Rect],
     ) -> Result<Vec<TileImage>> {
-        crop_tiles_from_full(page, scale, rects, self.render_full_page(page, scale)?)
+        crop_tiles_from_full(page, scale, rects, &self.render_full_page(page, scale)?)
     }
 }
 
@@ -391,7 +409,7 @@ impl Renderer for GsApiRenderer {
         scale: f32,
         rects: &[Rect],
     ) -> Result<Vec<TileImage>> {
-        crop_tiles_from_full(page, scale, rects, self.render_full_page(page, scale)?)
+        crop_tiles_from_full(page, scale, rects, &self.render_full_page(page, scale)?)
     }
 }
 
@@ -455,8 +473,7 @@ pub fn required_tiles_for_viewport(
 ) -> Vec<TileRequest> {
     assert!(tile_size > 0, "tile size must be positive");
 
-    let width = scaled_dimension(page.width_px, scale);
-    let height = scaled_dimension(page.height_px, scale);
+    let [width, height] = page.raster_dimensions(scale);
     let left = viewport.left.min(width);
     let top = viewport.top.min(height);
     let right = viewport.left.saturating_add(viewport.width).min(width);
@@ -643,10 +660,6 @@ fn ghostscript_pagebox_arg(pagebox: Option<&str>) -> Option<String> {
     }
 }
 
-fn scaled_dimension(dimension: u32, scale: f32) -> u32 {
-    ((dimension as f32 * scale).round() as u32).max(1)
-}
-
 fn bucket_for_scale(scale: f32) -> u16 {
     (scale * 100.0).round().clamp(1.0, u16::MAX as f32) as u16
 }
@@ -666,7 +679,10 @@ fn render_full_page_with_cli(
     scale: f32,
 ) -> Result<RasterImage> {
     ensure_pdf_path(page)?;
-    let density = format!("-r{}", 72.0 * scale.max(0.1));
+    let density = format!(
+        "-r{}",
+        72.0 * f64::from(bucket_for_scale(scale).max(10)) / 100.0
+    );
     let output = std::process::Command::new(program)
         .args([
             "-q",
@@ -727,11 +743,12 @@ fn decode_png_raster(bytes: &[u8]) -> Result<RasterImage> {
     })
 }
 
-fn crop_tiles_from_full(
+/// Slice a previously rendered page without copying the full page buffer.
+pub fn crop_tiles_from_full(
     page: &PageRenderInput,
     scale: f32,
     rects: &[Rect],
-    full: RasterImage,
+    full: &RasterImage,
 ) -> Result<Vec<TileImage>> {
     let zoom_bucket = bucket_for_scale(scale);
     let stride = full.width as usize * 4;
@@ -799,6 +816,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 512,
             height_px: 640,
+            natural_size_pt: None,
             pdf_path: String::new(),
         }
     }
@@ -944,6 +962,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 144,
             height_px: 72,
+            natural_size_pt: None,
             pdf_path: pdf_file.path().display().to_string(),
         };
         assert!(
@@ -951,6 +970,42 @@ mod tests {
             "sample pdf must exist for {program}"
         );
         (pdf_file, page)
+    }
+
+    #[test]
+    fn fractional_geometry_matches_mock_raster_and_viewport_tiles() {
+        let mut page = sample_page();
+        page.width_px = 595;
+        page.height_px = 842;
+        page.natural_size_pt = Some([595.276, 841.89]);
+        for (scale, width, height) in [(1.23, 732, 1036), (2.0, 1191, 1684), (4.0, 2381, 3368)] {
+            let image = MockRenderer.render_full_page(&page, scale).unwrap();
+            assert_eq!((image.width, image.height), (width, height));
+            let tiles = required_tiles_for_viewport(
+                &page,
+                scale,
+                &Viewport {
+                    left: 0,
+                    top: 0,
+                    width: u32::MAX,
+                    height: u32::MAX,
+                },
+                256,
+            );
+            assert_eq!(
+                tiles
+                    .iter()
+                    .map(|tile| u64::from(tile.rect.width) * u64::from(tile.rect.height))
+                    .sum::<u64>(),
+                u64::from(width) * u64::from(height)
+            );
+            let last = &tiles.last().unwrap().rect;
+            assert_eq!((last.x + last.width, last.y + last.height), (width, height));
+        }
+        // Using the raw f32 value 1.27 in f64 multiplication would round down
+        // 63.5 to 63; the raster contract uses the exact bucket ratio.
+        page.natural_size_pt = Some([50.0, 50.0]);
+        assert_eq!(page.raster_dimensions(1.27), [64, 64]);
     }
 
     #[test]

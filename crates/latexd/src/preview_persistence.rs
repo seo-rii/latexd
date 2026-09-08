@@ -426,6 +426,7 @@ mod tests {
             line_count: 1,
             width_pt: 612,
             height_pt: 792,
+            natural_size_pt: None,
             content_hash: "stable-paint".into(),
             text_start_utf8: 0,
             text_end_utf8: 8,

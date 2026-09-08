@@ -374,6 +374,7 @@ mod tests {
             line_count: 1,
             width_pt: 300,
             height_pt: 200,
+            natural_size_pt: None,
             content_hash: text.into(),
             text_start_utf8: 0,
             text_end_utf8: 1,

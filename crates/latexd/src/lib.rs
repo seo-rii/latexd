@@ -11,6 +11,10 @@ mod preview_revision_tests;
 mod project_revision;
 #[cfg(test)]
 mod project_revision_tests;
+mod raster_spec;
+#[cfg(test)]
+mod raster_spec_tests;
+mod renderer_cache;
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -39,7 +43,7 @@ use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tex_render_gs::{
     CliRenderer, GsApiRenderer, GsApiRuntime, GsApiRuntimePool, MockRenderer, PageRenderInput,
-    Rect, Renderer, TileImage, Viewport, required_tiles_for_viewport,
+    Rect, Renderer, TileImage, Viewport,
 };
 use tex_render_model::PageDisplayList;
 use tex_world::normalize_relative_path;
@@ -55,6 +59,11 @@ use crate::compiler::{
     render_ir_display_list_svg_file_name,
 };
 use crate::project_revision::ProjectRevision;
+use crate::raster_spec::RasterSpec;
+use crate::renderer_cache::{
+    CachedPageRenderer, FULL_PAGE_CACHE_BYTE_BUDGET, FULL_PAGE_CACHE_ENTRY_BUDGET,
+    FullPageRasterMetrics,
+};
 
 #[derive(Debug, Clone)]
 pub struct ServeArgs {
@@ -192,14 +201,13 @@ impl TileRendererConfig {
             Self::GsCli { program } => RenderSessionRenderer::GsCli(CliRenderer {
                 program: program.clone(),
             }),
-            Self::GsApi {
-                library_path,
-                runtime,
-                runtime_pool,
-            } => RenderSessionRenderer::GsApi(GsApiRenderer {
+            Self::GsApi { library_path, .. } => RenderSessionRenderer::GsApi(GsApiRenderer {
                 library_path: Some(library_path.clone()),
-                runtime: runtime.clone(),
-                runtime_pool: runtime_pool.clone(),
+                // The actor owns one execution lane. Create its instance here
+                // so initialization, calls, resets and drop stay on that thread.
+                // A failed load is retried by the normal renderer error path.
+                runtime: GsApiRuntime::new(Some(library_path)).ok().map(Arc::new),
+                runtime_pool: None,
             }),
             #[cfg(test)]
             Self::CountingMock {
@@ -231,7 +239,7 @@ enum RenderSessionRenderer {
     },
 }
 
-impl RenderSessionRenderer {
+impl Renderer for RenderSessionRenderer {
     fn render_full_page(
         &mut self,
         page: &PageRenderInput,
@@ -402,6 +410,7 @@ impl RenderSessionSender {
 
 #[derive(Debug, Default)]
 struct RenderSessionMetrics {
+    full_page_raster: StdMutex<FullPageRasterMetrics>,
     actor_spawn_count: AtomicU64,
     actor_restart_count: AtomicU64,
     actor_failure_count: AtomicU64,
@@ -472,6 +481,9 @@ struct RenderSessionEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct RenderSessionMetricsSnapshot {
+    full_page_raster: FullPageRasterMetrics,
+    full_page_cache_byte_budget: usize,
+    full_page_cache_entry_budget: usize,
     active_session_count: usize,
     actor_spawn_count: u64,
     actor_restart_count: u64,
@@ -549,6 +561,13 @@ struct RenderSessionTileCacheSnapshot {
 impl RenderSessionMetrics {
     fn snapshot(&self, active_session_count: usize) -> RenderSessionMetricsSnapshot {
         RenderSessionMetricsSnapshot {
+            full_page_raster: self
+                .full_page_raster
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+            full_page_cache_byte_budget: FULL_PAGE_CACHE_BYTE_BUDGET,
+            full_page_cache_entry_budget: FULL_PAGE_CACHE_ENTRY_BUDGET,
             active_session_count,
             actor_spawn_count: self.actor_spawn_count.load(AtomicOrdering::SeqCst),
             actor_restart_count: self.actor_restart_count.load(AtomicOrdering::SeqCst),
@@ -828,11 +847,12 @@ const RENDER_SESSION_RECENT_EVENT_WINDOW: usize = 32;
 const RENDER_SESSION_VISIBLE_ZOOM_NEIGHBOR_PAGE_LIMIT: usize = 2;
 
 fn render_session_prewarm_rect(page: &PageRenderInput, scale: f32) -> Rect {
+    let [width, height] = page.raster_dimensions(scale);
     Rect {
         x: 0,
         y: 0,
-        width: ((page.width_px as f32 * scale).round() as u32).clamp(1, 256),
-        height: ((page.height_px as f32 * scale).round() as u32).clamp(1, 256),
+        width: width.min(256),
+        height: height.min(256),
     }
 }
 
@@ -2011,6 +2031,7 @@ struct TileManifestResponse {
     rev: u64,
     page_id: String,
     tile_size: u32,
+    raster_spec: RasterSpec,
     items: Vec<TileManifestItem>,
 }
 
@@ -2197,7 +2218,12 @@ async fn revision_page_png(
         Ok(page) => page,
         Err(response) => return response,
     };
-    let scale = query.scale.unwrap_or(1.0).max(0.1);
+    let spec = match RasterSpec::from_page_scale(&page, query.scale.unwrap_or(1.0), query.tile_size)
+    {
+        Ok(spec) => spec,
+        Err(error) => return text_response(StatusCode::BAD_REQUEST, error),
+    };
+    let scale = spec.scale();
     let image = match cache_raster_image(&state, &page, scale).await {
         Ok(image) => image,
         Err(error) => {
@@ -2660,23 +2686,22 @@ async fn revision_tile_png(
         Ok(page) => page,
         Err(response) => return response,
     };
-    let tile_size = query.tile_size.unwrap_or(256).max(1);
-    let scale = (zoom_bucket as f32 / 100.0).max(0.1);
-    let scaled_width = ((page.width_px as f32 * scale).round() as u32).max(1);
-    let scaled_height = ((page.height_px as f32 * scale).round() as u32).max(1);
-    let x = tile_x.saturating_mul(tile_size);
-    let y = tile_y.saturating_mul(tile_size);
-    if x >= scaled_width || y >= scaled_height {
+    let spec = match RasterSpec::from_page_zoom_bucket(&page, zoom_bucket, query.tile_size) {
+        Ok(spec) => spec,
+        Err(error) => return text_response(StatusCode::BAD_REQUEST, error),
+    };
+    if let Some(scale) = query.scale {
+        match RasterSpec::from_page_scale(&page, scale, query.tile_size) {
+            Ok(requested) if requested == spec => {}
+            _ => return text_response(StatusCode::BAD_REQUEST, "scale does not match tile URL"),
+        }
+    }
+    let scale = spec.scale();
+    let Some(rect) = spec.tile_rect(tile_x, tile_y) else {
         return text_response(
             StatusCode::NOT_FOUND,
             "requested tile is outside the page bounds",
         );
-    }
-    let rect = Rect {
-        x,
-        y,
-        width: (scaled_width - x).min(tile_size),
-        height: (scaled_height - y).min(tile_size),
     };
     let rendered_tile = {
         let rects = vec![rect.clone()];
@@ -2800,38 +2825,37 @@ async fn required_tiles(
         Ok(page) => page,
         Err(response) => return response,
     };
-    let tile_size = query.tile_size.unwrap_or(256).max(1);
-    let scale = query.scale.unwrap_or(1.0).max(0.1);
-    let zoom_bucket = (scale * 100.0).round().clamp(1.0, u16::MAX as f32) as u16;
-    let tiles = required_tiles_for_viewport(
-        &page,
-        scale,
-        &Viewport {
-            left: query.left,
-            top: query.top,
-            width: query.width,
-            height: query.height,
-        },
-        tile_size,
-    );
+    let spec = match RasterSpec::from_page_scale(&page, query.scale.unwrap_or(1.0), query.tile_size)
+    {
+        Ok(spec) => spec,
+        Err(error) => return text_response(StatusCode::BAD_REQUEST, error),
+    };
+    let tiles = match spec.required_tiles(&Viewport {
+        left: query.left,
+        top: query.top,
+        width: query.width,
+        height: query.height,
+    }) {
+        Ok(tiles) => tiles,
+        Err(error) => return text_response(StatusCode::BAD_REQUEST, error),
+    };
+    let zoom_bucket = spec.zoom_bucket;
     let response = TileManifestResponse {
         rev,
         page_id: page_id.clone(),
-        tile_size,
+        tile_size: spec.tile_size,
+        raster_spec: spec,
         items: tiles
             .into_iter()
-            .map(|tile| TileManifestItem {
-                page_id: tile.key.page_id,
+            .map(|(tile_x, tile_y)| TileManifestItem {
+                page_id: page_id.clone(),
                 zoom_bucket,
-                tile_x: tile.key.tile_x,
-                tile_y: tile.key.tile_y,
-                png_url: format!(
-                    "{}",
-                    viewer_prefixed_path(&format!(
-                        "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{}/{}.png",
-                        tile.key.tile_x, tile.key.tile_y
-                    ))
-                ),
+                tile_x,
+                tile_y,
+                png_url: viewer_prefixed_path(&format!(
+                    "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{tile_x}/{tile_y}.png?tile_size={}",
+                    spec.tile_size
+                )),
             })
             .collect(),
     };
@@ -3814,6 +3838,7 @@ fn page_input_from_metadata(
         content_hash: page.content_hash,
         width_px: page.width_pt,
         height_px: page.height_pt,
+        natural_size_pt: page.natural_size_pt,
         pdf_path: build_root
             .join(if page.pdf_artifact_path.as_str().is_empty() {
                 Utf8PathBuf::from(format!("rev-{rev}/pages/{page_id}.pdf"))
@@ -3918,8 +3943,18 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
         None,
         None,
     );
-    tokio::spawn(async move {
-        let mut renderer = config.build_session_renderer();
+    // A Tokio async actor may migrate between worker threads after receiving a
+    // request. Keep all gsapi calls, instance resets and destruction on this lane.
+    let actor = move || {
+        let mut renderer = CachedPageRenderer::new(
+            config.build_session_renderer(),
+            FULL_PAGE_CACHE_ENTRY_BUDGET,
+            FULL_PAGE_CACHE_BYTE_BUDGET,
+        );
+        *metrics
+            .full_page_raster
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = renderer.metrics();
         let mut attached_revisions = BTreeMap::<u64, AttachedRenderRevision>::new();
         let mut attached_order = VecDeque::<u64>::new();
         let mut attached_page_total = 0usize;
@@ -4049,7 +4084,7 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     }
                 }
             };
-        while let Some(PinnedRenderRequest { request, _pin }) = rx.recv().await {
+        while let Some(PinnedRenderRequest { request, _pin }) = rx.blocking_recv() {
             // The envelope owns its revision through queueing, request cancellation,
             // native execution, and response delivery; the receiver need not survive.
             match request {
@@ -4304,6 +4339,10 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                         .fetch_add(1, AtomicOrdering::SeqCst);
                     let started = std::time::Instant::now();
                     let result = renderer.render_tiles(&page, scale, &[rect]);
+                    *metrics
+                        .full_page_raster
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = renderer.metrics();
                     if let Ok(tiles) = &result {
                         remember_warm_bucket(warm_bucket, &mut warm_buckets, &mut warm_order);
                         for tile in tiles.iter().cloned() {
@@ -4339,6 +4378,10 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                         }
                     }
                     let result = renderer.render_full_page(&page, scale);
+                    *metrics
+                        .full_page_raster
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = renderer.metrics();
                     if result.is_ok() {
                         remember_warm_bucket(
                             render_session_bucket_key(&page, scale),
@@ -4377,8 +4420,9 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     let warm_bucket = render_session_bucket_key(&page, scale);
                     let requested_rect_count = rects.len();
                     let mut ordered_tiles = vec![None; requested_rect_count];
-                    let mut missing_indexes = Vec::new();
+                    let mut missing_indexes = Vec::<Vec<usize>>::new();
                     let mut missing_rects = Vec::new();
+                    let mut missing_keys = BTreeMap::<RenderSessionTileCacheKey, usize>::new();
                     for (index, rect) in rects.iter().enumerate() {
                         let cache_key = render_session_tile_cache_key(&page, scale, rect);
                         if let Some(tile) = cached_tiles.get(&cache_key).cloned() {
@@ -4392,8 +4436,13 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                             }
                             ordered_tiles[index] = Some(tile);
                         } else {
-                            missing_indexes.push(index);
-                            missing_rects.push(rect.clone());
+                            if let Some(&missing_index) = missing_keys.get(&cache_key) {
+                                missing_indexes[missing_index].push(index);
+                            } else {
+                                missing_keys.insert(cache_key, missing_rects.len());
+                                missing_indexes.push(vec![index]);
+                                missing_rects.push(rect.clone());
+                            }
                         }
                     }
                     let had_missing_rects = !missing_rects.is_empty();
@@ -4421,7 +4470,9 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                                             &mut cached_tiles,
                                             &mut tile_order,
                                         );
-                                        ordered_tiles[missing_index] = Some(tile);
+                                        for index in missing_index {
+                                            ordered_tiles[index] = Some(tile.clone());
+                                        }
                                     }
                                     Ok(ordered_tiles
                                         .into_iter()
@@ -4432,6 +4483,10 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                             Err(error) => Err(error),
                         }
                     };
+                    *metrics
+                        .full_page_raster
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = renderer.metrics();
                     if result.is_ok() {
                         remember_warm_bucket(warm_bucket, &mut warm_buckets, &mut warm_order);
                     }
@@ -4453,7 +4508,11 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                 }
             }
         }
-    });
+    };
+    std::thread::Builder::new()
+        .name("latexd-renderer".into())
+        .spawn(actor)
+        .expect("spawn renderer thread");
     let handle = RenderSessionHandle {
         tx: RenderSessionSender {
             tx,
@@ -4679,7 +4738,9 @@ async fn cache_raster_image(
     scale: f32,
 ) -> anyhow::Result<tex_render_gs::RasterImage> {
     let _revision_pin = preview_leases::pin_job(&state.build_root, page.revision).await;
-    let zoom_bucket = (scale * 100.0).round().clamp(1.0, u16::MAX as f32) as u16;
+    let spec = RasterSpec::from_page_scale(page, scale, None).map_err(|error| anyhow!(error))?;
+    let scale = spec.scale();
+    let zoom_bucket = spec.zoom_bucket;
     let key = RasterCacheKey {
         rev: page.revision,
         page_id: page.page_id.clone(),
@@ -4911,8 +4972,12 @@ async fn prune_old_build_revisions(build_root: &Utf8Path, current_rev: u64) {
 }
 
 fn raster_cache_path(build_root: &Utf8Path, key: &RasterCacheKey) -> Utf8PathBuf {
+    // Earlier entries could contain an unquantized render under a rounded bucket.
     build_root
-        .join(format!("rev-{}/raster-cache/{}", key.rev, key.zoom_bucket))
+        .join(format!(
+            "rev-{}/raster-cache/canonical-v1/{}",
+            key.rev, key.zoom_bucket
+        ))
         .join(format!("{}-{}.png", key.page_id, key.content_hash))
 }
 
@@ -5039,9 +5104,14 @@ async fn prewarm_viewport_rasters(state: &Arc<AppState>, message: ClientMsg) {
     let mut targets = Vec::new();
     let mut queued_targets = BTreeSet::new();
     let mut push_target = |page: &PageArtifactMeta, scale: f32| {
-        let zoom_bucket = (scale * 100.0).round().clamp(1.0, u16::MAX as f32) as u16;
-        if queued_targets.insert((page.page_id.clone(), zoom_bucket)) {
-            targets.push((page.clone(), scale));
+        let size_pt = page
+            .natural_size_pt
+            .unwrap_or([f64::from(page.width_pt), f64::from(page.height_pt)]);
+        let Ok(spec) = RasterSpec::from_size_scale(size_pt, scale, None) else {
+            return;
+        };
+        if queued_targets.insert((page.page_id.clone(), spec.zoom_bucket)) {
+            targets.push((page.clone(), spec.scale()));
         }
     };
     let current_page_meta = live
@@ -5104,7 +5174,7 @@ async fn prewarm_viewport_rasters(state: &Arc<AppState>, message: ClientMsg) {
             rev: input.revision,
             page_id: input.page_id.clone(),
             content_hash: input.content_hash.clone(),
-            zoom_bucket: (scheduled_zoom * 100.0).round().clamp(1.0, u16::MAX as f32) as u16,
+            zoom_bucket: render_session_zoom_bucket(scheduled_zoom),
         };
         if state.raster_cache.read().await.contains_key(&prewarm_key) {
             continue;
@@ -5552,6 +5622,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -5604,6 +5675,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
         let changed = PageRenderInput {
@@ -5612,6 +5684,7 @@ mod tests {
             content_hash: "hash-b".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -5659,6 +5732,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -5696,6 +5770,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -5779,6 +5854,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -5877,6 +5953,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 612,
                 height_pt: 792,
+                natural_size_pt: None,
                 content_hash: "stable-hash".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 6,
@@ -6013,6 +6090,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
         let second_page = PageRenderInput {
@@ -6021,6 +6099,7 @@ mod tests {
             content_hash: "hash-b".to_string(),
             width_px: 256,
             height_px: 256,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -6069,6 +6148,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 256,
                 height_pt: 384,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -6123,6 +6203,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 256,
                 height_pt: 384,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -6164,6 +6245,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 256,
                 height_pt: 384,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -6236,6 +6318,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 128,
                     height_pt: 128,
+                    natural_size_pt: None,
                     content_hash: format!("hash-{rev}"),
                     text_start_utf8: 0,
                     text_end_utf8: 1,
@@ -6346,6 +6429,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 128,
                     height_pt: 128,
+                    natural_size_pt: None,
                     content_hash: format!("hash-{rev}"),
                     text_start_utf8: 0,
                     text_end_utf8: 1,
@@ -6371,6 +6455,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 128,
                 height_pt: 128,
+                natural_size_pt: None,
                 content_hash: "hash-54".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 1,
@@ -6451,6 +6536,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 128,
                 height_pt: 128,
+                natural_size_pt: None,
                 content_hash: format!("hash-70-{index}"),
                 text_start_utf8: 0,
                 text_end_utf8: 1,
@@ -6465,6 +6551,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 128,
                 height_pt: 128,
+                natural_size_pt: None,
                 content_hash: format!("hash-71-{index}"),
                 text_start_utf8: 0,
                 text_end_utf8: 1,
@@ -6533,6 +6620,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 1,
@@ -6739,6 +6827,7 @@ mod tests {
             content_hash: "hash-a".to_string(),
             width_px: 128,
             height_px: 128,
+            natural_size_pt: None,
             pdf_path: String::new(),
         };
 
@@ -6950,6 +7039,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-a".to_string(),
                         text_start_utf8: 0,
                         text_end_utf8: 10,
@@ -6962,6 +7052,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-b".to_string(),
                         text_start_utf8: 10,
                         text_end_utf8: 20,
@@ -6974,6 +7065,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-c".to_string(),
                         text_start_utf8: 20,
                         text_end_utf8: 30,
@@ -6997,8 +7089,8 @@ mod tests {
         .await;
 
         assert!(state.raster_cache.read().await.is_empty());
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 7);
+        assert_eq!(calls.load(Ordering::SeqCst), 7);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.prewarm_request_count, 7);
@@ -7073,6 +7165,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-a".to_string(),
                         text_start_utf8: 0,
                         text_end_utf8: 10,
@@ -7085,6 +7178,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-b".to_string(),
                         text_start_utf8: 10,
                         text_end_utf8: 20,
@@ -7097,6 +7191,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-c".to_string(),
                         text_start_utf8: 20,
                         text_end_utf8: 30,
@@ -7120,8 +7215,8 @@ mod tests {
         .await;
 
         assert!(state.raster_cache.read().await.is_empty());
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 5);
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.prewarm_request_count, 5);
@@ -7192,6 +7287,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-a".to_string(),
                         text_start_utf8: 0,
                         text_end_utf8: 10,
@@ -7204,6 +7300,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-b".to_string(),
                         text_start_utf8: 10,
                         text_end_utf8: 20,
@@ -7226,8 +7323,8 @@ mod tests {
         tokio::join!(first, second);
 
         assert!(state.raster_cache.read().await.is_empty());
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 6);
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.prewarm_request_count, 6);
@@ -7299,6 +7396,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-a".to_string(),
                         text_start_utf8: 0,
                         text_end_utf8: 10,
@@ -7311,6 +7409,7 @@ mod tests {
                         line_count: 1,
                         width_pt: 256,
                         height_pt: 256,
+                        natural_size_pt: None,
                         content_hash: "hash-b".to_string(),
                         text_start_utf8: 10,
                         text_end_utf8: 20,
@@ -7332,8 +7431,8 @@ mod tests {
         prewarm_viewport_rasters(&state, message).await;
 
         assert!(state.raster_cache.read().await.is_empty());
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 6);
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.prewarm_request_count, 6);
@@ -7393,6 +7492,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -7472,6 +7572,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -7496,7 +7597,14 @@ mod tests {
             .await
             .expect("send prewarm");
         reply_rx.await.expect("prewarm reply").expect("prewarm ok");
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            render_session_metrics_snapshot(&state)
+                .await
+                .full_page_raster
+                .renderer_invocations,
+            1
+        );
 
         for scale in [0.8_f32, 0.9, 1.1, 1.2, 1.3] {
             cache_raster_image(&state, &page, scale)
@@ -7521,7 +7629,7 @@ mod tests {
             .await
             .expect("send prewarm");
         reply_rx.await.expect("prewarm reply").expect("prewarm ok");
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
 
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.skipped_prewarm_count, skipped_before + 1);
@@ -7566,6 +7674,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -7982,6 +8091,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 512,
                 height_pt: 640,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -8029,7 +8139,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn revision_tile_png_uses_session_tile_render_path_without_full_page_render() {
+    async fn revision_tile_png_reuses_actor_tiles_after_one_full_page_raster() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -8048,6 +8158,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 512,
                 height_pt: 640,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -8114,8 +8225,8 @@ mod tests {
             .await
             .expect("body");
         assert_eq!(&second_body[..8], b"\x89PNG\r\n\x1a\n");
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.render_request_count, 0);
@@ -8161,7 +8272,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn renderer_session_tile_cache_only_renders_missing_rectangles_from_mixed_batches() {
+    async fn renderer_session_slices_only_missing_rectangles_from_one_cached_raster() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -8198,6 +8309,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -8239,10 +8351,14 @@ mod tests {
         assert_eq!(second.len(), 2);
         assert_eq!(second[0].rect, rect_a);
         assert_eq!(second[1].rect, rect_c);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(tile_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
         let snapshot = render_session_metrics_snapshot(&state).await;
+        assert_eq!(snapshot.full_page_raster.renderer_invocations, 1);
+        assert_eq!(snapshot.full_page_raster.pixels_rasterized, 256 * 256);
+        assert_eq!(snapshot.full_page_raster.hits, 1);
+        assert_eq!(snapshot.full_page_raster.tiles_sliced, 3);
         assert_eq!(snapshot.tile_render_request_count, 2);
         assert_eq!(snapshot.tile_cache_count, 3);
         assert_eq!(snapshot.warm_bucket_count, 1);
@@ -8273,6 +8389,35 @@ mod tests {
         assert_eq!(tile_events[1].page_count, Some(2));
         assert_eq!(tile_events[1].rendered_rect_count, Some(2));
         assert_eq!(tile_events[1].reused_rect_count, Some(0));
+
+        let duplicate = Rect {
+            x: 128,
+            y: 128,
+            width: 128,
+            height: 128,
+        };
+        let tiles =
+            render_tiles_with_session(&state, &page, 1.0, vec![duplicate.clone(), duplicate]).await;
+        assert_eq!(tiles[0], tiles[1]);
+        let snapshot = render_session_metrics_snapshot(&state).await;
+        assert_eq!(snapshot.full_page_raster.renderer_invocations, 1);
+        assert_eq!(snapshot.full_page_raster.tiles_sliced, 4);
+
+        // A new revision owns new tile identities but unchanged paint retains
+        // its decoded raster even after the old revision has been detached.
+        detach_render_revision(&state, 82).await;
+        attach_render_revision(&state, 83, std::slice::from_ref(&page_metadata)).await;
+        let moved_page = load_revision_page_input(&state, 83, "page-a")
+            .await
+            .unwrap();
+        render_tiles_with_session(&state, &moved_page, 1.0, vec![rect_a]).await;
+        assert_eq!(
+            render_session_metrics_snapshot(&state)
+                .await
+                .full_page_raster
+                .renderer_invocations,
+            1
+        );
     }
 
     #[tokio::test]
@@ -8305,6 +8450,7 @@ mod tests {
             line_count: 1,
             width_pt: 1024,
             height_pt: 1024,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -8317,6 +8463,7 @@ mod tests {
             line_count: 1,
             width_pt: 1024,
             height_pt: 1024,
+            natural_size_pt: None,
             content_hash: "hash-b".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -8417,6 +8564,7 @@ mod tests {
             line_count: 1,
             width_pt: 256,
             height_pt: 256,
+            natural_size_pt: None,
             content_hash: "hash-a".to_string(),
             text_start_utf8: 0,
             text_end_utf8: 10,
@@ -8457,6 +8605,46 @@ mod tests {
         let snapshot = render_session_metrics_snapshot(&state).await;
         assert_eq!(snapshot.tile_cache_count, 0);
         assert!(snapshot.tile_cache_entries.is_empty());
+    }
+
+    async fn assert_gs_tiles_reuse_full_page(state: &Arc<AppState>, rev: u64, png: &[u8]) {
+        let full = image::load_from_memory(png)
+            .expect("decode page PNG")
+            .into_rgba8();
+        let (width, height) = full.dimensions();
+        let full = tex_render_gs::RasterImage {
+            width,
+            height,
+            rgba: full.into_raw(),
+        };
+        let page = load_revision_page_input(state, rev, "page-a")
+            .await
+            .expect("page");
+        for rect in [
+            Rect {
+                x: 0,
+                y: 0,
+                width: width / 2,
+                height,
+            },
+            Rect {
+                x: width / 2,
+                y: 0,
+                width: width - width / 2,
+                height,
+            },
+        ] {
+            let actual = render_tiles_with_session(state, &page, 1.0, vec![rect.clone()]).await;
+            let expected = tex_render_gs::crop_tiles_from_full(&page, 1.0, &[rect], &full).unwrap();
+            assert_eq!(actual, expected);
+        }
+        let snapshot = render_session_metrics_snapshot(state).await;
+        assert_eq!(snapshot.full_page_raster.renderer_invocations, 1);
+        assert_eq!(
+            snapshot.full_page_raster.pixels_rasterized,
+            u64::from(width) * u64::from(height)
+        );
+        assert_eq!(snapshot.full_page_raster.hits, 2);
     }
 
     #[tokio::test]
@@ -8518,6 +8706,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 144,
                 height_pt: 72,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -8555,7 +8744,7 @@ mod tests {
                 scale: Some(1.0),
                 tile_size: None,
             }),
-            State(state),
+            State(state.clone()),
         )
         .await;
 
@@ -8564,6 +8753,7 @@ mod tests {
             .await
             .expect("body");
         assert_eq!(&body[..8], b"\x89PNG\r\n\x1a\n");
+        assert_gs_tiles_reuse_full_page(&state, 7, &body).await;
     }
 
     #[tokio::test]
@@ -8628,6 +8818,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 144,
                 height_pt: 72,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -8666,7 +8857,7 @@ mod tests {
                 scale: Some(1.0),
                 tile_size: None,
             }),
-            State(state),
+            State(state.clone()),
         )
         .await;
 
@@ -8675,6 +8866,7 @@ mod tests {
             .await
             .expect("body");
         assert_eq!(&body[..8], b"\x89PNG\r\n\x1a\n");
+        assert_gs_tiles_reuse_full_page(&state, 9, &body).await;
     }
 
     #[tokio::test]
@@ -8697,6 +8889,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 512,
                 height_pt: 640,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 10,
@@ -8750,7 +8943,7 @@ mod tests {
         assert_eq!(manifest.items.len(), 4);
         assert_eq!(
             manifest.items[0].png_url,
-            "/artifacts/rev/9/tiles/page-a/100/0/0.png"
+            "/artifacts/rev/9/tiles/page-a/100/0/0.png?tile_size=256"
         );
     }
 
@@ -8786,6 +8979,7 @@ mod tests {
                 line_count: 1,
                 width_pt: 512,
                 height_pt: 600,
+                natural_size_pt: None,
                 content_hash: "hash-a".to_string(),
                 text_start_utf8: 0,
                 text_end_utf8: 32,
@@ -9084,6 +9278,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-a".to_string(),
                     text_start_utf8: 0,
                     text_end_utf8: 32,
@@ -9100,6 +9295,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-b".to_string(),
                     text_start_utf8: 32,
                     text_end_utf8: 64,
@@ -9207,6 +9403,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-a".to_string(),
                     text_start_utf8: 0,
                     text_end_utf8: 32,
@@ -9223,6 +9420,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-b".to_string(),
                     text_start_utf8: 32,
                     text_end_utf8: 64,
@@ -10715,6 +10913,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-a".to_string(),
                     text_start_utf8: 0,
                     text_end_utf8: 32,
@@ -10731,6 +10930,7 @@ mod tests {
                     line_count: 1,
                     width_pt: 512,
                     height_pt: 600,
+                    natural_size_pt: None,
                     content_hash: "hash-b".to_string(),
                     text_start_utf8: 32,
                     text_end_utf8: 64,
