@@ -962,7 +962,7 @@ impl Vm<'_> {
         let forced_execution_ranges = self.semantic_text.forced_execution_ranges.clone();
         if slots.is_empty() {
             insert_unmatched_execution_events(
-                &mut self.render_events,
+                &mut self.render_events.to_mut(),
                 executed,
                 &forced_execution_ranges,
                 &executed_event_anchors,

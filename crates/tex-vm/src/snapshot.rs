@@ -696,7 +696,7 @@ impl Default for VmContinuationSafety {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmSemanticSinkSnapshot {
     #[serde(default)]
-    pub events: Vec<RenderEventEnvelope>,
+    pub events: crate::SharedRenderEventPrefix,
     #[serde(
         default = "default_next_render_event_sequence",
         alias = "next_event_id"

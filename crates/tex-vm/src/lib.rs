@@ -27,6 +27,7 @@ mod command;
 mod diagnostic;
 mod dimension_parameter;
 mod eqtb;
+mod event_prefix;
 mod input;
 mod magnification;
 mod outcome;
@@ -62,6 +63,7 @@ pub use dimension_parameter::{
     VmDimensionParameterStateV1,
 };
 use eqtb::{AssignmentScope, DelimiterCodeV1, Eqtb, MathCodeV1, MuGlueScalarV1};
+pub use event_prefix::{RenderEventPrefixMut, SharedRenderEventPrefix};
 use input::{
     ActiveModuleKind, ActiveModuleOptions, ActiveSourceFrame, PendingModuleCheckpoint, QueueItem,
     RestoredInputContinuation,
@@ -2076,6 +2078,10 @@ impl<'i> Vm<'i> {
 
     pub fn set_render_event_prefix(&mut self, render_events: Vec<RenderEventEnvelope>) {
         self.render_events.set_replay_prefix(render_events);
+    }
+
+    pub fn set_shared_render_event_prefix(&mut self, render_events: SharedRenderEventPrefix) {
+        self.render_events.set_shared_replay_prefix(render_events);
     }
 
     pub fn enable_render_event_capture(&mut self) {

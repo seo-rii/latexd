@@ -1508,7 +1508,7 @@ impl CompilerDriver {
                                 resume_path: request.toplevel.clone(),
                                 source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
                                 continuation_stack: Vec::new(),
-                                render_event_prefix: Vec::new(),
+                                render_event_prefix: Default::default(),
                             },
                             reused_checkpoint.meta.checkpoint_id.clone(),
                         ))
@@ -1784,7 +1784,7 @@ impl CompilerDriver {
                     resume_path: request.toplevel.clone(),
                     source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
                     continuation_stack: Vec::new(),
-                    render_event_prefix: Vec::new(),
+                    render_event_prefix: Default::default(),
                 };
                 if let Some(previous) = previous_build.as_ref().filter(|previous| {
                     previous
@@ -3553,7 +3553,7 @@ fn replay_checkpoint_from_stored(
                 .unwrap_or_else(|| toplevel.to_path_buf()),
             source_offset_utf8: checkpoint.meta.source_offset_utf8,
             continuation_stack: checkpoint.meta.continuation_stack.clone(),
-            render_event_prefix: Vec::new(),
+            render_event_prefix: Default::default(),
         })
 }
 
@@ -6848,7 +6848,7 @@ mod tests {
                 path: path.clone(),
                 source_offset_utf8: 5,
             }],
-            render_event_prefix: Vec::new(),
+            render_event_prefix: Default::default(),
         };
 
         rebase_reused_shipout_checkpoint(
@@ -6908,7 +6908,7 @@ mod tests {
                 path: path.clone(),
                 source_offset_utf8: 6,
             }],
-            render_event_prefix: Vec::new(),
+            render_event_prefix: Default::default(),
         };
 
         rebase_reused_shipout_checkpoint(
@@ -6978,7 +6978,7 @@ mod tests {
                 path: Utf8PathBuf::from("main.tex"),
                 source_offset_utf8: 6,
             }],
-            render_event_prefix: Vec::new(),
+            render_event_prefix: Default::default(),
         };
 
         rebase_reused_shipout_checkpoint(

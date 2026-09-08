@@ -9,8 +9,8 @@ use tex_render_model::{
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{
-    Vm, VmDiagnostic, VmModuleBoundary, VmModuleCheckpoint, VmModuleCheckpointKind, VmModuleTrace,
-    VmReplayFrame, VmSnapshot, compile_format_snapshot,
+    SharedRenderEventPrefix, Vm, VmDiagnostic, VmModuleBoundary, VmModuleCheckpoint,
+    VmModuleCheckpointKind, VmModuleTrace, VmReplayFrame, VmSnapshot, compile_format_snapshot,
 };
 use tex_world::{ProjectWorld, read_tex_source_lossy};
 
@@ -452,25 +452,26 @@ pub struct ProjectReplayCheckpoint {
     pub resume_path: Utf8PathBuf,
     pub source_offset_utf8: u32,
     pub continuation_stack: Vec<VmReplayFrame>,
-    pub render_event_prefix: Vec<RenderEventEnvelope>,
+    pub render_event_prefix: SharedRenderEventPrefix,
 }
 
 pub fn render_event_prefix_for_snapshot(
     events: &[RenderEventEnvelope],
     snapshot: &VmSnapshot,
-) -> Vec<RenderEventEnvelope> {
+) -> SharedRenderEventPrefix {
     let Some(batch_start_event_sequence) = snapshot
         .semantic_sink
         .as_ref()
         .map(|sink| sink.batch_start_event_sequence)
     else {
-        return Vec::new();
+        return SharedRenderEventPrefix::default();
     };
     events
         .iter()
         .take_while(|event| event.meta.sequence < batch_start_event_sequence)
         .cloned()
-        .collect()
+        .collect::<Vec<_>>()
+        .into()
 }
 
 fn append_render_event_batch(
@@ -755,6 +756,10 @@ pub fn capture_page_checkpoints(
     vm.set_execution_source_path(checkpoint.resume_path.clone());
     vm.enable_render_event_capture();
     vm.enable_structured_table_events();
+    // One immutable authoritative segment backs every checkpoint's cursor.
+    // Mutable replay/reconciliation work is isolated by copy-on-write.
+    let authoritative_event_log =
+        SharedRenderEventPrefix::from(authoritative_render_events.to_vec());
     let mut render_event_prefix = checkpoint.render_event_prefix.clone();
     let mut module_traces = checkpoint.snapshot.module_traces.clone();
     let mut module_boundaries = checkpoint.snapshot.module_boundaries.clone();
@@ -794,13 +799,13 @@ pub fn capture_page_checkpoints(
                 let already_absolute_through_event_id =
                     max_render_event_id(&render_event_prefix).max(restored_event_max);
                 append_render_event_batch(
-                    &mut render_event_prefix,
+                    &mut render_event_prefix.to_mut(),
                     outcome.render_events,
                     path,
                     source_offset_utf8,
                     already_absolute_through_event_id,
                 );
-                vm.set_render_event_prefix(render_event_prefix.clone());
+                vm.set_shared_render_event_prefix(render_event_prefix.clone());
                 module_traces.extend(
                     outcome
                         .module_traces
@@ -844,13 +849,13 @@ pub fn capture_page_checkpoints(
                 let already_absolute_through_event_id =
                     max_render_event_id(&render_event_prefix).max(restored_event_max);
                 append_render_event_batch(
-                    &mut render_event_prefix,
+                    &mut render_event_prefix.to_mut(),
                     outcome.render_events,
                     path,
                     source_offset_utf8,
                     already_absolute_through_event_id,
                 );
-                vm.set_render_event_prefix(render_event_prefix.clone());
+                vm.set_shared_render_event_prefix(render_event_prefix.clone());
                 module_traces.extend(
                     outcome
                         .module_traces
@@ -903,8 +908,10 @@ pub fn capture_page_checkpoints(
                     .is_some_and(|offset| *offset >= span.end_utf8)
             })
             .map_or(0, |index| index + 1);
-        render_event_prefix = authoritative_render_events[..authoritative_prefix_len].to_vec();
-        vm.set_render_event_prefix(render_event_prefix.clone());
+        render_event_prefix = authoritative_event_log
+            .prefix(authoritative_prefix_len)
+            .expect("authoritative prefix is within the event log");
+        vm.set_shared_render_event_prefix(render_event_prefix.clone());
         let (resume_path, source_offset_utf8, continuation_stack) =
             if let Some((path, _, current_offset)) = replay_frames.get(frame_index) {
                 (
@@ -1004,7 +1011,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
         resume_path: toplevel.clone(),
         source_offset_utf8: body_start as u32,
         continuation_stack: Vec::new(),
-        render_event_prefix: render_events.clone(),
+        render_event_prefix: render_events.clone().into(),
     };
     let module_trace_prefix_len = module_traces.len();
     let outcome = vm.run_plain(&source[body_start..]);
@@ -1104,7 +1111,7 @@ pub fn run_project_from_checkpoint_with_mounts(
     let mut module_boundaries = checkpoint.snapshot.module_boundaries.clone();
     let mut module_checkpoints = Vec::new();
     let mut restored_module_trace_count = checkpoint.snapshot.module_traces.len();
-    let mut render_events = checkpoint.render_event_prefix.clone();
+    let mut render_events = checkpoint.render_event_prefix.to_vec();
     let restored_event_max = snapshot_absolute_render_event_max(&checkpoint.snapshot);
     let mut replay_frames = Vec::with_capacity(checkpoint.continuation_stack.len() + 1);
     replay_frames.push(VmReplayFrame {
@@ -3991,6 +3998,58 @@ Following text.
                 .render_event_prefix,
             build.run.render_events
         );
+    }
+
+    #[test]
+    fn captured_page_checkpoints_share_event_storage_and_restore_exact_prefixes() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .unwrap();
+        let body = (0..2400)
+            .map(|index| format!("word{index} "))
+            .collect::<String>();
+        fs::write(
+            root.join("paper.tex"),
+            format!("\\documentclass{{article}}\\begin{{document}}{body}\\end{{document}}"),
+        )
+        .unwrap();
+        let world = ProjectWorld::load(root).unwrap();
+        let (build, preamble) =
+            run_project_pdf_from_base_snapshot(&world, &compile_mini_kernel_snapshot()).unwrap();
+        let checkpoints = capture_page_checkpoints(
+            &world,
+            &preamble,
+            0,
+            &build.page_metadata,
+            &build.run.render_events,
+        )
+        .unwrap();
+        assert!(checkpoints.len() >= 4, "bounded multipage fixture");
+        let segment = &checkpoints.last().unwrap().render_event_prefix;
+        assert_eq!(
+            segment.retained_event_count(),
+            build.run.render_events.len()
+        );
+        let logical_event_count = checkpoints
+            .iter()
+            .map(|checkpoint| checkpoint.render_event_prefix.len())
+            .sum::<usize>();
+        assert!(logical_event_count > 2 * segment.retained_event_count());
+        for checkpoint in &checkpoints {
+            assert!(checkpoint.render_event_prefix.shares_storage_with(segment));
+            let sink = checkpoint.snapshot.semantic_sink.as_ref().unwrap();
+            assert!(sink.events.shares_storage_with(segment));
+            let mut interner = tex_tokens::ControlSequenceInterner::new();
+            let restored = tex_vm::Vm::try_restore(&mut interner, &checkpoint.snapshot).unwrap();
+            assert_eq!(
+                restored.snapshot().semantic_sink.as_ref().unwrap().events,
+                checkpoint.render_event_prefix
+            );
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::{
 
 use tex_render_model::{EventSequence, RenderEventEnvelope};
 
-use crate::snapshot::VmSemanticSinkSnapshot;
+use crate::{SharedRenderEventPrefix, snapshot::VmSemanticSinkSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Used by the next Snapshot v2 integration step.
@@ -17,7 +17,7 @@ pub(super) struct SemanticSinkMark {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SemanticEventBuffer {
-    events: Vec<RenderEventEnvelope>,
+    events: SharedRenderEventPrefix,
     next_event_sequence: EventSequence,
     batch_start_event_sequence: EventSequence,
     epoch: u64,
@@ -26,7 +26,7 @@ pub(super) struct SemanticEventBuffer {
 impl Default for SemanticEventBuffer {
     fn default() -> Self {
         Self {
-            events: Vec::new(),
+            events: SharedRenderEventPrefix::default(),
             next_event_sequence: 1,
             batch_start_event_sequence: 1,
             epoch: 0,
@@ -98,7 +98,7 @@ impl SemanticEventBuffer {
     }
 
     pub(super) fn replace_events(&mut self, events: Vec<RenderEventEnvelope>) {
-        self.events = events;
+        self.events = events.into();
         self.epoch = self.epoch.wrapping_add(1);
     }
 
@@ -172,7 +172,7 @@ impl SemanticEventBuffer {
             .max()
             .unwrap_or(1)
             .max(self.next_event_sequence);
-        self.events = events;
+        self.events = events.into();
         self.epoch = self.epoch.wrapping_add(1);
         Some(event_sequence_remap)
     }
@@ -196,6 +196,10 @@ impl SemanticEventBuffer {
     }
 
     pub(super) fn set_replay_prefix(&mut self, events: Vec<RenderEventEnvelope>) {
+        self.set_shared_replay_prefix(events.into());
+    }
+
+    pub(super) fn set_shared_replay_prefix(&mut self, events: SharedRenderEventPrefix) {
         self.next_event_sequence = events
             .iter()
             .map(|event| event.meta.sequence.saturating_add(1))
@@ -203,13 +207,13 @@ impl SemanticEventBuffer {
             .unwrap_or(self.next_event_sequence)
             .max(self.next_event_sequence);
         self.batch_start_event_sequence = self.next_event_sequence;
-        self.events = events;
+        self.events = events.into();
         self.epoch = self.epoch.wrapping_add(1);
     }
 
     pub(super) fn take_events(&mut self) -> Vec<RenderEventEnvelope> {
         self.epoch = self.epoch.wrapping_add(1);
-        std::mem::take(&mut self.events)
+        std::mem::take(&mut self.events).into_vec()
     }
 
     pub(super) fn finish_batch(&mut self) -> Vec<RenderEventEnvelope> {
@@ -220,7 +224,7 @@ impl SemanticEventBuffer {
 }
 
 impl Deref for SemanticEventBuffer {
-    type Target = Vec<RenderEventEnvelope>;
+    type Target = SharedRenderEventPrefix;
 
     fn deref(&self) -> &Self::Target {
         &self.events
