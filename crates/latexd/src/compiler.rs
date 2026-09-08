@@ -1419,6 +1419,15 @@ fn save_checkpoint_bundle_observed(
 }
 
 const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
+const LIVE_PREVIEW_CHECKPOINT_POLICY: &str = "live_preview_cold_execution_output_reuse";
+const LIVE_PREVIEW_POLICY_MARKER: &str = "live-preview-execution-policy";
+
+fn is_live_preview_revision(build_root: &Utf8Path, rev: u64) -> bool {
+    build_root
+        .join(format!("rev-{rev}/{LIVE_PREVIEW_POLICY_MARKER}"))
+        .exists()
+}
+
 fn should_capture_shipout_checkpoints(event_count: usize, page_count: usize) -> bool {
     // In-memory prefixes share one event segment. The frozen durable snapshot
     // format still expands each visible prefix as an array; bound serialization
@@ -1451,15 +1460,17 @@ impl CompilerDriver {
         }
     }
 
-    /// Defer full PDF export and omit debug artifacts from preview builds.
-    /// Execution still uses the eager checkpoint policy in this implementation.
+    /// Execute semantic compilation cold, reuse immutable published page
+    /// artifacts, and defer full PDF export. Live preview neither restores nor
+    /// captures/persists durable VM checkpoints. CLI/oracle research callers
+    /// keep the eager checkpoint, full-PDF, and debug path unless they opt in.
     pub fn with_preview_artifacts(mut self) -> Self {
         self.preview_artifacts = true;
         self
     }
 
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
-        self.compile_with_previous_revision(request, None)
+        self.compile_with_previous_revision(request, None, None)
             .await
     }
 
@@ -1478,7 +1489,7 @@ impl CompilerDriver {
         } else {
             0
         };
-        self.compile_with_previous_revision(request, Some(reusable_rev))
+        self.compile_with_previous_revision(request, Some(reusable_rev), Some(applied_rev))
             .await
     }
 
@@ -1486,6 +1497,7 @@ impl CompilerDriver {
         &self,
         request: CompileRequest,
         previous_rev: Option<u64>,
+        applied_preview_rev: Option<u64>,
     ) -> Result<CompileOutcome, CompileFailure> {
         let previous_revision_limit = previous_rev.map_or(request.rev, |rev| rev.saturating_add(1));
         let mut trace = crate::compile_trace::TraceClock::new(
@@ -1517,6 +1529,26 @@ impl CompilerDriver {
         );
 
         if self.compiler_bin.as_deref() == Some("internal") {
+            if self.preview_artifacts {
+                // Absence of checkpoints must never authorize an eager caller
+                // to fall through to a revision predating its dirty-input base.
+                fs::write(
+                    rev_dir.join(LIVE_PREVIEW_POLICY_MARKER),
+                    LIVE_PREVIEW_CHECKPOINT_POLICY,
+                )
+                .map_err(|error| CompileFailure {
+                    diagnostics: Vec::new(),
+                    message: format!("failed to record live preview execution policy: {error}"),
+                })?;
+            }
+            let applied_live_revision = applied_preview_rev
+                .is_some_and(|rev| is_live_preview_revision(&request.build_root, rev));
+            let live_output_baseline = if self.preview_artifacts || applied_live_revision {
+                load_preview_output_baseline(&request.build_root, request.rev, applied_preview_rev)
+                    .await
+            } else {
+                None
+            };
             let work_meter = tex_vm::work_metrics::VmWorkMeter::start();
             let bootstrap_scope = tex_bootstrap::build_policy::BootstrapBuildScope::start(
                 tex_bootstrap::build_policy::LegacyPdfPolicy::MetadataOnly,
@@ -1542,9 +1574,15 @@ impl CompilerDriver {
                     ),
                 })?;
             let preamble_key = preamble_key_for_source(&toplevel_source);
-            let previous_build =
-                load_latest_previous_internal_build(&request.build_root, previous_revision_limit).map_err(
-                    |error| CompileFailure {
+            // The durable replay path costs more than execution on the measured
+            // edit fixture. Live preview executes cold and reuses only immutable
+            // output pages until a cheaper continuation store is available.
+            let previous_build = if self.preview_artifacts {
+                trace.trace.checkpoint_fallback = Some(LIVE_PREVIEW_CHECKPOINT_POLICY.into());
+                None
+            } else {
+                load_latest_previous_internal_build(&request.build_root, previous_revision_limit)
+                    .map_err(|error| CompileFailure {
                         diagnostics: vec![Diagnostic {
                             level: DiagnosticLevel::Error,
                             file: Some(request.toplevel.to_string()),
@@ -1552,8 +1590,8 @@ impl CompilerDriver {
                             message: format!("failed to load prior internal build state: {error}"),
                         }],
                         message: format!("failed to load prior internal build state: {error}"),
-                    },
-                )?;
+                    })?
+            };
             let aux_scan =
                 scan_project(&request.root, &request.toplevel).map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic {
@@ -2268,26 +2306,40 @@ impl CompilerDriver {
                     .checkpoint_fallback
                     .get_or_insert_with(|| "output_tail_requires_checkpoint_recapture".into());
             }
-            let previous_renderer_metadata = previous_build
+            if applied_live_revision && !self.preview_artifacts {
+                trace.trace.checkpoint_fallback =
+                    Some("previous_live_preview_has_no_execution_checkpoint".into());
+            }
+            let previous_renderer_revision = live_output_baseline
                 .as_ref()
-                .map(|previous| {
-                    load_page_artifact_metadata(
-                        &request
-                            .build_root
-                            .join(format!("rev-{}/page-metadata.json", previous.rev)),
-                    )
-                })
-                .transpose()
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
+                .map(|(rev, _)| *rev)
+                .or_else(|| previous_build.as_ref().map(|previous| previous.rev));
+            let previous_renderer_metadata = if let Some((_, metadata)) = live_output_baseline {
+                metadata
+            } else {
+                previous_build
+                    .as_ref()
+                    .map(|previous| {
+                        load_page_artifact_metadata(
+                            &request
+                                .build_root
+                                .join(format!("rev-{}/page-metadata.json", previous.rev)),
+                        )
+                    })
+                    .transpose()
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!(
+                                "failed to load prior renderer page metadata: {error}"
+                            ),
+                        }],
                         message: format!("failed to load prior renderer page metadata: {error}"),
-                    }],
-                    message: format!("failed to load prior renderer page metadata: {error}"),
-                })?
-                .unwrap_or_default();
+                    })?
+                    .unwrap_or_default()
+            };
             let previous_renderer_pages = previous_renderer_metadata
                 .iter()
                 .map(|page| CheckpointPage {
@@ -2298,9 +2350,9 @@ impl CompilerDriver {
                     text_end_utf8: page.text_end_utf8,
                 })
                 .collect::<Vec<_>>();
-            let previous_reusable_pages = previous_build.as_ref().map(|previous| {
+            let previous_reusable_pages = previous_renderer_revision.map(|rev| {
                 (
-                    previous.rev,
+                    rev,
                     previous_renderer_metadata
                         .iter()
                         .map(|page| (page.page_id.clone(), page))
@@ -2427,12 +2479,8 @@ impl CompilerDriver {
                 &page_pdf_paths,
                 request.rev,
             );
-            let renderer_tail = previous_build.as_ref().and_then(|previous| {
-                renderer_unchanged_tail(
-                    previous.rev,
-                    &previous_renderer_pages,
-                    &renderer_state.pages,
-                )
+            let renderer_tail = previous_renderer_revision.and_then(|rev| {
+                renderer_unchanged_tail(rev, &previous_renderer_pages, &renderer_state.pages)
             });
             if self.preview_artifacts {
                 crate::pdf_export::write_recipe(
@@ -2452,96 +2500,102 @@ impl CompilerDriver {
                 })?;
             }
             trace.phase("page_export_and_output_diff");
-            let shipout_checkpoints = if !should_capture_shipout_checkpoints(
-                build.run.render_events.len(),
-                build.page_metadata.len(),
-            ) {
-                trace.trace.checkpoint_fallback.get_or_insert_with(|| "durable_event_prefix_serialization_budget".into());
-                Vec::new()
-            } else if let Some(plan) = replay_plan.as_ref() {
-                let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
+            let (checkpoint_bundle, checkpoint_suppression_counts) = if self.preview_artifacts {
+                (None, CheckpointSuppressionCounts::default())
+            } else {
+                let shipout_checkpoints = if !should_capture_shipout_checkpoints(
+                    build.run.render_events.len(),
+                    build.page_metadata.len(),
+                ) {
+                    trace
+                        .trace
+                        .checkpoint_fallback
+                        .get_or_insert_with(|| "durable_event_prefix_serialization_budget".into());
+                    Vec::new()
+                } else if let Some(plan) = replay_plan.as_ref() {
+                    let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: "missing previous build state for shipout replay".to_string(),
+                        }],
                         message: "missing previous build state for shipout replay".to_string(),
-                    }],
-                    message: "missing previous build state for shipout replay".to_string(),
-                })?;
-                let mut checkpoints = Vec::with_capacity(build.page_metadata.len());
-                for page_index in 0..plan.start_page_index {
-                    let stored = previous
-                        .bundle
-                        .checkpoints
-                        .iter()
-                        .find(|checkpoint| checkpoint.meta.page_index_after == page_index + 1)
-                        .and_then(|checkpoint| {
-                            replay_checkpoint_from_stored(checkpoint, &request.toplevel)
-                        })
-                        .ok_or_else(|| CompileFailure {
-                            diagnostics: vec![Diagnostic {
-                                level: DiagnosticLevel::Error,
-                                file: Some(request.toplevel.to_string()),
-                                line: None,
+                    })?;
+                    let mut checkpoints = Vec::with_capacity(build.page_metadata.len());
+                    for page_index in 0..plan.start_page_index {
+                        let stored = previous
+                            .bundle
+                            .checkpoints
+                            .iter()
+                            .find(|checkpoint| checkpoint.meta.page_index_after == page_index + 1)
+                            .and_then(|checkpoint| {
+                                replay_checkpoint_from_stored(checkpoint, &request.toplevel)
+                            })
+                            .ok_or_else(|| CompileFailure {
+                                diagnostics: vec![Diagnostic {
+                                    level: DiagnosticLevel::Error,
+                                    file: Some(request.toplevel.to_string()),
+                                    line: None,
+                                    message: format!(
+                                        "missing reusable shipout snapshot for page checkpoint {}",
+                                        page_index + 1
+                                    ),
+                                }],
                                 message: format!(
                                     "missing reusable shipout snapshot for page checkpoint {}",
                                     page_index + 1
                                 ),
-                            }],
-                            message: format!(
-                                "missing reusable shipout snapshot for page checkpoint {}",
-                                page_index + 1
-                            ),
-                        })?;
-                    checkpoints.push(stored);
-                }
-                let capture_end = checkpoint_tail
-                    .map(|tail| tail.current_page_start.max(plan.start_page_index))
-                    .unwrap_or(build.page_metadata.len());
-                let mut captured = capture_page_checkpoints(
-                    &world,
-                    &plan.checkpoint,
-                    plan.output_prefix.len() as u32,
-                    &build.page_metadata[plan.start_page_index..capture_end],
-                    &build.run.render_events,
-                )
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
+                            })?;
+                        checkpoints.push(stored);
+                    }
+                    let capture_end = checkpoint_tail
+                        .map(|tail| tail.current_page_start.max(plan.start_page_index))
+                        .unwrap_or(build.page_metadata.len());
+                    let mut captured = capture_page_checkpoints(
+                        &world,
+                        &plan.checkpoint,
+                        plan.output_prefix.len() as u32,
+                        &build.page_metadata[plan.start_page_index..capture_end],
+                        &build.run.render_events,
+                    )
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!("failed to capture replay checkpoints: {error}"),
+                        }],
                         message: format!("failed to capture replay checkpoints: {error}"),
-                    }],
-                    message: format!("failed to capture replay checkpoints: {error}"),
-                })?;
-                checkpoints.append(&mut captured);
-                if let Some(tail) = checkpoint_tail {
-                    for current_page_index in capture_end..build.page_metadata.len() {
-                        let previous_page_index =
-                            tail.previous_page_start + current_page_index - tail.current_page_start;
-                        let stored = previous
-                            .bundle
-                            .checkpoints
-                            .iter()
-                            .find(|checkpoint| {
-                                checkpoint.meta.page_index_after == previous_page_index + 1
-                            })
-                            .ok_or_else(|| CompileFailure {
-                                diagnostics: vec![Diagnostic {
-                                    level: DiagnosticLevel::Error,
-                                    file: Some(request.toplevel.to_string()),
-                                    line: None,
+                    })?;
+                    checkpoints.append(&mut captured);
+                    if let Some(tail) = checkpoint_tail {
+                        for current_page_index in capture_end..build.page_metadata.len() {
+                            let previous_page_index = tail.previous_page_start + current_page_index
+                                - tail.current_page_start;
+                            let stored = previous
+                                .bundle
+                                .checkpoints
+                                .iter()
+                                .find(|checkpoint| {
+                                    checkpoint.meta.page_index_after == previous_page_index + 1
+                                })
+                                .ok_or_else(|| CompileFailure {
+                                    diagnostics: vec![Diagnostic {
+                                        level: DiagnosticLevel::Error,
+                                        file: Some(request.toplevel.to_string()),
+                                        line: None,
+                                        message: format!(
+                                            "missing reusable unchanged-tail checkpoint {}",
+                                            previous_page_index + 1
+                                        ),
+                                    }],
                                     message: format!(
                                         "missing reusable unchanged-tail checkpoint {}",
                                         previous_page_index + 1
                                     ),
-                                }],
-                                message: format!(
-                                    "missing reusable unchanged-tail checkpoint {}",
-                                    previous_page_index + 1
-                                ),
-                            })?;
-                        let mut reused = replay_checkpoint_from_stored(stored, &request.toplevel)
+                                })?;
+                            let mut reused = replay_checkpoint_from_stored(stored, &request.toplevel)
                             .ok_or_else(|| CompileFailure {
                             diagnostics: vec![Diagnostic {
                                 level: DiagnosticLevel::Error,
@@ -2557,150 +2611,151 @@ impl CompilerDriver {
                                 previous_page_index + 1
                             ),
                         })?;
-                        rebase_reused_shipout_checkpoint(
-                            &previous.sources,
-                            &previous.module_traces,
-                            &previous.module_checkpoints,
-                            &current_sources,
-                            &previous.page_metadata,
-                            previous_page_index,
-                            &build.page_metadata,
-                            current_page_index,
-                            &mut reused,
-                        );
-                        checkpoints.push(reused);
+                            rebase_reused_shipout_checkpoint(
+                                &previous.sources,
+                                &previous.module_traces,
+                                &previous.module_checkpoints,
+                                &current_sources,
+                                &previous.page_metadata,
+                                previous_page_index,
+                                &build.page_metadata,
+                                current_page_index,
+                                &mut reused,
+                            );
+                            checkpoints.push(reused);
+                        }
                     }
-                }
-                checkpoints
-            } else {
-                let capture_end = checkpoint_tail
-                    .map(|tail| tail.current_page_start)
-                    .unwrap_or(build.page_metadata.len());
-                let mut checkpoints = capture_page_checkpoints(
-                    &world,
-                    &preamble_checkpoint,
-                    0,
-                    &build.page_metadata[..capture_end],
-                    &build.run.render_events,
+                    checkpoints
+                } else {
+                    let capture_end = checkpoint_tail
+                        .map(|tail| tail.current_page_start)
+                        .unwrap_or(build.page_metadata.len());
+                    let mut checkpoints = capture_page_checkpoints(
+                        &world,
+                        &preamble_checkpoint,
+                        0,
+                        &build.page_metadata[..capture_end],
+                        &build.run.render_events,
+                    )
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!("failed to capture page checkpoints: {error}"),
+                        }],
+                        message: format!("failed to capture page checkpoints: {error}"),
+                    })?;
+                    if let Some((previous, tail)) = previous_build.as_ref().zip(checkpoint_tail) {
+                        for current_page_index in capture_end..build.page_metadata.len() {
+                            let previous_page_index = tail.previous_page_start + current_page_index
+                                - tail.current_page_start;
+                            let stored = previous
+                                .bundle
+                                .checkpoints
+                                .iter()
+                                .find(|checkpoint| {
+                                    checkpoint.meta.page_index_after == previous_page_index + 1
+                                })
+                                .ok_or_else(|| CompileFailure {
+                                    diagnostics: vec![Diagnostic {
+                                        level: DiagnosticLevel::Error,
+                                        file: Some(request.toplevel.to_string()),
+                                        line: None,
+                                        message: format!(
+                                            "missing reusable unchanged-tail checkpoint {}",
+                                            previous_page_index + 1
+                                        ),
+                                    }],
+                                    message: format!(
+                                        "missing reusable unchanged-tail checkpoint {}",
+                                        previous_page_index + 1
+                                    ),
+                                })?;
+                            let mut reused = replay_checkpoint_from_stored(stored, &request.toplevel)
+                            .ok_or_else(|| CompileFailure {
+                            diagnostics: vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: Some(request.toplevel.to_string()),
+                                line: None,
+                                message: format!(
+                                    "missing reusable unchanged-tail snapshot for checkpoint {}",
+                                    previous_page_index + 1
+                                ),
+                            }],
+                            message: format!(
+                                "missing reusable unchanged-tail snapshot for checkpoint {}",
+                                previous_page_index + 1
+                            ),
+                        })?;
+                            rebase_reused_shipout_checkpoint(
+                                &previous.sources,
+                                &previous.module_traces,
+                                &previous.module_checkpoints,
+                                &current_sources,
+                                &previous.page_metadata,
+                                previous_page_index,
+                                &build.page_metadata,
+                                current_page_index,
+                                &mut reused,
+                            );
+                            checkpoints.push(reused);
+                        }
+                    }
+                    checkpoints
+                };
+                let checkpoint_build = build_checkpoint_bundle_with_shipouts_and_stats(
+                    request.rev,
+                    &preamble_checkpoint.snapshot,
+                    &preamble_key,
+                    preamble_checkpoint.source_offset_utf8,
+                    &checkpoint_pages,
+                    &shipout_checkpoints
+                        .iter()
+                        .map(|checkpoint| ShipoutCheckpoint {
+                            snapshot: checkpoint.snapshot.clone(),
+                            source_offset_utf8: checkpoint.source_offset_utf8,
+                            resume_path: Some(checkpoint.resume_path.clone()),
+                            continuation_stack: checkpoint.continuation_stack.clone(),
+                        })
+                        .collect::<Vec<_>>(),
+                    &build
+                        .run
+                        .module_checkpoints
+                        .iter()
+                        .map(|checkpoint| InputBoundaryCheckpoint {
+                            kind: checkpoint.kind,
+                            module_path: checkpoint.module_path.clone(),
+                            resume_path: checkpoint.resume_path.clone(),
+                            source_offset_utf8: checkpoint.source_offset_utf8,
+                            continuation_stack: checkpoint.continuation_stack.clone(),
+                            output_start_utf8: checkpoint.output_start_utf8,
+                            page_index_after: build
+                                .page_metadata
+                                .iter()
+                                .find(|page| page.text_span.end_utf8 > checkpoint.output_start_utf8)
+                                .map(|page| page.index)
+                                .unwrap_or_default(),
+                            snapshot: checkpoint.snapshot.clone(),
+                        })
+                        .collect::<Vec<_>>(),
                 )
                 .map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic {
                         level: DiagnosticLevel::Error,
                         file: Some(request.toplevel.to_string()),
                         line: None,
-                        message: format!("failed to capture page checkpoints: {error}"),
+                        message: format!("failed to build checkpoint bundle: {error}"),
                     }],
-                    message: format!("failed to capture page checkpoints: {error}"),
-                })?;
-                if let Some((previous, tail)) = previous_build.as_ref().zip(checkpoint_tail)
-                {
-                    for current_page_index in capture_end..build.page_metadata.len() {
-                        let previous_page_index =
-                            tail.previous_page_start + current_page_index - tail.current_page_start;
-                        let stored = previous
-                            .bundle
-                            .checkpoints
-                            .iter()
-                            .find(|checkpoint| {
-                                checkpoint.meta.page_index_after == previous_page_index + 1
-                            })
-                            .ok_or_else(|| CompileFailure {
-                                diagnostics: vec![Diagnostic {
-                                    level: DiagnosticLevel::Error,
-                                    file: Some(request.toplevel.to_string()),
-                                    line: None,
-                                    message: format!(
-                                        "missing reusable unchanged-tail checkpoint {}",
-                                        previous_page_index + 1
-                                    ),
-                                }],
-                                message: format!(
-                                    "missing reusable unchanged-tail checkpoint {}",
-                                    previous_page_index + 1
-                                ),
-                            })?;
-                        let mut reused = replay_checkpoint_from_stored(stored, &request.toplevel)
-                            .ok_or_else(|| CompileFailure {
-                            diagnostics: vec![Diagnostic {
-                                level: DiagnosticLevel::Error,
-                                file: Some(request.toplevel.to_string()),
-                                line: None,
-                                message: format!(
-                                    "missing reusable unchanged-tail snapshot for checkpoint {}",
-                                    previous_page_index + 1
-                                ),
-                            }],
-                            message: format!(
-                                "missing reusable unchanged-tail snapshot for checkpoint {}",
-                                previous_page_index + 1
-                            ),
-                        })?;
-                        rebase_reused_shipout_checkpoint(
-                            &previous.sources,
-                            &previous.module_traces,
-                            &previous.module_checkpoints,
-                            &current_sources,
-                            &previous.page_metadata,
-                            previous_page_index,
-                            &build.page_metadata,
-                            current_page_index,
-                            &mut reused,
-                        );
-                        checkpoints.push(reused);
-                    }
-                }
-                checkpoints
-            };
-            let checkpoint_build = build_checkpoint_bundle_with_shipouts_and_stats(
-                request.rev,
-                &preamble_checkpoint.snapshot,
-                &preamble_key,
-                preamble_checkpoint.source_offset_utf8,
-                &checkpoint_pages,
-                &shipout_checkpoints
-                    .iter()
-                    .map(|checkpoint| ShipoutCheckpoint {
-                        snapshot: checkpoint.snapshot.clone(),
-                        source_offset_utf8: checkpoint.source_offset_utf8,
-                        resume_path: Some(checkpoint.resume_path.clone()),
-                        continuation_stack: checkpoint.continuation_stack.clone(),
-                    })
-                    .collect::<Vec<_>>(),
-                &build
-                    .run
-                    .module_checkpoints
-                    .iter()
-                    .map(|checkpoint| InputBoundaryCheckpoint {
-                        kind: checkpoint.kind,
-                        module_path: checkpoint.module_path.clone(),
-                        resume_path: checkpoint.resume_path.clone(),
-                        source_offset_utf8: checkpoint.source_offset_utf8,
-                        continuation_stack: checkpoint.continuation_stack.clone(),
-                        output_start_utf8: checkpoint.output_start_utf8,
-                        page_index_after: build
-                            .page_metadata
-                            .iter()
-                            .find(|page| page.text_span.end_utf8 > checkpoint.output_start_utf8)
-                            .map(|page| page.index)
-                            .unwrap_or_default(),
-                        snapshot: checkpoint.snapshot.clone(),
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .map_err(|error| CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
                     message: format!("failed to build checkpoint bundle: {error}"),
-                }],
-                message: format!("failed to build checkpoint bundle: {error}"),
-            })?;
-            let mut checkpoint_bundle = checkpoint_build.bundle;
-            if let Some(stored_preamble) = checkpoint_bundle.checkpoints.first_mut() {
-                stored_preamble.meta.output_start_utf8 = preamble_checkpoint.output_offset_utf8;
-            }
-            let checkpoint_suppression_counts = checkpoint_build.suppression_counts;
+                })?;
+                let mut checkpoint_bundle = checkpoint_build.bundle;
+                if let Some(stored_preamble) = checkpoint_bundle.checkpoints.first_mut() {
+                    stored_preamble.meta.output_start_utf8 = preamble_checkpoint.output_offset_utf8;
+                }
+                let checkpoint_suppression_counts = checkpoint_build.suppression_counts;
+                (Some(checkpoint_bundle), checkpoint_suppression_counts)
+            };
             let execution_page_metadata = build
                 .page_metadata
                 .iter()
@@ -2833,8 +2888,7 @@ impl CompilerDriver {
                     message: format!("failed to write replay output {}: {error}", output_path),
                 }
             })?;
-            let page_patches = previous_build
-                .as_ref()
+            let page_patches = previous_renderer_revision
                 .map(|_| {
                     plan_page_patches(
                         &previous_renderer_pages,
@@ -2845,12 +2899,16 @@ impl CompilerDriver {
                 })
                 .unwrap_or_default();
             let checkpoint_path = rev_dir.join("checkpoints.json");
-            let checkpoint_write_outcome = save_checkpoint_bundle_observed(
-                &request.toplevel,
-                &rev_dir,
-                &checkpoint_path,
-                &checkpoint_bundle,
-            )?;
+            let checkpoint_write_outcome = if let Some(bundle) = checkpoint_bundle.as_ref() {
+                save_checkpoint_bundle_observed(
+                    &request.toplevel,
+                    &rev_dir,
+                    &checkpoint_path,
+                    bundle,
+                )?
+            } else {
+                CheckpointWriteOutcome::NotAttempted
+            };
             let mut tracked_inputs = materialized_project
                 .as_ref()
                 .map(|materialized| materialized.tracked_inputs.clone())
@@ -3069,7 +3127,10 @@ impl CompilerDriver {
                 semantic_fixpoint_reached,
                 semantic_aux_backdated,
                 checkpoint_writer_policy: SNAPSHOT_WRITE_POLICY.into(),
-                checkpoint_attachment_counts: checkpoint_bundle.attachment_counts(),
+                checkpoint_attachment_counts: checkpoint_bundle
+                    .as_ref()
+                    .map(CheckpointBundle::attachment_counts)
+                    .unwrap_or_default(),
                 checkpoint_suppression_counts,
                 checkpoint_write_outcome,
             };
@@ -3721,6 +3782,9 @@ fn load_latest_previous_internal_build(
 
     for previous_rev in (1..current_rev).rev() {
         let rev_dir = build_root.join(format!("rev-{previous_rev}"));
+        if is_live_preview_revision(build_root, previous_rev) {
+            return Ok(None);
+        }
         let checkpoint_path = rev_dir.join("checkpoints.json");
         let page_metadata_path = rev_dir.join("page-metadata.json");
         let execution_page_metadata_path = rev_dir.join("execution-page-metadata.json");
@@ -3810,6 +3874,33 @@ fn load_page_artifact_metadata(path: &Utf8Path) -> anyhow::Result<Vec<PageArtifa
         &fs::read(path.as_std_path()).with_context(|| format!("failed to read {path}"))?,
     )
     .with_context(|| format!("failed to parse {path}"))
+}
+
+/// Output reuse needs the applied page manifest, never a VM checkpoint or a
+/// successful-but-unpublished revision discovered by directory order.
+async fn load_preview_output_baseline(
+    build_root: &Utf8Path,
+    current_rev: u64,
+    applied_rev: Option<u64>,
+) -> Option<(u64, Vec<PageArtifactMeta>)> {
+    let published = crate::preview_persistence::published_page_metadata(build_root)
+        .await
+        .ok()
+        .flatten();
+    let target_rev = applied_rev.or_else(|| published.as_ref().map(|(rev, _)| *rev))?;
+    if target_rev == 0 || target_rev >= current_rev {
+        return None;
+    }
+    if let Some((rev, pages)) = published {
+        if rev == target_rev {
+            return Some((rev, pages));
+        }
+    }
+    // Direct driver callers can supply the applied revision without a daemon
+    // manifest. A missing/corrupt cache means re-exporting current pages.
+    load_page_artifact_metadata(&build_root.join(format!("rev-{target_rev}/page-metadata.json")))
+        .ok()
+        .map(|pages| (target_rev, pages))
 }
 
 fn save_source_texts(
@@ -4952,6 +5043,10 @@ fn plan_page_patches(
 
     ops
 }
+
+#[cfg(test)]
+#[path = "live_preview_policy_tests.rs"]
+mod live_preview_policy_tests;
 
 #[cfg(test)]
 mod tests {
