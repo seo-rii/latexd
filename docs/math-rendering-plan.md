@@ -644,11 +644,175 @@ Worker isolation starts after P0 and can proceed in parallel. A persistent
 semantic session does not begin until continuation snapshot equivalence from
 the VM foundation plan is green.
 
+### I0 Revision Correctness — Review Follow-up (2026-09-08)
+
+The September 7 technical review's F01–F05/F11 take priority over expanding
+compatibility commands. The first implementation slice establishes these contracts:
+
+- Reused PDF/SVG URLs inherit their actual owner from persisted page metadata.
+  Missing artifacts trigger regeneration. Recent eight revision manifests keep
+  referenced owner directories alive; unreferenced owners can be collected.
+- Viewer build notifications and displayed-preview responses use separate existing
+  revision fields. Last-good tiles and source interactions work during pending or
+  failed builds. Page selection follows surviving IDs or explicit replacements,
+  and mounted updates preserve the selected page's local viewport offset.
+- The native daemon copies project-local inputs into a private `ProjectRevision`.
+  Hashes describe captured bytes; inputs are never re-hashed at completion to
+  claim those later bytes were compiled. Namespace creation/deletion conservatively
+  invalidates the build, including previously absent packages and graphics.
+- Superseded builds do not commit a preview. The compiler's reuse baseline is the
+  last published revision, matching the dirty-input cache. Recovery across an
+  unpublished or failed revision uses a clean build until replay rollback is
+  proven equivalent. Internal `sources.json`
+  retains its full continuation metadata; external output receives captured source
+  text. The latest-PDF endpoint serves the applied immutable revision artifact.
+- Tile manifests, URLs, PNG endpoints, prewarming and raster caches share a
+  canonical scale bucket and tile size. Invalid/nonfinite inputs and excessive
+  page pixels or manifest tile counts are rejected. The existing API expresses
+  pixel density through scale and does not yet have a separate DPR parameter.
+
+These changes do not close the entire incremental lane. Snapshot acquisition
+currently copies the local project on each build; it is not an atomic filesystem
+transaction or a frozen system package/font tree. Recorded absolute live-project
+inputs are rejected, and custom compilers must honor the supplied snapshot root.
+Resolver-level negative readsets, engine environment identity, and independent
+logical/source page anchors remain open. The new regressions are described in
+[`testing-strategy.md`](./testing-strategy.md#revision-correctness-regressions).
+
+The follow-up now adds an atomic `PreviewCommitted` transaction with explicit
+base/new revisions, actual state resynchronization on base mismatch/reconnect,
+a durable last-published manifest and monotonically reserved build revisions.
+Client preview leases and queued/in-flight renderer/export jobs pin GC roots;
+the mark/sweep gate prevents a new lease from racing deletion.
+
+`build-meta.json.trace` records VM dispatches, VM runs, external processes,
+phase times and output reuse separately. Unknown skipped execution stays `null`.
+Renderer counters record backend calls and actual rasterized pixels. A bounded
+full-page raster cache shares one rendering across separately requested tiles.
+The seeded mutation harness compares the incremental path against independent
+clean builds and retains exact paint, aux and interaction mismatches.
+
+The internal/external page-preview boundary is shared: external PDFs retain their
+native content/resources in extracted page artifacts. The live internal driver
+writes page artifacts and a deferred whole-PDF recipe; CLI/oracle calls retain
+eager diagnostic exports. Download requests merge the immutable pages, including
+named link destinations, under an export job pin. This does not make an external
+TeX process incrementally executable.
+
+The native `with_preview_artifacts()` policy now executes semantic compilation
+cold and performs no durable VM checkpoint loading, shipout recapture, or
+checkpoint-bundle serialization. It still reuses immutable PDF/SVG pages from
+the exact applied preview manifest, including after failed or unpublished
+revisions, while regenerating current aux and interaction data. A per-revision
+policy marker prevents a later eager call from falling through to an older
+checkpoint whose inputs predate the applied preview. The default driver keeps
+the eager checkpoint path for CLI/oracle research. Thus the prefix and tail
+checkpoint evidence below describes that research path, not live daemon
+execution or a persistent in-memory compiler session.
+
+This policy follows measured work, rather than a page-cache hit count: across
+937 successful edits in the 1,000-edit eager run, checkpoint selection,
+recapture, and persistence consumed an aggregate 521.568 seconds, versus
+24.253 seconds in primary execution/aux and under six seconds in debug/full-PDF
+export. The live-policy tests require exact clean output, current source/aux
+data, artifact reuse across 20 revisions, cache-miss recovery, and safe
+eager/live mode transitions. The testing strategy records the separate short
+release measurement; it does not claim a general latency target.
+
+That short release run compared 20 live/eager-clean pairs with identical output:
+compiler p50/p95 were 27.319/40.687 ms live versus 782.983/986.121 ms eager, while
+the first live build took 643.256 ms. Primary execution/aux totals stayed close
+(444.301 versus 466.150 ms); the existing checkpoint/state-storage phase dropped
+from 16,014.535 to 28.178 ms. In live mode that phase contains source, aux, and
+page metadata writes only: checkpoint persistence was never attempted. This
+supports the bounded policy on the small shared-runner fixture, not arbitrary
+document speed or browser edit-to-visible targets. Detailed raw evidence is
+linked from the testing strategy.
+
+Two selected real CC0 papers now pass four live/independent-clean production
+output comparisons as well. Their 15- and 10-page live builds took
+2.452/5.469 seconds initially and 1.925/5.036 seconds for explicit same-source
+driver requests, versus 18.839/13.046 seconds for eager clean builds. These are
+single compiler samples on a shared runner, not edit-to-visible measurements.
+All second-request pages reuse their artifact owners, but both live requests
+dispatch the same semantic work. Checkpoint maintenance is removed; execution
+and layout remain substantial. The representative-paper latency gate is open.
+
+In-memory checkpoint event prefixes now share an immutable segment and cursor.
+The frozen durable wire format still expands arrays; its explicit serialization
+budget remains. VM state copies, general event-log persistence and proven tail
+state convergence are still separate work.
+
+Complete the engine-profile decision and mutation equivalence gates before
+widening the semantic execution surface. No 90% arXiv coverage, 250 ms latency,
+or mature-engine checkpoint compatibility is claimed by these infrastructure
+changes.
+
+The native-core comparison now has a bounded
+[pdfTeX preamble format experiment](./adr-native-pdftex-preamble-checkpoint.md):
+16 positive controlled fixtures preserve exact text, all-page pixels, and aux;
+four boundary probes expose group, stream, and effect limits. A changed-input
+witness shows stale output unless the preamble readset is invalidated. These are
+20 fixtures, plus six real-paper preamble-only attempts in local TeX Live 2022;
+only one paper preamble dumps with the currently installed packages. This does
+not close the representative-document engine selection gate or switch the
+production engine.
+
+### Review Acceptance Status
+
+The implementation and a passing gate are distinct. The September review's
+multi-stage plan remains open where the following evidence is still missing:
+
+| Review area | Implemented boundary | Remaining exit condition |
+| --- | --- | --- |
+| Phase 0: revision/artifact correctness | Captured project inputs, consumed hashes, last-good publication, persisted artifact ownership, GC leases, canonical raster geometry, page-ID anchoring | Resolver/environment snapshot identity and source-based logical anchors independent of paint |
+| Phase 1: common result and measurement | Native external PDF page adapter, deferred whole-PDF export, debug artifacts excluded from live preview, separate execution/output/raster counters | Browser edit-to-visible traces and a frozen engine/profile corpus |
+| Phase 2: execution core selection | Reproducible local pdfTeX format/effect probe alongside the current internal engine | 20–30 representative full documents, required continuation hooks, frozen package/font environment and final engine decision |
+| Phase 3: execution/shipout authority | Executed label anchors and actual display-page authority for aux page numbers | Eliminate authoritative source scanning; execute selected real kernel/class/packages |
+| Phase 4: safe prefix reuse | Shared in-memory event prefixes, explicit durable-prefix budget fallback, changed-input checkpoint guards | Complete state sharing and durable event storage without repeated prefixes |
+| Phase 5: convergence | Strict clean/incremental mutation oracle and conservative checkpoint recapture when inputs differ | General tail-state/aux/dependency equivalence and measured execution skipping |
+| Phase 6: rendering locality | Bounded shared full-page raster cache, tile deduplication and exact fractional dimensions | Measured rectangle/direct display-list rendering, local tile paint hashes and seam/transform coverage |
+| Phase 7: compatibility/operations | Worker isolation/cancellation, bounded corpus extraction, restart recovery | Persistent library session, deployment isolation, representative holdout fidelity and latency gates |
+
+The aux convergence loop now derives label pages from actual production display
+pages and executed named destinations. It still pays legacy metadata layout
+costs, which are measured separately. Removing discarded legacy PDF encoding
+is an export reduction, not skipped TeX execution. The scanner/VM dual path and
+approximate internal semantic coverage remain explicit limitations.
+
+A fixed-seed 1,000-edit sequence now passes strict incremental/clean comparison
+for the small 1–3-page internal fixture: 938 successful pairs and 63 intentional
+failure pairs, including the initial build, have no semantic/paint/aux/interaction
+mismatches. This does not prove arbitrary tail reuse or paper fidelity. Eager
+compiler p95 was 1,562.334 ms incremental versus 1,518.585 ms clean on the shared
+runner; no total latency improvement or browser latency target is demonstrated.
+Detailed workload/counter evidence is in the testing strategy.
+
+A separate 1,000-edit run now covers the production live policy against eager
+clean builds, including actual published-manifest commits, failure preservation,
+and recovery after every GC. Its shared production outputs also have zero
+mismatches across 938 successful and 63 intentional failure pairs. Live compiler
+p95 was 65.188 ms on the small 1–3-page fixture. This measures the policy that
+removes durable checkpoint overhead and still executes semantics cold; it does
+not close persistent execution reuse or the representative-paper latency gate.
+
+The mutation oracle has already caught distinct replay/lexing defects:
+changed-source scanner lookahead, a dropped preamble output prefix, and copied
+tail checkpoints with outdated source locations after a comment-only edit.
+Reuse eligibility now checks the inputs of the saved computation independently
+of page output equality. TeX comments discard their endline in the mouth;
+comment-only paint invariance is checked separately from source-map updates.
+The VM semantic epoch is bumped so persisted checkpoints from the earlier
+behavior are invalidated without changing the frozen snapshot wire formats.
+
 ### I1 Worker Isolation
 
-Move browser compilation to a Web Worker. Add revision ordering, cancellation,
-request coalescing, and last-good-preview retention. This removes UI blocking
-but is not yet semantic incremental compilation.
+Implemented and exercised in Chromium: WASI runs in a dedicated Worker;
+request IDs, immutable project inputs, cancellation, timeouts, worker termination
+and replacement isolate the UI and preserve the last good preview. The worker
+caches the compiled module, while every build still creates its own WASI instance
+and filesystem. This completes isolation, not the persistent semantic session
+in I2.
 
 ### I2 Persistent Compiler Session
 
