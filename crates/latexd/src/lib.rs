@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod aux_shipout_tests;
 pub mod compiler;
 mod prepared_asset_cache;
 

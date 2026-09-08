@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earliest_repeated_include_occurrence_over_late_toplevel_and_appendix_edits => run_repeat_include_top_case(RepeatIncludeTopCase::Appendix));
+smoke!(internal_compiler_scanner_lookahead_fallback_repeated_include_with_toplevel_appendix_edits => run_repeat_include_top_case(RepeatIncludeTopCase::Appendix));

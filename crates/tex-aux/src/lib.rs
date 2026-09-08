@@ -2930,12 +2930,17 @@ fn rewrite_source(
             "label" => {
                 if let Some((argument_end, _)) = read_braced_argument(source, command_end) {
                     let output_start_utf8 = output.len() as u32;
+                    // Keep the anchor in executed/rendered input. Its page is
+                    // assigned by the presentation page builder, not by the
+                    // legacy text pagination used during aux materialization.
+                    let rendered = &source[command_start..argument_end];
+                    output.push_str(rendered);
                     rewrite_spans.push(MaterializedRewriteSpan {
                         start_utf8: command_start as u32,
                         end_utf8: argument_end as u32,
                         output_start_utf8,
-                        output_end_utf8: output_start_utf8,
-                        rendered: String::new(),
+                        output_end_utf8: output.len() as u32,
+                        rendered: rendered.to_string(),
                     });
                     index = argument_end;
                     continue;
@@ -8474,6 +8479,54 @@ mod tests {
     }
 
     #[test]
+    fn backdating_preserves_current_origins_when_only_source_locations_move() {
+        let previous = SemanticAux {
+            labels: vec![super::SemanticLabel {
+                key: "sec:intro".into(),
+                number: "1".into(),
+                page: 1,
+                file: "main.tex".into(),
+                offset_utf8: 10,
+            }],
+            toc: vec![super::TocEntry {
+                level: 1,
+                number: "1".into(),
+                title: "Intro".into(),
+                page: 1,
+                file: "main.tex".into(),
+                offset_utf8: 5,
+            }],
+            ..SemanticAux::default()
+        };
+        let previous_json = serde_json::to_vec_pretty(&previous).expect("previous JSON");
+        let previous_concrete =
+            super::render_concrete_semantic_aux(&previous).expect("previous concrete aux");
+        for moved_file in ["main.tex", "sections/intro.tex"] {
+            let mut current = previous.clone();
+            current.labels[0].file = moved_file.into();
+            current.labels[0].offset_utf8 += 24;
+            current.toc[0].file = moved_file.into();
+            current.toc[0].offset_utf8 += 24;
+            let json =
+                serialize_semantic_aux_backdated_with_previous(Some(&previous_json), &current)
+                    .expect("updated JSON aux");
+            let concrete = serialize_concrete_semantic_aux_backdated_with_previous(
+                Some(&previous_concrete),
+                &current,
+            )
+            .expect("updated concrete aux");
+            assert_eq!(
+                serde_json::from_slice::<SemanticAux>(&json).expect("parse JSON"),
+                current
+            );
+            assert_eq!(
+                super::parse_concrete_semantic_aux(&concrete).expect("parse concrete"),
+                current
+            );
+        }
+    }
+
+    #[test]
     fn concrete_backdating_reads_previous_file_payload() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
@@ -12895,7 +12948,7 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("Long IntroductionSee Long Introduction."));
+        assert!(main.contains("Long Introduction\\label{sec:intro}See Long Introduction."));
         assert!(!main.contains("\\nameref"));
     }
 
@@ -13955,8 +14008,8 @@ mod tests {
 
         assert_eq!(aux.label_number("obs:first"), Some("1"));
         assert_eq!(aux.label_number("obs:second"), Some("2"));
-        assert!(main.contains("Observation Lemma 1. a"));
-        assert!(main.contains("Observation Lemma 2 (Second). b"));
+        assert!(main.contains("Observation Lemma 1. \\label{obs:first}a"));
+        assert!(main.contains("Observation Lemma 2 (Second). \\label{obs:second}b"));
         assert!(main.contains(
             "See Observation Lemma 1, Observation Lemmas 1, 2, observation lemmas, and Second."
         ));
@@ -13997,8 +14050,8 @@ mod tests {
 
         assert_eq!(aux.label_number("obs:first"), Some("1"));
         assert_eq!(aux.label_number("obs:second"), Some("2"));
-        assert!(main.contains("Observation Lemma 1. a"));
-        assert!(main.contains("Observation Corollary 2. b"));
+        assert!(main.contains("Observation Lemma 1. \\label{obs:first}a"));
+        assert!(main.contains("Observation Corollary 2. \\label{obs:second}b"));
         assert!(main.contains("See Observation Lemma 1 and Observation Corollary 2."));
         assert!(!main.contains("\\newtheorem"));
         assert!(!main.contains("\\begin{oblemma}"));
@@ -14034,8 +14087,8 @@ mod tests {
 
         assert_eq!(aux.label_number("obs:first"), Some("1.1"));
         assert_eq!(aux.label_number("obs:second"), Some("2.1"));
-        assert!(main.contains("Observation Lemma 1.1. a"));
-        assert!(main.contains("Observation Lemma 2.1. b"));
+        assert!(main.contains("Observation Lemma 1.1. \\label{obs:first}a"));
+        assert!(main.contains("Observation Lemma 2.1. \\label{obs:second}b"));
         assert!(main.contains("See Observation Lemma 1.1 and Observation Lemma 2.1."));
         assert!(!main.contains("\\newtheorem"));
         assert!(!main.contains("\\autoref"));
@@ -14071,10 +14124,10 @@ mod tests {
         assert_eq!(aux.label_number("cor:first"), Some("1.2"));
         assert_eq!(aux.label_number("thm:second"), Some("2.1"));
         assert_eq!(aux.label_number("cor:second"), Some("2.2"));
-        assert!(main.contains("Theorem 1.1. a"));
-        assert!(main.contains("Corollary 1.2. b"));
-        assert!(main.contains("Theorem 2.1. c"));
-        assert!(main.contains("Corollary 2.2. d"));
+        assert!(main.contains("Theorem 1.1. \\label{thm:first}a"));
+        assert!(main.contains("Corollary 1.2. \\label{cor:first}b"));
+        assert!(main.contains("Theorem 2.1. \\label{thm:second}c"));
+        assert!(main.contains("Corollary 2.2. \\label{cor:second}d"));
         assert!(main.contains("See Theorem 1.1, Corollary 1.2, Theorem 2.1, and Corollary 2.2."));
         assert!(!main.contains("\\newtheorem"));
         assert!(!main.contains("\\autoref"));
@@ -14106,7 +14159,7 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("Observation Lemma 1. a"));
+        assert!(main.contains("Observation Lemma 1. \\label{obs:first}a"));
         assert!(main.contains("See Observation Lemma 1."));
         assert!(!main.contains("\\theoremstyle"));
         assert!(!main.contains("\\newtheoremstyle"));
@@ -14134,7 +14187,7 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("IntroTheorem 1 (Pythagoras). aProof (Sketch). b"));
+        assert!(main.contains("IntroTheorem 1 (Pythagoras). \\label{thm:first}aProof (Sketch). b"));
         assert!(!main.contains("\\begin{theorem}"));
         assert!(!main.contains("\\end{theorem}"));
         assert!(!main.contains("\\begin{proof}"));
@@ -14526,7 +14579,9 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("Figure 1: Long Figure Titlea$b$cd"));
+        assert!(
+            main.contains("Figure 1: Long Figure Title\\label{fig:first}a$\\label{eq:first}b$cd")
+        );
         assert!(!main.contains("tbp"));
         assert!(!main.contains("htbp"));
         assert!(!main.contains("\\begin{figure}"));

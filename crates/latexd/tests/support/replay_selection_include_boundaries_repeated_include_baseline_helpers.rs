@@ -153,14 +153,23 @@ async fn compile_replay_selection_repeated_include_baseline_second_pass(
         .expect("second build should succeed")
 }
 
-fn assert_replay_selection_repeated_include_baseline(
+async fn assert_replay_selection_repeated_include_baseline(
     fixture: &ReplaySelectionRepeatedIncludeBaselineFixture,
     second: &CompileOutcome,
     dirty_files: &[Utf8PathBuf],
 ) {
+    let (expected_checkpoint_id, expected_start_page_index) = assert_scanner_lookahead_fallback(
+        &fixture.root,
+        &fixture.build_root,
+        second,
+        dirty_files,
+        &fixture.expected_checkpoint_id,
+        fixture.expected_start_page_index,
+    )
+    .await;
     assert_eq!(
         second.reused_checkpoint_id.as_deref(),
-        Some(fixture.expected_checkpoint_id.as_str())
+        Some(expected_checkpoint_id.as_str())
     );
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(fixture.build_root.join("rev-2/build-meta.json")).expect("read build meta"),
@@ -170,12 +179,9 @@ fn assert_replay_selection_repeated_include_baseline(
     assert_eq!(build_meta.dirty_files, dirty_files.to_vec());
     assert_eq!(
         build_meta.start_checkpoint_id.as_deref(),
-        Some(fixture.expected_checkpoint_id.as_str())
+        Some(expected_checkpoint_id.as_str())
     );
-    assert_eq!(
-        build_meta.start_page_index,
-        fixture.expected_start_page_index
-    );
+    assert_eq!(build_meta.start_page_index, expected_start_page_index);
     assert_eq!(build_meta.page_count, second.page_metadata.len());
     assert!(build_meta.rebuilt_page_count >= 1);
     assert_eq!(
@@ -208,5 +214,5 @@ async fn run_replay_selection_repeated_include_baseline(
         compile_replay_selection_repeated_include_baseline_second_pass(&fixture, &dirty_files)
             .await;
 
-    assert_replay_selection_repeated_include_baseline(&fixture, &second, &dirty_files);
+    assert_replay_selection_repeated_include_baseline(&fixture, &second, &dirty_files).await;
 }

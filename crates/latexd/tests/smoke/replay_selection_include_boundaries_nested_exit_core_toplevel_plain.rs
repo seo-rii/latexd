@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_nested_input_exit_boundary_over_late_toplevel_edit => run_nested_exit_top_case(NestedExitTopCase::Plain));
+smoke!(internal_compiler_scanner_lookahead_fallback_nested_input_exit_with_toplevel_edit => run_nested_exit_top_case(NestedExitTopCase::Plain));

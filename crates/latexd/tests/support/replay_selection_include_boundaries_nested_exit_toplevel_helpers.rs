@@ -207,16 +207,26 @@ async fn compile_replay_selection_nested_exit_toplevel_second_pass(
         .expect("second build should succeed")
 }
 
-fn assert_replay_selection_nested_exit_toplevel(
+async fn assert_replay_selection_nested_exit_toplevel(
+    root: &Utf8Path,
     build_root: &Utf8Path,
     second: &CompileOutcome,
     dirty_files: &[Utf8PathBuf],
     expected_checkpoint_id: &str,
     expected_start_page_index: usize,
 ) {
+    let (expected_checkpoint_id, expected_start_page_index) = assert_scanner_lookahead_fallback(
+        root,
+        build_root,
+        second,
+        dirty_files,
+        expected_checkpoint_id,
+        expected_start_page_index,
+    )
+    .await;
     assert_eq!(
         second.reused_checkpoint_id.as_deref(),
-        Some(expected_checkpoint_id)
+        Some(expected_checkpoint_id.as_str())
     );
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
@@ -226,7 +236,7 @@ fn assert_replay_selection_nested_exit_toplevel(
     assert_eq!(build_meta.dirty_files, dirty_files.to_vec());
     assert_eq!(
         build_meta.start_checkpoint_id.as_deref(),
-        Some(expected_checkpoint_id)
+        Some(expected_checkpoint_id.as_str())
     );
     assert_eq!(build_meta.start_page_index, expected_start_page_index);
     assert_eq!(build_meta.page_count, second.page_metadata.len());
@@ -262,10 +272,12 @@ async fn run_replay_selection_nested_exit_toplevel(case: ReplaySelectionNestedEx
     let second =
         compile_replay_selection_nested_exit_toplevel_second_pass(&fixture, &dirty_files).await;
     assert_replay_selection_nested_exit_toplevel(
+        &fixture.root,
         &fixture.build_root,
         &second,
         &dirty_files,
         &fixture.expected_checkpoint_id,
         fixture.expected_start_page_index,
-    );
+    )
+    .await;
 }

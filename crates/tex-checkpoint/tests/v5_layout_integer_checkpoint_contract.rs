@@ -17,17 +17,17 @@ use tex_vm::{
 };
 
 #[test]
-fn layout_integer_source_activation_advances_the_checkpoint_vm_semantic_epoch_to_five() {
-    assert_eq!(CHECKPOINT_VM_SEMANTIC_EPOCH, 5);
+fn layout_integer_source_activation_requires_checkpoint_vm_semantic_epoch_five_or_later() {
+    assert!(CHECKPOINT_VM_SEMANTIC_EPOCH >= 5);
 
     let mut interner = ControlSequenceInterner::new();
     let snapshot = Vm::new(&mut interner).snapshot();
     let bundle =
         build_checkpoint_bundle_with_snapshots(1, &snapshot, "preamble", 0, &[], &[], &[], &[])
-            .expect("build epoch-five checkpoint bundle");
+            .expect("build current checkpoint bundle");
     assert_eq!(
         to_value(bundle).expect("encode bundle")["vm_semantic_epoch"],
-        json!(5)
+        json!(CHECKPOINT_VM_SEMANTIC_EPOCH)
     );
 }
 
@@ -40,7 +40,7 @@ fn historical_and_future_layout_epochs_are_not_reusable() {
             .expect("build current checkpoint bundle");
     let tempdir = tempfile::tempdir().expect("tempdir");
     let current_wire = to_value(bundle).expect("encode current checkpoint bundle");
-    for epoch in [4, 6, u32::MAX] {
+    for epoch in [4, 5, CHECKPOINT_VM_SEMANTIC_EPOCH + 1, u32::MAX] {
         let mut wire = current_wire.clone();
         wire["vm_semantic_epoch"] = json!(epoch);
         let path = Utf8PathBuf::from_path_buf(

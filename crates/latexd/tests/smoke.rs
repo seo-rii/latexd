@@ -19,6 +19,7 @@ use tex_vm::VmModuleCheckpointKind;
 use tex_world::ProjectWorld;
 
 include!("support/smoke_harness_helpers.rs");
+include!("support/replay_clean_oracle_helpers.rs");
 
 include!("smoke/external_oracle.rs");
 

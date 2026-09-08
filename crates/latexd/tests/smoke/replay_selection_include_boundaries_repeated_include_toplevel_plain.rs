@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earliest_repeated_include_occurrence_over_late_toplevel_edit => run_repeat_include_top_case(RepeatIncludeTopCase::Plain));
+smoke!(internal_compiler_scanner_lookahead_fallback_repeated_include_with_toplevel_edit => run_repeat_include_top_case(RepeatIncludeTopCase::Plain));

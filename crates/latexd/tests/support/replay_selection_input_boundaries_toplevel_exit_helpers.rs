@@ -106,9 +106,19 @@ toplevel:
         .await
         .expect("second build should succeed");
 
+    let (safe_checkpoint_id, safe_page_index) = assert_scanner_lookahead_fallback(
+        &root,
+        &build_root,
+        &second,
+        &[Utf8PathBuf::from("main.tex")],
+        &expected_checkpoint.meta.checkpoint_id,
+        expected_checkpoint.meta.page_index_after,
+    )
+    .await;
+
     assert_eq!(
         second.reused_checkpoint_id,
-        Some(expected_checkpoint.meta.checkpoint_id.clone())
+        Some(safe_checkpoint_id.clone())
     );
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
@@ -118,12 +128,9 @@ toplevel:
     assert_eq!(build_meta.dirty_files, vec![Utf8PathBuf::from("main.tex")]);
     assert_eq!(
         build_meta.start_checkpoint_id,
-        Some(expected_checkpoint.meta.checkpoint_id.clone())
+        Some(safe_checkpoint_id.clone())
     );
-    assert_eq!(
-        build_meta.start_page_index,
-        expected_checkpoint.meta.page_index_after
-    );
+    assert_eq!(build_meta.start_page_index, safe_page_index);
     assert_eq!(build_meta.page_count, second.page_metadata.len());
     assert!(build_meta.rebuilt_page_count >= 1);
     assert_eq!(

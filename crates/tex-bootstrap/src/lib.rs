@@ -116,7 +116,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\nolinebreak{}
 \def\sloppy{}
 \def\fussy{}
-\def\label#1{}
 \def\ref#1{[?]}
 \def\pageref#1{[?]}
 \def\eqref#1{(?)}
@@ -448,6 +447,8 @@ pub struct ProjectSyncSpan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectReplayCheckpoint {
+    /// Exact UTF-8 output cursor consumed before this checkpoint.
+    pub output_offset_utf8: u32,
     pub snapshot: VmSnapshot,
     pub resume_path: Utf8PathBuf,
     pub source_offset_utf8: u32,
@@ -936,6 +937,7 @@ pub fn capture_page_checkpoints(
         snapshot.module_boundaries = module_boundaries.clone();
         snapshot.module_traces = module_traces.clone();
         checkpoints.push(ProjectReplayCheckpoint {
+            output_offset_utf8,
             snapshot,
             resume_path,
             source_offset_utf8,
@@ -1007,6 +1009,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
     preamble_snapshot.module_boundaries = module_boundaries.clone();
     preamble_snapshot.module_traces = module_traces.clone();
     let preamble_checkpoint = ProjectReplayCheckpoint {
+        output_offset_utf8: output.len() as u32,
         snapshot: preamble_snapshot,
         resume_path: toplevel.clone(),
         source_offset_utf8: body_start as u32,
@@ -1145,6 +1148,17 @@ pub fn run_project_from_checkpoint_with_mounts(
         .input_continuation
         .as_ref()
         .is_some_and(|continuation| continuation.is_restorable());
+    if continuation_is_restorable
+        && current_continuation_sources
+            .as_ref()
+            .is_some_and(|sources| {
+                !vm.can_rebase_render_recovery_sources(sources.iter().map(String::as_str))
+            })
+    {
+        bail!(
+            "checkpoint scanner lookahead depends on changed active input; rebuild from a safe prefix"
+        );
+    }
     let can_resume_serialized_input = continuation_is_restorable
         && current_continuation_sources
             .as_ref()
@@ -2822,6 +2836,7 @@ Following text.
         let replayed = run_project_from_checkpoint(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: child_exit.snapshot.clone(),
                 resume_path: child_exit.resume_path.clone().expect("resume path"),
                 source_offset_utf8: child_exit.source_offset_utf8,
@@ -3663,6 +3678,7 @@ Following text.
         let replayed = run_project_from_checkpoint(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: exit_checkpoint.snapshot.clone(),
                 resume_path: exit_checkpoint.resume_path.clone().expect("resume path"),
                 source_offset_utf8: exit_checkpoint.source_offset_utf8,
@@ -3706,7 +3722,7 @@ Following text.
         .expect("manifest");
         fs::write(
             root.join("paper.tex"),
-            "\\documentclass{article}\\title{Replay}\\begin{document}\\maketitle before \\input{child} after\\end{document}",
+            "\\documentclass{article} Preamble Ω \\title{Replay}\\begin{document}\\maketitle before \\input{child} after\\end{document}",
         )
         .expect("paper");
         fs::write(root.join("child.tex"), "\\section{Middle} child").expect("child");
@@ -3715,10 +3731,63 @@ Following text.
         let snapshot = compile_mini_kernel_snapshot();
         let (full, checkpoint) =
             run_project_from_base_snapshot(&world, &snapshot).expect("full run");
-        let replayed = run_project_from_checkpoint(&world, &checkpoint, "").expect("replayed run");
+        let prefix = &full.output[..checkpoint.output_offset_utf8 as usize];
+        assert!(prefix.contains("Preamble Ω"));
+        let replayed =
+            run_project_from_checkpoint(&world, &checkpoint, prefix).expect("replayed run");
+        assert_eq!(replayed.output, full.output);
 
         assert!(full.render_events.len() >= 6);
         assert_eq!(replayed.render_events, full.render_events);
+    }
+
+    #[test]
+    fn included_comment_only_lines_preserve_output_and_event_payloads() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_owned()).unwrap();
+        fs::write(root.join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\section{Opening}\\label{opening}\n\\input{body.tex}\n\\end{document}\n").unwrap();
+        let body = "Included globe. Opening body remains visible.\n";
+        fs::write(root.join("body.tex"), body).unwrap();
+        let world = ProjectWorld::load(root.clone()).unwrap();
+        let before = run_project(&world).unwrap();
+        let comments = "% movement\n% movement\r\n% movement\r";
+        fs::write(root.join("body.tex"), format!("{comments}{body}")).unwrap();
+        let after = run_project(&world).unwrap();
+        assert_eq!(after.output, before.output);
+        assert_eq!(
+            after
+                .render_events
+                .iter()
+                .map(|event| &event.event)
+                .collect::<Vec<_>>(),
+            before
+                .render_events
+                .iter()
+                .map(|event| &event.event)
+                .collect::<Vec<_>>()
+        );
+        let included_span = |run: &super::ProjectRunResult| {
+            run.render_events.iter().find_map(|event| {
+                if matches!(&event.event, tex_render_model::RenderEvent::Text(text) if text.text == "Included") {
+                    if let tex_render_model::ProvenanceSpan::File(span) = &event.meta.source.primary {
+                        return Some(span.clone());
+                    }
+                }
+                None
+            }).expect("included word source span")
+        };
+        let before_span = included_span(&before);
+        let after_span = included_span(&after);
+        assert_eq!(before_span.path, after_span.path);
+        assert_eq!(
+            after_span.start_utf8,
+            before_span.start_utf8 + comments.len() as u32
+        );
+        assert_eq!(
+            after_span.end_utf8,
+            before_span.end_utf8 + comments.len() as u32
+        );
     }
 
     #[test]
@@ -3789,6 +3858,7 @@ Following text.
         let replayed = run_project_from_checkpoint(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: child_exit.snapshot.clone(),
                 resume_path: child_exit.resume_path.clone().expect("resume path"),
                 source_offset_utf8: child_exit.source_offset_utf8,
@@ -3808,7 +3878,7 @@ Following text.
     }
 
     #[test]
-    fn replay_checkpoint_uses_current_source_when_serialized_input_is_stale() {
+    fn replay_checkpoint_rejects_changed_parent_scanner_lookahead() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -3831,9 +3901,10 @@ Following text.
             .expect("child exit checkpoint");
         fs::write(root.join("paper.tex"), r"A\input{child}X").expect("updated paper");
 
-        let replayed = run_project_from_checkpoint(
+        let error = run_project_from_checkpoint(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: child_exit.snapshot.clone(),
                 resume_path: child_exit.resume_path.clone().expect("resume path"),
                 source_offset_utf8: child_exit.source_offset_utf8,
@@ -3845,9 +3916,10 @@ Following text.
             },
             &full.output[..child_exit.output_start_utf8 as usize],
         )
-        .expect("replayed run");
+        .expect_err("changed scanner input must force a safe prefix rebuild");
 
-        assert_eq!(replayed.output, "ADX");
+        assert!(error.to_string().contains("scanner lookahead"));
+        assert_eq!(run_project(&world).expect("clean run").output, "ADX");
     }
 
     #[test]
@@ -3883,6 +3955,7 @@ Following text.
         let replayed = run_project_from_checkpoint(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: child_enter.snapshot.clone(),
                 resume_path: child_enter.resume_path.clone().expect("resume path"),
                 source_offset_utf8: child_enter.source_offset_utf8,
@@ -3941,6 +4014,7 @@ Following text.
         let captured = capture_page_checkpoints(
             &world,
             &super::ProjectReplayCheckpoint {
+                output_offset_utf8: 0,
                 snapshot: exit_checkpoint.snapshot.clone(),
                 resume_path: exit_checkpoint.resume_path.clone().expect("resume path"),
                 source_offset_utf8: exit_checkpoint.source_offset_utf8,

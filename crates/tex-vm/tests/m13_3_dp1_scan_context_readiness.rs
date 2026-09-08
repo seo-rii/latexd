@@ -135,7 +135,9 @@ fn w2_5_scan_context_gate_has_no_production_activation() {
     assert!(snapshot.contains(
         "VM_SNAPSHOT_MAGNIFICATION_STATE_V1_CAPABILITY: &str = \"state.magnification.v1\""
     ));
-    assert!(checkpoint.contains("pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 5;"));
+    // Epoch six changes prefix, label and comment effects, without activating
+    // any of the dimension commands excluded by the assertions above.
+    assert!(checkpoint.contains("pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 6;"));
     assert!(checkpoint.contains("latexd:complete-vm-snapshot-fingerprint:v3\\0"));
     assert!(checkpoint.contains("vm.magnification-state.v1"));
     assert!(checkpoint.contains(

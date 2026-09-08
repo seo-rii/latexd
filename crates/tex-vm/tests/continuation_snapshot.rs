@@ -142,6 +142,40 @@ fn input_enter_snapshot_rebases_a_semantically_equivalent_parent_source() {
 }
 
 #[test]
+fn input_exit_rebase_rejects_changed_parent_scanner_lookahead() {
+    let previous_source = r"\begin{document}Opening \input{child} Middle alpha.\end{document}";
+    let current_source = previous_source.replace("Middle alpha.", "Middle fable.");
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = Vm::new(&mut interner);
+    vm.enable_render_event_capture();
+    vm.set_entry_source_path("main.tex");
+    vm.mount_file("child.tex", "Child.");
+    let previous = vm.run_plain(previous_source);
+    let checkpoint = previous
+        .module_checkpoints
+        .iter()
+        .find(|checkpoint| {
+            checkpoint.kind == VmModuleCheckpointKind::Exit
+                && checkpoint.module_path.as_str() == "child.tex"
+        })
+        .unwrap();
+    let output_prefix = &previous.output[..checkpoint.output_start_utf8 as usize];
+    let mut restored_interner = ControlSequenceInterner::new();
+    let mut restored = Vm::try_restore(&mut restored_interner, &checkpoint.snapshot).unwrap();
+    restored.mount_file("child.tex", "Child.");
+    let before_rebase = restored.snapshot();
+    assert!(!restored.rebase_restored_input_sources([current_source.as_str()]));
+    assert_eq!(restored.snapshot(), before_rebase, "rejection is atomic");
+    assert!(restored.rebase_restored_input_sources([previous_source]));
+    let resumed = restored.resume_continuation().unwrap();
+    assert_eq!(
+        format!("{output_prefix}{}", resumed.output),
+        previous.output
+    );
+    assert_eq!(resumed.render_events, previous.render_events);
+}
+
+#[test]
 fn input_enter_snapshot_replaces_changed_child_render_events() {
     let (expected, replayed) =
         replay_render_events_after_changed_child("Old child.", "A much newer child.");

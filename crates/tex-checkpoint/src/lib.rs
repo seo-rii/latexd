@@ -19,7 +19,9 @@ use tex_vm::{
 };
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
-pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 5;
+// Epoch 6 persists exact preamble output cursors, executes label anchors, and
+// discards commented line endings. Earlier cached states retain different effects.
+pub const CHECKPOINT_VM_SEMANTIC_EPOCH: u32 = 6;
 
 const CHECKPOINT_DISK_SCHEMA_VERSION: u32 = 2;
 const CHECKPOINT_DISK_ENCODING: &str = "gzip+base64";

@@ -1,1 +1,1 @@
-smoke!(internal_compiler_replays_from_toplevel_input_exit_boundary => run_boundary_exit_case(BoundaryExitCase::Baseline));
+smoke!(internal_compiler_scanner_lookahead_fallback_toplevel_input_exit => run_boundary_exit_case(BoundaryExitCase::Baseline));

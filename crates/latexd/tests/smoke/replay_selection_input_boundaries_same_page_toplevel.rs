@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earlier_same_page_input_checkpoint_over_late_toplevel_edit => run_boundary_top_case(BoundaryTopCase::SamePage));
+smoke!(internal_compiler_scanner_lookahead_fallback_same_page_input_with_toplevel_edit => run_boundary_top_case(BoundaryTopCase::SamePage));

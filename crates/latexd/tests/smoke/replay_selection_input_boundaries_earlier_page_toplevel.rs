@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earlier_input_page_over_late_toplevel_edit => run_boundary_top_case(BoundaryTopCase::EarlierPage));
+smoke!(internal_compiler_scanner_lookahead_fallback_earlier_input_with_toplevel_edit => run_boundary_top_case(BoundaryTopCase::EarlierPage));

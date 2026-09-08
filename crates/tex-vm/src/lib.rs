@@ -16417,6 +16417,10 @@ impl<'i> Vm<'i> {
         &mut self,
         sources: impl IntoIterator<Item = &'a str>,
     ) -> bool {
+        let sources = sources.into_iter().collect::<Vec<_>>();
+        if !self.can_rebase_render_recovery_sources(sources.iter().copied()) {
+            return false;
+        }
         let Some(continuation) = self.restored_input_continuation.as_ref() else {
             return false;
         };
@@ -16445,6 +16449,30 @@ impl<'i> Vm<'i> {
             .expect("validated restored input continuation")
             .queue = rebased_queue;
         true
+    }
+
+    /// A compatibility scanner may have observed the unexecuted parent suffix.
+    /// Replacing Mouth input alone cannot refresh those semantic events safely.
+    /// Child-only edits still use the existing mounted-source recovery path.
+    pub fn can_rebase_render_recovery_sources<'a>(
+        &self,
+        sources: impl IntoIterator<Item = &'a str>,
+    ) -> bool {
+        if !self.render_event_capture || self.render_event_sources.is_empty() {
+            return true;
+        }
+        self.restored_input_continuation
+            .as_ref()
+            .is_none_or(|continuation| {
+                continuation
+                    .queue
+                    .iter()
+                    .filter_map(|item| match item {
+                        QueueItem::CharacterSource(mouth) => Some(mouth.input()),
+                        _ => None,
+                    })
+                    .eq(sources)
+            })
     }
 
     fn run_queue(

@@ -1,1 +1,1 @@
-smoke!(internal_compiler_rebases_shifted_unchanged_tail_shipout_checkpoints => run_shift_tail(ShiftTail::BuildMetaAndCheckpoints));
+smoke!(internal_compiler_recaptures_shifted_unchanged_tail_shipout_checkpoints => run_shift_tail(ShiftTail::BuildMetaAndCheckpoints));

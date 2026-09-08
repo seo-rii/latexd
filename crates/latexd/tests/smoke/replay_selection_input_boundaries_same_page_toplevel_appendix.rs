@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earlier_same_page_input_checkpoint_over_late_toplevel_and_appendix_edits => run_boundary_top_case(BoundaryTopCase::SamePageAppendix));
+smoke!(internal_compiler_scanner_lookahead_fallback_same_page_input_with_toplevel_appendix_edits => run_boundary_top_case(BoundaryTopCase::SamePageAppendix));

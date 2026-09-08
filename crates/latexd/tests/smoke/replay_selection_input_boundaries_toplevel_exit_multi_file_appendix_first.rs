@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_toplevel_input_exit_boundary_across_multiple_changed_files => run_boundary_exit_multi_case(BoundaryExitMultiCase::AppendixFirst));
+smoke!(internal_compiler_scanner_lookahead_fallback_toplevel_input_exit_appendix_first => run_boundary_exit_multi_case(BoundaryExitMultiCase::AppendixFirst));

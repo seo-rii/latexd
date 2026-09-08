@@ -121,6 +121,10 @@ impl<'i> Lexer<'i> {
 }
 
 impl Mouth {
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+
     pub fn new(input: &str) -> Self {
         Self {
             input: Arc::from(input),
@@ -215,19 +219,16 @@ impl Mouth {
                 }
                 CatCode::Comment => {
                     self.position = next.end;
-                    let mut newline = None;
                     while let Some(ch) = self.peek_normalized(self.position) {
                         self.position = ch.end;
                         if ch.ch == '\n' {
-                            newline = Some((next.start, ch.end));
                             break;
                         }
                     }
-                    if let Some((start, end)) = newline
-                        && let Some(token) = self.handle_endline(start, end, interner)
-                    {
-                        return Some(token);
-                    }
+                    // A comment discards its endline as well. Passing it through
+                    // handle_endline would invent a space or \par token. The
+                    // following physical line starts with indentation ignored.
+                    self.state = ScannerState::NewLine;
                 }
                 CatCode::Ignored => {
                     self.position = next.end;
@@ -403,6 +404,29 @@ mod tests {
         assert_eq!(
             render(&tokens, &interner),
             vec!["char:Letter:a", "char:Space: ", "char:Letter:b"]
+        );
+    }
+
+    #[test]
+    fn comment_lines_do_not_emit_spaces_or_paragraph_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let tokens = lex_plain("% first\r\n% second\n% third\rIncluded", &mut interner);
+        assert_eq!(
+            render(&tokens, &interner),
+            "Included"
+                .chars()
+                .map(|ch| format!("char:Letter:{ch}"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn inline_comments_discard_line_end_and_next_line_indentation() {
+        let mut interner = ControlSequenceInterner::new();
+        let tokens = lex_plain("a% note\r\n   b% note\n% comment\n\tc% eof", &mut interner);
+        assert_eq!(
+            render(&tokens, &interner),
+            vec!["char:Letter:a", "char:Letter:b", "char:Letter:c"]
         );
     }
 

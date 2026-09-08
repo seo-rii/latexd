@@ -135,18 +135,27 @@ async fn compile_replay_selection_toplevel_exit_multi_file_second_pass(
         .expect("second build should succeed")
 }
 
-fn assert_replay_selection_toplevel_exit_multi_file_prefers_exit_boundary(
+async fn assert_replay_selection_toplevel_exit_multi_file_prefers_exit_boundary(
     fixture: &ReplaySelectionToplevelExitMultiFileFixture,
     second: &CompileOutcome,
     changed_files: &[Utf8PathBuf],
 ) {
+    let (expected_checkpoint_id, expected_start_page_index) = assert_scanner_lookahead_fallback(
+        &fixture.root,
+        &fixture.build_root,
+        second,
+        changed_files,
+        &fixture.expected_checkpoint_id,
+        fixture.expected_page_index_after,
+    )
+    .await;
     assert_eq!(
         second.page_metadata.len(),
         fixture.first.page_metadata.len()
     );
     assert_eq!(
         second.reused_checkpoint_id,
-        Some(fixture.expected_checkpoint_id.clone())
+        Some(expected_checkpoint_id.clone())
     );
     let build_meta = serde_json::from_slice::<BuildMeta>(
         &fs::read(fixture.build_root.join("rev-2/build-meta.json")).expect("read build meta"),
@@ -156,12 +165,9 @@ fn assert_replay_selection_toplevel_exit_multi_file_prefers_exit_boundary(
     assert_eq!(build_meta.dirty_files, changed_files.to_vec());
     assert_eq!(
         build_meta.start_checkpoint_id,
-        Some(fixture.expected_checkpoint_id.clone())
+        Some(expected_checkpoint_id.clone())
     );
-    assert_eq!(
-        build_meta.start_page_index,
-        fixture.expected_page_index_after
-    );
+    assert_eq!(build_meta.start_page_index, expected_start_page_index);
     assert_eq!(build_meta.page_count, second.page_metadata.len());
     assert!(build_meta.rebuilt_page_count >= 1);
     assert_eq!(
@@ -196,5 +202,6 @@ async fn run_replay_selection_toplevel_exit_multi_file_case(
         &fixture,
         &second,
         &changed_files,
-    );
+    )
+    .await;
 }

@@ -1,3 +1,5 @@
+include!("replay_selection_scanner_fallback_helpers.rs");
+
 struct EarlierPageInputBoundaryFixture {
     _tempdir: tempfile::TempDir,
     root: Utf8PathBuf,
@@ -515,12 +517,22 @@ async fn run_replay_selection_input_boundary_toplevel(
             let (second, dirty_files) =
                 compile_same_page_input_boundary_rev2(&fixture, &changed_files).await;
 
+            let (safe_checkpoint_id, safe_page_index) = assert_scanner_lookahead_fallback(
+                &fixture.root,
+                &fixture.build_root,
+                &second,
+                &dirty_files,
+                &fixture.expected_checkpoint_id,
+                fixture.expected_page_index_after,
+            )
+            .await;
+
             assert_input_boundary_replay_selection(
                 &fixture.build_root,
                 &second,
                 dirty_files,
-                fixture.expected_checkpoint_id.clone(),
-                fixture.expected_page_index_after,
+                safe_checkpoint_id,
+                safe_page_index,
             );
         }
         ReplaySelectionInputBoundaryToplevelCase::EarlierPageInputOnly => {
@@ -588,12 +600,22 @@ async fn run_replay_selection_input_boundary_toplevel(
             let (second, dirty_files) =
                 compile_earlier_page_input_boundary_rev2(&fixture, &changed_files).await;
 
+            let (safe_checkpoint_id, safe_page_index) = assert_scanner_lookahead_fallback(
+                &fixture.root,
+                &fixture.build_root,
+                &second,
+                &dirty_files,
+                &fixture.expected_checkpoint_id,
+                fixture.expected_page_index_after,
+            )
+            .await;
+
             assert_input_boundary_replay_selection(
                 &fixture.build_root,
                 &second,
                 dirty_files,
-                fixture.expected_checkpoint_id.clone(),
-                fixture.expected_page_index_after,
+                safe_checkpoint_id,
+                safe_page_index,
             );
         }
     }

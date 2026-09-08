@@ -5,6 +5,62 @@ struct ReferenceVariantsBasicRefsFixture {
     world: ProjectWorld,
 }
 
+fn assert_reference_label_shipouts(build_root: &Utf8Path, expected_labels: &[(&str, &str)]) {
+    let stored_sources: StoredSources = serde_json::from_slice(
+        &fs::read(build_root.join("rev-1/sources.json")).expect("read sources"),
+    )
+    .expect("parse sources");
+    let original = &stored_sources.files[&Utf8PathBuf::from("main.tex")];
+    let executed = &stored_sources.executed_files[&Utf8PathBuf::from("main.tex")];
+    let pages: Vec<tex_render_model::PageDisplayList> = serde_json::from_slice(
+        &fs::read(build_root.join("rev-1/render-ir/page-display-list.json"))
+            .expect("read display list"),
+    )
+    .expect("parse display list");
+    let aux = load_semantic_aux(&build_root.join("rev-1/aux.json")).expect("load aux");
+    assert_eq!(aux.labels.len(), expected_labels.len());
+    for &(key, number) in expected_labels {
+        let command = format!(r"\label{{{key}}}");
+        assert_eq!(original.matches(&command).count(), 1, "fixture label {key}");
+        assert_eq!(
+            executed.matches(&command).count(),
+            1,
+            "preserve executed anchor {key}"
+        );
+        let label = aux
+            .labels
+            .iter()
+            .find(|label| label.key == key)
+            .expect("aux label");
+        assert_eq!(label.number, number, "number for {key}");
+        assert_eq!(label.file, Utf8PathBuf::from("main.tex"));
+        assert_eq!(
+            label.offset_utf8 as usize,
+            original.find(&command).unwrap(),
+            "source origin for {key}"
+        );
+        let destination_pages: Vec<_> = pages
+            .iter()
+            .enumerate()
+            .flat_map(|(index, page)| {
+                page.ops.iter().filter_map(move |op| match op {
+                    tex_render_model::DrawOp::NamedDestination(destination)
+                        if destination.name == key =>
+                    {
+                        Some(index as u32 + 1)
+                    }
+                    _ => None,
+                })
+            })
+            .collect();
+        assert_eq!(
+            destination_pages,
+            vec![label.page],
+            "aux page must match the actual unique shipout destination for {key}"
+        );
+    }
+}
+
 enum ReferenceVariantsTocNumberingCase {
     Subsubsection,
     OptionalTitle,
@@ -293,6 +349,7 @@ async fn run_reference_variants_appendix_numbering(case: ReferenceVariantsAppend
 }
 
 async fn run_reference_variants_command_forms(case: ReferenceVariantsCommandFormsCase) {
+    let wrappers = matches!(case, ReferenceVariantsCommandFormsCase::Wrappers);
     let (main_source, expected_output, removed_commands): (&str, &str, &[&str]) = match case {
         ReferenceVariantsCommandFormsCase::FullRef => (
             "\\documentclass{article}\\begin{document}\\section{Intro}\\label{sec:intro}\\begin{theorem}[Pythagoras]\\label{thm:first}a\\end{theorem}See \\fullref{sec:intro} and \\Fullref{thm:first}.\\end{document}",
@@ -355,7 +412,21 @@ async fn run_reference_variants_command_forms(case: ReferenceVariantsCommandForm
     )
     .expect("parse sources");
     let executed_main = &stored_sources.executed_files[&Utf8PathBuf::from("main.tex")];
-    assert!(executed_main.contains(expected_output));
+    if wrappers {
+        assert!(
+            executed_main
+                .contains(r"Figure 1: Long Figure Title\label{fig:first}a$\label{eq:first}b$"),
+            "materialized source: {executed_main:?}"
+        );
+        assert_reference_label_shipouts(build_root, &[("fig:first", "1"), ("eq:first", "1")]);
+        let rendered = load_page_display_list_text_runs(build_root, 1).concat();
+        assert!(
+            rendered.contains("Figure 1: Long Figure Titleab"),
+            "rendered caption/body/math: {rendered:?}"
+        );
+    } else {
+        assert!(executed_main.contains(expected_output));
+    }
     for removed_command in removed_commands {
         assert!(!executed_main.contains(removed_command));
     }

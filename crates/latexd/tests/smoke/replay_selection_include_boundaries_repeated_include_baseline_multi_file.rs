@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_earliest_repeated_include_occurrence_across_multiple_changed_files => run_repeat_include_base_case(RepeatIncludeBaseCase::MultiFile));
+smoke!(internal_compiler_scanner_lookahead_fallback_repeated_include_multi_file => run_repeat_include_base_case(RepeatIncludeBaseCase::MultiFile));

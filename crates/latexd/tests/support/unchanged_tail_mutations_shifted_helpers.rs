@@ -1,5 +1,6 @@
 struct ShiftedUnchangedTailMutationRun {
     _tempdir: tempfile::TempDir,
+    root: Utf8PathBuf,
     build_root: Utf8PathBuf,
     first: CompileOutcome,
     second: CompileOutcome,
@@ -96,6 +97,7 @@ toplevel:
 
     ShiftedUnchangedTailMutationRun {
         _tempdir: tempdir,
+        root,
         build_root,
         first,
         second,
@@ -157,15 +159,18 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
             assert_eq!(tail.current_page_start, 2);
             assert_eq!(tail.page_count, 3);
             assert!(!run.second.page_patches.is_empty());
-            assert!(run.second.page_artifacts.iter().any(|page| {
-                page.pdf_url.starts_with("/artifacts/rev/2/pages/")
-            }));
+            assert!(
+                run.second
+                    .page_artifacts
+                    .iter()
+                    .any(|page| { page.pdf_url.starts_with("/artifacts/rev/2/pages/") })
+            );
         }
         ShiftedUnchangedTailMutationCase::BuildMetaAndCheckpoints => {
             let tail = run.second.unchanged_tail.as_ref().expect("unchanged tail");
-            let first_checkpoints =
-                load_checkpoint_bundle(&run.build_root.join("rev-1/checkpoints.json"))
-                    .expect("load rev1 checkpoints");
+            let clean_checkpoints =
+                assert_eager_rebuild_matches_clean(&run.root, &run.build_root, 2, &run.second)
+                    .await;
             let second_checkpoints =
                 load_checkpoint_bundle(&run.build_root.join("rev-2/checkpoints.json"))
                     .expect("load rev2 checkpoints");
@@ -183,19 +188,10 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
             }
 
             for offset in 0..tail.page_count {
-                let previous_page_index = tail.previous_page_start + offset;
                 let current_page_index = tail.current_page_start + offset;
-                let previous_checkpoint =
-                    shipout_checkpoint!(first_checkpoints, previous_page_index);
+                let clean_checkpoint = shipout_checkpoint!(clean_checkpoints, current_page_index);
                 let current_checkpoint =
                     shipout_checkpoint!(second_checkpoints, current_page_index);
-                let previous_page_floor = run.first.page_metadata[..=previous_page_index]
-                    .iter()
-                    .flat_map(|page| page.source_spans.iter())
-                    .filter(|span| span.file == Utf8PathBuf::from("main.tex"))
-                    .map(|span| span.end_utf8 as usize)
-                    .max()
-                    .unwrap_or_default();
                 let current_page_floor = run.second.page_metadata[..=current_page_index]
                     .iter()
                     .flat_map(|page| page.source_spans.iter())
@@ -203,15 +199,29 @@ async fn run_shifted_unchanged_tail_mutation(case: ShiftedUnchangedTailMutationC
                     .map(|span| span.end_utf8 as usize)
                     .max()
                     .unwrap_or_default();
+                // Equal page paint does not authorize copying an old input
+                // continuation. Recapture must agree with the current input's
+                // clean cursor and complete restorable VM state.
                 assert_eq!(
-                    (current_checkpoint.meta.source_offset_utf8 as usize)
-                        .saturating_sub(current_page_floor),
-                    (previous_checkpoint.meta.source_offset_utf8 as usize)
-                        .saturating_sub(previous_page_floor)
+                    current_checkpoint.meta.source_offset_utf8,
+                    clean_checkpoint.meta.source_offset_utf8
+                );
+                assert_eq!(
+                    current_checkpoint.meta.continuation_stack,
+                    clean_checkpoint.meta.continuation_stack
                 );
                 assert!(
-                    current_checkpoint.meta.source_offset_utf8 as usize >= current_page_floor
+                    current_checkpoint
+                        .snapshot_for_restore()
+                        .expect("current snapshot")
+                        .state()
+                        == clean_checkpoint
+                            .snapshot_for_restore()
+                            .expect("clean snapshot")
+                            .state(),
+                    "shifted tail snapshot differs from clean page {current_page_index}"
                 );
+                assert!(current_checkpoint.meta.source_offset_utf8 as usize >= current_page_floor);
             }
         }
     }

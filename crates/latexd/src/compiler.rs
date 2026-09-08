@@ -377,6 +377,7 @@ fn capture_internal_render_ir_with_options(
         aux,
         file_root,
         prepared_asset_cache_root,
+        true,
     )
 }
 
@@ -386,6 +387,7 @@ fn capture_internal_render_ir_from_project_run_with_asset_cache(
     aux: &impl AuxView,
     rewrite_spans: &BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
     prepared_asset_cache_root: impl AsRef<Utf8Path>,
+    export_full_pdf: bool,
 ) -> anyhow::Result<InternalRenderIrCapture> {
     let root = root.as_ref();
     let mut source_files = BTreeMap::new();
@@ -411,7 +413,45 @@ fn capture_internal_render_ir_from_project_run_with_asset_cache(
         aux,
         Some(root),
         Some(prepared_asset_cache_root.as_ref()),
+        export_full_pdf,
     ))
+}
+
+fn derive_aux_from_display_pages(
+    scan: &tex_aux::ProjectScan,
+    pages: &[PageDisplayList],
+) -> SemanticAux {
+    let slices = pages
+        .iter()
+        .enumerate()
+        .map(|(index, page)| PageSourceSlice {
+            page_index: index,
+            source_spans: page
+                .source_spans
+                .iter()
+                .map(|span| SourceSpan {
+                    file: span.path.clone(),
+                    start_utf8: span.start_utf8,
+                    end_utf8: span.end_utf8,
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    let mut aux = derive_semantic_aux(scan, &slices);
+    // Explicit emitted destinations override source-range heuristics, including
+    // labels just before a page break whose following content ships later.
+    for (index, page) in pages.iter().enumerate() {
+        for op in &page.ops {
+            if let DrawOp::NamedDestination(destination) = op {
+                for label in &mut aux.labels {
+                    if label.key == destination.name {
+                        label.page = index as u32 + 1;
+                    }
+                }
+            }
+        }
+    }
+    aux
 }
 
 fn remap_render_event_provenance(
@@ -509,6 +549,7 @@ fn lower_internal_render_events_with_options(
     aux: &impl AuxView,
     file_root: Option<&Utf8Path>,
     prepared_asset_cache_root: Option<&Utf8Path>,
+    export_full_pdf: bool,
 ) -> InternalRenderIrCapture {
     let mut events = RenderEventStream::new(Some(source_path.to_string()), render_events);
     let mut prepared_pdf_forms = BTreeMap::<GraphicAssetRequest, PreparedPdfForm>::new();
@@ -647,10 +688,14 @@ fn lower_internal_render_events_with_options(
             materialized_assets.insert(request, materialized);
         }
     }
-    let display_list_pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(
-        &page_display_lists,
-        |request| materialized_assets.get(request).cloned(),
-    );
+    let display_list_pdf = if export_full_pdf {
+        render_display_list_pdf_with_materialized_assets_and_tex_fonts(
+            &page_display_lists,
+            |request| materialized_assets.get(request).cloned(),
+        )
+    } else {
+        Vec::new()
+    };
     InternalRenderIrCapture {
         legacy_output,
         events,
@@ -1278,10 +1323,18 @@ struct ShipoutReplayPlan {
     start_page_index: usize,
     output_prefix: String,
     specificity_rank: u8,
+    fallback_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct ReplayTrace {
+    checkpoint_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct BuildMeta {
+    #[serde(default)]
+    trace: ReplayTrace,
     aux_sensitive: bool,
     dirty_files: Vec<Utf8PathBuf>,
     start_checkpoint_id: Option<String>,
@@ -1366,10 +1419,10 @@ fn save_checkpoint_bundle_observed(
 }
 
 const MAX_SHIPOUT_CHECKPOINT_EVENT_REFS: usize = 250_000;
-
 fn should_capture_shipout_checkpoints(event_count: usize, page_count: usize) -> bool {
-    // Every shipout snapshot currently owns its cumulative event prefix. Bound that
-    // quadratic duplication until checkpoint event segments are stored separately.
+    // In-memory prefixes share one event segment. The frozen durable snapshot
+    // format still expands each visible prefix as an array; bound serialization
+    // until a separately versioned event-segment store is available.
     event_count
         .checked_mul(page_count)
         .is_some_and(|event_refs| event_refs <= MAX_SHIPOUT_CHECKPOINT_EVENT_REFS)
@@ -1398,6 +1451,7 @@ impl CompilerDriver {
     }
 
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
+        let mut trace = ReplayTrace::default();
         let rev_dir = request.build_root.join(format!("rev-{}", request.rev));
         tokio::fs::create_dir_all(rev_dir.as_std_path())
             .await
@@ -1477,6 +1531,16 @@ impl CompilerDriver {
             let reusable_preamble = previous_build.as_ref().and_then(|previous| {
                 select_reusable_preamble(&previous.bundle, &request.changed_files, &preamble_key)
             });
+            let reusable_preamble_output_prefix = reusable_preamble
+                .as_ref()
+                .and_then(|checkpoint| {
+                    previous_build.as_ref().and_then(|previous| {
+                        previous
+                            .output
+                            .get(..checkpoint.meta.output_start_utf8 as usize)
+                    })
+                })
+                .unwrap_or("");
             let mut replay_plan = None;
             let (build, preamble_checkpoint, reused_checkpoint_id) = if aux_sensitive {
                 let base_snapshot = compile_mini_kernel_snapshot();
@@ -1504,6 +1568,7 @@ impl CompilerDriver {
                             })?;
                         Ok::<_, CompileFailure>((
                             ProjectReplayCheckpoint {
+                                output_offset_utf8: reused_checkpoint.meta.output_start_utf8,
                                 snapshot,
                                 resume_path: request.toplevel.clone(),
                                 source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
@@ -1546,7 +1611,7 @@ impl CompilerDriver {
                                 build_project_pdf_from_checkpoint_with_mounts(
                                     &world,
                                     checkpoint,
-                                    "",
+                                    reusable_preamble_output_prefix,
                                     &materialized.files,
                                 )
                                 .map_err(|error| CompileFailure {
@@ -1590,24 +1655,31 @@ impl CompilerDriver {
                             candidate_build,
                         ));
                     }
-                    let derived_aux = derive_semantic_aux(
+                    // Aux feedback uses the presentation page builder, including
+                    // tall math/graphics and columns, rather than legacy text pages.
+                    let candidate_layout =
+                        capture_internal_render_ir_from_project_run_with_asset_cache(
+                            &request.root,
+                            &candidate_build.run,
+                            &next_aux,
+                            &materialized.rewrite_spans,
+                            request.build_root.join("render-asset-cache"),
+                            false,
+                        )
+                        .map_err(|error| CompileFailure {
+                            diagnostics: vec![Diagnostic {
+                                level: DiagnosticLevel::Error,
+                                file: Some(request.toplevel.to_string()),
+                                line: None,
+                                message: format!(
+                                    "semantic aux presentation layout failed: {error}"
+                                ),
+                            }],
+                            message: format!("semantic aux presentation layout failed: {error}"),
+                        })?;
+                    let derived_aux = derive_aux_from_display_pages(
                         &materialized.scan,
-                        &candidate_build
-                            .page_metadata
-                            .iter()
-                            .map(|page| PageSourceSlice {
-                                page_index: page.index,
-                                source_spans: page
-                                    .source_spans
-                                    .iter()
-                                    .map(|span| SourceSpan {
-                                        file: span.file.clone(),
-                                        start_utf8: span.start_utf8,
-                                        end_utf8: span.end_utf8,
-                                    })
-                                    .collect(),
-                            })
-                            .collect::<Vec<_>>(),
+                        &candidate_layout.page_display_lists,
                     );
                     let converged = derived_aux.equivalent_to(&next_aux);
                     semantic_aux = Some(derived_aux.clone());
@@ -1732,6 +1804,9 @@ impl CompilerDriver {
                                 "failed to choose semantic aux shipout replay checkpoint: {error}"
                             ),
                         })? {
+                            if let Some(reason) = plan.fallback_reason {
+                                trace.checkpoint_fallback.get_or_insert_with(|| reason.to_string());
+                            }
                             if plan.checkpoint_id != *seed_checkpoint_id {
                                 let replayed_build = build_project_pdf_from_checkpoint_with_mounts(
                                     &world,
@@ -1780,6 +1855,7 @@ impl CompilerDriver {
                             .to_string(),
                     })?;
                 let preamble_checkpoint = ProjectReplayCheckpoint {
+                    output_offset_utf8: reused_checkpoint.meta.output_start_utf8,
                     snapshot: preamble_snapshot,
                     resume_path: request.toplevel.clone(),
                     source_offset_utf8: reused_checkpoint.meta.source_offset_utf8,
@@ -1809,6 +1885,11 @@ impl CompilerDriver {
                         }],
                         message: format!("failed to choose shipout replay checkpoint: {error}"),
                     })? {
+                        if let Some(reason) = plan.fallback_reason {
+                            trace
+                                .checkpoint_fallback
+                                .get_or_insert_with(|| reason.to_string());
+                        }
                         let build = build_project_pdf_from_checkpoint(
                                 &world,
                                 &plan.checkpoint,
@@ -1831,7 +1912,7 @@ impl CompilerDriver {
                         (build, preamble_checkpoint, Some(plan.checkpoint_id.clone()))
                     } else {
                         let build =
-                                build_project_pdf_from_checkpoint(&world, &preamble_checkpoint, "")
+                                build_project_pdf_from_checkpoint(&world, &preamble_checkpoint, reusable_preamble_output_prefix)
                                     .map_err(|error| CompileFailure {
                                         diagnostics: vec![Diagnostic {
                                             level: DiagnosticLevel::Error,
@@ -1852,21 +1933,24 @@ impl CompilerDriver {
                         )
                     }
                 } else {
-                    let build =
-                            build_project_pdf_from_checkpoint(&world, &preamble_checkpoint, "")
-                                .map_err(|error| CompileFailure {
-                                    diagnostics: vec![Diagnostic {
-                                        level: DiagnosticLevel::Error,
-                                        file: Some(request.toplevel.to_string()),
-                                        line: None,
-                                        message: format!(
-                                            "internal compiler replay from preamble checkpoint failed: {error}"
-                                        ),
-                                    }],
-                                    message: format!(
-                                        "internal compiler replay from preamble checkpoint failed: {error}"
-                                    ),
-                                })?;
+                    let build = build_project_pdf_from_checkpoint(
+                        &world,
+                        &preamble_checkpoint,
+                        reusable_preamble_output_prefix,
+                    )
+                    .map_err(|error| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!(
+                                "internal compiler replay from preamble checkpoint failed: {error}"
+                            ),
+                        }],
+                        message: format!(
+                            "internal compiler replay from preamble checkpoint failed: {error}"
+                        ),
+                    })?;
                     (
                         build,
                         preamble_checkpoint,
@@ -1909,6 +1993,7 @@ impl CompilerDriver {
                         &materialized.rewrite_spans
                     }),
                 &prepared_asset_cache_root,
+                true,
             )
             .map_err(|error| CompileFailure {
                 diagnostics: vec![Diagnostic {
@@ -2084,6 +2169,30 @@ impl CompilerDriver {
                     }
                 }
             }
+            // Equal page output does not establish equal continuation state.
+            // In particular, a comment-only edit can leave the pixels unchanged
+            // while moving every source span captured inside a VM snapshot.
+            // Reuse the output tail freely, but recapture its checkpoints until
+            // the complete consumed source and aux inputs are unchanged.
+            let checkpoint_tail = unchanged_tail.as_ref().filter(|_| {
+                previous_build.as_ref().is_some_and(|previous| {
+                    previous.executed_sources == executed_sources
+                        && previous.semantic_aux == semantic_aux
+                        && request
+                            .changed_files
+                            .iter()
+                            .all(|path| previous.sources.contains_key(path))
+                        && previous.sources.iter().all(|(path, source)| {
+                            read_tex_source_lossy(&request.root.join(path))
+                                .is_ok_and(|current| current == *source)
+                        })
+                })
+            });
+            if unchanged_tail.is_some() && checkpoint_tail.is_none() {
+                trace
+                    .checkpoint_fallback
+                    .get_or_insert_with(|| "output_tail_requires_checkpoint_recapture".into());
+            }
             let previous_renderer_metadata = previous_build
                 .as_ref()
                 .map(|previous| {
@@ -2235,6 +2344,7 @@ impl CompilerDriver {
                 build.run.render_events.len(),
                 build.page_metadata.len(),
             ) {
+                trace.checkpoint_fallback.get_or_insert_with(|| "durable_event_prefix_serialization_budget".into());
                 Vec::new()
             } else if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
@@ -2273,8 +2383,7 @@ impl CompilerDriver {
                         })?;
                     checkpoints.push(stored);
                 }
-                let capture_end = unchanged_tail
-                    .as_ref()
+                let capture_end = checkpoint_tail
                     .map(|tail| tail.current_page_start.max(plan.start_page_index))
                     .unwrap_or(build.page_metadata.len());
                 let mut captured = capture_page_checkpoints(
@@ -2294,7 +2403,7 @@ impl CompilerDriver {
                     message: format!("failed to capture replay checkpoints: {error}"),
                 })?;
                 checkpoints.append(&mut captured);
-                if let Some(tail) = unchanged_tail.as_ref() {
+                if let Some(tail) = checkpoint_tail {
                     for current_page_index in capture_end..build.page_metadata.len() {
                         let previous_page_index =
                             tail.previous_page_start + current_page_index - tail.current_page_start;
@@ -2352,8 +2461,7 @@ impl CompilerDriver {
                 }
                 checkpoints
             } else {
-                let capture_end = unchanged_tail
-                    .as_ref()
+                let capture_end = checkpoint_tail
                     .map(|tail| tail.current_page_start)
                     .unwrap_or(build.page_metadata.len());
                 let mut checkpoints = capture_page_checkpoints(
@@ -2372,7 +2480,7 @@ impl CompilerDriver {
                     }],
                     message: format!("failed to capture page checkpoints: {error}"),
                 })?;
-                if let Some((previous, tail)) = previous_build.as_ref().zip(unchanged_tail.as_ref())
+                if let Some((previous, tail)) = previous_build.as_ref().zip(checkpoint_tail)
                 {
                     for current_page_index in capture_end..build.page_metadata.len() {
                         let previous_page_index =
@@ -2476,7 +2584,10 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build checkpoint bundle: {error}"),
             })?;
-            let checkpoint_bundle = checkpoint_build.bundle;
+            let mut checkpoint_bundle = checkpoint_build.bundle;
+            if let Some(stored_preamble) = checkpoint_bundle.checkpoints.first_mut() {
+                stored_preamble.meta.output_start_utf8 = preamble_checkpoint.output_offset_utf8;
+            }
             let checkpoint_suppression_counts = checkpoint_build.suppression_counts;
             let execution_page_metadata = build
                 .page_metadata
@@ -2804,6 +2915,7 @@ impl CompilerDriver {
             }
             let build_meta_path = rev_dir.join("build-meta.json");
             let build_meta = BuildMeta {
+                trace,
                 aux_sensitive,
                 dirty_files: request.changed_files.clone(),
                 start_checkpoint_id: reused_checkpoint_id.clone(),
@@ -3140,6 +3252,7 @@ impl CompilerDriver {
         };
         let build_meta_path = rev_dir.join("build-meta.json");
         let build_meta = BuildMeta {
+            trace,
             aux_sensitive: false,
             dirty_files: request.changed_files.clone(),
             start_checkpoint_id: None,
@@ -3545,6 +3658,7 @@ fn replay_checkpoint_from_stored(
     checkpoint
         .snapshot_for_restore()
         .map(|restore| ProjectReplayCheckpoint {
+            output_offset_utf8: checkpoint.meta.output_start_utf8,
             snapshot: restore.state().clone(),
             resume_path: checkpoint
                 .meta
@@ -3595,8 +3709,13 @@ fn select_shipout_replay_plan_with_spans(
                 .context("preamble checkpoint is unsafe for continuation replay")?,
             checkpoint_id: stored_checkpoint.meta.checkpoint_id.clone(),
             start_page_index: 0,
-            output_prefix: String::new(),
+            output_prefix: previous
+                .output
+                .get(..stored_checkpoint.meta.output_start_utf8 as usize)
+                .context("preamble output cursor is outside the saved output")?
+                .to_string(),
             specificity_rank: 0,
+            fallback_reason: None,
         })
     };
     let mut best_plan: Option<ShipoutReplayPlan> = None;
@@ -3667,6 +3786,7 @@ fn select_shipout_replay_plan_with_spans(
                                     start_page_index,
                                     output_prefix: previous.output[..output_prefix_end].to_string(),
                                     specificity_rank: 2,
+                                    fallback_reason: None,
                                 }
                             },
                         )
@@ -3739,6 +3859,7 @@ fn select_shipout_replay_plan_with_spans(
                                     start_page_index,
                                     output_prefix: previous.output[..output_prefix_end].to_string(),
                                     specificity_rank: 2,
+                                    fallback_reason: None,
                                 }
                             },
                         )
@@ -3824,6 +3945,7 @@ fn select_shipout_replay_plan_with_spans(
                                         output_prefix: previous.output[..output_prefix_end]
                                             .to_string(),
                                         specificity_rank: 2,
+                                        fallback_reason: None,
                                     }
                                 },
                             )
@@ -3926,6 +4048,7 @@ fn select_shipout_replay_plan_with_spans(
                             start_page_index: file_page_index,
                             output_prefix: previous.output[..prefix_output_end].to_string(),
                             specificity_rank: 1,
+                            fallback_reason: None,
                         });
                     }
                 }
@@ -3958,6 +4081,7 @@ fn select_shipout_replay_plan_with_spans(
                             start_page_index,
                             output_prefix: previous.output[..output_prefix_end].to_string(),
                             specificity_rank: 2,
+                            fallback_reason: None,
                         }
                     })
                 });
@@ -4022,6 +4146,7 @@ fn select_shipout_replay_plan_with_spans(
                         start_page_index,
                         output_prefix: previous.output[..output_prefix_end].to_string(),
                         specificity_rank: 2,
+                        fallback_reason: None,
                     }
                 })
             });
@@ -4052,6 +4177,7 @@ fn select_shipout_replay_plan_with_spans(
                                     start_page_index,
                                     output_prefix: previous.output[..output_prefix_end].to_string(),
                                     specificity_rank: 2,
+                                    fallback_reason: None,
                                 }
                             },
                         )
@@ -4137,6 +4263,7 @@ fn select_shipout_replay_plan_with_spans(
                             start_page_index: file_page_index,
                             output_prefix: previous.output[..prefix_output_end].to_string(),
                             specificity_rank: 1,
+                            fallback_reason: None,
                         });
                     }
                 }
@@ -4158,6 +4285,47 @@ fn select_shipout_replay_plan_with_spans(
         };
     }
 
+    // Execution offsets do not describe the scanner's lookahead readset. An
+    // active parent source may already own recovery events for its whole suffix.
+    // Until those effects have an execution-owned invalidation contract, start
+    // at the safe preamble when any such input bytes changed.
+    if let Some(plan) = &best_plan {
+        if let (Some(continuation), Some(capture)) = (
+            plan.checkpoint.snapshot.input_continuation.as_ref(),
+            plan.checkpoint.snapshot.semantic_capture.as_ref(),
+        ) {
+            for path in &replay_dirty_files {
+                if !capture.source_buffers.contains_key(path)
+                    || !continuation
+                        .source_stack
+                        .iter()
+                        .any(|frame| frame.path == *path)
+                {
+                    continue;
+                }
+                let override_source =
+                    current_source_overrides.and_then(|sources| sources.get(path));
+                let current = override_source
+                    .cloned()
+                    .or_else(|| read_tex_source_lossy(&root.join(path)).ok());
+                let previous_source = if override_source.is_some() {
+                    previous.executed_sources.get(path)
+                } else {
+                    previous.sources.get(path)
+                };
+                if previous_source
+                    .zip(current.as_ref())
+                    .is_some_and(|(old, new)| old == new)
+                {
+                    continue;
+                }
+                let mut fallback = cp0_plan()?;
+                fallback.fallback_reason = Some("changed_active_source_scanner_lookahead");
+                best_plan = Some(fallback);
+                break;
+            }
+        }
+    }
     Ok(best_plan)
 }
 
@@ -5061,6 +5229,7 @@ mod tests {
             &SemanticAux::default(),
             &BTreeMap::new(),
             root.join("asset-cache"),
+            true,
         )
         .expect("render IR capture");
         let extracted = capture.document_ir.extracted_text();
@@ -6841,6 +7010,7 @@ mod tests {
     fn rebased_shipout_checkpoint_prefers_exact_trace_slice_match() {
         let path = Utf8PathBuf::from("sections/tail.tex");
         let mut checkpoint = ProjectReplayCheckpoint {
+            output_offset_utf8: 0,
             snapshot: compile_format_snapshot(&mut ControlSequenceInterner::new(), r"\def\fmt{p}"),
             resume_path: path.clone(),
             source_offset_utf8: 6,
@@ -6901,6 +7071,7 @@ mod tests {
     fn rebased_shipout_checkpoint_prefers_exact_checkpoint_interval_match() {
         let path = Utf8PathBuf::from("sections/body.tex");
         let mut checkpoint = ProjectReplayCheckpoint {
+            output_offset_utf8: 0,
             snapshot: compile_format_snapshot(&mut ControlSequenceInterner::new(), r"\def\fmt{p}"),
             resume_path: path.clone(),
             source_offset_utf8: 7,
@@ -6971,6 +7142,7 @@ mod tests {
     #[test]
     fn rebased_shipout_checkpoint_updates_resume_path_and_continuation_stack() {
         let mut checkpoint = ProjectReplayCheckpoint {
+            output_offset_utf8: 0,
             snapshot: compile_format_snapshot(&mut ControlSequenceInterner::new(), r"\def\fmt{p}"),
             resume_path: Utf8PathBuf::from("sections/tail.tex"),
             source_offset_utf8: 6,

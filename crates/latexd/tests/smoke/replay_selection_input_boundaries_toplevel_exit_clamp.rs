@@ -1,1 +1,1 @@
-smoke!(internal_compiler_clamps_toplevel_input_exit_replay_to_last_page => run_boundary_exit_case(BoundaryExitCase::ClampLastPage));
+smoke!(internal_compiler_scanner_lookahead_fallback_last_page_toplevel_input_exit => run_boundary_exit_case(BoundaryExitCase::ClampLastPage));

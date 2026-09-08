@@ -1,1 +1,1 @@
-smoke!(internal_compiler_prefers_toplevel_input_exit_boundary_when_main_dirty_precedes_appendix => run_boundary_exit_multi_case(BoundaryExitMultiCase::MainFirst));
+smoke!(internal_compiler_scanner_lookahead_fallback_toplevel_input_exit_main_first => run_boundary_exit_multi_case(BoundaryExitMultiCase::MainFirst));
