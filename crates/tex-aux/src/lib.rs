@@ -7797,21 +7797,22 @@ fn read_braced_argument(source: &str, start: usize) -> Option<(usize, String)> {
         return None;
     }
     let mut depth = 0i32;
-    let mut end = start;
     for (offset, ch) in source[start..].char_indices() {
         match ch {
             '{' => depth += 1,
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    end = start + offset + 1;
-                    return Some((end, source[start + 1..start + offset].to_string()));
+                    return Some((
+                        start + offset + 1,
+                        source[start + 1..start + offset].to_string(),
+                    ));
                 }
             }
             _ => {}
         }
     }
-    Some((end, source[start + 1..].to_string()))
+    None
 }
 
 fn read_bracket_argument(source: &str, start: usize) -> Option<(usize, String)> {
@@ -7820,21 +7821,22 @@ fn read_bracket_argument(source: &str, start: usize) -> Option<(usize, String)> 
         return None;
     }
     let mut depth = 0i32;
-    let mut end = start;
     for (offset, ch) in source[start..].char_indices() {
         match ch {
             '[' => depth += 1,
             ']' => {
                 depth -= 1;
                 if depth == 0 {
-                    end = start + offset + 1;
-                    return Some((end, source[start + 1..start + offset].to_string()));
+                    return Some((
+                        start + offset + 1,
+                        source[start + 1..start + offset].to_string(),
+                    ));
                 }
             }
             _ => {}
         }
     }
-    Some((end, source[start + 1..].to_string()))
+    None
 }
 
 fn read_multicite_groups(
@@ -11242,6 +11244,59 @@ mod tests {
         assert_eq!(scan.citations[1].keys, vec!["beta".to_string()]);
         assert_eq!(scan.citations[2].keys, vec!["gamma".to_string()]);
         assert_eq!(scan.citations[3].keys, vec!["delta".to_string()]);
+    }
+
+    #[test]
+    fn scan_project_ignores_unterminated_optional_cite_note() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\cite{alpha} then \\cite[see p.~3 and more text.",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(scan.citations.len(), 1);
+        assert_eq!(scan.citations[0].keys, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn scan_project_ignores_unterminated_multicite_group() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\textcites{alpha}{beta and more text.",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(scan.citations.len(), 1);
+        assert_eq!(scan.citations[0].keys, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn materialize_project_leaves_unterminated_section_title_untouched() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\section{Intro\nBody text.";
+        fs::write(root.join("main.tex"), source).expect("write main");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        assert_eq!(main, source);
     }
 
     #[test]
