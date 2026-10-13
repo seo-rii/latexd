@@ -7927,9 +7927,9 @@ fn pluralize_kind_name(name: &str) -> String {
 }
 
 fn skip_optional_command_star(source: &str, start: usize) -> usize {
-    let start = skip_whitespace(source, start);
-    if source.get(start..=start) == Some("*") {
-        start + 1
+    let star = skip_whitespace(source, start);
+    if source.get(star..=star) == Some("*") {
+        star + 1
     } else {
         start
     }
@@ -8948,6 +8948,45 @@ mod tests {
         assert_eq!(aux.toc[0].title, "Intro");
         assert_eq!(aux.toc[0].number, "1");
         assert_eq!(aux.labels[0].number, "1");
+    }
+
+    #[test]
+    fn derive_semantic_aux_treats_only_literal_star_as_starred_command() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\section *{Prelude}\\section {Intro}\\label{sec:intro}\\begin{figure}\\caption {First Figure}\\label{fig:first}\\end{figure}\\begin{figure}\\caption *{Unnumbered Figure}\\end{figure}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        assert_eq!(aux.toc.len(), 1);
+        assert_eq!(aux.toc[0].title, "Intro");
+        assert_eq!(aux.toc[0].number, "1");
+        let label_number = |key: &str| {
+            aux.labels
+                .iter()
+                .find(|label| label.key == key)
+                .map(|label| label.number.clone())
+        };
+        assert_eq!(label_number("sec:intro").as_deref(), Some("1"));
+        assert_eq!(label_number("fig:first").as_deref(), Some("1"));
+        assert_eq!(
+            aux.float_captions
+                .iter()
+                .map(|caption| caption.number.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", ""]
+        );
     }
 
     #[test]
