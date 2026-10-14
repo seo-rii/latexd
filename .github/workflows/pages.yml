@@ -12,10 +12,10 @@ on:
       - "web/**"
   workflow_dispatch:
 
+# The build job runs the repository's own build scripts and third-party
+# actions, so it keeps a read-only token; only the deploy job can publish.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -73,6 +73,9 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
 
     steps:
       - name: Deploy to GitHub Pages
