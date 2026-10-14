@@ -5400,12 +5400,20 @@ fn rewrite_source(
                                 aux.citation_year(key),
                             ) {
                                 (Some(author), Some(year)) => {
+                                    // natbib: \citealt prints "Author Year",
+                                    // \citealp "Author, Year".
+                                    let separator = if command_name.eq_ignore_ascii_case("citealt")
+                                    {
+                                        " "
+                                    } else {
+                                        ", "
+                                    };
                                     if let Some(post_note) =
                                         post_note.as_deref().filter(|note| !note.is_empty())
                                     {
-                                        format!("{author} {year}, {post_note}")
+                                        format!("{author}{separator}{year}, {post_note}")
                                     } else {
-                                        format!("{author} {year}")
+                                        format!("{author}{separator}{year}")
                                     }
                                 }
                                 _ => aux
@@ -9613,6 +9621,38 @@ mod tests {
     }
 
     #[test]
+    fn citealp_separates_author_and_year_with_a_comma() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\usepackage[round]{natbib}\begin{document}A \citealp{alpha} B \citealp{alpha,beta} C \citealp[see][p.~2]{alpha} D \citealt{alpha,beta} E \Citealp{alpha} G \citealp*{alpha}.\bibliography{refs}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{2}\bibitem[Alpha(2001)]{alpha} Ann Alpha. One.\bibitem[Beta(2002)]{beta} Bob Beta. Two.\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        // pdflatex + natbib [round] prints exactly these forms.
+        assert!(
+            main.contains(
+                "A Alpha, 2001 B Alpha, 2001; Beta, 2002 C see Alpha, 2001, p.~2 D Alpha 2001; Beta 2002 E Alpha, 2001 G Alpha, 2001."
+            ),
+            "{main}"
+        );
+    }
+
+    #[test]
     fn materialize_project_supports_citeauthor_and_citeyear_variants() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
@@ -10282,7 +10322,7 @@ mod tests {
             .expect("materialized main");
 
         assert!(main.contains(
-            "See Alpha (2024) and Beta et al. 2023 / Beta et al. 2023 / Beta et al. 2023."
+            "See Alpha (2024) and Beta et al. 2023 / Beta et al., 2023 / Beta et al., 2023."
         ));
         assert!(!main.contains("\\citet"));
         assert!(!main.contains("\\citealt"));
@@ -10326,7 +10366,7 @@ mod tests {
 
         assert!(
             main.contains(
-                "See Alpha (2024) and Beta et al. 2023 / Beta et al. 2023. Alpha (2024)."
+                "See Alpha (2024) and Beta et al. 2023 / Beta et al., 2023. Alpha (2024)."
             )
         );
         assert!(!main.contains("\\Citet"));
@@ -10408,7 +10448,7 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("See (compare Beta et al. 2023 with (2024))."));
+        assert!(main.contains("See (compare Beta et al., 2023 with (2024))."));
         assert!(!main.contains("\\citetext"));
         assert!(!main.contains("\\citealp"));
         assert!(!main.contains("\\citeyearpar"));
@@ -10441,7 +10481,7 @@ mod tests {
             .expect("materialized main");
 
         assert!(main.contains(
-            "See Beta and Gamma (2023), (Beta and Gamma, 2023), Beta and Gamma 2023 / Beta and Gamma 2023, and Beta and Gamma (2023)."
+            "See Beta and Gamma (2023), (Beta and Gamma, 2023), Beta and Gamma 2023 / Beta and Gamma, 2023, and Beta and Gamma (2023)."
         ));
         assert!(!main.contains("\\citet*"));
         assert!(!main.contains("\\citep*"));

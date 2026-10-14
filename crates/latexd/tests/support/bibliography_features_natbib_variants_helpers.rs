@@ -76,13 +76,13 @@ async fn run_bibliography_features_natbib_variant(case: BibliographyFeaturesNatb
         BibliographyFeaturesNatbibVariantCase::TextualBasic => (
             "\\documentclass{article}\\begin{document}See \\citet{alpha} and \\citealt{beta} / \\citealp{beta} / \\onlinecite{beta}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{2}\\bibitem[Alpha 2024]{alpha} Alpha entry.\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
-            "See Alpha (2024) and Beta et al. 2023 / Beta et al. 2023 / Beta et al. 2023.",
+            "See Alpha (2024) and Beta et al. 2023 / Beta et al., 2023 / Beta et al., 2023.",
             &["\\citet", "\\citealt", "\\citealp", "\\onlinecite"][..],
         ),
         BibliographyFeaturesNatbibVariantCase::TextualCapitalized => (
             "\\documentclass{article}\\begin{document}See \\Citet{alpha} and \\Citealt{beta} / \\Citealp{beta}. \\Textcite{alpha}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{2}\\bibitem[alpha 2024]{alpha} Alpha entry.\\bibitem[beta et al. 2023]{beta} Beta entry.\\end{thebibliography}",
-            "See Alpha (2024) and Beta et al. 2023 / Beta et al. 2023. Alpha (2024).",
+            "See Alpha (2024) and Beta et al. 2023 / Beta et al., 2023. Alpha (2024).",
             &["\\Citet", "\\Citealt", "\\Citealp", "\\Textcite"][..],
         ),
         BibliographyFeaturesNatbibVariantCase::TextualNotes => (
@@ -94,13 +94,13 @@ async fn run_bibliography_features_natbib_variant(case: BibliographyFeaturesNatb
         BibliographyFeaturesNatbibVariantCase::CitetextNested => (
             "\\documentclass{article}\\begin{document}See \\citetext{compare \\citealp{beta} with \\citeyearpar{alpha}}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{2}\\bibitem[Alpha 2024]{alpha} Alpha entry.\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
-            "See (compare Beta et al. 2023 with (2024)).",
+            "See (compare Beta et al., 2023 with (2024)).",
             &["\\citetext", "\\citealp", "\\citeyearpar"][..],
         ),
         BibliographyFeaturesNatbibVariantCase::StarredTextual => (
             "\\documentclass{article}\\begin{document}See \\citet*{beta}, \\citep*{beta}, \\citealt*{beta} / \\citealp*{beta}, and \\Textcite*{beta}.\\bibliography{refs}\\end{document}",
             "\\begin{thebibliography}{1}\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
-            "See Beta and Gamma (2023), (Beta and Gamma, 2023), Beta and Gamma 2023 / Beta and Gamma 2023, and Beta and Gamma (2023).",
+            "See Beta and Gamma (2023), (Beta and Gamma, 2023), Beta and Gamma 2023 / Beta and Gamma, 2023, and Beta and Gamma (2023).",
             &[
                 "\\citet*",
                 "\\citep*",
