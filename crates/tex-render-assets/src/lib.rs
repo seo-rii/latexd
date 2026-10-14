@@ -8823,19 +8823,23 @@ pub fn parse_svg_with_embedded_assets(
             };
             let tspan_tag = &tspan_tail[..tspan_tag_end];
             let tspan_body_start = tspan_tag_end + 1;
-            let Some(tspan_body_end_relative) = tspan_tail[tspan_body_start..].find("</tspan>")
-            else {
-                return Vec::new();
+            let (tspan_body, tspan_close_end) = if tspan_tag.ends_with('/') {
+                ("", tspan_body_start)
+            } else {
+                let Some(tspan_body_end_relative) = tspan_tail[tspan_body_start..].find("</tspan>")
+                else {
+                    return Vec::new();
+                };
+                let tspan_body_end = tspan_body_start + tspan_body_end_relative;
+                (
+                    &tspan_tail[tspan_body_start..tspan_body_end],
+                    tspan_body_end + "</tspan>".len(),
+                )
             };
-            let tspan_body_end = tspan_body_start + tspan_body_end_relative;
-            let tspan_body = &tspan_tail[tspan_body_start..tspan_body_end];
             let preserve_tspan_space = attr_value(tspan_tag, "xml:space")
                 .map(|value| value.trim().eq_ignore_ascii_case("preserve"))
                 .unwrap_or(preserve_text_space);
-            if tspan_body.contains('<')
-                || (tspan_body.is_empty()
-                    || (!preserve_tspan_space && tspan_body.trim().is_empty()))
-            {
+            if tspan_body.contains('<') {
                 return Vec::new();
             }
             let tspan_x = attr_value(tspan_tag, "x")
@@ -8856,10 +8860,14 @@ pub fn parse_svg_with_embedded_assets(
                 .unwrap_or(0.0);
             let tspan_presentation =
                 inherit_presentation(presentation, parse_presentation(tspan_tag));
-            if !presentation_is_visible(tspan_presentation) {
+            // An empty tspan (such as a blank line in multi-line text) or a hidden
+            // one draws nothing, but its position still applies to what follows.
+            if tspan_body.is_empty()
+                || (!preserve_tspan_space && tspan_body.trim().is_empty())
+                || !presentation_is_visible(tspan_presentation)
+            {
                 current_x = tspan_x + tspan_dx;
                 current_y = tspan_y + tspan_dy;
-                let tspan_close_end = tspan_body_end + "</tspan>".len();
                 remaining = &tspan_tail[tspan_close_end..];
                 continue;
             }
@@ -8891,7 +8899,6 @@ pub fn parse_svg_with_embedded_assets(
                 );
             tspan_texts.push((point, tspan_font_size, tspan_presentation, tspan_text));
             current_y = tspan_y;
-            let tspan_close_end = tspan_body_end + "</tspan>".len();
             remaining = &tspan_tail[tspan_close_end..];
         }
         tspan_texts
@@ -9447,6 +9454,27 @@ mod tests {
         assert_eq!(scene.embedded_images[0].image.width, 2);
         assert_eq!(scene.embedded_images[0].image.height, 2);
         assert_eq!(scene.embedded_images[0].image.rgb.len(), 12);
+    }
+
+    #[test]
+    fn empty_tspans_do_not_drop_the_whole_text() {
+        let scene = parse_svg(
+            r#"<svg width="100" height="100" viewBox="0 0 100 100">
+                <text x="0" y="10"><tspan x="0" y="10">Line one</tspan><tspan x="0" y="20"></tspan><tspan x="0" y="30">Line three</tspan></text>
+                <text x="0" y="50"><tspan x="0" y="50">Top</tspan><tspan x="0" y="60"/><tspan x="0" y="70">Bottom</tspan></text>
+                <text x="0" y="90">A<tspan>  </tspan>B</text>
+            </svg>"#,
+        )
+        .expect("parse svg");
+
+        let texts = scene
+            .texts
+            .iter()
+            .map(|text| text.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(texts, ["Line one", "Line three", "Top", "Bottom", "A", "B"]);
+        assert!(scene.texts[1].y_ratio > scene.texts[0].y_ratio);
+        assert!(scene.texts[3].y_ratio > scene.texts[2].y_ratio);
     }
 
     #[test]
