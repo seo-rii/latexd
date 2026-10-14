@@ -10,7 +10,12 @@ const sourceFixtureRoot = path.join(repoRoot, "fixtures", "arxiv-basic");
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "latexd-viewer-e2e-"));
 const copiedFixtureRoot = path.join(tempRoot, "arxiv-basic");
 
-await cp(sourceFixtureRoot, copiedFixtureRoot, { recursive: true });
+// Skip dev-server state (`serve --root fixtures/...`) and VCS metadata so the
+// e2e daemon starts from the fixture sources alone.
+await cp(sourceFixtureRoot, copiedFixtureRoot, {
+  recursive: true,
+  filter: (source) => ![".latexd", ".git"].includes(path.basename(source))
+});
 
 const child = spawn(
   "cargo",
