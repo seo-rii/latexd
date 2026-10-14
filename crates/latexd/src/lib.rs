@@ -328,7 +328,7 @@ struct AppState {
     compiler: CompilerDriver,
     tile_renderer: TileRendererConfig,
     editor_bridge: Option<EditorBridgeConfig>,
-    raster_cache: RwLock<BTreeMap<RasterCacheKey, tex_render_gs::RasterImage>>,
+    raster_cache: RwLock<BTreeMap<RasterCacheKey, CachedRaster>>,
     inflight_rasters: RwLock<BTreeMap<RasterCacheKey, Arc<Notify>>>,
     build_cache: RwLock<BuildCache>,
     live: RwLock<LivePreviewState>,
@@ -344,6 +344,34 @@ struct RasterCacheKey {
 }
 
 const RASTER_CACHE_ENTRY_BUDGET: usize = 32;
+// A full-page raster can reach 256 MB of RGBA, so the entry cap alone does not
+// bound memory.
+const RASTER_CACHE_BYTE_BUDGET: usize = 512 * 1024 * 1024;
+static RASTER_CACHE_CLOCK: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug)]
+struct CachedRaster {
+    image: tex_render_gs::RasterImage,
+    last_used: AtomicU64,
+}
+
+impl CachedRaster {
+    fn new(image: tex_render_gs::RasterImage) -> Self {
+        Self {
+            image,
+            last_used: AtomicU64::new(RASTER_CACHE_CLOCK.fetch_add(1, AtomicOrdering::Relaxed)),
+        }
+    }
+
+    /// Returns the image and marks the entry as the most recently used.
+    fn touch(&self) -> tex_render_gs::RasterImage {
+        self.last_used.store(
+            RASTER_CACHE_CLOCK.fetch_add(1, AtomicOrdering::Relaxed),
+            AtomicOrdering::Relaxed,
+        );
+        self.image.clone()
+    }
+}
 const RETAINED_BUILD_REVISIONS: u64 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -4751,7 +4779,13 @@ async fn cache_raster_image(
         zoom_bucket,
     };
     loop {
-        if let Some(image) = state.raster_cache.read().await.get(&key).cloned() {
+        if let Some(image) = state
+            .raster_cache
+            .read()
+            .await
+            .get(&key)
+            .map(CachedRaster::touch)
+        {
             return Ok(image);
         }
         let cache_path = raster_cache_path(&state.build_root, &key);
@@ -4829,20 +4863,52 @@ async fn cache_raster_image(
 }
 
 fn insert_raster_cache_entry(
-    cache: &mut BTreeMap<RasterCacheKey, tex_render_gs::RasterImage>,
+    cache: &mut BTreeMap<RasterCacheKey, CachedRaster>,
     key: RasterCacheKey,
     image: tex_render_gs::RasterImage,
 ) -> tex_render_gs::RasterImage {
+    insert_raster_cache_entry_within(
+        cache,
+        key,
+        image,
+        RASTER_CACHE_ENTRY_BUDGET,
+        RASTER_CACHE_BYTE_BUDGET,
+    )
+}
+
+/// Evicts least recently used entries until the new image fits both budgets.
+/// An image larger than the whole byte budget is returned without caching it.
+fn insert_raster_cache_entry_within(
+    cache: &mut BTreeMap<RasterCacheKey, CachedRaster>,
+    key: RasterCacheKey,
+    image: tex_render_gs::RasterImage,
+    entry_budget: usize,
+    byte_budget: usize,
+) -> tex_render_gs::RasterImage {
     if let Some(cached) = cache.get(&key) {
-        return cached.clone();
+        return cached.touch();
     }
-    while cache.len() >= RASTER_CACHE_ENTRY_BUDGET {
-        let Some(oldest) = cache.keys().next().cloned() else {
+    let image_bytes = image.rgba.len();
+    if image_bytes > byte_budget {
+        return image;
+    }
+    let mut cached_bytes = cache
+        .values()
+        .map(|cached| cached.image.rgba.len())
+        .sum::<usize>();
+    while cache.len() >= entry_budget || cached_bytes + image_bytes > byte_budget {
+        let Some(least_recent) = cache
+            .iter()
+            .min_by_key(|(_, cached)| cached.last_used.load(AtomicOrdering::Relaxed))
+            .map(|(key, _)| key.clone())
+        else {
             break;
         };
-        cache.remove(&oldest);
+        if let Some(evicted) = cache.remove(&least_recent) {
+            cached_bytes -= evicted.image.rgba.len();
+        }
     }
-    cache.insert(key, image.clone());
+    cache.insert(key, CachedRaster::new(image.clone()));
     image
 }
 
@@ -5645,6 +5711,99 @@ mod tests {
             content_hash: "hash-a".to_string(),
             zoom_bucket: 100,
         }));
+    }
+
+    #[tokio::test]
+    async fn raster_cache_evicts_least_recently_used_entry() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let page = |revision: u64| PageRenderInput {
+            page_id: "page-a".to_string(),
+            revision,
+            content_hash: format!("hash-{revision}"),
+            width_px: 64,
+            height_px: 64,
+            natural_size_pt: None,
+            pdf_path: String::new(),
+        };
+        let key = |revision: u64| RasterCacheKey {
+            rev: revision,
+            page_id: "page-a".to_string(),
+            content_hash: format!("hash-{revision}"),
+            zoom_bucket: 100,
+        };
+        let budget = RASTER_CACHE_ENTRY_BUDGET as u64;
+        for revision in 1..=budget {
+            cache_raster_image(&state, &page(revision), 1.0)
+                .await
+                .expect("render");
+        }
+        // Viewing revision 1 again makes it the most recently used entry.
+        cache_raster_image(&state, &page(1), 1.0)
+            .await
+            .expect("cached render");
+        cache_raster_image(&state, &page(budget + 1), 1.0)
+            .await
+            .expect("render past the budget");
+
+        let cache = state.raster_cache.read().await;
+        assert_eq!(cache.len(), RASTER_CACHE_ENTRY_BUDGET);
+        assert!(
+            cache.contains_key(&key(1)),
+            "the entry viewed last must survive"
+        );
+        assert!(
+            !cache.contains_key(&key(2)),
+            "the least recently used entry must be evicted"
+        );
+    }
+
+    #[test]
+    fn raster_cache_keeps_cached_bytes_within_budget() {
+        let mut cache = BTreeMap::new();
+        let key = |rev: u64| RasterCacheKey {
+            rev,
+            page_id: "page-1".to_string(),
+            content_hash: format!("hash-{rev}"),
+            zoom_bucket: 100,
+        };
+        let image = |bytes: usize| tex_render_gs::RasterImage {
+            width: 1,
+            height: 1,
+            rgba: vec![0; bytes],
+        };
+
+        super::insert_raster_cache_entry_within(&mut cache, key(1), image(4), 32, 10);
+        super::insert_raster_cache_entry_within(&mut cache, key(2), image(4), 32, 10);
+        // A third image would exceed 10 bytes, so the least recently used one goes.
+        super::insert_raster_cache_entry_within(&mut cache, key(3), image(4), 32, 10);
+        assert_eq!(cache.keys().map(|key| key.rev).collect::<Vec<_>>(), [2, 3]);
+
+        // An image larger than the whole budget is returned but never cached.
+        let oversized =
+            super::insert_raster_cache_entry_within(&mut cache, key(4), image(11), 32, 10);
+        assert_eq!(oversized.rgba.len(), 11);
+        assert_eq!(cache.keys().map(|key| key.rev).collect::<Vec<_>>(), [2, 3]);
     }
 
     #[tokio::test]
