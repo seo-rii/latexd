@@ -1869,7 +1869,7 @@ fn render_display_list_pdf_with_font_mode(
                         page.height_pt - link.rect.y - link.rect.height,
                         link.rect.x + link.rect.width,
                         page.height_pt - link.rect.y,
-                        escape_pdf_text(&link.target)
+                        escape_pdf_uri(&link.target)
                     )
                     .into_bytes());
                 }
@@ -2860,6 +2860,21 @@ fn build_page_stream(
     }
     stream.push_str("ET");
     stream
+}
+
+// A URI action's URI is 7-bit ASCII (ISO 32000-1 12.6.4.7). Percent-encode
+// the UTF-8 bytes of anything else, plus spaces and control characters;
+// existing `%XX` escapes are kept as written.
+fn escape_pdf_uri(target: &str) -> String {
+    let mut ascii = Vec::with_capacity(target.len());
+    for byte in target.bytes() {
+        if byte.is_ascii_graphic() {
+            ascii.push(byte);
+        } else {
+            ascii.extend_from_slice(format!("%{byte:02X}").as_bytes());
+        }
+    }
+    escape_pdf_bytes(&ascii)
 }
 
 fn escape_pdf_text(text: &str) -> String {
@@ -27513,6 +27528,41 @@ mod tests {
         assert!(svg.contains("data-source-expansion-commands=\"defaulttargetlink\""));
         assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:60:88\""));
         assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:0:20\""));
+    }
+
+    #[test]
+    fn percent_encodes_non_ascii_and_spaces_in_pdf_link_uris() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::LinkAnnotation(LinkAnnotation {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 80.0,
+                    height: 12.0,
+                },
+                target: "https://example.com/caf\u{e9} menu/\u{d55c}?q=a%20b(1)".to_string(),
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf.is_ascii(), "{pdf_text}");
+        assert!(
+            pdf_text
+                .contains(r"/URI (https://example.com/caf%C3%A9%20menu/%ED%95%9C?q=a%20b\(1\))"),
+            "{pdf_text}"
+        );
+        // The debug SVG is XML and keeps the Unicode target.
+        assert!(
+            render_display_list_svg(&page)
+                .contains("href=\"https://example.com/caf\u{e9} menu/\u{d55c}?q=a%20b(1)\"")
+        );
     }
 
     #[test]
