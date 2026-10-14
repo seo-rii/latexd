@@ -442,6 +442,9 @@ fn render_display_list_pdf_with_font_mode(
     }
 
     let mut imported_pdf_forms = BTreeMap::<String, (usize, f32, f32)>::new();
+    // Raster XObjects by materialized content hash, so an image drawn on many
+    // pages (a logo, a repeated figure) is decoded and stored once.
+    let mut embedded_raster_images = BTreeMap::<String, (usize, u32, u32)>::new();
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
@@ -1787,19 +1790,28 @@ fn render_display_list_pdf_with_font_mode(
                             .as_ref()
                             .map(|fallback| fallback.bytes.as_slice())
                             .unwrap_or(&bytes);
-                        let decoded = decode_pdf_image(raster_bytes);
-                        if let Some(decoded) = decoded {
+                        let embedded = embedded_raster_images
+                            .get(&materialized_content_hash)
+                            .copied()
+                            .or_else(|| {
+                                let decoded = decode_pdf_image(raster_bytes)?;
+                                let object_id = next_extra_object_id;
+                                next_extra_object_id += 1;
+                                extra_objects.push(build_image_xobject(object_id, &decoded));
+                                let embedded = (object_id, decoded.width, decoded.height);
+                                embedded_raster_images
+                                    .insert(materialized_content_hash.clone(), embedded);
+                                Some(embedded)
+                            });
+                        if let Some((object_id, pixel_width, pixel_height)) = embedded {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
-                                decoded.width as f32,
-                                decoded.height as f32,
+                                pixel_width as f32,
+                                pixel_height as f32,
                             );
-                            let object_id = next_extra_object_id;
-                            next_extra_object_id += 1;
                             let resource_name = format!("Im{next_page_image_index}");
                             next_page_image_index += 1;
                             image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
-                            extra_objects.push(build_image_xobject(object_id, &decoded));
                             let dest_x = image.rect.x;
                             let dest_y = page.height_pt - image.rect.y - image.rect.height;
                             let draw = image_draw_placement(
@@ -27592,5 +27604,84 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn display_list_pdf_embeds_a_repeated_raster_image_once() {
+        use image::ImageEncoder;
+
+        let mut other_png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut other_png)
+            .write_image(&[0, 0, 255], 1, 1, image::ExtendedColorType::Rgb8)
+            .expect("encode png");
+        let image = |asset_ref: &str, y: f32| {
+            DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
+                asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = |page_id: &str, ops: Vec<DrawOp>| PageDisplayList {
+            page_id: page_id.to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops,
+            source_spans: Vec::new(),
+            content_hash: page_id.to_string(),
+        };
+        let pages = [
+            page(
+                "page-1",
+                vec![image("logo.png", 72.0), image("logo.png", 300.0)],
+            ),
+            page("page-2", vec![image("logo.png", 72.0)]),
+            page(
+                "page-3",
+                vec![image("logo.png", 72.0), image("other.png", 300.0)],
+            ),
+        ];
+        let pdf = render_display_list_pdf_with_assets(&pages, |asset_ref| match asset_ref {
+            "logo.png" => Some(tiny_png_bytes()),
+            "other.png" => Some(other_png.clone()),
+            _ => None,
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("/Subtype /Image").count(), 2, "{pdf_text}");
+        let image_object_id = |needle: &str| {
+            pdf_text
+                .split(" 0 obj << /Type /XObject /Subtype /Image ")
+                .zip(
+                    pdf_text
+                        .split(" 0 obj << /Type /XObject /Subtype /Image ")
+                        .skip(1),
+                )
+                .find(|(_, body)| body.starts_with(needle))
+                .and_then(|(head, _)| head.rsplit('\n').next())
+                .expect("image object")
+                .to_string()
+        };
+        let logo = image_object_id("/Width 2 /Height 2 ");
+        let other = image_object_id("/Width 1 /Height 1 ");
+        assert_ne!(logo, other);
+        assert_eq!(pdf_text.matches(&format!("/Im1 {logo} 0 R")).count(), 3);
+        assert_eq!(pdf_text.matches(&format!("/Im2 {logo} 0 R")).count(), 1);
+        assert_eq!(pdf_text.matches(&format!("/Im2 {other} 0 R")).count(), 1);
+        assert_eq!(pdf_text.matches("/Im1 Do").count(), 3);
+        assert_eq!(pdf_text.matches("/Im2 Do").count(), 2);
     }
 }
