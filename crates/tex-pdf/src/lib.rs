@@ -327,7 +327,10 @@ fn render_display_list_pdf_with_font_mode(
             }
         }
     }
+    // Name tree keys must be unique. Like pdfTeX with a repeated hyperref anchor,
+    // keep the first definition in page order (the sort is stable).
     destination_entries.sort_by(|left, right| left.0.cmp(&right.0));
+    destination_entries.dedup_by(|later, earlier| later.0 == earlier.0);
     let names = if destination_entries.is_empty() {
         String::new()
     } else {
@@ -27592,5 +27595,40 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn renders_display_list_pdf_duplicate_destination_names_once_keeping_first() {
+        let destination = |name: &str, y: f32| {
+            DrawOp::NamedDestination(Destination {
+                name: name.to_string(),
+                point: Point { x: 72.0, y },
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = |page_id: &str, ops: Vec<DrawOp>| PageDisplayList {
+            page_id: page_id.to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops,
+            source_spans: Vec::new(),
+            content_hash: page_id.to_string(),
+        };
+        let pdf = render_display_list_pdf(&[
+            page(
+                "page-1",
+                vec![destination("fig:dup", 72.0), destination("fig:dup", 96.0)],
+            ),
+            page("page-2", vec![destination("fig:dup", 120.0)]),
+        ]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let first_page = first_page_reference(&pdf_text)
+            .split_whitespace()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(pdf_text.matches("(fig:dup) [").count(), 1);
+        assert!(pdf_text.contains(&format!("(fig:dup) [{first_page} /XYZ 72 720 null]")));
     }
 }
