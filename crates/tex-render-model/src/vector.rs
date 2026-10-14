@@ -6,6 +6,11 @@ pub struct EmbeddedRasterImage {
     pub width: u32,
     pub height: u32,
     pub rgb: Vec<u8>,
+    /// One 8-bit alpha sample per pixel, present only when some pixel is not
+    /// fully opaque. Omitted from JSON when absent, so opaque images keep their
+    /// serialized form and content hashes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
