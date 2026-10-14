@@ -1,6 +1,6 @@
 main.tex::\input{refs-a.bbl}
 main.tex::\input{refs-b.bbl}
-main.tex::See Section 1, Figure 1, Figure 2, and Observation Lemma A; compare Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
+main.tex::See Section 1, Figure 1, Figure 2, and Appendix A; compare Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::Figure 1: Workflow Figure
 sections/intro.tex::Figure 2: Workflow Companion Figure

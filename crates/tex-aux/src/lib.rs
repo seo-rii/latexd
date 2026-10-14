@@ -3079,7 +3079,11 @@ fn rewrite_source(
                                                 .unwrap_or(true)
                                     }) {
                                         "Equation"
-                                    } else if let Some(block) = latest_block {
+                                    } else if let Some(block) = latest_block.filter(|block| {
+                                        latest_section.is_none_or(|(_, section_offset)| {
+                                            block.offset_utf8 > section_offset
+                                        })
+                                    }) {
                                         block.kind.display_name()
                                     } else if let Some((level, _)) = latest_section {
                                         if aux.label_number(key).is_some_and(|number| {
@@ -3281,7 +3285,11 @@ fn rewrite_source(
                                         .unwrap_or(true)
                             }) {
                                 "Equation"
-                            } else if let Some(block) = latest_block {
+                            } else if let Some(block) = latest_block.filter(|block| {
+                                latest_section.is_none_or(|(_, section_offset)| {
+                                    block.offset_utf8 > section_offset
+                                })
+                            }) {
                                 block.kind.display_name()
                             } else if let Some((level, _)) = latest_section {
                                 if aux.label_number(&key).is_some_and(|number| {
@@ -3432,7 +3440,11 @@ fn rewrite_source(
                                         .unwrap_or(true)
                             }) {
                                 "Equation"
-                            } else if let Some(block) = latest_block {
+                            } else if let Some(block) = latest_block.filter(|block| {
+                                latest_section.is_none_or(|(_, section_offset)| {
+                                    block.offset_utf8 > section_offset
+                                })
+                            }) {
                                 block.kind.display_name()
                             } else if let Some((level, _)) = latest_section {
                                 if aux.label_number(&key).is_some_and(|number| {
@@ -3737,7 +3749,11 @@ fn rewrite_source(
                                             .unwrap_or(true)
                                 }) {
                                     "Equation"
-                                } else if let Some(block) = latest_block {
+                                } else if let Some(block) = latest_block.filter(|block| {
+                                    latest_section.is_none_or(|(_, section_offset)| {
+                                        block.offset_utf8 > section_offset
+                                    })
+                                }) {
                                     block.kind.display_name()
                                 } else if let Some((level, _)) = latest_section {
                                     if aux.label_number(&first_key).is_some_and(|number| {
@@ -3867,7 +3883,11 @@ fn rewrite_source(
                                             .unwrap_or(true)
                                 }) {
                                     "Equation"
-                                } else if let Some(block) = latest_block {
+                                } else if let Some(block) = latest_block.filter(|block| {
+                                    latest_section.is_none_or(|(_, section_offset)| {
+                                        block.offset_utf8 > section_offset
+                                    })
+                                }) {
                                     block.kind.display_name()
                                 } else if let Some((level, _)) = latest_section {
                                     if aux.label_number(&second_key).is_some_and(|number| {
@@ -4066,7 +4086,11 @@ fn rewrite_source(
                                                 .unwrap_or(true)
                                     }) {
                                         "equation"
-                                    } else if let Some(block) = latest_block {
+                                    } else if let Some(block) = latest_block.filter(|block| {
+                                        latest_section.is_none_or(|(_, section_offset)| {
+                                            block.offset_utf8 > section_offset
+                                        })
+                                    }) {
                                         block.kind.lower_name()
                                     } else if let Some((level, _)) = latest_section {
                                         if aux.label_number(key).is_some_and(|number| {
@@ -4545,7 +4569,11 @@ fn rewrite_source(
                                         .unwrap_or(true)
                             }) {
                                 "equation"
-                            } else if let Some(block) = latest_block {
+                            } else if let Some(block) = latest_block.filter(|block| {
+                                latest_section.is_none_or(|(_, section_offset)| {
+                                    block.offset_utf8 > section_offset
+                                })
+                            }) {
                                 block.kind.lower_name()
                             } else if let Some((level, _)) = latest_section {
                                 if aux.label_number(&key).is_some_and(|number| {
@@ -4714,7 +4742,11 @@ fn rewrite_source(
                                                     .unwrap_or(true)
                                         }) {
                                             "equation"
-                                        } else if let Some(block) = latest_block {
+                                        } else if let Some(block) = latest_block.filter(|block| {
+                                            latest_section.is_none_or(|(_, section_offset)| {
+                                                block.offset_utf8 > section_offset
+                                            })
+                                        }) {
                                             block.kind.lower_name()
                                         } else if let Some((level, _)) = latest_section {
                                             if aux.label_number(key).is_some_and(|number| {
@@ -14131,6 +14163,36 @@ mod tests {
         assert!(main.contains("See Theorem 1.1, Corollary 1.2, Theorem 2.1, and Corollary 2.2."));
         assert!(!main.contains("\\newtheorem"));
         assert!(!main.contains("\\autoref"));
+    }
+
+    #[test]
+    fn reference_names_do_not_call_sections_after_a_theorem_theorems() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = r"\newtheorem{theorem}{Theorem}\section{Intro}\begin{theorem}\label{thm:a}T\end{theorem}\section{Two}\label{sec:two}\section{Three}\label{sec:three}\appendix\section{App}\label{sec:app}A \autoref{sec:two} B \cref{sec:two} C \Cref{sec:three} D \namecref{sec:two} E \crefrange{sec:two}{sec:three} F \autoref{sec:app} G \autoref{thm:a} H \vref{sec:two} I \fullref{sec:two} J \thmref{thm:a}.";
+        fs::write(root.join("main.tex"), source).expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = &materialized.files[&Utf8PathBuf::from("main.tex")];
+
+        // pdflatex with hyperref and cleveref names these sections and the
+        // appendix, not "Theorem 2"; capitalization follows latexd's style.
+        assert!(main.contains("A Section 2 B Section 2 C Section 3 D section E Sections 2 to 3 F Appendix A G Theorem 1 H section 2 on page 1 I Section 2 (Two) J Theorem 1."), "{main}");
+        assert!(!main.contains("Theorem 2"), "{main}");
+        assert!(!main.contains("Theorem 3"), "{main}");
     }
 
     #[test]
