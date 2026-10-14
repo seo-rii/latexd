@@ -23986,20 +23986,54 @@ impl<'i> Vm<'i> {
                 {
                     self.pop_next_token(queue);
                 }
-                self.skip_optional_spaces(queue);
-                let value = if matches!(
-                    self.peek_next_token(queue).map(|token| token.kind),
-                    Some(TokenKind::Character {
-                        catcode: CatCode::BeginGroup,
-                        ..
-                    })
-                ) {
-                    self.read_balanced_group(queue).unwrap_or_default()
-                } else if let Some(token) = self.pop_next_token(queue) {
-                    vec![token]
-                } else {
-                    Vec::new()
-                };
+                // TeX takes the next non-blank, non-\relax token after expansion: a
+                // brace starts the new list, and a token register is copied.
+                let mut value = Vec::new();
+                for _ in 0..256 {
+                    self.skip_optional_spaces(queue);
+                    let Some(token) = self.pop_next_token(queue) else {
+                        break;
+                    };
+                    let TokenKind::ControlSequence { name } = token.kind else {
+                        if matches!(
+                            token.kind,
+                            TokenKind::Character {
+                                catcode: CatCode::BeginGroup,
+                                ..
+                            }
+                        ) {
+                            self.push_token_front(queue, token);
+                            value = self.read_balanced_group(queue).unwrap_or_default();
+                        } else {
+                            value = vec![token];
+                        }
+                        break;
+                    };
+                    let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+                    match self
+                        .lookup_meaning(&control_sequence)
+                        .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive))
+                    {
+                        Some(Meaning::Primitive(Primitive::Relax)) => continue,
+                        Some(Meaning::Primitive(Primitive::Toks)) => {
+                            value = self
+                                .read_integer(queue)
+                                .and_then(|source| self.eqtb.tokens(source as u32))
+                                .map(|tokens| tokens.to_vec())
+                                .unwrap_or_default();
+                            break;
+                        }
+                        _ => {}
+                    }
+                    let expanded = self.expand_once(token.clone(), queue);
+                    if expanded.len() == 1 && expanded[0] == token {
+                        value = vec![token];
+                        break;
+                    }
+                    for token in expanded.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
                 let requested_global = mem::take(&mut self.global_prefix);
                 let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
                     std::cmp::Ordering::Greater => AssignmentScope::Global,
@@ -38727,6 +38761,32 @@ mod tests {
                 r"\def\p{P}\def\q{\p}\expandafter\expandafter\expandafter\let\expandafter\expandafter\expandafter\r\q\r",
                 "P",
             ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn toks_assignment_copies_another_token_register() {
+        for (source, expected) in [
+            (r"\toks0={abc}\toks1=\toks0[\the\toks1]", "[abc]"),
+            (r"\toks0={abc}\toks2\toks0[\the\toks2]", "[abc]"),
+            (r"\newtoks\a\a={xy}\newtoks\b\b=\a[\the\b]", "[xy]"),
+            (r"\toks0={abc}\toks1=\toks0\toks0={z}[\the\toks1]", "[abc]"),
+            (
+                r"\def\x{abc}\toks0=\expandafter{\x}\def\x{z}[\the\toks0]",
+                "[abc]",
+            ),
+            (r"\def\x{{abc}}\toks0=\relax\x[\the\toks0]", "[abc]"),
         ] {
             let mut interner = ControlSequenceInterner::new();
             let mut vm = Vm::new(&mut interner);
