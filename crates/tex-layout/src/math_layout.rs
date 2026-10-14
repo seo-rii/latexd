@@ -99,9 +99,15 @@ fn layout_math_node_with_spacing(
             let mut ascent_pt = 0.0_f32;
             let mut descent_pt = 0.0_f32;
             let mut ops = Vec::new();
+            let classes = row_spacing_classes(children);
             for (index, child) in children.iter().enumerate() {
-                if allow_atom_spacing && index > 0 {
-                    width_pt += math_atom_spacing_pt(&children[index - 1], child, size_pt);
+                if index > 0 {
+                    width_pt += math_atom_spacing_pt(
+                        classes[index - 1],
+                        classes[index],
+                        size_pt,
+                        allow_atom_spacing,
+                    );
                 }
                 let mut child_box = layout_math_node_with_spacing(
                     child,
@@ -268,42 +274,96 @@ fn layout_math_node_with_spacing(
     }
 }
 
+/// TeX's atom types, in the row and column order of its spacing table.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MathSpacingClass {
     Ordinary,
     LargeOperator,
     Binary,
     Relation,
+    Open,
+    Close,
+    Punctuation,
+    Inner,
 }
 
 fn math_spacing_class(node: &MathNode) -> MathSpacingClass {
     match node {
-        MathNode::Atom {
-            atom_kind: MathAtomKind::Relation,
-            ..
-        } => MathSpacingClass::Relation,
-        MathNode::Atom {
-            atom_kind: MathAtomKind::Operator,
-            ..
-        } => MathSpacingClass::Binary,
+        // Classes follow plain TeX's \mathcode: `/` and `.` are ordinary, `:` is
+        // a relation, and `,` `;` are punctuation.
+        MathNode::Atom { text, atom_kind } => match (atom_kind, text.as_str()) {
+            (MathAtomKind::Operator, "/") => MathSpacingClass::Ordinary,
+            (MathAtomKind::Operator, _) => MathSpacingClass::Binary,
+            (MathAtomKind::Relation, _) | (MathAtomKind::Punctuation, ":") => {
+                MathSpacingClass::Relation
+            }
+            (MathAtomKind::Punctuation, "," | ";") => MathSpacingClass::Punctuation,
+            (MathAtomKind::Delimiter, "(" | "[") => MathSpacingClass::Open,
+            (MathAtomKind::Delimiter, ")" | "]") => MathSpacingClass::Close,
+            _ => MathSpacingClass::Ordinary,
+        },
         MathNode::LargeOperator { .. } => MathSpacingClass::LargeOperator,
+        MathNode::Fraction { .. } => MathSpacingClass::Inner,
         MathNode::Scripts { base, .. } => math_spacing_class(base),
-        _ => MathSpacingClass::Ordinary,
+        MathNode::Row { .. } => MathSpacingClass::Ordinary,
     }
 }
 
-fn math_atom_spacing_pt(left: &MathNode, right: &MathNode, size_pt: f32) -> f32 {
-    let left = math_spacing_class(left);
-    let right = math_spacing_class(right);
+/// Spacing classes of a row after TeX's Bin-to-Ord rule (tex.web §728-§729): a
+/// binary operator with nothing to combine on either side acts as ordinary.
+fn row_spacing_classes(children: &[MathNode]) -> Vec<MathSpacingClass> {
+    use MathSpacingClass::*;
+
+    let mut classes = children.iter().map(math_spacing_class).collect::<Vec<_>>();
+    for index in 0..classes.len() {
+        let previous = index.checked_sub(1).map(|previous| classes[previous]);
+        match classes[index] {
+            Binary
+                if matches!(
+                    previous,
+                    None | Some(Binary | LargeOperator | Relation | Open | Punctuation)
+                ) =>
+            {
+                classes[index] = Ordinary;
+            }
+            Relation | Close | Punctuation if previous == Some(Binary) => {
+                classes[index - 1] = Ordinary;
+            }
+            _ => {}
+        }
+    }
+    if let Some(last @ Binary) = classes.last_mut() {
+        *last = Ordinary;
+    }
+    classes
+}
+
+/// Inter-atom space from TeX's table (tex.web §764): 1 is a thin space only
+/// outside scripts, 2 a thin space, 3 a medium and 4 a thick space only
+/// outside scripts. Pairs TeX rules out after the Bin-to-Ord rule are 0.
+fn math_atom_spacing_pt(
+    left: MathSpacingClass,
+    right: MathSpacingClass,
+    size_pt: f32,
+    non_script: bool,
+) -> f32 {
+    const SPACING: [[u8; 8]; 8] = [
+        [0, 2, 3, 4, 0, 0, 0, 1],
+        [2, 2, 0, 4, 0, 0, 0, 1],
+        [3, 3, 0, 0, 3, 0, 0, 3],
+        [4, 4, 0, 0, 4, 0, 0, 4],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 2, 3, 4, 0, 0, 0, 1],
+        [1, 1, 0, 1, 1, 1, 1, 1],
+        [1, 2, 3, 4, 1, 0, 1, 1],
+    ];
     let mu_pt = size_pt / 18.0;
-    if left == MathSpacingClass::Relation || right == MathSpacingClass::Relation {
-        5.0 * mu_pt
-    } else if left == MathSpacingClass::Binary || right == MathSpacingClass::Binary {
-        4.0 * mu_pt
-    } else if left == MathSpacingClass::LargeOperator || right == MathSpacingClass::LargeOperator {
-        3.0 * mu_pt
-    } else {
-        0.0
+    match SPACING[left as usize][right as usize] {
+        1 if non_script => 3.0 * mu_pt,
+        2 => 3.0 * mu_pt,
+        3 if non_script => 4.0 * mu_pt,
+        4 if non_script => 5.0 * mu_pt,
+        _ => 0.0,
     }
 }
 
@@ -315,6 +375,76 @@ mod tests {
     };
 
     use super::layout_math_node;
+    use crate::math_ir::parse_display_math_structure;
+
+    /// The gaps, in mu, between consecutive top-level glyphs of `source`.
+    fn gaps_mu(source: &str) -> Vec<(String, f32)> {
+        let node = parse_display_math_structure(source).expect("parsable math");
+        let math_font = FontRequest {
+            family: FontFamilyRequest::Math,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 18.0,
+            role: FontRole::Math,
+        };
+        let layout = layout_math_node(
+            &node,
+            18.0,
+            &SourceProvenance::generated("test", "spacing"),
+            &math_font,
+        );
+        let runs = layout
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        runs.windows(2)
+            .map(|pair| {
+                let gap = pair[1].origin.x - (pair[0].origin.x + pair[0].approximate_advance_pt);
+                // At 18pt one mu is exactly 1pt.
+                (
+                    format!("{}{}", pair[0].text, pair[1].text),
+                    (gap * 100.0).round() / 100.0,
+                )
+            })
+            .collect()
+    }
+
+    fn gap(source: &str, pair: &str) -> f32 {
+        gaps_mu(source)
+            .into_iter()
+            .find_map(|(glyphs, gap)| (glyphs == pair).then_some(gap))
+            .unwrap_or_else(|| panic!("no {pair:?} in {:?}", gaps_mu(source)))
+    }
+
+    #[test]
+    fn binary_operators_after_relations_and_openings_act_as_ordinary() {
+        // TeX turns a Bin atom into Ord after Rel/Open/Bin/Op/Punct or at the
+        // start of a list (tex.web §728), so unary minus is not spaced.
+        assert_eq!(gap("a=-b", "a="), 5.0);
+        assert_eq!(gap("a=-b", "=-"), 5.0);
+        assert_eq!(gap("a=-b", "-b"), 0.0);
+        assert_eq!(gap("(-b)", "(-"), 0.0);
+        assert_eq!(gap("(-b)", "-b"), 0.0);
+        assert_eq!(gap("a+b", "a+"), 4.0);
+        assert_eq!(gap("a+b", "+b"), 4.0);
+    }
+
+    #[test]
+    fn math_atoms_use_plain_tex_classes_and_spacing() {
+        // `,` is punctuation (thin space after), `/` and `.` are ordinary, and
+        // `:` is a relation, so `:=` is two adjacent relations.
+        assert_eq!(gap("f(x,y)", ",y"), 3.0);
+        assert_eq!(gap("f(x,y)", "x,"), 0.0);
+        assert_eq!(gap("a/b", "a/"), 0.0);
+        assert_eq!(gap("a/b", "/b"), 0.0);
+        assert_eq!(gap("a:=b", ":="), 0.0);
+        assert_eq!(gap("a:=b", "a:"), 5.0);
+        assert_eq!(gap("3.14", "3."), 0.0);
+    }
 
     #[test]
     fn relation_atoms_use_symbol_font_and_relation_spacing() {
