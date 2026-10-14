@@ -329,7 +329,7 @@ struct AppState {
     tile_renderer: TileRendererConfig,
     editor_bridge: Option<EditorBridgeConfig>,
     raster_cache: RwLock<BTreeMap<RasterCacheKey, tex_render_gs::RasterImage>>,
-    inflight_rasters: RwLock<BTreeMap<RasterCacheKey, Arc<Notify>>>,
+    inflight_rasters: StdMutex<BTreeMap<RasterCacheKey, Arc<Notify>>>,
     build_cache: RwLock<BuildCache>,
     live: RwLock<LivePreviewState>,
     events: broadcast::Sender<ServerMsg>,
@@ -966,7 +966,7 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         tile_renderer: args.tile_renderer,
         editor_bridge: args.editor_bridge,
         raster_cache: RwLock::new(BTreeMap::new()),
-        inflight_rasters: RwLock::new(BTreeMap::new()),
+        inflight_rasters: StdMutex::new(BTreeMap::new()),
         build_cache: RwLock::new(BuildCache::default()),
         live: RwLock::new(recovered),
         events,
@@ -4781,7 +4781,10 @@ async fn cache_raster_image(
         }
 
         let (waiter, is_leader) = {
-            let mut inflight = state.inflight_rasters.write().await;
+            let mut inflight = state
+                .inflight_rasters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if let Some(notify) = inflight.get(&key) {
                 let mut waiter = Box::pin(notify.clone().notified_owned());
                 waiter.as_mut().enable();
@@ -4797,8 +4800,14 @@ async fn cache_raster_image(
             waiter.expect("follower waiter").await;
             continue;
         }
+        // Release the entry on every exit, including a client dropping this
+        // request mid-render, so woken followers retry instead of waiting forever.
+        let _inflight = InflightRaster {
+            inflight: &state.inflight_rasters,
+            key: key.clone(),
+        };
 
-        let result = async {
+        return async {
             let rendered = render_page_with_session(state, page, scale).await?;
             let png_bytes = encode_png_bytes(&rendered)?;
             if let Some(parent) = cache_path.parent() {
@@ -4817,14 +4826,24 @@ async fn cache_raster_image(
             Ok(insert_raster_cache_entry(&mut cache, key.clone(), rendered))
         }
         .await;
+    }
+}
 
-        let mut inflight = state.inflight_rasters.write().await;
-        let notify = inflight.remove(&key);
-        drop(inflight);
+struct InflightRaster<'a> {
+    inflight: &'a StdMutex<BTreeMap<RasterCacheKey, Arc<Notify>>>,
+    key: RasterCacheKey,
+}
+
+impl Drop for InflightRaster<'_> {
+    fn drop(&mut self) {
+        let notify = self
+            .inflight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.key);
         if let Some(notify) = notify {
             notify.notify_waiters();
         }
-        return result;
     }
 }
 
@@ -5303,8 +5322,8 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs,
-        sync::Arc,
         sync::atomic::{AtomicUsize, Ordering},
+        sync::{Arc, Mutex as StdMutex},
     };
 
     use axum::{
@@ -5545,7 +5564,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -5614,7 +5633,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -5667,7 +5686,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -5724,7 +5743,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -5786,7 +5805,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -5806,7 +5825,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -5846,7 +5865,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -5890,6 +5909,73 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(tile_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sessions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn raster_cache_recovers_after_cancelled_leader_request() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::CountingMock {
+                calls: calls.clone(),
+                tile_calls: Arc::new(AtomicUsize::new(0)),
+                sessions: Arc::new(AtomicUsize::new(0)),
+                sleep_ms: 200,
+            },
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let page = PageRenderInput {
+            page_id: "page-a".to_string(),
+            revision: 33,
+            content_hash: "hash-a".to_string(),
+            width_px: 256,
+            height_px: 256,
+            natural_size_pt: None,
+            pdf_path: String::new(),
+        };
+
+        let leader = tokio::spawn({
+            let state = state.clone();
+            let page = page.clone();
+            async move { cache_raster_image(&state, &page, 1.0).await }
+        });
+        timeout(Duration::from_secs(2), async {
+            while calls.load(Ordering::SeqCst) == 0 {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("leader request starts rendering");
+        // A client that aborts its image request drops the leader future mid-render.
+        leader.abort();
+        assert!(leader.await.expect_err("leader cancelled").is_cancelled());
+
+        let image = timeout(
+            Duration::from_secs(5),
+            cache_raster_image(&state, &page, 1.0),
+        )
+        .await
+        .expect("requests after a cancelled leader must not hang")
+        .expect("render after cancelled leader");
+
+        assert!(image.width > 0 && image.height > 0);
     }
 
     #[test]
@@ -5992,7 +6078,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6082,7 +6168,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6137,7 +6223,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6192,7 +6278,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6267,7 +6353,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6305,7 +6391,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6416,7 +6502,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6526,7 +6612,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6612,7 +6698,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -6804,7 +6890,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7027,7 +7113,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState {
                 snapshot: PreviewSnapshot {
@@ -7153,7 +7239,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState {
                 snapshot: PreviewSnapshot {
@@ -7275,7 +7361,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState {
                 snapshot: PreviewSnapshot {
@@ -7384,7 +7470,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState {
                 snapshot: PreviewSnapshot {
@@ -7484,7 +7570,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7564,7 +7650,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7666,7 +7752,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7748,7 +7834,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -7795,7 +7881,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7890,7 +7976,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -7918,7 +8004,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8004,7 +8090,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8063,7 +8149,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -8118,7 +8204,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -8193,7 +8279,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -8301,7 +8387,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8442,7 +8528,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8556,7 +8642,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8735,7 +8821,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -8848,7 +8934,7 @@ mod tests {
             },
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -8916,7 +9002,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events,
@@ -9017,7 +9103,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9135,7 +9221,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9226,7 +9312,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9322,7 +9408,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9457,7 +9543,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9560,7 +9646,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9618,7 +9704,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9662,7 +9748,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9719,7 +9805,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState {
                 snapshot: PreviewSnapshot {
@@ -9765,7 +9851,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9808,7 +9894,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9853,7 +9939,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9902,7 +9988,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -9955,7 +10041,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10086,7 +10172,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10174,7 +10260,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10237,7 +10323,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10337,7 +10423,7 @@ mod tests {
                 args: Vec::new(),
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10480,7 +10566,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10594,7 +10680,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10709,7 +10795,7 @@ mod tests {
                 ],
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10792,7 +10878,7 @@ mod tests {
                 args: Vec::new(),
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10861,7 +10947,7 @@ mod tests {
                 args: Vec::new(),
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -10957,7 +11043,7 @@ mod tests {
             tile_renderer: TileRendererConfig::Mock,
             editor_bridge: None,
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,
@@ -11014,7 +11100,7 @@ mod tests {
                 args: Vec::new(),
             }),
             raster_cache: RwLock::new(BTreeMap::new()),
-            inflight_rasters: RwLock::new(BTreeMap::new()),
+            inflight_rasters: StdMutex::new(BTreeMap::new()),
             build_cache: RwLock::new(BuildCache::default()),
             live: RwLock::new(LivePreviewState::default()),
             events: broadcast::channel(4).0,

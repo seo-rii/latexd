@@ -47,7 +47,7 @@ fn raster_test_state() -> (TempDir, Arc<AppState>) {
         tile_renderer: TileRendererConfig::Mock,
         editor_bridge: None,
         raster_cache: RwLock::new(BTreeMap::new()),
-        inflight_rasters: RwLock::new(BTreeMap::new()),
+        inflight_rasters: StdMutex::new(BTreeMap::new()),
         build_cache: RwLock::new(BuildCache::default()),
         live: RwLock::new(LivePreviewState::default()),
         events: broadcast::channel(4).0,
