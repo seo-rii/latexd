@@ -173,6 +173,64 @@ fn decode_simple_xml_attribute_value(raw_value: &str) -> String {
     decoded
 }
 
+/// Parses an SVG list of numbers, as in `points` and transform arguments.
+///
+/// Numbers are separated by white space and/or commas, or by nothing at all
+/// when the next one starts with a sign or a second decimal point (`10-5`,
+/// `.5.5`), which is how minifiers write them. Returns `None` for anything that
+/// is not a finite number.
+fn parse_svg_number_list(raw: &str) -> Option<Vec<f32>> {
+    let bytes = raw.as_bytes();
+    let digits_from = |mut index: usize| {
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        index
+    };
+    let mut values = Vec::new();
+    let mut index = 0usize;
+    loop {
+        while bytes
+            .get(index)
+            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b',')
+        {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            return Some(values);
+        }
+        let start = index;
+        if matches!(bytes[index], b'+' | b'-') {
+            index += 1;
+        }
+        let integer_end = digits_from(index);
+        let mut saw_digit = integer_end > index;
+        index = integer_end;
+        if bytes.get(index) == Some(&b'.') {
+            let fraction_end = digits_from(index + 1);
+            saw_digit |= fraction_end > index + 1;
+            index = fraction_end;
+        }
+        if !saw_digit {
+            return None;
+        }
+        if matches!(bytes.get(index), Some(b'e' | b'E')) {
+            let sign_end =
+                index + 1 + usize::from(matches!(bytes.get(index + 1), Some(b'+' | b'-')));
+            let exponent_end = digits_from(sign_end);
+            if exponent_end > sign_end {
+                index = exponent_end;
+            }
+        }
+        values.push(
+            raw[start..index]
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())?,
+        );
+    }
+}
+
 /// Rewrites external raster references so the SVG can be embedded without loading remote data.
 ///
 /// Resolved PNG and JPEG assets become data URIs. Unresolved or unsupported external references
@@ -4464,14 +4522,6 @@ pub fn parse_svg_with_embedded_assets(
             axis_aligned: outer.axis_aligned && inner.axis_aligned,
         }
     };
-    let parse_transform_numbers = |raw: &str| -> Option<Vec<f32>> {
-        raw.split(|ch: char| ch.is_whitespace() || ch == ',')
-            .filter(|part| !part.is_empty())
-            .map(str::parse::<f32>)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()
-            .filter(|values| values.iter().all(|value| value.is_finite()))
-    };
     let parse_transform = |tag: &str| -> Option<VectorTransform> {
         let Some(raw) = attr_value(tag, "transform") else {
             return Some(identity_transform);
@@ -4515,7 +4565,7 @@ pub fn parse_svg_with_embedded_assets(
             let args_start = index;
             let args_len = raw[args_start..].find(')')?;
             index = args_start + args_len;
-            let values = parse_transform_numbers(&raw[args_start..index])?;
+            let values = parse_svg_number_list(&raw[args_start..index])?;
             index += 1;
             let (next, next_stroke_scale) = match name {
                 "translate" => {
@@ -4723,12 +4773,7 @@ pub fn parse_svg_with_embedded_assets(
         ])
     };
     let parse_raw_points = |raw: &str| -> Option<Vec<(f32, f32)>> {
-        let values = raw
-            .split(|ch: char| ch.is_whitespace() || ch == ',')
-            .filter(|part| !part.is_empty())
-            .map(str::parse::<f32>)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
+        let values = parse_svg_number_list(raw)?;
         if values.len() < 4 || values.len() % 2 != 0 {
             return None;
         }
@@ -9504,6 +9549,31 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn parses_compact_svg_number_lists_in_points_and_transforms() {
+        let scene = |element: &str| {
+            parse_svg(&format!(
+                r#"<svg width="100" height="100" viewBox="0 0 100 100">{element}</svg>"#
+            ))
+            .expect("parse svg")
+        };
+
+        // Minifiers drop separators before a sign or a second decimal point.
+        let compact = scene(r#"<polyline points="10-5 20,15-30-40.5.5-6" stroke="black"/>"#);
+        let spaced = scene(r#"<polyline points="10 -5 20 15 -30 -40.5 0.5 -6" stroke="black"/>"#);
+        assert_eq!(compact.polys.len(), 1);
+        assert_eq!(compact.polys, spaced.polys);
+
+        let compact = scene(
+            r#"<rect x="1" y="2" width="3" height="4" transform="translate(10-5)scale(.5.5)" fill="red"/>"#,
+        );
+        let spaced = scene(
+            r#"<rect x="1" y="2" width="3" height="4" transform="translate(10 -5) scale(0.5 0.5)" fill="red"/>"#,
+        );
+        assert_eq!(compact.rects.len(), 1);
+        assert_eq!(compact.rects, spaced.rects);
     }
 
     #[test]
