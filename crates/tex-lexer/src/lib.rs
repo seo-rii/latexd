@@ -125,6 +125,10 @@ impl Mouth {
         &self.input
     }
 
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
     pub fn new(input: &str) -> Self {
         Self {
             input: Arc::from(input),
