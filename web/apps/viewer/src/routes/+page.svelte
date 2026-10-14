@@ -24,6 +24,7 @@
     type BrowserSourceSelection
   } from "$lib/display-list-source";
   import DisplayListPage from "$lib/DisplayListPage.svelte";
+  import { createSourceSaveQueue } from "$lib/source-save-queue";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
   type EditorFocus = {
@@ -54,6 +55,12 @@
   let loadSerial = 0;
   let saveSerial = 0;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const sourceSaves = createSourceSaveQueue((file: string, content: string) => {
+    if (!apiClient) {
+      throw new Error(`Cannot save ${file}: the latexd daemon is not connected.`);
+    }
+    return apiClient.updateSourceFile({ file, content });
+  });
   let previewSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEditorSyncKey = "";
   let suppressEditorSyncUntil = 0;
@@ -499,8 +506,10 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     if (!apiClient || !file) {
       return;
     }
-    if (activeFile && activeFile !== file) {
-      await flushSave();
+    if (activeFile && activeFile !== file && !(await flushSave())) {
+      // Switching would replace the unsaved buffer; stay on it so the edits survive.
+      editorMessage = `${editorMessage} Unsaved edits in ${activeFile} were kept.`;
+      return;
     }
     const requestId = ++loadSerial;
     editorStatus = "loading";
@@ -553,7 +562,8 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     }, 250);
   }
 
-  async function flushSave() {
+  // Resolves to false when the current buffer could not be saved.
+  async function flushSave(): Promise<boolean> {
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
@@ -562,43 +572,45 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       if (editorText !== lastSavedContent) {
         await compileBrowserSource(editorText);
       }
-      return;
+      return true;
     }
     if (!apiClient || !activeFile || editorText === lastSavedContent) {
       if (activeFile && editorStatus === "dirty") {
         editorStatus = "ready";
         editorMessage = `Editing ${activeFile}`;
       }
-      return;
+      return true;
     }
     const requestId = ++saveSerial;
+    const file = activeFile;
     const sentContent = editorText;
     editorStatus = "saving";
-    editorMessage = `Saving ${activeFile}…`;
+    editorMessage = `Saving ${file}…`;
     try {
-      const response = await apiClient.updateSourceFile({
-        file: activeFile,
-        content: sentContent
-      });
+      // The queue sends one write per file at a time, so this resolves only after the
+      // daemon holds sentContent (or newer content) and no older write can land later.
+      const response = await sourceSaves.save(file, sentContent);
       if (requestId !== saveSerial) {
-        return;
+        return true;
       }
       lastSavedContent = sentContent;
       if (editorText !== sentContent) {
         editorStatus = "dirty";
-        editorMessage = `Unsaved edits in ${activeFile}`;
-        return;
+        editorMessage = `Unsaved edits in ${file}`;
+        return true;
       }
       editorStatus = "saved";
       editorMessage = `Saved ${response.file}. Waiting for the next preview revision…`;
+      return true;
     } catch (error) {
       if (requestId !== saveSerial) {
-        return;
+        return false;
       }
       editorStatus = "error";
       editorMessage = error instanceof Error
         ? error.message
-        : `Failed to save ${activeFile}.`;
+        : `Failed to save ${file}.`;
+      return false;
     }
   }
 
@@ -839,7 +851,12 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
           <select
             value={activeFile}
             disabled={availableFiles.length === 0}
-            onchange={(event) => void openFile((event.currentTarget as HTMLSelectElement).value)}
+            onchange={async (event) => {
+              const select = event.currentTarget as HTMLSelectElement;
+              await openFile(select.value);
+              // A refused or failed switch leaves activeFile unchanged; show that file again.
+              select.value = activeFile;
+            }}
           >
             {#if availableFiles.length === 0}
               <option value="">Waiting for files…</option>
