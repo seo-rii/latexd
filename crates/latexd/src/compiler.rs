@@ -3623,10 +3623,14 @@ async fn execute_external_command(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
+        let output_tail = |text: &str| {
+            let lines = text.lines().collect::<Vec<_>>();
+            lines[lines.len().saturating_sub(8)..].join("\n")
+        };
         let details = if stderr.trim().is_empty() {
-            stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+            output_tail(&stdout)
         } else {
-            stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+            output_tail(&stderr)
         };
         return Err(CompileFailure {
             diagnostics: vec![Diagnostic {
@@ -5088,10 +5092,11 @@ mod tests {
         capture_internal_render_ir_from_project_run_with_asset_cache,
         copy_previous_external_aux_files, earliest_changed_offset,
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
-        has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
-        load_latest_previous_internal_build, map_internal_diagnostics,
-        map_missing_graphic_render_diagnostic, materialize_display_list_asset, parse_depfile,
-        parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        execute_external_command, has_fatal_internal_diagnostics, included_pdf_pages,
+        is_external_compiler_warning, load_latest_previous_internal_build,
+        map_internal_diagnostics, map_missing_graphic_render_diagnostic,
+        materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_checkpoint_bundle_observed, save_source_texts,
@@ -5197,6 +5202,36 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_command_failure_reports_last_output_lines_in_order() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        let mut diagnostics = Vec::new();
+        let failure = execute_external_command(
+            "/bin/sh",
+            &[
+                "-c".to_string(),
+                "for line in 1 2 3 4 5 6 7 8 9 10; do echo \"line $line\" >&2; done; exit 1"
+                    .to_string(),
+            ],
+            &root,
+            Utf8Path::new("main.tex"),
+            &mut diagnostics,
+            Duration::from_secs(10),
+        )
+        .await
+        .expect_err("failing command");
+
+        assert_eq!(
+            failure.diagnostics[0].message,
+            (3..=10)
+                .map(|line| format!("line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 
     #[test]
