@@ -6274,7 +6274,7 @@ fn rewrite_source(
             | "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
             | "clearpage" | "cleardoublepage" | "pagebreak" | "nopagebreak" | "linebreak"
             | "nolinebreak" | "vfill" | "hfill" => {
-                let spacing_end = skip_layout_spacing_command(source, command_end);
+                let spacing_end = skip_layout_spacing_command(source, &command_name, command_end);
                 let output_start_utf8 = output.len() as u32;
                 let should_keep_gap = output.chars().last().is_some_and(|ch| !ch.is_whitespace())
                     && source[spacing_end..].chars().next().is_some_and(|ch| {
@@ -6720,7 +6720,7 @@ fn clean_bibliography_text(source: &str) -> String {
                     if text.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
                         text.push(' ');
                     }
-                    index = skip_layout_spacing_command(&source, command_end);
+                    index = skip_layout_spacing_command(&source, &command_name, command_end);
                     continue;
                 }
                 if command_name == "ignorespaces" {
@@ -7952,7 +7952,15 @@ fn skip_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
-fn skip_layout_spacing_command(source: &str, command_end: usize) -> usize {
+fn skip_layout_spacing_command(source: &str, command_name: &str, command_end: usize) -> usize {
+    match command_name {
+        "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage" | "clearpage"
+        | "cleardoublepage" | "vfill" | "hfill" => return command_end,
+        "pagebreak" | "nopagebreak" | "linebreak" | "nolinebreak" => {
+            return skip_optional_bracket_arguments(source, command_end);
+        }
+        _ => {}
+    }
     let mut cursor = skip_optional_command_star(source, command_end);
     cursor = skip_optional_bracket_arguments(source, cursor);
     if let Some((argument_end, _)) = read_braced_argument(source, cursor) {
@@ -9449,6 +9457,47 @@ mod tests {
             "1em",
             "minus",
             "\\relax",
+        ] {
+            assert!(!main.contains(hidden), "{hidden} leaked into {main:?}");
+        }
+    }
+
+    #[test]
+    fn materialize_project_keeps_text_after_argumentless_spacing_commands() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "Intro.\n\\noindent{\\bfseries Note:} kept.\n\\bigskip 10 participants.\n\\medskip{\\itshape Aside} too.\n\\clearpage 2 more.\n\\linebreak{\\em New} line.",
+        )
+        .expect("write main");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        for kept in [
+            "{\\bfseries Note:} kept.",
+            "10 participants.",
+            "{\\itshape Aside} too.",
+            "2 more.",
+            "{\\em New} line.",
+        ] {
+            assert!(main.contains(kept), "{kept} missing from {main:?}");
+        }
+        for hidden in [
+            "\\noindent",
+            "\\bigskip",
+            "\\medskip",
+            "\\clearpage",
+            "\\linebreak",
         ] {
             assert!(!main.contains(hidden), "{hidden} leaked into {main:?}");
         }
