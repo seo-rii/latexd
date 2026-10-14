@@ -1800,6 +1800,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     });
   };
 
+  // Latest request per kind wins: hovering line after line, or caret moves that
+  // jump the preview, must not let an older response land after a newer one.
+  const sourceRequestSerials = new Map<string, number>();
   const runSourceJumpRequest = (
     requestInput,
     messageType,
@@ -1814,6 +1817,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       return Promise.resolve(null);
     }
     const requestRev = state.lastAppliedRev;
+    const requestSerial = (sourceRequestSerials.get(messageType) ?? 0) + 1;
+    sourceRequestSerials.set(messageType, requestSerial);
+    const superseded = () => sourceRequestSerials.get(messageType) !== requestSerial;
     const source = sourceSelectionFromRequest(request);
     const sourceHash = source?.sourceHash ?? "";
     const detail = {
@@ -1827,7 +1833,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       request
     })
       .then((jump) => {
-        if (state.lastAppliedRev !== requestRev) {
+        if (state.lastAppliedRev !== requestRev || superseded()) {
           return detail;
         }
         const resolvedDetail = resolvedSourceRequestDetail(requestRev, request, jump, source);
@@ -1850,6 +1856,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           ...detail,
           error: error instanceof Error ? error.message : String(error ?? "source jump request failed")
         };
+        if (superseded()) {
+          return failureDetail;
+        }
         emitEvent({
           type: failureEventType,
           detail: failureDetail
