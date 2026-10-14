@@ -6,6 +6,9 @@ use tex_render_model::{BrowserBuildMetadata, BrowserPagesArtifact, RenderEventSt
 use tex_tokens::ControlSequenceInterner;
 
 const WORKSPACE: &str = "/workspace";
+// The request and outputs live in their own preopen so project files named
+// `output.pdf`, `pages.json`, ... are neither shadowed nor overwritten.
+const CONTROL: &str = "/latexd";
 
 #[derive(Debug, Deserialize)]
 struct CompileRequest {
@@ -37,7 +40,7 @@ fn main() {
         error: Some(error),
     });
     let bytes = serde_json::to_vec(&response).expect("compile response should serialize");
-    fs::write(Path::new(WORKSPACE).join("output.json"), bytes)
+    fs::write(Path::new(CONTROL).join("output.json"), bytes)
         .expect("WASI memfs should accept output.json");
 }
 
@@ -50,7 +53,7 @@ fn explicit_error_message(diagnostics: &[tex_vm::VmDiagnostic]) -> Option<String
 
 fn compile() -> Result<CompileResponse, String> {
     let request: CompileRequest = serde_json::from_slice(
-        &fs::read(Path::new(WORKSPACE).join("request.json")).map_err(|error| error.to_string())?,
+        &fs::read(Path::new(CONTROL).join("request.json")).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     let entry = normalize_path(&request.entry)?;
@@ -124,14 +127,11 @@ fn compile() -> Result<CompileResponse, String> {
         .map_err(|error| format!("failed to serialize pages.json: {error}"))?;
     let build_meta_json = serde_json::to_vec(&build_metadata)
         .map_err(|error| format!("failed to serialize build-meta.json: {error}"))?;
-    fs::write(Path::new(WORKSPACE).join("output.pdf"), pdf).map_err(|error| error.to_string())?;
-    fs::write(Path::new(WORKSPACE).join("pages.json"), pages_json)
+    fs::write(Path::new(CONTROL).join("output.pdf"), pdf).map_err(|error| error.to_string())?;
+    fs::write(Path::new(CONTROL).join("pages.json"), pages_json)
         .map_err(|error| error.to_string())?;
-    fs::write(
-        Path::new(WORKSPACE).join("build-meta.json"),
-        build_meta_json,
-    )
-    .map_err(|error| error.to_string())?;
+    fs::write(Path::new(CONTROL).join("build-meta.json"), build_meta_json)
+        .map_err(|error| error.to_string())?;
     Ok(CompileResponse {
         schema_version: 1,
         success: true,
