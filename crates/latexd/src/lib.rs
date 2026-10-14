@@ -68,6 +68,10 @@ use crate::renderer_cache::{
     FullPageRasterMetrics,
 };
 
+/// A toplevel containing this text makes the build loop's compile task panic in tests.
+#[cfg(test)]
+const TEST_COMPILER_PANIC_MARKER: &str = "%latexd-test-compiler-panic";
+
 #[derive(Debug, Clone)]
 pub struct ServeArgs {
     pub root: Utf8PathBuf,
@@ -1292,6 +1296,12 @@ impl AppState {
             let compile_state = self.clone();
             let runtime = tokio::runtime::Handle::current();
             let outcome = match tokio::task::spawn_blocking(move || {
+                #[cfg(test)]
+                if std::fs::read_to_string(request.root.join(&request.toplevel))
+                    .is_ok_and(|source| source.contains(TEST_COMPILER_PANIC_MARKER))
+                {
+                    panic!("test compiler panic requested by {}", request.toplevel);
+                }
                 runtime.block_on(
                     compile_state
                         .compiler
@@ -5461,11 +5471,8 @@ mod tests {
             "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
         )
         .expect("manifest");
-        fs::write(
-            root.join("main.tex"),
-            crate::compiler::TEST_COMPILER_PANIC_MARKER,
-        )
-        .expect("panicking main tex");
+        fs::write(root.join("main.tex"), super::TEST_COMPILER_PANIC_MARKER)
+            .expect("panicking main tex");
         let build_root = root.join(".latexd/build");
         let artifacts_root = root.join(".latexd/artifacts");
         tokio::fs::create_dir_all(build_root.as_std_path())
