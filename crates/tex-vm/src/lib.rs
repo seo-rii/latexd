@@ -24677,17 +24677,50 @@ impl<'i> Vm<'i> {
                             self.interner.resolve(name).unwrap_or(""),
                             false,
                         ),
-                        TokenKind::Character { ch, .. } => ch.to_string(),
+                        TokenKind::Character { ch, catcode } => {
+                            render_character_meaning_text(ch, catcode)
+                        }
                     },
                     Some(Meaning::Macro(definition)) => {
-                        let mut text = String::from("macro:->");
-                        for token in definition.body {
-                            match token.kind {
-                                TokenKind::ControlSequence { name } => {
-                                    text.push('\\');
-                                    text.push_str(self.interner.resolve(name).unwrap_or(""));
+                        // TeX's print_meaning: prefixes, "macro:", the parameter text, "->"
+                        // and the body, with a space after each control word.
+                        let mut text = String::new();
+                        for (set, prefix) in [
+                            (definition.flags.protected, "protected"),
+                            (definition.flags.long, "long"),
+                            (definition.flags.outer, "outer"),
+                        ] {
+                            if set {
+                                text.push_str(&self.render_control_sequence_text(prefix, false));
+                            }
+                        }
+                        if !text.is_empty() {
+                            text.push(' ');
+                        }
+                        text.push_str("macro:");
+                        if definition.parameter_text.is_empty() {
+                            for parameter in 1..=definition.parameter_count {
+                                text.push('#');
+                                text.push_str(&parameter.to_string());
+                            }
+                        }
+                        for (index, tokens) in [&definition.parameter_text, &definition.body]
+                            .into_iter()
+                            .enumerate()
+                        {
+                            if index == 1 {
+                                text.push_str("->");
+                            }
+                            for token in tokens {
+                                match token.kind {
+                                    TokenKind::ControlSequence { name } => {
+                                        text.push_str(&self.render_control_sequence_text(
+                                            self.interner.resolve(name).unwrap_or(""),
+                                            true,
+                                        ));
+                                    }
+                                    TokenKind::Character { ch, .. } => text.push(ch),
                                 }
-                                TokenKind::Character { ch, .. } => text.push(ch),
                             }
                         }
                         text
@@ -24695,7 +24728,7 @@ impl<'i> Vm<'i> {
                     None => String::from("undefined"),
                 }
             }
-            TokenKind::Character { ch, .. } => ch.to_string(),
+            TokenKind::Character { ch, catcode } => render_character_meaning_text(ch, catcode),
         };
         text.chars()
             .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
@@ -35013,6 +35046,29 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
     }
 }
 
+/// TeX's print_meaning text for a character token, such as "the letter a".
+fn render_character_meaning_text(ch: char, catcode: CatCode) -> String {
+    let description = match catcode {
+        CatCode::BeginGroup => "begin-group character",
+        CatCode::EndGroup => "end-group character",
+        CatCode::MathShift => "math shift character",
+        CatCode::AlignmentTab => "alignment tab character",
+        CatCode::Parameter => "macro parameter character",
+        CatCode::Superscript => "superscript character",
+        CatCode::Subscript => "subscript character",
+        CatCode::Space => "blank space",
+        CatCode::Letter => "the letter",
+        CatCode::Other => "the character",
+        CatCode::Escape
+        | CatCode::EndOfLine
+        | CatCode::Ignored
+        | CatCode::Active
+        | CatCode::Comment
+        | CatCode::Invalid => return ch.to_string(),
+    };
+    format!("{description} {ch}")
+}
+
 fn render_roman_numeral(value: i32) -> String {
     if value <= 0 {
         return String::new();
@@ -38306,8 +38362,51 @@ mod tests {
         let outcome = vm
             .run_plain(r"\def\foo{AB}[\meaning\foo][\meaning\relax][\meaning*][\meaning\missing]");
 
-        assert_eq!(outcome.output, "[macro:->AB][\\relax][*][undefined]");
+        assert_eq!(
+            outcome.output,
+            "[macro:->AB][\\relax][the character *][undefined]"
+        );
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn meaning_prints_prefixes_parameter_text_and_character_categories() {
+        for (source, expected) in [
+            (r"\def\x#1{a#1}[\meaning\x]", "[macro:#1->a#1]"),
+            (
+                r"\def\a#1.#2;{[#1|#2]}[\meaning\a]",
+                "[macro:#1.#2;->[#1|#2]]",
+            ),
+            (r"\long\def\x{}[\meaning\x]", r"[\long macro:->]"),
+            (
+                r"\long\outer\def\w#1#2{x}[\meaning\w]",
+                r"[\long\outer macro:#1#2->x]",
+            ),
+            (r"\protected\def\p{}[\meaning\p]", r"[\protected macro:->]"),
+            (r"\def\x{\relax a}[\meaning\x]", r"[macro:->\relax a]"),
+            (r"\def\x{##}[\meaning\x]", "[macro:->##]"),
+            (
+                r"\newcommand\n[2]{#1-#2}[\meaning\n]",
+                r"[\long macro:#1#2->#1-#2]",
+            ),
+            (
+                r"[\meaning a][\meaning 1]",
+                "[the letter a][the character 1]",
+            ),
+            (r"\let\b={[\meaning\b]", "[begin-group character {]"),
+            (r"\let\y=a[\meaning\y]", "[the letter a]"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
     }
 
     #[test]
