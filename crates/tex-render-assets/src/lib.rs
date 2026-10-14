@@ -721,13 +721,14 @@ pub fn parse_svg_with_embedded_assets(
             )
         };
         if raw.ends_with(')') {
-            let (body, is_rgba) = if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("rgb(") {
-                (&raw[4..raw.len() - 1], false)
-            } else if raw.len() >= 6 && raw[..5].eq_ignore_ascii_case("rgba(") {
-                (&raw[5..raw.len() - 1], true)
-            } else {
-                ("", false)
-            };
+            let (body, is_rgba) =
+                if raw.len() >= 5 && raw.as_bytes()[..4].eq_ignore_ascii_case(b"rgb(") {
+                    (&raw[4..raw.len() - 1], false)
+                } else if raw.len() >= 6 && raw.as_bytes()[..5].eq_ignore_ascii_case(b"rgba(") {
+                    (&raw[5..raw.len() - 1], true)
+                } else {
+                    ("", false)
+                };
             let (body, slash_alpha) = body
                 .split_once('/')
                 .map(|(body, alpha)| (body, Some(alpha)))
@@ -758,13 +759,14 @@ pub fn parse_svg_with_embedded_assets(
             }
         }
         if raw.ends_with(')') {
-            let (body, is_hsla) = if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("hsl(") {
-                (&raw[4..raw.len() - 1], false)
-            } else if raw.len() >= 6 && raw[..5].eq_ignore_ascii_case("hsla(") {
-                (&raw[5..raw.len() - 1], true)
-            } else {
-                ("", false)
-            };
+            let (body, is_hsla) =
+                if raw.len() >= 5 && raw.as_bytes()[..4].eq_ignore_ascii_case(b"hsl(") {
+                    (&raw[4..raw.len() - 1], false)
+                } else if raw.len() >= 6 && raw.as_bytes()[..5].eq_ignore_ascii_case(b"hsla(") {
+                    (&raw[5..raw.len() - 1], true)
+                } else {
+                    ("", false)
+                };
             let (body, slash_alpha) = body
                 .split_once('/')
                 .map(|(body, alpha)| (body, Some(alpha)))
@@ -794,7 +796,9 @@ pub fn parse_svg_with_embedded_assets(
                 });
             }
         }
-        if let Some(hex) = raw.strip_prefix('#') {
+        if let Some(hex) = raw.strip_prefix('#')
+            && hex.is_ascii()
+        {
             if hex.len() == 6 || hex.len() == 8 {
                 return Some(VectorResolvedColor {
                     rgb: (
@@ -1400,7 +1404,7 @@ pub fn parse_svg_with_embedded_assets(
     };
     let parse_paint = |raw: &str| -> Option<VectorColor> {
         let raw = raw.trim();
-        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
+        if raw.len() >= 4 && raw.as_bytes()[..4].eq_ignore_ascii_case(b"url(") {
             let Some(url_end) = raw.find(')') else {
                 return Some(VectorColor::Resolved(VectorResolvedColor::opaque((
                     0.0, 0.0, 0.0,
@@ -1838,7 +1842,7 @@ pub fn parse_svg_with_embedded_assets(
         if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("initial") {
             return Some(None);
         }
-        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
+        if raw.len() >= 4 && raw.as_bytes()[..4].eq_ignore_ascii_case(b"url(") {
             let url_end = raw.find(')')?;
             let reference = raw[4..url_end]
                 .trim()
@@ -9429,6 +9433,25 @@ mod tests {
         let decoded = from_pretty_json::<VectorScene>(&json).expect("deserialize vector scene");
         assert_eq!(decoded, scene);
         assert!(json.contains("\"text\": \"hello\""));
+    }
+
+    #[test]
+    fn ignores_non_ascii_paint_and_reference_values() {
+        let scene = parse_svg(
+            r##"<svg width="100" height="50" viewBox="0 0 100 50">
+                <rect x="0" y="0" width="10" height="10" fill="ab€)"/>
+                <rect x="10" y="0" width="10" height="10" fill="abcd€)"/>
+                <rect x="20" y="0" width="10" height="10" fill="#ab€d"/>
+                <rect x="30" y="0" width="10" height="10" fill="#€"/>
+                <rect x="40" y="0" width="10" height="10" clip-path="ur€(#c)"/>
+                <rect x="50" y="0" width="10" height="10" fill="#00ff00"/>
+            </svg>"##,
+        )
+        .expect("parse svg");
+
+        let last = scene.rects.last().expect("valid rect");
+        assert!((last.x_ratio - 0.5).abs() < f32::EPSILON);
+        assert_eq!(last.fill.expect("valid rect fill").rgb, (0.0, 1.0, 0.0));
     }
 
     #[test]
