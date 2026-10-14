@@ -28917,7 +28917,15 @@ fn heading_level_from_macro_body(body: &str) -> Option<u8> {
         ("subparagraph", 5),
     ]
     .into_iter()
-    .find_map(|(command, level)| body.contains(&format!("\\{command}")).then_some(level))
+    .find_map(|(command, level)| {
+        let control_word = format!("\\{command}");
+        body.match_indices(&control_word)
+            .any(|(start, _)| {
+                !body[start + control_word.len()..]
+                    .starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '@')
+            })
+            .then_some(level)
+    })
 }
 
 fn citation_style_hint_for_command(command: &str) -> CitationStyleHint {
@@ -53633,6 +53641,31 @@ Fallback text.
                         && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                             == definition_text
             ));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_ignores_macros_that_only_share_a_heading_prefix() {
+        for source in [
+            r"\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}\begin{document}Text \pd{f}{x} more.\end{document}",
+            r"\def\pd#1#2{\frac{\partial #1}{\partial #2}}\begin{document}Text \pd{f}{x} more.\end{document}",
+            r"\newcommand{\mymark}[1]{\sectionmark{#1}}\begin{document}Text \mymark{Running} more.\end{document}",
+            r"\newcommand{\chapfont}[1]{\chapterfont{#1}}\begin{document}Text \chapfont{Big} more.\end{document}",
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let headings = outcome
+                .render_events
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::Heading(heading) => Some((heading.level, heading.text.clone())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert!(headings.is_empty(), "{source}: {headings:?}");
         }
     }
 
