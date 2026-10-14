@@ -24,6 +24,7 @@
     type BrowserSourceSelection
   } from "$lib/display-list-source";
   import DisplayListPage from "$lib/DisplayListPage.svelte";
+  import { watchForDaemon } from "$lib/daemon-recovery";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
   type EditorFocus = {
@@ -59,6 +60,9 @@
   let suppressEditorSyncUntil = 0;
   const browserOnly = import.meta.env.VITE_LATEXD_BROWSER_ONLY === "true";
   let browserMode = $state(browserOnly);
+  // Set while browser mode is only a fallback for a daemon that did not answer in time.
+  let stopDaemonWatch: (() => void) | null = null;
+  let daemonAvailable = $state(false);
   let browserPages = $state.raw<BrowserPageDisplayList[]>([]);
   let browserFonts = $state.raw<BrowserFontAsset[]>([]);
   let browserBuildMetadata = $state.raw<BrowserBuildMetadata | null>(null);
@@ -110,6 +114,8 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       void activateBrowserMode();
     }
     return () => {
+      stopDaemonWatch?.();
+      stopDaemonWatch = null;
       browserCompileSerial += 1;
       browserCompiler.dispose();
       if (browserCompileTimer) {
@@ -159,6 +165,7 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     const browserFallbackTimer = setTimeout(() => {
       if (previewState.socketPhase !== "open" && !activeFile) {
         void activateBrowserMode();
+        watchForDaemonRecovery();
       }
     }, 900);
     return () => {
@@ -183,6 +190,79 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
       apiClient = null;
     };
   };
+
+  function watchForDaemonRecovery() {
+    stopDaemonWatch?.();
+    stopDaemonWatch = watchForDaemon({
+      probe: () => createLatexdApiClient().fetchState(),
+      onAvailable() {
+        stopDaemonWatch = null;
+        if (browserWorkspaceUntouched()) {
+          returnToDaemonMode();
+          return;
+        }
+        daemonAvailable = true;
+      }
+    });
+  }
+
+  // Switching back discards the in-memory browser workspace, so it happens on its own
+  // only while that workspace is still the untouched starter document.
+  function browserWorkspaceUntouched() {
+    return Object.keys(browserFiles).length === 1
+      && activeFile === "main.tex"
+      && editorText === browserStarterSource
+      && browserTextFiles["main.tex"] === browserStarterSource;
+  }
+
+  function returnToDaemonMode() {
+    stopDaemonWatch?.();
+    stopDaemonWatch = null;
+    daemonAvailable = false;
+    browserCompileSerial += 1;
+    browserCompiler.cancel();
+    if (browserCompileTimer) {
+      clearTimeout(browserCompileTimer);
+      browserCompileTimer = null;
+    }
+    if (browserPdfUrl) {
+      URL.revokeObjectURL(browserPdfUrl);
+    }
+    revokeBrowserAssetUrls(browserAssetUrls, URL.revokeObjectURL);
+    browserPdfUrl = "";
+    browserAssetUrls = {};
+    browserPages = [];
+    browserFonts = [];
+    browserBuildMetadata = null;
+    browserDiagnostics = [];
+    browserEventCount = 0;
+    browserFiles = {};
+    browserTextFiles = {};
+    browserRenderedTextFiles = {};
+    browserHoveredSource = null;
+    browserSelectedSourceKey = null;
+    availableFiles = [];
+    activeFile = "";
+    editorText = "";
+    lastSavedContent = "";
+    currentFocus = null;
+    editorStatus = "idle";
+    editorMessage = "Waiting for latexd to expose a source file.";
+    previewState.currentRev = 0;
+    previewState.lastAppliedRev = 0;
+    previewState.building = false;
+    previewState.lastBuildSucceeded = null;
+    previewState.changedFiles = [];
+    previewState.socketPhase = "idle";
+    // Leaving browser mode re-mounts the daemon viewer, which reconnects its socket.
+    browserMode = false;
+  }
+
+  function switchToDaemonMode() {
+    if (window.confirm("Switch to the latexd daemon? The browser workspace and its unsaved edits will be discarded.")) {
+      returnToDaemonMode();
+    }
+  }
 
   async function activateBrowserMode() {
     if (browserMode && activeFile) {
@@ -833,6 +913,11 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
             Open project directory
             <input type="file" multiple webkitdirectory onchange={loadBrowserProject} />
           </label>
+          {#if daemonAvailable}
+            <button type="button" class="save-button" onclick={switchToDaemonMode}>
+              latexd daemon is up: switch to it
+            </button>
+          {/if}
         {/if}
         <label class="field">
           <span>LaTeX file</span>
