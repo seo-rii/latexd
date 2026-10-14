@@ -16813,7 +16813,11 @@ impl<'i> Vm<'i> {
             next_toks_register: self.next_toks_register,
             next_read_stream: self.next_read_stream,
             next_write_stream: self.next_write_stream,
-            loaded_modules: self.loaded_modules.iter().cloned().collect(),
+            loaded_modules: {
+                let mut loaded_modules = self.loaded_modules.iter().cloned().collect::<Vec<_>>();
+                loaded_modules.sort();
+                loaded_modules
+            },
             include_only: self.include_only.as_ref().map(|paths| {
                 let mut include_only = paths.iter().cloned().collect::<Vec<_>>();
                 include_only.sort();
@@ -36003,6 +36007,32 @@ mod tests {
 
         assert_eq!(outcome.output, "[GT]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_lists_loaded_modules_in_a_stable_order() {
+        let names = ["h", "c", "f", "a", "g", "b", "e", "d"];
+        let source = names
+            .iter()
+            .map(|name| format!(r"\input{{{name}}}"))
+            .collect::<String>();
+        let snapshot_json = || {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            for name in names {
+                vm.mount_file(&format!("{name}.tex"), "");
+            }
+            vm.run_plain(&source);
+            let snapshot = vm.snapshot();
+            let mut sorted = snapshot.loaded_modules.clone();
+            sorted.sort();
+            assert_eq!(snapshot.loaded_modules, sorted);
+            // Same canonical bytes tex-checkpoint folds into the semantic hash.
+            serde_json::to_vec(&serde_json::to_value(&snapshot).expect("snapshot value"))
+                .expect("serialize VM snapshot")
+        };
+
+        assert_eq!(snapshot_json(), snapshot_json());
     }
 
     #[test]
