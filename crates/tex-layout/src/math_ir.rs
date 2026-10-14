@@ -2,8 +2,17 @@ use tex_render_model::{
     MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement, latex_math_symbol,
 };
 
+/// Nested groups, scripts and style switches the parser follows before it gives
+/// up. Each level is a recursive call, and the source comes from the document,
+/// so the depth must stay well inside small (WASM, worker thread) stacks.
+const MAX_MATH_NESTING: usize = 256;
+
 pub(crate) fn parse_display_math_structure(source: &str) -> Option<MathNode> {
-    let mut parser = MathParser { source, index: 0 };
+    let mut parser = MathParser {
+        source,
+        index: 0,
+        depth: 0,
+    };
     let structure = parser.parse_row(None)?;
     parser.skip_whitespace();
     (parser.index == source.len()).then_some(structure)
@@ -12,10 +21,31 @@ pub(crate) fn parse_display_math_structure(source: &str) -> Option<MathNode> {
 struct MathParser<'a> {
     source: &'a str,
     index: usize,
+    depth: usize,
 }
 
 impl MathParser<'_> {
+    /// Runs one level of recursive parsing; a failure aborts the whole parse,
+    /// so the depth only needs restoring on success.
+    fn nested(&mut self, parse: impl FnOnce(&mut Self) -> Option<MathNode>) -> Option<MathNode> {
+        if self.depth >= MAX_MATH_NESTING {
+            return None;
+        }
+        self.depth += 1;
+        let node = parse(self)?;
+        self.depth -= 1;
+        Some(node)
+    }
+
     fn parse_row(&mut self, closing: Option<char>) -> Option<MathNode> {
+        self.nested(|parser| parser.parse_row_contents(closing))
+    }
+
+    fn parse_atom(&mut self) -> Option<MathNode> {
+        self.nested(Self::parse_atom_contents)
+    }
+
+    fn parse_row_contents(&mut self, closing: Option<char>) -> Option<MathNode> {
         let mut children = Vec::new();
         loop {
             self.skip_whitespace();
@@ -35,7 +65,7 @@ impl MathParser<'_> {
         Some(collapse_row(children))
     }
 
-    fn parse_atom(&mut self) -> Option<MathNode> {
+    fn parse_atom_contents(&mut self) -> Option<MathNode> {
         self.skip_whitespace();
         let ch = self.peek_char()?;
         if ch == '{' {
@@ -230,6 +260,35 @@ mod tests {
     use tex_render_model::{MathAtomKind, MathLargeOperator, MathNode, MathScriptPlacement};
 
     use super::parse_display_math_structure;
+
+    #[test]
+    fn deeply_nested_math_is_rejected_instead_of_overflowing_the_stack() {
+        let depth = 100_000;
+        let sources = [
+            format!("{}x{}", "{".repeat(depth), "}".repeat(depth)),
+            format!("{}x", r"\displaystyle".repeat(depth)),
+            format!("{}x{}", "x^{".repeat(depth), "}".repeat(depth)),
+        ];
+        // A 1 MiB stack, like a WASM or worker thread.
+        let parsed = std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(move || {
+                sources
+                    .iter()
+                    .map(|source| parse_display_math_structure(source))
+                    .collect::<Vec<_>>()
+            })
+            .expect("spawn parser thread")
+            .join()
+            .expect("parser thread finished");
+
+        assert!(parsed.iter().all(Option::is_none), "{parsed:?}");
+        assert!(
+            parse_display_math_structure(&format!("{}x{}", "{".repeat(100), "}".repeat(100)))
+                .is_some(),
+            "ordinary nesting depths still parse"
+        );
+    }
 
     #[test]
     fn parses_large_operator_scripts_and_fraction() {
