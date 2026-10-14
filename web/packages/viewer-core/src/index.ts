@@ -654,6 +654,18 @@ function reanchorSourceSelection(source, pageId, syncMap) {
 export function reduce(state, message) {
   switch (message.type) {
     case "preview_resync_required":
+      if (Number.isSafeInteger(message.preview_rev) && message.preview_rev < state.lastAppliedRev) {
+        // A daemon answers a lease with its own published preview, and within one
+        // daemon session that only moves forward. A lower one therefore comes from
+        // a new session (restarted with a fresh .latexd, or another project on the
+        // port), where the old preview means nothing: start over from its state.
+        return {
+          ...initialState,
+          zoom: state.zoom,
+          atomicPreview: true,
+          previewResyncRev: message.preview_rev
+        };
+      }
       return {
         ...state,
         atomicPreview: true,
@@ -1614,7 +1626,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     const previousSelected = state.selectedSource;
     state = reduce(state, message);
     sendPreviewLease();
-    if (state.previewResyncRev > 0) {
+    if (state.previewResyncRev > 0 || message.type === "preview_resync_required") {
       refreshPreviewSnapshot();
     }
     render();

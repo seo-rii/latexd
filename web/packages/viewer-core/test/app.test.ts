@@ -1798,6 +1798,32 @@ test("resolved source request detail keeps canonical response hash and item cont
   assert.equal(detail.previewOnly, false);
 });
 
+test("a resync request below the applied preview starts a new daemon session over", () => {
+  let state = reduce(initialState, previewManifest(15, ["page-a"]));
+  state = reduce(state, { type: "ui_zoom_changed", zoom: 1.5 });
+
+  const newer = reduce(state, { type: "preview_resync_required", preview_rev: 20 });
+  assert.equal(newer.previewResyncRev, 20, "a newer preview keeps the old one until it loads");
+  assert.deepEqual(newer.pageIds, ["page-a"]);
+
+  const restarted = reduce(state, { type: "preview_resync_required", preview_rev: 0 });
+  assert.equal(restarted.lastAppliedRev, 0);
+  assert.equal(restarted.currentRev, 0);
+  assert.deepEqual(restarted.pageIds, []);
+  assert.equal(restarted.pdfUrl, null);
+  assert.equal(restarted.previewResyncRev, 0);
+  assert.equal(restarted.zoom, 1.5, "view settings survive");
+  // The new session's first preview applies on top of the reset state.
+  const committed = reduce(restarted, {
+    type: "preview_committed", base_preview_rev: 0, new_preview_rev: 1,
+    pdf_url: "/artifacts/rev/1/main.pdf", page_ids: ["page-b"],
+    page_artifacts: [{ page_id: "page-b", pdf_url: "/artifacts/rev/1/pages/page-b.pdf" }],
+    source_snapshot: [], ops: []
+  });
+  assert.equal(committed.lastAppliedRev, 1);
+  assert.deepEqual(committed.pageIds, ["page-b"]);
+});
+
 test("resolved source request detail marks preview-only open-source requests", () => {
   const detail = resolvedSourceRequestDetail(
     15,
