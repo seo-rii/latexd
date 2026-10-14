@@ -3349,7 +3349,14 @@ impl CompilerDriver {
         let mut diagnostics = Vec::new();
         for (program, args, expected_output_path, expected_output_kind, is_tex_engine) in commands {
             let pass_count = if is_tex_engine { 3 } else { 1 };
+            let mut previous_pass_warnings = None;
             for pass_index in 0..pass_count {
+                // A rerun supersedes the previous pass's warnings about labels
+                // and citations, so only the last pass that runs reports them.
+                if let Some(warnings) = previous_pass_warnings.take() {
+                    diagnostics.drain(warnings);
+                }
+                let pass_diagnostics_start = diagnostics.len();
                 trace.trace.external_processes += 1;
                 execute_external_command(
                     &program,
@@ -3360,6 +3367,7 @@ impl CompilerDriver {
                     EXTERNAL_COMMAND_TIMEOUT,
                 )
                 .await?;
+                previous_pass_warnings = Some(pass_diagnostics_start..diagnostics.len());
 
                 if is_tex_engine && pass_index == 0 {
                     if let Some((bibliography_program, bibliography_args)) =
@@ -3643,18 +3651,36 @@ async fn execute_external_command(
         });
     }
 
-    for line in stderr.lines().chain(stdout.lines()) {
-        let line = line.trim();
-        if is_external_compiler_warning(line)
-            && !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message == line)
+    let mut lines = stderr
+        .lines()
+        .chain(stdout.lines())
+        .map(str::trim)
+        .peekable();
+    while let Some(line) = lines.next() {
+        if !is_external_compiler_warning(line) {
+            continue;
+        }
+        // LaTeX continues a warning on lines prefixed with its producer,
+        // such as `(hyperref)` or `(Font)`.
+        let mut message = line.to_string();
+        while let Some(continuation) = lines.next_if(|next| {
+            next.strip_prefix('(')
+                .and_then(|rest| rest.split_once(')'))
+                .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+        }) {
+            let (_, text) = continuation.split_once(')').unwrap_or_default();
+            message.push(' ');
+            message.push_str(text.trim());
+        }
+        if !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == message)
         {
             diagnostics.push(Diagnostic {
                 level: DiagnosticLevel::Warning,
                 file: Some(toplevel.to_string()),
                 line: None,
-                message: line.to_string(),
+                message,
             });
         }
     }
@@ -3671,6 +3697,7 @@ fn is_external_compiler_warning(line: &str) -> bool {
         || lower
             .split_once(" warning:")
             .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+        || lower.starts_with("latex ") && lower.contains(" warning:")
 }
 
 fn copy_previous_external_aux_files(
@@ -5148,6 +5175,7 @@ mod tests {
             "Package hyperref Warning: Token not allowed.",
             "pdfLaTeX warning: destination with the same identifier",
             "Warning: generic compiler warning",
+            "LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined",
         ] {
             assert!(is_external_compiler_warning(warning), "{warning}");
         }
@@ -5197,6 +5225,100 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_warnings_keep_their_continuation_lines() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "Body.").expect("main tex");
+        fs::write(
+            root.join("fake-tex.sh"),
+            concat!(
+                "echo \"Package hyperref Warning: Token not allowed in a PDF string (Unicode):\"\n",
+                "echo \"(hyperref)                removing \\`math shift' on input line 3.\"\n",
+                "echo \"Unrelated output.\"\n",
+                "printf '%%PDF-1.4\\n' > \"$1\"\n",
+            ),
+        )
+        .expect("fake engine");
+
+        let outcome = CompilerDriver::new(
+            Some("/bin/sh".to_string()),
+            vec!["{root}/fake-tex.sh".to_string(), "{out_pdf}".to_string()],
+        )
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("external build");
+
+        let messages = outcome
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            vec![
+                "Package hyperref Warning: Token not allowed in a PDF string (Unicode): \
+                 removing `math shift' on input line 3."
+            ]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex (and no tectonic) on PATH"]
+    async fn external_pdflatex_reports_only_final_pass_warnings() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            concat!(
+                r"\documentclass{article}\begin{document}",
+                r"\section{Intro}\label{sec}See \ref{sec}. \textbf{\textsc{Caps}}",
+                r"\end{document}",
+            ),
+        )
+        .expect("main tex");
+
+        let outcome = CompilerDriver::new(None, Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: root.join(".latexd/build"),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("external pdflatex build");
+
+        let messages = outcome
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        // The first pass reports `\ref{sec}` as undefined and asks for a
+        // rerun; the final pass resolves it.
+        assert!(
+            messages.iter().all(
+                |message| !message.contains("undefined on input") && !message.contains("Rerun")
+            ),
+            "{messages:#?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.starts_with("LaTeX Font Warning: Font shape")),
+            "{messages:#?}"
+        );
     }
 
     #[test]
