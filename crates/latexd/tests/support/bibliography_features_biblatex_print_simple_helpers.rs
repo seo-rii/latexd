@@ -167,7 +167,7 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
             BiblatexPrintSimpleAuxAssertion::None,
         ),
         BiblatexPrintSimpleCase::Multicite => (
-            "\\documentclass{article}\\begin{document}\\textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \\parencites{alpha}[cf.]{beta}.\\bibliography{refs}\\end{document}",
+            "\\documentclass{article}\\begin{document}\\textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \\parencites{alpha}[cf.][]{beta}.\\bibliography{refs}\\end{document}",
             Some(
                 "\\begin{thebibliography}{2}\\bibitem[Alpha 2024]{alpha} Alpha entry.\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
             ),
@@ -178,7 +178,7 @@ async fn run_biblatex_print_simple_case(case: BiblatexPrintSimpleCase) {
             BiblatexPrintSimpleAuxAssertion::None,
         ),
         BiblatexPrintSimpleCase::Supercite => (
-            "\\documentclass{article}\\begin{document}\\supercite{alpha} and \\supercites[see]{alpha}[cf.][pp.~1--2]{beta}.\\bibliography{refs}\\end{document}",
+            "\\documentclass{article}\\begin{document}\\supercite{alpha} and \\supercites[see][]{alpha}[cf.][pp.~1--2]{beta}.\\bibliography{refs}\\end{document}",
             Some(
                 "\\begin{thebibliography}{2}\\bibitem[Alpha 2024]{alpha} Alpha entry.\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
             ),
