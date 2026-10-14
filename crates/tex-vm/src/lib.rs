@@ -21526,10 +21526,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::IfEof => {
-                let Some(stream) = self.read_stream_register_index(queue) else {
-                    return;
-                };
-                let at_eof = self.read_stream_eof.get(&stream).copied().unwrap_or(true);
+                // An unreadable stream is treated like a stream that is not open.
+                let at_eof = self.read_stream_register_index(queue).is_none_or(|stream| {
+                    self.read_stream_eof.get(&stream).copied().unwrap_or(true)
+                });
                 self.start_conditional(at_eof, source_offset_utf8, queue);
             }
             Primitive::IfFileExists => {
@@ -22252,11 +22252,11 @@ impl<'i> Vm<'i> {
                 self.start_conditional(is_defined, source_offset_utf8, queue);
             }
             Primitive::IfOdd => {
-                let Some(value) = self.read_number_expression(queue) else {
-                    return;
-                };
+                let odd = self
+                    .read_number_expression(queue)
+                    .is_some_and(|value| value % 2 != 0);
                 self.skip_optional_spaces(queue);
-                self.start_conditional(value % 2 != 0, source_offset_utf8, queue);
+                self.start_conditional(odd, source_offset_utf8, queue);
             }
             Primitive::IfChar => {
                 self.skip_optional_spaces(queue);
@@ -22310,9 +22310,8 @@ impl<'i> Vm<'i> {
                 self.start_conditional(same_category, source_offset_utf8, queue);
             }
             Primitive::IfCase => {
-                let Some(case_index) = self.read_number_expression(queue) else {
-                    return;
-                };
+                // An unreadable case number selects no numbered branch, only `\else`.
+                let case_index = self.read_number_expression(queue).unwrap_or(-1);
                 self.skip_optional_spaces(queue);
                 let mut depth = 0;
                 let mut branches = Vec::new();
@@ -23724,50 +23723,66 @@ impl<'i> Vm<'i> {
                 );
             }
             Primitive::IfNum => {
-                let Some(left) = self.read_number_expression(queue) else {
-                    return;
+                // An unreadable comparison takes the false branch, even under \unless, so
+                // the unread rest of the test is skipped and \else/\fi pair with this
+                // conditional instead of an outer one.
+                let result = 'comparison: {
+                    let Some(left) = self.read_number_expression(queue) else {
+                        break 'comparison None;
+                    };
+                    self.skip_optional_spaces(queue);
+                    let Some(relation) = self.pop_next_token(queue) else {
+                        break 'comparison None;
+                    };
+                    let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                        break 'comparison None;
+                    };
+                    let Some(right) = self.read_number_expression(queue) else {
+                        break 'comparison None;
+                    };
+                    match relation {
+                        '<' => Some(left < right),
+                        '>' => Some(left > right),
+                        '=' => Some(left == right),
+                        _ => None,
+                    }
                 };
+                if result.is_none() {
+                    self.negate_next_conditional = false;
+                }
                 self.skip_optional_spaces(queue);
-                let Some(relation) = self.pop_next_token(queue) else {
-                    return;
-                };
-                let TokenKind::Character { ch: relation, .. } = relation.kind else {
-                    return;
-                };
-                let Some(right) = self.read_number_expression(queue) else {
-                    return;
-                };
-                let result = match relation {
-                    '<' => left < right,
-                    '>' => left > right,
-                    '=' => left == right,
-                    _ => return,
-                };
-                self.skip_optional_spaces(queue);
-                self.start_conditional(result, source_offset_utf8, queue);
+                self.start_conditional(result.unwrap_or(false), source_offset_utf8, queue);
             }
             Primitive::IfDim => {
-                let Some(left) = self.read_dimension_expression(queue) else {
-                    return;
+                // An unreadable comparison takes the false branch, even under \unless, so
+                // the unread rest of the test is skipped and \else/\fi pair with this
+                // conditional instead of an outer one.
+                let result = 'comparison: {
+                    let Some(left) = self.read_dimension_expression(queue) else {
+                        break 'comparison None;
+                    };
+                    self.skip_optional_spaces(queue);
+                    let Some(relation) = self.pop_next_token(queue) else {
+                        break 'comparison None;
+                    };
+                    let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                        break 'comparison None;
+                    };
+                    let Some(right) = self.read_dimension_expression(queue) else {
+                        break 'comparison None;
+                    };
+                    match relation {
+                        '<' => Some(left < right),
+                        '>' => Some(left > right),
+                        '=' => Some(left == right),
+                        _ => None,
+                    }
                 };
+                if result.is_none() {
+                    self.negate_next_conditional = false;
+                }
                 self.skip_optional_spaces(queue);
-                let Some(relation) = self.pop_next_token(queue) else {
-                    return;
-                };
-                let TokenKind::Character { ch: relation, .. } = relation.kind else {
-                    return;
-                };
-                let Some(right) = self.read_dimension_expression(queue) else {
-                    return;
-                };
-                let result = match relation {
-                    '<' => left < right,
-                    '>' => left > right,
-                    '=' => left == right,
-                    _ => return,
-                };
-                self.skip_optional_spaces(queue);
-                self.start_conditional(result, source_offset_utf8, queue);
+                self.start_conditional(result.unwrap_or(false), source_offset_utf8, queue);
             }
             Primitive::Else => {
                 if self.conditionals.pop() == Some(ConditionalState::ThenExecuted) {
@@ -35979,6 +35994,42 @@ mod tests {
 
         assert_eq!(outcome.output, "[11122122]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreadable_conditionals_are_false_and_keep_else_fi_pairing() {
+        let mut failures = Vec::new();
+        for (source, expected) in [
+            (r"\iftrue X\ifdim\wd0>0pt A\else B\fi Y\else Z\fi", "XBY"),
+            (
+                r"\iftrue[\ifnum\undefinedthing<1 A\else B\fi]\else Z\fi",
+                "[B]",
+            ),
+            (r"\iftrue[\ifnum1?2 A\else B\fi]\else Z\fi", "[B]"),
+            (
+                r"\iftrue[\ifodd\undefinedthing A\else B\fi]\else Z\fi",
+                "[B]",
+            ),
+            (
+                r"\iftrue[\ifeof\undefinedstream T\else F\fi]\else Z\fi",
+                "[T]",
+            ),
+            (r"[\ifcase\undefinedthing A\or B\else C\fi]", "[C]"),
+            (
+                r"\iftrue[\unless\ifnum\undefinedthing<1 A\else B\fi]\ifnum1=1 C\else D\fi\else Z\fi",
+                "[B]C",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            if outcome.output != expected || !vm.conditionals.is_empty() {
+                failures.push((source, outcome.output, vm.conditionals.len()));
+            }
+        }
+
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 
     #[test]
