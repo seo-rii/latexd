@@ -358,13 +358,21 @@ fn run_pass(
                 token_end += ch.len_utf8();
             }
 
+            // Like TeX (tex.web §896-§899), hyphenate the first run of letters in
+            // the word: skip leading punctuation such as "(" and accept trailing
+            // punctuation such as "," or ")".
             let token = &request.text[token_start..token_end];
-            if token.len() <= MAX_INLINE_SIZE && token.chars().all(char::is_alphabetic) {
+            let word_start = token.find(char::is_alphabetic).unwrap_or(token.len());
+            let word_end = token[word_start..]
+                .find(|ch: char| !ch.is_alphabetic())
+                .map_or(token.len(), |offset| word_start + offset);
+            let word = &token[word_start..word_end];
+            if !word.is_empty() && word.len() <= MAX_INLINE_SIZE {
                 let mut split_offset = 0usize;
-                for syllable in hyphenate_bounded(token, Lang::English, 2, 3) {
+                for syllable in hyphenate_bounded(word, Lang::English, 2, 3) {
                     split_offset += syllable.len();
-                    if split_offset < token.len() {
-                        let split_utf8 = token_start + split_offset;
+                    if split_offset < word.len() {
+                        let split_utf8 = token_start + word_start + split_offset;
                         debug_assert!(request.text.is_char_boundary(split_utf8));
                         candidates.push(BreakCandidate {
                             line_end_utf8: split_utf8,
@@ -699,6 +707,34 @@ mod tests {
     }
 
     #[test]
+    fn hyphenates_words_next_to_punctuation() {
+        let font = mono_font();
+        for (text, first, second) in [
+            ("extensive,", "exten", "sive,"),
+            ("(extensive)", "(exten", "sive)"),
+        ] {
+            let width = text_advance_pt(&format!("{first}-"), &font, 10.0);
+            let lines = select_paragraph_breaks(request(text, &font, width, width))
+                .unwrap_or_else(|| panic!("{text:?} has a hyphenation point"));
+
+            assert_eq!(&text[lines[0].start_utf8..lines[0].end_utf8], first);
+            assert!(lines[0].append_hyphen);
+            assert_eq!(&text[lines[1].start_utf8..lines[1].end_utf8], second);
+        }
+    }
+
+    #[test]
+    fn hyphenates_only_the_first_letter_run_of_a_word() {
+        let font = mono_font();
+        // TeX stops the word at the first non-letter, so "extensive" after the
+        // explicit hyphen is never hyphenated.
+        let text = "ab-extensive";
+        let width = text_advance_pt("ab-exten-", &font, 10.0);
+
+        assert!(select_paragraph_breaks(request(text, &font, width, width)).is_none());
+    }
+
+    #[test]
     fn applies_the_narrower_first_line_width_once() {
         let text = "aa bb cc dd ee";
         let font = mono_font();
@@ -752,9 +788,10 @@ mod tests {
 
     #[test]
     fn emergency_stretch_is_only_used_after_normal_passes_fail() {
-        let text = "aaaaaaaaa1 bbbbbbbbb2 ccccccccc3 ddddddddd4";
+        // Digits are never hyphenated, so no pass can shorten these words.
+        let text = "1111111111 2222222222 3333333333 4444444444";
         let font = mono_font();
-        let width = text_advance_pt("aaaaaaaaa1 bbbbbbbbb2", &font, 10.0) + 33.0;
+        let width = text_advance_pt("1111111111 2222222222", &font, 10.0) + 33.0;
         let mut without_emergency = request(text, &font, width, width);
         without_emergency.settings.tolerance = 9_999.0;
         assert!(select_paragraph_breaks(without_emergency).is_none());
@@ -766,7 +803,7 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(
             &text[lines[0].start_utf8..lines[0].end_utf8],
-            "aaaaaaaaa1 bbbbbbbbb2"
+            "1111111111 2222222222"
         );
     }
 
