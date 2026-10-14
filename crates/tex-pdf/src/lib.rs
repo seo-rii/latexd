@@ -922,6 +922,7 @@ fn render_display_list_pdf_with_font_mode(
                                     extra_objects.push(build_image_xobject(
                                         object_id,
                                         &embedded_image.image,
+                                        None,
                                     ));
                                     let scoped_clip = push_pdf_svg_clip_rect(
                                         &mut stream,
@@ -1788,7 +1789,7 @@ fn render_display_list_pdf_with_font_mode(
                             .map(|fallback| fallback.bytes.as_slice())
                             .unwrap_or(&bytes);
                         let decoded = decode_pdf_image(raster_bytes);
-                        if let Some(decoded) = decoded {
+                        if let Some((decoded, soft_mask)) = decoded {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
                                 decoded.width as f32,
@@ -1796,10 +1797,27 @@ fn render_display_list_pdf_with_font_mode(
                             );
                             let object_id = next_extra_object_id;
                             next_extra_object_id += 1;
+                            let soft_mask_id = soft_mask.is_some().then(|| {
+                                let id = next_extra_object_id;
+                                next_extra_object_id += 1;
+                                id
+                            });
                             let resource_name = format!("Im{next_page_image_index}");
                             next_page_image_index += 1;
                             image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
-                            extra_objects.push(build_image_xobject(object_id, &decoded));
+                            extra_objects.push(build_image_xobject(
+                                object_id,
+                                &decoded,
+                                soft_mask_id,
+                            ));
+                            if let (Some(soft_mask_id), Some(alpha)) = (soft_mask_id, soft_mask) {
+                                extra_objects.push(build_soft_mask_xobject(
+                                    soft_mask_id,
+                                    decoded.width,
+                                    decoded.height,
+                                    &alpha,
+                                ));
+                            }
                             let dest_x = image.rect.x;
                             let dest_y = page.height_pt - image.rect.y - image.rect.height;
                             let draw = image_draw_placement(
@@ -2036,25 +2054,53 @@ fn image_draw_placement(
     placement
 }
 
-fn decode_pdf_image(bytes: &[u8]) -> Option<EmbeddedRasterImage> {
-    let image = image::load_from_memory(bytes).ok()?.to_rgb8();
-    let (width, height) = image.dimensions();
-    Some(EmbeddedRasterImage {
-        width,
-        height,
-        rgb: image.into_raw(),
-    })
+// Returns the RGB samples plus, for an image whose alpha channel is not fully
+// opaque, that channel as soft-mask samples. Dropping alpha would paint
+// transparent pixels with whatever color they store, usually black.
+fn decode_pdf_image(bytes: &[u8]) -> Option<(EmbeddedRasterImage, Option<Vec<u8>>)> {
+    let image = image::load_from_memory(bytes).ok()?;
+    let (width, height) = (image.width(), image.height());
+    if !image.color().has_alpha() {
+        let rgb = image.into_rgb8().into_raw();
+        return Some((EmbeddedRasterImage { width, height, rgb }, None));
+    }
+    let rgba = image.into_rgba8();
+    let rgb = rgba
+        .pixels()
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    let alpha = rgba.pixels().map(|pixel| pixel[3]).collect::<Vec<_>>();
+    let soft_mask = alpha.iter().any(|&value| value != u8::MAX).then_some(alpha);
+    Some((EmbeddedRasterImage { width, height, rgb }, soft_mask))
 }
 
-fn build_image_xobject(object_id: usize, image: &EmbeddedRasterImage) -> Vec<u8> {
+fn build_image_xobject(
+    object_id: usize,
+    image: &EmbeddedRasterImage,
+    soft_mask_id: Option<usize>,
+) -> Vec<u8> {
+    let soft_mask = soft_mask_id
+        .map(|id| format!(" /SMask {id} 0 R"))
+        .unwrap_or_default();
     let mut object = format!(
-        "{object_id} 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >> stream\n",
+        "{object_id} 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8{soft_mask} /Length {} >> stream\n",
         image.width,
         image.height,
         image.rgb.len()
     )
     .into_bytes();
     object.extend_from_slice(&image.rgb);
+    object.extend_from_slice(b"\nendstream\nendobj\n");
+    object
+}
+
+fn build_soft_mask_xobject(object_id: usize, width: u32, height: u32, alpha: &[u8]) -> Vec<u8> {
+    let mut object = format!(
+        "{object_id} 0 obj << /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length {} >> stream\n",
+        alpha.len()
+    )
+    .into_bytes();
+    object.extend_from_slice(alpha);
     object.extend_from_slice(b"\nendstream\nendobj\n");
     object
 }
@@ -27592,5 +27638,75 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn display_list_pdf_keeps_png_transparency_as_a_soft_mask() {
+        use image::ImageEncoder;
+
+        let mut transparent_png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut transparent_png)
+            .write_image(
+                &[255, 0, 0, 255, 0, 0, 0, 0],
+                2,
+                1,
+                image::ExtendedColorType::Rgba8,
+            )
+            .expect("encode png");
+        let image = |asset_ref: &str, y: f32| {
+            DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
+                asset_hash: Some(format!("blake3:{asset_ref}")),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                image("figures/transparent.png", 78.0),
+                image("figures/opaque.png", 300.0),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| match asset_ref {
+            "figures/transparent.png" => Some(transparent_png.clone()),
+            "figures/opaque.png" => Some(tiny_png_bytes()),
+            _ => None,
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("/Subtype /Image").count(), 3);
+        assert_eq!(pdf_text.matches("/SMask ").count(), 1);
+        let mask_id = pdf_text
+            .split_once("/SMask ")
+            .and_then(|(_, rest)| rest.split_once(" 0 R"))
+            .map(|(id, _)| id)
+            .expect("transparent image references its soft mask");
+        let mask_object = format!(
+            "{mask_id} 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 2 >> stream\n"
+        );
+        let mask_start = pdf
+            .windows(mask_object.len())
+            .position(|window| window == mask_object.as_bytes())
+            .expect("soft mask object is written")
+            + mask_object.len();
+        assert_eq!(&pdf[mask_start..mask_start + 2], &[255, 0]);
     }
 }
