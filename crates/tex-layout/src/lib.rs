@@ -93,7 +93,8 @@ pub fn layout_text(text: &str, options: LayoutOptions) -> DocumentLayout {
     let mut pages = Vec::new();
     let mut text_offset = 0usize;
     let mut content_occurrences = BTreeMap::<String, usize>::new();
-    for (page_index, chunk) in lines.chunks(options.lines_per_page).enumerate() {
+    let lines_per_page = options.lines_per_page.max(1);
+    for (page_index, chunk) in lines.chunks(lines_per_page).enumerate() {
         let joined = chunk.join("\n");
         let content_hash = blake3::hash(joined.as_bytes()).to_hex().to_string();
         let occurrence = content_occurrences.entry(content_hash.clone()).or_default();
@@ -117,7 +118,7 @@ pub fn layout_text(text: &str, options: LayoutOptions) -> DocumentLayout {
             end_utf8: (text_offset + joined.len()) as u32,
         };
         text_offset += joined.len();
-        if page_index + 1 < lines.chunks(options.lines_per_page).len() {
+        if page_index + 1 < lines.chunks(lines_per_page).len() {
             text_offset += 1;
         }
         pages.push(PageLayout {
@@ -179,6 +180,20 @@ mod tests {
         assert_eq!(layout.pages[0].text_span.start_utf8, 0);
         assert_eq!(layout.pages[0].text_span.end_utf8, 3);
         assert_eq!(layout.pages[1].text_span.start_utf8, 4);
+    }
+
+    #[test]
+    fn zero_lines_per_page_still_paginates_one_line_per_page() {
+        let layout = layout_text(
+            "a\nb",
+            LayoutOptions {
+                lines_per_page: 0,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert_eq!(layout.pages.len(), 2);
+        assert_eq!(layout.pages[1].lines, vec!["b".to_string()]);
     }
 
     #[test]
