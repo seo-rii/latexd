@@ -21008,7 +21008,7 @@ impl<'i> Vm<'i> {
                 let value = if matches!(primitive, Primitive::SetCounter) {
                     delta
                 } else {
-                    current + delta
+                    current.wrapping_add(delta)
                 };
                 self.eqtb.assign_count(
                     register_index,
@@ -23035,7 +23035,7 @@ impl<'i> Vm<'i> {
                         std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                         std::cmp::Ordering::Equal => AssignmentScope::Local,
                     };
-                    let next = self.eqtb.count(index).unwrap_or(0) + delta;
+                    let next = self.eqtb.count(index).unwrap_or(0).wrapping_add(delta);
                     self.eqtb.assign_count(
                         index,
                         next,
@@ -23096,7 +23096,7 @@ impl<'i> Vm<'i> {
                         std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                         std::cmp::Ordering::Equal => AssignmentScope::Local,
                     };
-                    let next = self.eqtb.dimen(index).unwrap_or(0) + delta;
+                    let next = self.eqtb.dimen(index).unwrap_or(0).wrapping_add(delta);
                     self.eqtb.assign_dimen(
                         index,
                         next,
@@ -23158,7 +23158,7 @@ impl<'i> Vm<'i> {
                         std::cmp::Ordering::Equal if requested_global => AssignmentScope::Global,
                         std::cmp::Ordering::Equal => AssignmentScope::Local,
                     };
-                    let next = self.eqtb.skip(index).unwrap_or(0) + delta;
+                    let next = self.eqtb.skip(index).unwrap_or(0).wrapping_add(delta);
                     self.eqtb.assign_skip(
                         index,
                         next,
@@ -23422,14 +23422,19 @@ impl<'i> Vm<'i> {
                     };
                     let current = self.eqtb.count(index).unwrap_or(0);
                     let next = match primitive {
-                        Primitive::Multiply => current.saturating_mul(factor),
-                        Primitive::Divide => {
-                            if factor == 0 {
-                                return;
-                            }
-                            current / factor
-                        }
+                        Primitive::Multiply => Some(current.saturating_mul(factor)),
+                        Primitive::Divide => current.checked_div(factor),
                         _ => unreachable!(),
+                    };
+                    let Some(next) = next else {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::ExplicitError,
+                            detail: "Arithmetic overflow".to_string(),
+                        });
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
                     };
                     self.eqtb.assign_count(
                         index,
@@ -23497,14 +23502,19 @@ impl<'i> Vm<'i> {
                     };
                     let current = self.eqtb.dimen(index).unwrap_or(0);
                     let next = match primitive {
-                        Primitive::Multiply => current.saturating_mul(factor),
-                        Primitive::Divide => {
-                            if factor == 0 {
-                                return;
-                            }
-                            current / factor
-                        }
+                        Primitive::Multiply => Some(current.saturating_mul(factor)),
+                        Primitive::Divide => current.checked_div(factor),
                         _ => unreachable!(),
+                    };
+                    let Some(next) = next else {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::ExplicitError,
+                            detail: "Arithmetic overflow".to_string(),
+                        });
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
                     };
                     self.eqtb.assign_dimen(
                         index,
@@ -23572,14 +23582,19 @@ impl<'i> Vm<'i> {
                     };
                     let current = self.eqtb.skip(index).unwrap_or(0);
                     let next = match primitive {
-                        Primitive::Multiply => current.saturating_mul(factor),
-                        Primitive::Divide => {
-                            if factor == 0 {
-                                return;
-                            }
-                            current / factor
-                        }
+                        Primitive::Multiply => Some(current.saturating_mul(factor)),
+                        Primitive::Divide => current.checked_div(factor),
                         _ => unreachable!(),
+                    };
+                    let Some(next) = next else {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::ExplicitError,
+                            detail: "Arithmetic overflow".to_string(),
+                        });
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                        return;
                     };
                     self.eqtb.assign_skip(
                         index,
@@ -38802,6 +38817,63 @@ mod tests {
 
         assert_eq!(outcome.output, "[6][4]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn register_divide_reports_arithmetic_overflow_without_panicking() {
+        for (register, setup, reset, expected) in [
+            (
+                "count0",
+                r"\count0=-2147483647\advance\count0 by -1",
+                r"\count0=17",
+                "M[-2147483648]M[17]",
+            ),
+            (
+                "dimen0",
+                r"\dimen0=-1sp\multiply\dimen0 by 2147483647\advance\dimen0 by -1sp",
+                r"\dimen0=17sp",
+                "M[-32768pt]M[0.00026pt]",
+            ),
+            (
+                "skip0",
+                r"\skip0=-1sp\multiply\skip0 by 2147483647\advance\skip0 by -1sp",
+                r"\skip0=17sp",
+                "M[-32768pt]M[0.00026pt]",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(&format!(
+                r"\def\mark{{M}}{setup}\afterassignment\mark\divide\{register} by -1[\the\{register}]{reset}\afterassignment\mark\divide\{register} by 0[\the\{register}]"
+            ));
+
+            assert_eq!(outcome.output, expected, "{register}");
+            assert_eq!(
+                outcome.diagnostics.len(),
+                2,
+                "{register}: {:#?}",
+                outcome.diagnostics
+            );
+            assert!(outcome.diagnostics.iter().all(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::ExplicitError
+                    && diagnostic.detail == "Arithmetic overflow"
+            }));
+        }
+    }
+
+    #[test]
+    fn register_advance_wraps_like_integer_parameters_without_panicking() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\count0=2147483647\advance\count0 by 1[\number\count0]\dimen0=-1sp\multiply\dimen0 by 2147483647\advance\dimen0 by -2sp[\the\dimen0]\skip0=-1sp\multiply\skip0 by 2147483647\advance\skip0 by -2sp[\the\skip0]\makeatletter\newcount\c@demo\setcounter{demo}{2147483647}\stepcounter{demo}[\number\value{demo}]\makeatother",
+        );
+
+        assert_eq!(
+            outcome.output,
+            "[-2147483648][32767.99998pt][32767.99998pt][-2147483648]"
+        );
+        assert!(outcome.diagnostics.is_empty(), "{:#?}", outcome.diagnostics);
     }
 
     #[test]
