@@ -2,13 +2,14 @@ mod bundled;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 #[cfg(not(target_family = "wasm"))]
 use std::fs;
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 #[cfg(not(target_family = "wasm"))]
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use hayro_font::{Matrix, OutlineBuilder};
 use tex_render_model::{
@@ -411,20 +412,20 @@ pub fn face_for_request(request: &FontRequest, size_pt: f32) -> Option<TexFontFa
 }
 
 pub fn resolve_font(face: TexFontFace) -> Option<&'static ResolvedTexFont> {
-    static ROMAN_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static ROMAN_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static ROMAN_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_ITALIC_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_ITALIC_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_ITALIC_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_SYMBOL_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_SYMBOL_7: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_SYMBOL_5: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static MATH_EXTENSION_10: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static TIMES_ROMAN: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static TIMES_BOLD: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static TIMES_ITALIC: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
-    static TIMES_BOLD_ITALIC: OnceLock<Option<ResolvedTexFont>> = OnceLock::new();
+    static ROMAN_10: CachedFont = CachedFont::new();
+    static ROMAN_7: CachedFont = CachedFont::new();
+    static ROMAN_5: CachedFont = CachedFont::new();
+    static MATH_ITALIC_10: CachedFont = CachedFont::new();
+    static MATH_ITALIC_7: CachedFont = CachedFont::new();
+    static MATH_ITALIC_5: CachedFont = CachedFont::new();
+    static MATH_SYMBOL_10: CachedFont = CachedFont::new();
+    static MATH_SYMBOL_7: CachedFont = CachedFont::new();
+    static MATH_SYMBOL_5: CachedFont = CachedFont::new();
+    static MATH_EXTENSION_10: CachedFont = CachedFont::new();
+    static TIMES_ROMAN: CachedFont = CachedFont::new();
+    static TIMES_BOLD: CachedFont = CachedFont::new();
+    static TIMES_ITALIC: CachedFont = CachedFont::new();
+    static TIMES_BOLD_ITALIC: CachedFont = CachedFont::new();
     let slot = match face {
         TexFontFace::Roman10 => &ROMAN_10,
         TexFontFace::Roman7 => &ROMAN_7,
@@ -441,11 +442,54 @@ pub fn resolve_font(face: TexFontFace) -> Option<&'static ResolvedTexFont> {
         TexFontFace::TimesItalic => &TIMES_ITALIC,
         TexFontFace::TimesBoldItalic => &TIMES_BOLD_ITALIC,
     };
-    slot.get_or_init(|| {
-        resolve_font_with(face, &BundledFontResolver)
-            .or_else(|| resolve_font_with(face, &KpathseaFontResolver))
-    })
-    .as_ref()
+    slot.get_or_resolve(
+        || std::env::var_os("PATH"),
+        || {
+            resolve_font_with(face, &BundledFontResolver)
+                .or_else(|| resolve_font_with(face, &KpathseaFontResolver))
+        },
+    )
+}
+
+// A resolved font is kept for the life of the process, but a miss is only
+// remembered for the PATH it was observed under: a kpsewhich lookup that failed
+// while PATH was temporarily different is retried once PATH changes, without
+// spawning kpsewhich on every call while PATH stays the same.
+struct CachedFont {
+    font: OnceLock<ResolvedTexFont>,
+    missed_with_path: Mutex<Option<Option<OsString>>>,
+}
+
+impl CachedFont {
+    const fn new() -> Self {
+        Self {
+            font: OnceLock::new(),
+            missed_with_path: Mutex::new(None),
+        }
+    }
+
+    fn get_or_resolve(
+        &'static self,
+        lookup_path: impl FnOnce() -> Option<OsString>,
+        resolve: impl FnOnce() -> Option<ResolvedTexFont>,
+    ) -> Option<&'static ResolvedTexFont> {
+        if let Some(font) = self.font.get() {
+            return Some(font);
+        }
+        let lookup_path = lookup_path();
+        let mut missed_with_path = self
+            .missed_with_path
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if missed_with_path.as_ref() == Some(&lookup_path) {
+            return None;
+        }
+        let Some(font) = resolve() else {
+            *missed_with_path = Some(lookup_path);
+            return None;
+        };
+        Some(self.font.get_or_init(|| font))
+    }
 }
 
 pub fn resolve_font_with(
@@ -844,13 +888,44 @@ fn parse_pfb(bytes: &[u8]) -> Option<Type1Program> {
 mod tests {
     use tex_render_model::{FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape};
 
-    use super::{TexFontFace, encode_text, face_for_request, resolve_font};
+    use std::ffi::OsString;
+
+    use super::{
+        BundledFontResolver, CachedFont, TexFontFace, encode_text, face_for_request, resolve_font,
+        resolve_font_with,
+    };
 
     #[test]
     fn text_encoding_normalizes_all_whitespace_to_the_tex_space_slot() {
         assert_eq!(
             encode_text(TexFontFace::Roman10, "a\n\tb\u{a0}c"),
             Some(b"a  b c".to_vec())
+        );
+    }
+
+    #[test]
+    fn font_misses_are_cached_only_for_the_path_they_were_observed_under() {
+        static SLOT: CachedFont = CachedFont::new();
+        let path = |value: &str| Some(OsString::from(value));
+
+        assert!(
+            SLOT.get_or_resolve(|| path("/without-tex"), || None)
+                .is_none()
+        );
+        assert!(
+            SLOT.get_or_resolve(|| path("/without-tex"), || panic!("miss was not cached"))
+                .is_none()
+        );
+        let font = SLOT
+            .get_or_resolve(
+                || path("/with-tex"),
+                || resolve_font_with(TexFontFace::Roman10, &BundledFontResolver),
+            )
+            .expect("lookup is retried after PATH changes");
+        assert_eq!(font.face, TexFontFace::Roman10);
+        assert!(
+            SLOT.get_or_resolve(|| path("/without-tex"), || panic!("hit was not cached"))
+                .is_some()
         );
     }
 
