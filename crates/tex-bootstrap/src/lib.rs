@@ -14,7 +14,7 @@ use tex_vm::{
     SharedRenderEventPrefix, Vm, VmDiagnostic, VmModuleBoundary, VmModuleCheckpoint,
     VmModuleCheckpointKind, VmModuleTrace, VmReplayFrame, VmSnapshot, compile_format_snapshot,
 };
-use tex_world::{ProjectWorld, read_tex_source_lossy};
+use tex_world::{ProjectWorld, find_document_begin, read_tex_source_lossy};
 
 pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\par{ }
@@ -1850,8 +1850,7 @@ fn collect_source_lengths(
 }
 
 fn document_body_start(source: &str) -> usize {
-    source
-        .find(r"\begin{document}")
+    find_document_begin(source)
         .map(|offset| offset + r"\begin{document}".len())
         .unwrap_or(0)
 }
@@ -1907,11 +1906,18 @@ mod tests {
 
     use super::{
         LayoutOptions, ProjectLayoutProfile, align_replay_fragment_boundary, build_project_pdf,
-        capture_page_checkpoints, compile_mini_kernel_snapshot, layout_options_for_profile,
-        layout_profile_from_source, render_event_prefix_for_snapshot, run_project,
-        run_project_from_base_snapshot, run_project_from_base_snapshot_with_mounts,
+        capture_page_checkpoints, compile_mini_kernel_snapshot, document_body_start,
+        layout_options_for_profile, layout_profile_from_source, render_event_prefix_for_snapshot,
+        run_project, run_project_from_base_snapshot, run_project_from_base_snapshot_with_mounts,
         run_project_from_checkpoint, run_project_pdf_from_base_snapshot, run_project_with_snapshot,
     };
+
+    #[test]
+    fn document_body_starts_after_the_first_uncommented_begin_document() {
+        let source = "\\documentclass{article}\n%\\begin{document} comes below\n\\usepackage{amsmath}\n\\begin{document}Body";
+
+        assert_eq!(document_body_start(source), source.len() - "Body".len());
+    }
 
     #[test]
     fn replay_fragment_boundary_does_not_split_visible_text() {

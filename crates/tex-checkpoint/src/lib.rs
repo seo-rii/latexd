@@ -17,6 +17,7 @@ use tex_vm::{
     VmModuleCheckpointKind, VmReplayFrame, VmSnapshot, VmSnapshotDocument,
     decode_vm_snapshot_document,
 };
+use tex_world::find_document_begin;
 
 pub const CHECKPOINT_UNSAFE_STATE: &str = "CHECKPOINT_UNSAFE_STATE";
 // Epoch 6 persists exact preamble output cursors, executes label anchors, and
@@ -1668,11 +1669,7 @@ pub fn find_unchanged_tail(
 }
 
 fn normalize_preamble(source: &str) -> String {
-    source
-        .split(r"\begin{document}")
-        .next()
-        .unwrap_or(source)
-        .replace("\r\n", "\n")
+    source[..find_document_begin(source).unwrap_or(source.len())].replace("\r\n", "\n")
 }
 
 fn checkpoint_id(
@@ -3896,6 +3893,18 @@ mod tests {
     fn preamble_key_changes_when_preamble_changes() {
         let left = preamble_key_for_source("\\documentclass{article}\\title{A}\\begin{document}");
         let right = preamble_key_for_source("\\documentclass{article}\\title{B}\\begin{document}");
+
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn preamble_key_ignores_commented_begin_document() {
+        let left = preamble_key_for_source(
+            "\\documentclass{article}\n%\\begin{document} comes below\n\\usepackage{amsmath}\n\\begin{document}body",
+        );
+        let right = preamble_key_for_source(
+            "\\documentclass{article}\n%\\begin{document} comes below\n\\usepackage{graphicx}\n\\begin{document}body",
+        );
 
         assert_ne!(left, right);
     }
