@@ -1860,6 +1860,9 @@ fn render_display_list_pdf_with_font_mode(
                     }
                 }
                 DrawOp::LinkAnnotation(link) => {
+                    if !is_safe_link_target(&link.target) {
+                        continue;
+                    }
                     let annotation_id = next_extra_object_id;
                     next_extra_object_id += 1;
                     annotation_refs.push(format!("{annotation_id} 0 R"));
@@ -2771,7 +2774,7 @@ pub fn render_display_list_svg_with_materialized_assets(
                     escape_xml_text(&placeholder_text)
                 ));
             }
-            DrawOp::LinkAnnotation(link) => {
+            DrawOp::LinkAnnotation(link) if is_safe_link_target(&link.target) => {
                 body.push_str(&format!(
                     "<a href=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#1d4ed8\" stroke-width=\"1\" data-link-target=\"{}\"{}/></a>",
                     escape_xml_text(&link.target),
@@ -2783,6 +2786,7 @@ pub fn render_display_list_svg_with_materialized_assets(
                     source_attrs_for(&link.source)
                 ));
             }
+            DrawOp::LinkAnnotation(_) => {}
             DrawOp::NamedDestination(destination) => {
                 body.push_str(&format!(
                     "<g data-destination-name=\"{}\" data-destination-x=\"{}\" data-destination-y=\"{}\"{}><circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"#dc2626\"/></g>",
@@ -2860,6 +2864,34 @@ fn build_page_stream(
     }
     stream.push_str("ET");
     stream
+}
+
+// Link targets come from document source (`\href`, `\url`) and end up in PDFs
+// and in debug SVGs served from the daemon's origin, so only schemes that cannot
+// run script or reach local files are emitted. Scheme-less targets (fragments
+// such as `#sec:intro` and relative paths) are kept.
+fn is_safe_link_target(target: &str) -> bool {
+    // Browsers drop surrounding C0 controls and spaces and every tab or newline
+    // before reading a URL scheme, so `java\tscript:` is still `javascript:`.
+    let normalized = target
+        .trim_matches(|ch: char| ch <= ' ')
+        .chars()
+        .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+        .collect::<String>();
+    let Some((scheme, _)) = normalized.split_once(':') else {
+        return true;
+    };
+    let is_scheme = scheme
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'));
+    !is_scheme
+        || ["http", "https", "mailto", "ftp"]
+            .iter()
+            .any(|allowed| scheme.eq_ignore_ascii_case(allowed))
 }
 
 fn escape_pdf_text(text: &str) -> String {
@@ -27513,6 +27545,67 @@ mod tests {
         assert!(svg.contains("data-source-expansion-commands=\"defaulttargetlink\""));
         assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:60:88\""));
         assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:0:20\""));
+    }
+
+    #[test]
+    fn drops_display_list_links_with_unsafe_schemes_from_pdf_and_svg() {
+        let link = |target: &str, y: f32| {
+            DrawOp::LinkAnnotation(LinkAnnotation {
+                rect: Rect {
+                    x: 72.0,
+                    y,
+                    width: 80.0,
+                    height: 12.0,
+                },
+                target: target.to_string(),
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                link("javascript:alert(document.domain)", 72.0),
+                link(" JaVa\tScRiPt:alert(1)", 96.0),
+                link("data:text/html,<script>alert(1)</script>", 120.0),
+                link("vbscript:msgbox(1)", 144.0),
+                link("file:///etc/passwd", 168.0),
+                link("https://example.com/paper", 192.0),
+                link("HTTP://example.com/upper", 216.0),
+                link("mailto:author@example.com", 240.0),
+                link("#sec:intro", 264.0),
+                link("figures/plot.pdf", 288.0),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf).to_ascii_lowercase();
+        let svg = render_display_list_svg(&page).to_ascii_lowercase();
+
+        for unsafe_scheme in ["javascript", "data:", "vbscript", "file:"] {
+            assert!(!pdf_text.contains(unsafe_scheme), "{unsafe_scheme} in PDF");
+            assert!(!svg.contains(unsafe_scheme), "{unsafe_scheme} in SVG");
+        }
+        assert_eq!(pdf_text.matches("/subtype /link").count(), 5);
+        assert_eq!(svg.matches("<a href=").count(), 5);
+        for safe_target in [
+            "https://example.com/paper",
+            "http://example.com/upper",
+            "mailto:author@example.com",
+            "#sec:intro",
+            "figures/plot.pdf",
+        ] {
+            assert!(
+                pdf_text.contains(&format!("/uri ({safe_target})")),
+                "{safe_target} missing from PDF"
+            );
+            assert!(
+                svg.contains(&format!("<a href=\"{safe_target}\">")),
+                "{safe_target} missing from SVG"
+            );
+        }
     }
 
     #[test]
