@@ -9,6 +9,7 @@ const LINE_PENALTY: f64 = 10.0;
 const HYPHEN_PENALTY: f64 = 50.0;
 const ADJACENT_FITNESS_DEMERITS: f64 = 10_000.0;
 const CONSECUTIVE_HYPHEN_DEMERITS: f64 = 10_000.0;
+const FINAL_HYPHEN_DEMERITS: f64 = 5_000.0;
 const MAX_PARAGRAPH_BYTES: usize = 64 * 1024;
 const MAX_BREAK_CANDIDATES: usize = 2_048;
 const MAX_DP_TRANSITIONS: usize = 2_000_000;
@@ -501,6 +502,9 @@ fn run_pass(
                 if state.previous_hyphen && endpoint.append_hyphen() {
                     demerits += CONSECUTIVE_HYPHEN_DEMERITS;
                 }
+                if state.previous_hyphen && endpoint.final_line() {
+                    demerits += FINAL_HYPHEN_DEMERITS;
+                }
 
                 let line = ParagraphLine {
                     start_utf8: line_start,
@@ -728,6 +732,15 @@ mod tests {
         assert_eq!(
             line_texts("bbb eeee ggg e g c bbb fff cccc", 84.0, 9_999.0),
             ["bbb eeee ggg e", "g c bbb fff", "cccc"]
+        );
+    }
+
+    #[test]
+    fn penalizes_a_hyphen_on_the_second_to_last_line() {
+        // \finalhyphendemerits keeps "beauti-" off the second-to-last line.
+        assert_eq!(
+            line_texts("the a every overall on is beautiful overall", 108.5, 200.0),
+            ["the a every over-", "all on is beautiful", "overall"]
         );
     }
 
