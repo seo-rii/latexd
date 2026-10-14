@@ -3578,8 +3578,11 @@ async fn run_external_command(
     timeout: Duration,
 ) -> Result<Output, ExternalCommandError> {
     let mut command = tokio::process::Command::new(program);
+    // Unlike `std`, tokio's `output()` leaves stdin inherited; a TeX prompt
+    // would then read the daemon's terminal or block until the timeout.
     command
         .args(args)
+        .stdin(std::process::Stdio::null())
         .current_dir(current_dir.as_std_path())
         .kill_on_drop(true);
     match tokio::time::timeout(timeout, command.output()).await {
@@ -5197,6 +5200,49 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn external_commands_do_not_inherit_the_daemon_stdin() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "Body.").expect("main tex");
+        // A TeX prompt reads stdin; record what the compiler's stdin is.
+        fs::write(
+            root.join("fake-tex.sh"),
+            concat!(
+                "readlink /proc/$$/fd/0 > \"$1/stdin.txt\"\n",
+                "printf '%%PDF-1.4\\n' > \"$2\"\n",
+            ),
+        )
+        .expect("fake engine");
+
+        CompilerDriver::new(
+            Some("/bin/sh".to_string()),
+            vec![
+                "{root}/fake-tex.sh".to_string(),
+                "{out_dir}".to_string(),
+                "{out_pdf}".to_string(),
+            ],
+        )
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("external build");
+
+        assert_eq!(
+            fs::read_to_string(root.join(".latexd/build/rev-1/stdin.txt"))
+                .expect("recorded stdin")
+                .trim(),
+            "/dev/null"
+        );
     }
 
     #[test]
