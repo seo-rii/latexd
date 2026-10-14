@@ -49361,6 +49361,40 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_hides_color_decoration_arguments() {
+        let source = r"\begin{document}A \color{magenta}colored word and \textcolor{cyan}{visible \cite{key}} plus \colorbox{yellow}{boxed \ref{sec:intro}} and \fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = visible_render_event_text(&outcome.render_events);
+
+        assert!(
+            visible_text
+                .contains("A colored word and visible [?] plus boxed [?] and framed paper."),
+            "{visible_text}"
+        );
+        for hidden in [
+            "colorbox",
+            "fcolorbox",
+            "magenta",
+            "cyan",
+            "yellow",
+            "black",
+            "white",
+            "key",
+            "sec:intro",
+            "https://hidden.test",
+        ] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
     fn render_event_capture_reads_unbraced_newcommand_targets() {
         for (source, hidden) in [
             (
@@ -49403,40 +49437,6 @@ Fallback text.
         let visible_text = visible_render_event_text(&outcome.render_events);
 
         assert!(visible_text.contains("TODO: check"), "{visible_text}");
-    }
-
-    #[test]
-    fn render_event_capture_hides_color_decoration_arguments() {
-        let source = r"\begin{document}A \color{magenta}colored word and \textcolor{cyan}{visible \cite{key}} plus \colorbox{yellow}{boxed \ref{sec:intro}} and \fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}.\end{document}";
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        vm.set_entry_source_path("main.tex");
-        vm.enable_render_event_capture();
-        let outcome = vm.run_plain(source);
-        let visible_text = visible_render_event_text(&outcome.render_events);
-
-        assert!(
-            visible_text
-                .contains("A colored word and visible [?] plus boxed [?] and framed paper."),
-            "{visible_text}"
-        );
-        for hidden in [
-            "colorbox",
-            "fcolorbox",
-            "magenta",
-            "cyan",
-            "yellow",
-            "black",
-            "white",
-            "key",
-            "sec:intro",
-            "https://hidden.test",
-        ] {
-            assert!(
-                !visible_text.contains(hidden),
-                "{hidden} leaked in {visible_text}"
-            );
-        }
     }
 
     #[test]
