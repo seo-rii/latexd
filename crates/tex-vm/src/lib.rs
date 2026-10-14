@@ -131,6 +131,14 @@ const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
 const MAX_EXECUTED_TOKENS: usize = 5_000_000;
 const MAX_GROUP_DEPTH: usize = 1_000;
 
+/// What `\if` and `\ifcat` compare: a character code and category, or TeX's
+/// `(relax, 256)` stand-in for any non-character token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IfComparisonOperand {
+    Character { ch: char, catcode: CatCode },
+    NonCharacter,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IntegerScanPolicy {
     Legacy,
@@ -22258,56 +22266,37 @@ impl<'i> Vm<'i> {
                 self.skip_optional_spaces(queue);
                 self.start_conditional(value % 2 != 0, source_offset_utf8, queue);
             }
-            Primitive::IfChar => {
+            Primitive::IfChar | Primitive::IfCat => {
                 self.skip_optional_spaces(queue);
-                let Some(left) = self.pop_next_token(queue) else {
+                let Some(left) = self.read_if_comparison_operand(queue) else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
-                let Some(right) = self.pop_next_token(queue) else {
+                let Some(right) = self.read_if_comparison_operand(queue) else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
-                let mut resolve_char = |mut token: Token, queue: &mut VecDeque<QueueItem>| {
-                    for _ in 0..256 {
-                        match token.kind.clone() {
-                            TokenKind::Character { ch, .. } => return Some(ch),
-                            TokenKind::ControlSequence { .. } => {
-                                let expanded = self.expand_once(token.clone(), queue);
-                                if expanded.len() != 1 {
-                                    return None;
-                                }
-                                token = expanded.into_iter().next().unwrap();
-                            }
+                let matches = match (left, right) {
+                    (
+                        IfComparisonOperand::Character {
+                            ch: left_ch,
+                            catcode: left_catcode,
+                        },
+                        IfComparisonOperand::Character {
+                            ch: right_ch,
+                            catcode: right_catcode,
+                        },
+                    ) => {
+                        if primitive == Primitive::IfChar {
+                            left_ch == right_ch
+                        } else {
+                            left_catcode == right_catcode
                         }
                     }
-                    None
-                };
-                let matches = match (resolve_char(left, queue), resolve_char(right, queue)) {
-                    (Some(left), Some(right)) => left == right,
+                    (IfComparisonOperand::NonCharacter, IfComparisonOperand::NonCharacter) => true,
                     _ => false,
                 };
                 self.start_conditional(matches, source_offset_utf8, queue);
-            }
-            Primitive::IfCat => {
-                self.skip_optional_spaces(queue);
-                let Some(left) = self.pop_next_token(queue) else {
-                    return;
-                };
-                self.skip_optional_spaces(queue);
-                let Some(right) = self.pop_next_token(queue) else {
-                    return;
-                };
-                self.skip_optional_spaces(queue);
-                let same_category = match (left.kind, right.kind) {
-                    (TokenKind::ControlSequence { .. }, TokenKind::ControlSequence { .. }) => true,
-                    (
-                        TokenKind::Character { catcode: left, .. },
-                        TokenKind::Character { catcode: right, .. },
-                    ) => left == right,
-                    _ => false,
-                };
-                self.start_conditional(same_category, source_offset_utf8, queue);
             }
             Primitive::IfCase => {
                 let Some(case_index) = self.read_number_expression(queue) else {
@@ -27237,6 +27226,65 @@ impl<'i> Vm<'i> {
             }),
         });
         queue.push_front(QueueItem::CharacterSource(Mouth::new(&source)));
+    }
+
+    /// Reads one operand of `\if` or `\ifcat` like TeX's `get_x_token_or_active_char`.
+    /// Macros and expandable primitives are expanded first. A control sequence that is
+    /// unexpandable, or marked by `\noexpand`, is a non-character operand unless it was
+    /// `\let` to a character.
+    fn read_if_comparison_operand(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<IfComparisonOperand> {
+        let mut token = self.pop_next_token(queue)?;
+        for _ in 0..256 {
+            let name = match token.kind {
+                TokenKind::Character { ch, catcode } => {
+                    return Some(IfComparisonOperand::Character { ch, catcode });
+                }
+                TokenKind::ControlSequence { name } => name,
+            };
+            let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+            let meaning = self
+                .lookup_meaning(&control_sequence)
+                .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive));
+            if meaning.is_none() && matches!(control_sequence.as_str(), "noexpand" | "@nx") {
+                let marked = self.pop_next_token(queue)?;
+                return Some(match marked.kind {
+                    TokenKind::Character { ch, catcode } => {
+                        IfComparisonOperand::Character { ch, catcode }
+                    }
+                    TokenKind::ControlSequence { name } => {
+                        let marked_name = self.interner.resolve(name).unwrap_or("").to_string();
+                        match self.lookup_meaning(&marked_name) {
+                            Some(Meaning::Token(Token {
+                                kind: TokenKind::Character { ch, catcode },
+                                ..
+                            })) => IfComparisonOperand::Character { ch, catcode },
+                            _ => IfComparisonOperand::NonCharacter,
+                        }
+                    }
+                });
+            }
+            match meaning {
+                Some(Meaning::Token(Token {
+                    kind: TokenKind::Character { ch, catcode },
+                    ..
+                })) => return Some(IfComparisonOperand::Character { ch, catcode }),
+                Some(Meaning::Macro(_) | Meaning::Primitive(_)) => {
+                    let expanded = self.expand_once(token.clone(), queue);
+                    if expanded.len() == 1 && expanded[0] == token {
+                        return Some(IfComparisonOperand::NonCharacter);
+                    }
+                    for token in expanded.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                    token = self.pop_next_token(queue)?;
+                }
+                Some(Meaning::Token(_)) | None => return Some(IfComparisonOperand::NonCharacter),
+            }
+        }
+        Some(IfComparisonOperand::NonCharacter)
     }
 
     fn ifx_tokens_equal(&self, left: &Token, right: &Token) -> bool {
@@ -38688,6 +38736,43 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn if_and_ifcat_compare_tokens_the_way_tex_does() {
+        for (source, expected) in [
+            (
+                r"\def\e#1{\if\relax\detokenize{#1}\relax E\else N\fi}\e{}\e{x}",
+                "EN",
+            ),
+            (r"\if\relax\relax[Y]\else[N]\fi", "[Y]"),
+            (
+                r"\def\t#1{\if\noexpand#1\relax CS\else CH\fi}\t\foo\t a",
+                "CSCH",
+            ),
+            (r"\ifcat\noexpand a\noexpand b[Y]\else[N]\fi", "[Y]"),
+            (r"\def\foo{x}\ifcat\foo a[Y]\else[N]\fi", "[Y]"),
+            (r"\def\foo{x}\ifcat\noexpand\foo a[Y]\else[N]\fi", "[N]"),
+            (r"\def\foo{x}\ifcat\noexpand\foo\relax[Y]\else[N]\fi", "[Y]"),
+            (r"\let\x=a\ifcat\x b[Y]\else[N]\fi", "[Y]"),
+            (r"\let\x=a\if\x a[Y]\else[N]\fi", "[Y]"),
+            (r"\def\foo{x}\if\foo x[Y]\else[N]\fi", "[Y]"),
+            (
+                r"\def\c#1{\ifcat\noexpand#1\relax CS\else CH\fi}\c\foo\c a\c\relax",
+                "CSCHCS",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
     }
 
     #[test]
