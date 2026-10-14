@@ -858,9 +858,7 @@ const HYPERREF_PACKAGE_SHIM: &str = r"
 \ProvidesPackage{hyperref}[2026/01/01 latexd hyperref preview shim]
 \providecommand{\hypersetup}[1]{}
 \providecommand{\href}[2]{#2}
-\renewcommand{\href}[2]{#2}
 \providecommand{\url}[1]{#1}
-\renewcommand{\url}[1]{#1}
 \providecommand{\nolinkurl}[1]{#1}
 \renewcommand{\nolinkurl}[1]{#1}
 \providecommand{\path}[1]{#1}
@@ -7670,7 +7668,7 @@ impl<'i> Vm<'i> {
                 "href" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((target, target_start, target_end, after_target)) =
-                        read_braced_source_argument(source, index)
+                        read_braced_url_source_argument(source, index)
                     {
                         let after_target = skip_ascii_whitespace(source, after_target);
                         if let Some((text, content_start, content_end, after)) =
@@ -18127,60 +18125,54 @@ impl<'i> Vm<'i> {
             }
             Primitive::Link(link_command) => {
                 self.skip_optional_spaces(queue);
+                let previous_percent_catcode =
+                    self.transient_catcode_overrides.insert('%', CatCode::Other);
                 let target_tokens = if link_command.has_separate_text_argument {
-                    let Some(tokens) = self.read_macro_argument(queue) else {
-                        return;
-                    };
-                    tokens
-                } else {
-                    let previous_percent_catcode =
-                        self.transient_catcode_overrides.insert('%', CatCode::Other);
-                    let tokens = if let Some(opening) = self.pop_next_token(queue) {
-                        if matches!(
-                            &opening.kind,
-                            TokenKind::Character {
-                                catcode: CatCode::BeginGroup,
-                                ..
+                    self.read_macro_argument(queue)
+                } else if let Some(opening) = self.pop_next_token(queue) {
+                    if matches!(
+                        &opening.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        }
+                    ) {
+                        self.push_token_front(queue, opening);
+                        self.read_balanced_group(queue)
+                    } else if let TokenKind::Character {
+                        ch: delimiter,
+                        catcode: delimiter_catcode,
+                    } = &opening.kind
+                    {
+                        let delimiter = *delimiter;
+                        let delimiter_catcode = *delimiter_catcode;
+                        let mut tokens = Vec::new();
+                        loop {
+                            let Some(token) = self.pop_next_token(queue) else {
+                                break None;
+                            };
+                            if matches!(
+                                token.kind,
+                                TokenKind::Character { ch, catcode }
+                                    if ch == delimiter && catcode == delimiter_catcode
+                            ) {
+                                break Some(tokens);
                             }
-                        ) {
-                            self.push_token_front(queue, opening);
-                            self.read_balanced_group(queue)
-                        } else if let TokenKind::Character {
-                            ch: delimiter,
-                            catcode: delimiter_catcode,
-                        } = &opening.kind
-                        {
-                            let delimiter = *delimiter;
-                            let delimiter_catcode = *delimiter_catcode;
-                            let mut tokens = Vec::new();
-                            loop {
-                                let Some(token) = self.pop_next_token(queue) else {
-                                    break None;
-                                };
-                                if matches!(
-                                    token.kind,
-                                    TokenKind::Character { ch, catcode }
-                                        if ch == delimiter && catcode == delimiter_catcode
-                                ) {
-                                    break Some(tokens);
-                                }
-                                tokens.push(token);
-                            }
-                        } else {
-                            Some(vec![opening])
+                            tokens.push(token);
                         }
                     } else {
-                        None
-                    };
-                    if let Some(catcode) = previous_percent_catcode {
-                        self.transient_catcode_overrides.insert('%', catcode);
-                    } else {
-                        self.transient_catcode_overrides.remove(&'%');
+                        Some(vec![opening])
                     }
-                    let Some(tokens) = tokens else {
-                        return;
-                    };
-                    tokens
+                } else {
+                    None
+                };
+                if let Some(catcode) = previous_percent_catcode {
+                    self.transient_catcode_overrides.insert('%', catcode);
+                } else {
+                    self.transient_catcode_overrides.remove(&'%');
+                }
+                let Some(target_tokens) = target_tokens else {
+                    return;
                 };
                 let target = self
                     .tokens_to_text(target_tokens.clone())
@@ -29426,9 +29418,17 @@ fn read_url_like_source_argument(
 ) -> Option<(&str, usize, usize, usize)> {
     let cursor = skip_ascii_whitespace(source, index);
     if source.as_bytes().get(cursor).copied()? == b'{' {
-        return read_braced_source_argument(source, cursor);
+        return read_braced_url_source_argument(source, cursor);
     }
     read_single_byte_delimited_source_argument(source, cursor)
+}
+
+/// A braced URL target: `%` is an ordinary character there, not a comment.
+fn read_braced_url_source_argument(
+    source: &str,
+    index: usize,
+) -> Option<(&str, usize, usize, usize)> {
+    read_delimited_source_argument_with_comments(source, index, b'{', b'}', false)
 }
 
 fn read_single_byte_delimited_source_argument(
@@ -29468,6 +29468,16 @@ fn read_delimited_source_argument(
     open: u8,
     close: u8,
 ) -> Option<(&str, usize, usize, usize)> {
+    read_delimited_source_argument_with_comments(source, index, open, close, true)
+}
+
+fn read_delimited_source_argument_with_comments(
+    source: &str,
+    index: usize,
+    open: u8,
+    close: u8,
+    comments: bool,
+) -> Option<(&str, usize, usize, usize)> {
     let bytes = source.as_bytes();
     let mut cursor = skip_ascii_whitespace(source, index);
     if bytes.get(cursor).copied()? != open {
@@ -29481,7 +29491,7 @@ fn read_delimited_source_argument(
             b'\\' => {
                 cursor = cursor.saturating_add(2);
             }
-            b'%' => {
+            b'%' if comments => {
                 cursor = skip_latex_line_comment(source, cursor);
             }
             byte if byte == open => {

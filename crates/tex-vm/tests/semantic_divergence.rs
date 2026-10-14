@@ -1690,6 +1690,53 @@ Following text.
 }
 
 #[test]
+fn url_and_href_targets_keep_percent_escapes_with_and_without_hyperref() {
+    let mut failures = Vec::new();
+    for preamble in ["", r"\usepackage{hyperref}"] {
+        for (body, expected_output) in [
+            (
+                "See \\url{http://x.org/a%20b} and\nnext line.",
+                "See http://x.org/a%20b and next line.",
+            ),
+            (
+                "See \\href{http://x.org/a%20b}{link} and\nnext line.",
+                "See link and next line.",
+            ),
+        ] {
+            let outcome = capture(&format!(
+                "\\documentclass{{article}}{preamble}\\begin{{document}}{body}\\end{{document}}"
+            ));
+            let output = outcome.output.trim().to_string();
+            let targets = outcome
+                .render_events
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::InlineLink(link) => Some(link.target.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let visible_text = outcome
+                .render_events
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::Text(text) => Some(text.text.as_str()),
+                    _ => None,
+                })
+                .collect::<String>();
+            if output != expected_output
+                || targets != ["http://x.org/a%20b"]
+                || !visible_text.contains("next")
+                || visible_text.contains("x.org/a")
+            {
+                failures.push((preamble, body, output, targets, visible_text));
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
 fn link_visible_content_executes_and_is_folded_into_the_link() {
     let outcome = capture(
         r"\begin{document}
