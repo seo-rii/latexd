@@ -337,6 +337,12 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
       });
     }
     if (url.pathname === "/api/source-jump/15") {
+      if (typeof options.sourceJumpHandler === "function") {
+        return jsonResponse({
+          ...jumpPayload,
+          ...(await options.sourceJumpHandler(url))
+        });
+      }
       if (typeof options.sourceJumpStatus === "number") {
         return jsonResponse({ error: "source jump failed" }, options.sourceJumpStatus);
       }
@@ -2777,5 +2783,69 @@ test("viewer hover source returns resolved hover detail payload", async () => {
     assert.equal(resolvedEvents.length, 1);
     assert.equal(resolvedEvents[0].item?.pageId, "page-a");
     assert.equal(resolvedEvents[0].sourceHash, "#src=main.tex&line=2&column=4");
+  });
+});
+
+for (const kind of ["jump", "hover"] as const) {
+  test(`an older source ${kind} response cannot override a newer one`, async () => {
+    const pending = new Map();
+    const options: any = {
+      sourceJumpHandler: (url) => new Promise((resolve) => {
+        pending.set(url.searchParams.get("line"), resolve);
+      })
+    };
+    await withViewerBrowserHarness(options, async ({ window, viewer, flush }) => {
+      const resolvedEvents = [];
+      window.addEventListener(`latexd:source-${kind}-resolved`, (event) => {
+        resolvedEvents.push(event.detail);
+      });
+      const request = kind === "jump" ? viewer.jumpToSource : viewer.hoverSource;
+      const responseForLine = (line) => ({
+        line,
+        source_hash: `#src=main.tex&line=${line}`,
+        item: {
+          file: "main.tex", start_utf8: line * 10, end_utf8: line * 10 + 4,
+          start_line: line, end_line: line, left_px: 72, right_px: 180, top_px: 100, bottom_px: 220
+        }
+      });
+
+      const older = request({ file: "main.tex", line: 2 });
+      const newer = request({ file: "main.tex", line: 3 });
+      await flush();
+      assert.deepEqual([...pending.keys()], ["2", "3"]);
+      pending.get("3")(responseForLine(3));
+      await newer;
+      pending.get("2")(responseForLine(2));
+      await older;
+      await flush();
+
+      const focused = kind === "jump" ? viewer.getState().selectedSource : viewer.getState().hoveredSource;
+      assert.equal(focused?.startLine, 3, "the newer request's source stays focused");
+      assert.deepEqual(resolvedEvents.map((detail) => detail.line), [3]);
+    });
+  });
+}
+
+test("a superseded source jump that fails emits no failure event", async () => {
+  const pending = new Map();
+  const options: any = {
+    sourceJumpHandler: (url) => new Promise((resolve, reject) => {
+      pending.set(url.searchParams.get("line"), { resolve, reject });
+    })
+  };
+  await withViewerBrowserHarness(options, async ({ window, viewer, flush }) => {
+    const failedEvents = [];
+    window.addEventListener("latexd:source-jump-failed", (event) => {
+      failedEvents.push(event.detail);
+    });
+    const older = viewer.jumpToSource({ file: "main.tex", line: 2 });
+    const newer = viewer.jumpToSource({ file: "main.tex", line: 3 });
+    await flush();
+    pending.get("3").resolve({});
+    await newer;
+    pending.get("2").reject(new Error("daemon went away"));
+    assert.equal((await older).error, "daemon went away");
+    await flush();
+    assert.deepEqual(failedEvents, []);
   });
 });
