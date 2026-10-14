@@ -215,6 +215,11 @@ jobs:
       - name: Build web workspace
         run: pnpm -C web build
 
+      # Compile the daemon here, not inside Playwright's webServer: its 120 s
+      # startup timeout would otherwise also cover a cold `cargo run` compile.
+      - name: Build latexd for the viewer end-to-end test
+        run: cargo build --locked -p latexd
+
       - name: Run viewer end-to-end test
         run: pnpm -C web test:e2e
 
