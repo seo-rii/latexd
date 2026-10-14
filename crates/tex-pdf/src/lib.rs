@@ -51,7 +51,8 @@ pub fn render_pdf(layout: &DocumentLayout) -> Vec<u8> {
         layout.pages.len()
     ));
     objects.push(
-        "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
+        "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n"
+            .to_string(),
     );
 
     for (index, page) in layout.pages.iter().enumerate() {
@@ -434,7 +435,7 @@ fn render_display_list_pdf_with_font_mode(
                 extra_objects.push(build_symbol_to_unicode_cmap(to_unicode_id));
             } else {
                 objects.push(format!(
-                    "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
+                    "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} /Encoding /WinAnsiEncoding >> endobj\n"
                 )
                 .into_bytes());
             }
@@ -2878,8 +2879,55 @@ fn escape_pdf_text(text: &str) -> String {
     escaped
 }
 
+// Text drawn with the base-14 fonts, which are declared with
+// `/WinAnsiEncoding`. Characters `pdf_visible_text` keeps but WinAnsi lacks
+// become `?`, like control characters in `escape_pdf_text`.
 fn escape_pdf_visible_text(text: &str) -> String {
-    escape_pdf_text(&pdf_visible_text(text))
+    let bytes = pdf_visible_text(text)
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' => b' ',
+            ch if ch.is_control() => b'?',
+            ch => win_ansi_byte(ch).unwrap_or(b'?'),
+        })
+        .collect::<Vec<_>>();
+    escape_pdf_bytes(&bytes)
+}
+
+// WinAnsiEncoding (ISO 32000-1 Annex D.2): Latin-1 plus the 0x80-0x9F block.
+fn win_ansi_byte(ch: char) -> Option<u8> {
+    let byte = match ch {
+        ' '..='~' | '\u{a0}'..='\u{ff}' => ch as u8,
+        '\u{20ac}' => 0x80,
+        '\u{201a}' => 0x82,
+        '\u{0192}' => 0x83,
+        '\u{201e}' => 0x84,
+        '\u{2026}' => 0x85,
+        '\u{2020}' => 0x86,
+        '\u{2021}' => 0x87,
+        '\u{02c6}' => 0x88,
+        '\u{2030}' => 0x89,
+        '\u{0160}' => 0x8a,
+        '\u{2039}' => 0x8b,
+        '\u{0152}' => 0x8c,
+        '\u{017d}' => 0x8e,
+        '\u{2018}' => 0x91,
+        '\u{2019}' => 0x92,
+        '\u{201c}' => 0x93,
+        '\u{201d}' => 0x94,
+        '\u{2022}' => 0x95,
+        '\u{2013}' => 0x96,
+        '\u{2014}' => 0x97,
+        '\u{02dc}' => 0x98,
+        '\u{2122}' => 0x99,
+        '\u{0161}' => 0x9a,
+        '\u{203a}' => 0x9b,
+        '\u{0153}' => 0x9c,
+        '\u{017e}' => 0x9e,
+        '\u{0178}' => 0x9f,
+        _ => return None,
+    };
+    Some(byte)
 }
 
 fn pdf_visible_text(text: &str) -> String {
@@ -3539,6 +3587,59 @@ mod tests {
         ] {
             assert!(!text.contains(hidden), "{hidden} leaked in {text}");
         }
+    }
+
+    #[test]
+    fn encodes_base14_text_as_win_ansi_instead_of_raw_utf8() {
+        let layout = layout_text(
+            "25\u{b0}C \u{b1} 1 \u{d7} 2 \u{b5}m \u{a7}3 \u{a9} \u{2122} Fran\u{e7}ois \u{4e2d}",
+            LayoutOptions {
+                chars_per_line: 200,
+                ..LayoutOptions::default()
+            },
+        );
+        let pdf = render_pdf(&layout);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf.is_ascii(), "{text}");
+        assert!(
+            text.contains(r"(25\260C \261 1 \327 2 \265m \2473 \251 \231 Francois ?) Tj"),
+            "{text}"
+        );
+        assert!(text.contains("/BaseFont /Helvetica /Encoding /WinAnsiEncoding"));
+
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                text: "90\u{b0}".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Sans,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 10.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 10.0,
+                origin: Point { x: 72.0, y: 72.0 },
+                approximate_advance_pt: 0.0,
+                resolved_font: None,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 3),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf.is_ascii(), "{text}");
+        assert!(text.contains(r"(90\260) Tj"), "{text}");
+        // Twelve Times/Helvetica/Courier faces; Symbol keeps its built-in encoding.
+        assert_eq!(text.matches("/Encoding /WinAnsiEncoding").count(), 12);
+        assert!(!text.contains("/BaseFont /Symbol /Encoding"));
     }
 
     #[test]
