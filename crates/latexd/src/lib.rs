@@ -1122,11 +1122,13 @@ impl AppState {
     ) {
         let mut pending = BTreeSet::new();
         let mut superseded = false;
+        let mut rescan = false;
         loop {
-            if pending.is_empty() {
+            if pending.is_empty() && !rescan {
                 let Some(first_batch) = rebuild_rx.recv().await else {
                     break;
                 };
+                rescan |= first_batch.is_empty();
                 pending.extend(first_batch);
             }
 
@@ -1137,6 +1139,7 @@ impl AppState {
                     maybe_paths = rebuild_rx.recv() => {
                         match maybe_paths {
                             Some(paths) => {
+                                rescan |= paths.is_empty();
                                 for path in paths {
                                     pending.insert(path);
                                 }
@@ -1148,6 +1151,20 @@ impl AppState {
                 }
             }
 
+            if std::mem::take(&mut rescan) {
+                // The watcher lost events. Re-plan every recorded input and observed
+                // path plus everything now in the project, so missed edits, deletions
+                // and additions are all compared with the build cache.
+                {
+                    let build_cache = self.build_cache.read().await;
+                    pending.extend(build_cache.tracked_inputs.iter().cloned());
+                    pending.extend(build_cache.observed_paths.iter().cloned());
+                }
+                match project_paths(&self.root).await {
+                    Ok(paths) => pending.extend(paths),
+                    Err(error) => warn!("project rescan failed: {error}"),
+                }
+            }
             let changed_files = pending
                 .iter()
                 .map(|path| path.to_string())
@@ -1331,6 +1348,8 @@ impl AppState {
                     let mut consumed_cache = BuildCache::default();
                     consumed_cache.record_success(&project_revision, tracked_inputs);
                     while let Ok(paths) = rebuild_rx.try_recv() {
+                        // A rescan requested during the build is planned after it.
+                        rescan |= paths.is_empty();
                         pending.extend(paths);
                     }
                     let verify_paths = consumed_cache
@@ -1555,6 +1574,7 @@ impl AppState {
                         // Drain edits accepted during artifact publication too. There
                         // are no awaits between this gate and the preview state commit.
                         while let Ok(paths) = rebuild_rx.try_recv() {
+                            rescan |= paths.is_empty();
                             for path in paths {
                                 if !path.starts_with(".latexd") && !path.starts_with(".git") {
                                     pending.insert(path);
@@ -1717,6 +1737,58 @@ async fn hash_input(root: &Utf8Path, relative_path: &Utf8Path) -> Result<Option<
     }
 }
 
+/// The project-relative paths a watcher event asks the build loop to re-plan,
+/// or `None` for an irrelevant event. An empty batch requests a full rescan.
+fn watcher_rebuild_batch(root: &Utf8Path, event: notify::Event) -> Option<Vec<Utf8PathBuf>> {
+    // The backend dropped events (inotify queue overflow) and names no paths.
+    if event.need_rescan() {
+        return Some(Vec::new());
+    }
+    if matches!(event.kind, notify::EventKind::Access(_)) {
+        return None;
+    }
+    let mut changed_paths = Vec::new();
+    for path in event.paths {
+        if let Ok(relative) = path.strip_prefix(root.as_std_path()) {
+            if let Some(relative) = Utf8Path::from_path(relative) {
+                if relative.starts_with(".latexd") || relative.as_str().is_empty() {
+                    continue;
+                }
+                changed_paths.push(relative.to_path_buf());
+            }
+        }
+    }
+    (!changed_paths.is_empty()).then_some(changed_paths)
+}
+
+/// Every file and directory under the project root except the top-level
+/// `.latexd` and `.git`. Symlinked directories are listed but not entered.
+async fn project_paths(root: &Utf8Path) -> Result<BTreeSet<Utf8PathBuf>> {
+    let root = root.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut paths = BTreeSet::new();
+        let mut queue = vec![Utf8PathBuf::new()];
+        while let Some(relative) = queue.pop() {
+            for entry in std::fs::read_dir(root.join(&relative))? {
+                let entry = entry?;
+                let Ok(name) = entry.file_name().into_string() else {
+                    continue;
+                };
+                if relative.as_str().is_empty() && matches!(name.as_str(), ".latexd" | ".git") {
+                    continue;
+                }
+                let path = relative.join(name);
+                if entry.file_type()?.is_dir() {
+                    queue.push(path.clone());
+                }
+                paths.insert(path);
+            }
+        }
+        Ok(paths)
+    })
+    .await?
+}
+
 fn spawn_watcher(
     root: Utf8PathBuf,
     rebuild_tx: mpsc::UnboundedSender<Vec<Utf8PathBuf>>,
@@ -1735,24 +1807,10 @@ fn spawn_watcher(
         while let Some(result) = event_rx.recv().await {
             match result {
                 Ok(event) => {
-                    if matches!(event.kind, notify::EventKind::Access(_)) {
+                    let Some(changed_paths) = watcher_rebuild_batch(&root, event) else {
                         continue;
-                    }
-                    if event.paths.is_empty() {
-                        continue;
-                    }
-                    let mut changed_paths = Vec::new();
-                    for path in event.paths {
-                        if let Ok(relative) = path.strip_prefix(root.as_std_path()) {
-                            if let Some(relative) = Utf8Path::from_path(relative) {
-                                if relative.starts_with(".latexd") || relative.as_str().is_empty() {
-                                    continue;
-                                }
-                                changed_paths.push(relative.to_path_buf());
-                            }
-                        }
-                    }
-                    if !changed_paths.is_empty() && rebuild_tx.send(changed_paths).is_err() {
+                    };
+                    if rebuild_tx.send(changed_paths).is_err() {
                         warn!("file watcher dropped rebuild event because build loop is gone");
                         break;
                     }
@@ -5515,6 +5573,103 @@ mod tests {
             .expect("changed plan");
         assert!(changed.needs_rebuild);
         assert_eq!(changed.changed_inputs, vec!["main.tex".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_rescan_request_rebuilds_missed_edits_only() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "before overflow").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let artifacts_root = root.join(".latexd/artifacts");
+        tokio::fs::create_dir_all(build_root.as_std_path())
+            .await
+            .expect("build root");
+        tokio::fs::create_dir_all(artifacts_root.as_std_path())
+            .await
+            .expect("artifacts root");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root,
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(Some("internal".to_string()), Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(8).0,
+        });
+        let (rebuild_tx, rebuild_rx) = mpsc::unbounded_channel();
+        let loop_state = state.clone();
+        let build_task = tokio::spawn(async move {
+            loop_state.run_build_loop(rebuild_rx).await;
+        });
+        let wait_for_applied_rev = |rev: u64, context: &'static str| {
+            let state = state.clone();
+            async move {
+                timeout(Duration::from_secs(30), async {
+                    while state.live.read().await.snapshot.last_applied_rev != rev {
+                        sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect(context);
+            }
+        };
+
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("initial rebuild");
+        wait_for_applied_rev(1, "initial build").await;
+
+        // The watcher lost this edit's event (inotify queue overflow) and only
+        // reports that the tree must be rescanned.
+        fs::write(root.join("main.tex"), "edited during overflow").expect("edit main tex");
+        rebuild_tx.send(Vec::new()).expect("rescan request");
+        wait_for_applied_rev(2, "a rescan must rebuild an edit whose event was lost").await;
+
+        // A rescan that finds nothing new must not rebuild.
+        rebuild_tx.send(Vec::new()).expect("idle rescan request");
+        sleep(Duration::from_millis(400)).await;
+        assert_eq!(state.live.read().await.snapshot.current_rev, 2);
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
+    }
+
+    #[test]
+    fn watcher_rebuild_batch_requests_rescan_after_dropped_events() {
+        use notify::event::{CreateKind, Flag, ModifyKind};
+
+        let root = camino::Utf8Path::new("/project");
+        // inotify reports a queue overflow as a path-less event flagged for rescan.
+        let overflow = notify::Event::new(notify::EventKind::Other).set_flag(Flag::Rescan);
+        assert_eq!(
+            super::watcher_rebuild_batch(root, overflow),
+            Some(Vec::new())
+        );
+
+        let edit = notify::Event::new(notify::EventKind::Modify(ModifyKind::Any))
+            .add_path("/project/chapters/intro.tex".into());
+        assert_eq!(
+            super::watcher_rebuild_batch(root, edit),
+            Some(vec![Utf8PathBuf::from("chapters/intro.tex")])
+        );
+
+        let build_output = notify::Event::new(notify::EventKind::Create(CreateKind::File))
+            .add_path("/project/.latexd/build/rev-1/main.pdf".into());
+        assert_eq!(super::watcher_rebuild_batch(root, build_output), None);
     }
 
     #[tokio::test]
