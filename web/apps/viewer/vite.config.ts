@@ -6,6 +6,12 @@ export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, '.', '');
 	const latexdDevOrigin = env.LATEXD_DEV_ORIGIN || 'http://127.0.0.1:4380';
 	const viewerBasePath = normalizeBasePath(env.LATEXD_VIEWER_BASE_PATH);
+	// The dev server proxies the daemon API, which can write project files, so it
+	// listens on loopback with Vite's Host check unless LAN access is requested.
+	const devHost = env.LATEXD_VIEWER_DEV_HOST || undefined;
+	const allowedHosts = env.LATEXD_VIEWER_ALLOWED_HOSTS?.split(',')
+		.map((host) => host.trim())
+		.filter(Boolean);
 	const proxy: Record<string, string | ProxyOptions> = {
 		'/api': latexdDevOrigin,
 		'/artifacts': latexdDevOrigin,
@@ -27,8 +33,9 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [sveltekit()],
 		server: {
+			host: devHost,
 			proxy,
-			allowedHosts: true
+			allowedHosts
 		}
 	};
 });

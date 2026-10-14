@@ -32,6 +32,12 @@ The SvelteKit app proxies `/api`, `/artifacts`, and `/ws` to
 `http://127.0.0.1:4380` by default. Override that with `LATEXD_DEV_ORIGIN`
 when you need a different daemon origin.
 
+The dev server listens on loopback only, because anyone who can reach it can
+read and write project sources through the proxied daemon API. To open it to
+other machines, set `LATEXD_VIEWER_DEV_HOST=0.0.0.0` and list the host names
+you browse with in `LATEXD_VIEWER_ALLOWED_HOSTS` (comma-separated), either in
+the environment or in `apps/viewer/.env.local`.
+
 ## Build output
 
 `pnpm build` produces the static viewer app under [`apps/viewer/build/`](./apps/viewer/build).
