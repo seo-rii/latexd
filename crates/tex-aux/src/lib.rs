@@ -1221,7 +1221,13 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                     path: input_path,
                     is_include,
                 } => {
-                    let input_path = resolve_existing_project_path(root, &input_path)
+                    // Like web2c TeX, `\input{ch.v2}` tries ch.v2.tex before ch.v2.
+                    let tex_candidate = (input_path.extension() != Some("tex"))
+                        .then(|| Utf8PathBuf::from(format!("{input_path}.tex")));
+                    let input_path = tex_candidate
+                        .iter()
+                        .chain([&input_path])
+                        .find_map(|candidate| resolve_existing_project_path(root, candidate))
                         .unwrap_or_else(|| input_path.clone());
                     if is_include
                         && include_only
@@ -7714,11 +7720,12 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                         .map(str::trim)
                         .filter(|path| !path.is_empty())
                         .filter_map(|path| normalize_relative_path(Utf8Path::new(path)).ok())
-                        .map(|mut path| {
-                            if path.extension().is_none() {
-                                path = path.with_extension("tex");
+                        .map(|path| {
+                            if path.extension() == Some("tex") {
+                                path
+                            } else {
+                                Utf8PathBuf::from(format!("{path}.tex"))
                             }
-                            path
                         })
                         .collect::<Vec<_>>();
                     events.push(CommandEvent::IncludeOnly { paths });
@@ -7727,11 +7734,24 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                 }
             }
             "input" | "include" => {
-                if let Some((argument_end, raw_path)) = read_braced_argument(source, command_end) {
+                let argument = read_braced_argument(source, command_end).or_else(|| {
+                    // Plain TeX syntax: `\input chapter` ends the name at a space.
+                    let start = skip_whitespace(source, command_end);
+                    let end = source[start..]
+                        .find(|ch: char| ch.is_whitespace() || matches!(ch, '\\' | '{' | '}' | '%'))
+                        .map_or(source.len(), |offset| start + offset);
+                    (command_name == "input" && end > start)
+                        .then(|| (end, source[start..end].to_string()))
+                });
+                if let Some((argument_end, raw_path)) = argument {
                     let mut path = normalize_relative_path(Utf8Path::new(raw_path.trim())).ok();
                     if let Some(path_value) = path.as_mut() {
                         if path_value.extension().is_none() {
                             *path_value = path_value.with_extension("tex");
+                        } else if command_name == "include" && path_value.extension() != Some("tex")
+                        {
+                            // \include{ch.v2} always reads ch.v2.tex.
+                            *path_value = Utf8PathBuf::from(format!("{path_value}.tex"));
                         }
                     }
                     if let Some(path_value) = path {
@@ -8681,6 +8701,43 @@ mod tests {
         assert!(scan.labels.iter().any(|label| label.file
             == Utf8PathBuf::from("localHamiltonian.tex")
             && label.key == "sec:nested"));
+    }
+
+    #[test]
+    fn scan_project_follows_braceless_and_dotted_inputs() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\includeonly{part.a}\n\\input chapters/one\n\\input{ch.v2}\n\\input{fig.pdf_tex}\n\\include{part.a}\n",
+        )
+        .expect("write main");
+        fs::create_dir(root.join("chapters")).expect("create chapters");
+        fs::write(
+            root.join("chapters/one.tex"),
+            "\\section{One}\\label{sec:one}",
+        )
+        .expect("write one");
+        fs::write(root.join("ch.v2.tex"), "\\section{Two}\\label{sec:two}").expect("write two");
+        fs::write(root.join("fig.pdf_tex"), "\\label{fig:inkscape}").expect("write pdf_tex");
+        fs::write(root.join("part.a.tex"), "\\label{part:a}").expect("write part");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        for path in ["chapters/one.tex", "ch.v2.tex", "fig.pdf_tex", "part.a.tex"] {
+            assert!(
+                scan.files.contains_key(&Utf8PathBuf::from(path)),
+                "{path} not followed: {:?}",
+                scan.files.keys().collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(
+            scan.labels
+                .iter()
+                .map(|label| label.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["sec:one", "sec:two", "fig:inkscape", "part:a"]
+        );
     }
 
     #[test]
