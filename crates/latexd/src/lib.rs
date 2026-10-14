@@ -1122,6 +1122,7 @@ impl AppState {
     ) {
         let mut pending = BTreeSet::new();
         let mut superseded = false;
+        let mut unpublished_attempt: Option<BuildCache> = None;
         loop {
             if pending.is_empty() {
                 let Some(first_batch) = rebuild_rx.recv().await else {
@@ -1154,9 +1155,13 @@ impl AppState {
                 .collect::<Vec<_>>();
             pending.clear();
 
+            let baseline = match &unpublished_attempt {
+                Some(attempt) => attempt.clone(),
+                None => self.build_cache.read().await.clone(),
+            };
             let rebuild_plan = match BuildCache::plan_rebuild(
                 &self.root,
-                &self.build_cache.read().await.clone(),
+                &baseline,
                 &changed_files
                     .iter()
                     .map(Utf8PathBuf::from)
@@ -1250,6 +1255,12 @@ impl AppState {
                         continue;
                     }
                 };
+            // Until this attempt publishes, compare later edits with what it captured.
+            // A failed build leaves no readset, so reverting to the published inputs or
+            // fixing a file only the failed build read must still rebuild.
+            let mut attempt = BuildCache::default();
+            attempt.record_attempt(&project_revision);
+            unpublished_attempt = Some(attempt);
             let toplevel = project_revision.manifest.toplevels.first().cloned();
             let Some(toplevel) = toplevel else {
                 let diagnostics = vec![Diagnostic {
@@ -1591,6 +1602,7 @@ impl AppState {
                         }
                         *build_cache = consumed_cache;
                         *live = candidate;
+                        unpublished_attempt = None;
                     }
                     attach_render_revision(&self, rev, &outcome.renderer_page_metadata).await;
                     let _ = self.events.send(ServerMsg::Diagnostics {
@@ -1703,6 +1715,16 @@ impl BuildCache {
             .tracked_inputs
             .iter()
             .map(|path| (path.clone(), revision.hashes.get(path).cloned()))
+            .collect();
+        self.observed_paths = revision.paths.clone();
+    }
+
+    fn record_attempt(&mut self, revision: &ProjectRevision) {
+        self.tracked_inputs = revision.hashes.keys().cloned().collect();
+        self.input_hashes = revision
+            .hashes
+            .iter()
+            .map(|(path, hash)| (path.clone(), Some(hash.clone())))
             .collect();
         self.observed_paths = revision.paths.clone();
     }
@@ -5312,7 +5334,7 @@ mod tests {
         extract::{Json, Path, Query, State},
         http::{Request, StatusCode, header},
     };
-    use camino::Utf8PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
     use tempfile::tempdir;
     use tex_render_gs::{GsApiRuntime, PageRenderInput, Rect, TileImage, probe_gsapi_library};
     use tokio::{
@@ -5586,6 +5608,138 @@ mod tests {
         );
         drop(live);
         assert!(!build_root.join("rev-2").exists());
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
+    }
+
+    async fn spawn_internal_build_loop(
+        root: &Utf8Path,
+    ) -> (
+        Arc<AppState>,
+        mpsc::UnboundedSender<Vec<Utf8PathBuf>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        let build_root = root.join(".latexd/build");
+        let artifacts_root = root.join(".latexd/artifacts");
+        tokio::fs::create_dir_all(build_root.as_std_path())
+            .await
+            .expect("build root");
+        tokio::fs::create_dir_all(artifacts_root.as_std_path())
+            .await
+            .expect("artifacts root");
+        let state = Arc::new(AppState {
+            root: root.to_path_buf(),
+            build_root,
+            artifacts_root,
+            world: ProjectWorld::load(root.to_path_buf()).expect("world"),
+            compiler: CompilerDriver::new(Some("internal".to_string()), Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(8).0,
+        });
+        let (rebuild_tx, rebuild_rx) = mpsc::unbounded_channel();
+        let loop_state = state.clone();
+        let build_task = tokio::spawn(async move {
+            loop_state.run_build_loop(rebuild_rx).await;
+        });
+        (state, rebuild_tx, build_task)
+    }
+
+    async fn wait_for_build_result(state: &AppState, rev: u64, succeeded: bool, context: &str) {
+        timeout(Duration::from_secs(30), async {
+            loop {
+                {
+                    let live = state.live.read().await;
+                    if live.snapshot.current_rev == rev && !live.snapshot.building {
+                        assert_eq!(live.snapshot.last_build_succeeded, Some(succeeded));
+                        return;
+                    }
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{context}"));
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_rebuilds_revert_to_last_published_inputs_after_failure() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "good build").expect("main tex");
+        let (state, rebuild_tx, build_task) = spawn_internal_build_loop(&root).await;
+
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("initial rebuild");
+        wait_for_build_result(&state, 1, true, "initial build").await;
+
+        fs::write(root.join("main.tex"), "\\errmessage{broken}").expect("broken main tex");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("broken rebuild");
+        wait_for_build_result(&state, 2, false, "broken build").await;
+
+        // Undo the edit: the inputs now match the published revision again.
+        fs::write(root.join("main.tex"), "good build").expect("reverted main tex");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("reverted rebuild");
+        wait_for_build_result(&state, 3, true, "reverting a failed edit must rebuild").await;
+        assert_eq!(state.live.read().await.snapshot.last_applied_rev, 3);
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_rebuilds_inputs_first_read_by_a_failed_build() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "intro").expect("main tex");
+        fs::write(root.join("ch2.tex"), "\\errmessage{broken chapter}").expect("ch2 tex");
+        let (state, rebuild_tx, build_task) = spawn_internal_build_loop(&root).await;
+
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("initial rebuild");
+        wait_for_build_result(&state, 1, true, "initial build").await;
+
+        fs::write(root.join("main.tex"), "intro \\input{ch2}").expect("main tex input");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("input rebuild");
+        wait_for_build_result(&state, 2, false, "build reading the broken chapter").await;
+
+        // ch2.tex existed before but only the failed build read it.
+        fs::write(root.join("ch2.tex"), "chapter two").expect("fixed ch2 tex");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("ch2.tex")])
+            .expect("fixed chapter rebuild");
+        wait_for_build_result(
+            &state,
+            3,
+            true,
+            "fixing an input of a failed build must rebuild",
+        )
+        .await;
+        assert_eq!(state.live.read().await.snapshot.last_applied_rev, 3);
 
         drop(rebuild_tx);
         timeout(Duration::from_secs(2), build_task)
