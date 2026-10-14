@@ -3233,6 +3233,32 @@ fn format_editor_command_line(editor_program: &str, materialized_args: &[String]
         .join(" ")
 }
 
+fn expand_editor_placeholders(template: &str, placeholders: &[(&str, &str)]) -> String {
+    let mut expanded = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        expanded.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let placeholder = placeholders.iter().find(|(name, _)| {
+            rest[1..]
+                .strip_prefix(name)
+                .is_some_and(|tail| tail.starts_with('}'))
+        });
+        match placeholder {
+            Some((name, value)) => {
+                expanded.push_str(value);
+                rest = &rest[name.len() + 2..];
+            }
+            None => {
+                expanded.push('{');
+                rest = &rest[1..];
+            }
+        }
+    }
+    expanded.push_str(rest);
+    expanded
+}
+
 fn build_editor_bridge_preview(
     state: &AppState,
     file: &Utf8Path,
@@ -3253,6 +3279,7 @@ fn build_editor_bridge_preview(
         .map(|bridge| source_editor_uri(&bridge.program, absolute_file, line, column))
         .unwrap_or_default();
     let mut materialized_args = Vec::new();
+    let mut argument_placeholders = Vec::new();
     if let Some(editor_bridge) = state.editor_bridge.as_ref() {
         if editor_bridge.args.is_empty() {
             let program_name = std::path::Path::new(&editor_bridge.program)
@@ -3328,39 +3355,36 @@ fn build_editor_bridge_preview(
                 .as_ref()
                 .map(|context| context.item.item_id.as_str())
                 .unwrap_or_default();
-            for argument in &editor_bridge.args {
-                materialized_args.push(
-                    argument
-                        .replace("{root}", state.root.as_str())
-                        .replace("{editor_cwd}", state.root.as_str())
-                        .replace("{file}", file.as_str())
-                        .replace("{abs_file}", absolute_file.as_str())
-                        .replace("{absolute_file}", absolute_file.as_str())
-                        .replace("{file_uri}", &file_uri)
-                        .replace("{editor_uri}", &editor_uri)
-                        .replace("{rev}", &rev.to_string())
-                        .replace("{line}", &line.to_string())
-                        .replace("{line0}", &line0.to_string())
-                        .replace("{column}", &column.to_string())
-                        .replace("{column0}", &column0.to_string())
-                        .replace("{offset}", &offset_utf8.to_string())
-                        .replace("{source_hash}", source_hash)
-                        .replace("{page_id}", page_id)
-                        .replace("{page_index}", &page_index)
-                        .replace("{page_width}", &page_width_px)
-                        .replace("{page_height}", &page_height_px)
-                        .replace("{page_source_start}", &page_source_start_utf8)
-                        .replace("{page_source_end}", &page_source_end_utf8)
-                        .replace("{page_output_start}", &page_output_start_utf8)
-                        .replace("{page_output_end}", &page_output_end_utf8)
-                        .replace("{item_file}", item_file)
-                        .replace("{item_start}", &item_start_utf8)
-                        .replace("{item_end}", &item_end_utf8)
-                        .replace("{item_output_start}", &item_output_start_utf8)
-                        .replace("{item_output_end}", &item_output_end_utf8)
-                        .replace("{item_id}", item_id),
-                );
-            }
+            argument_placeholders = vec![
+                ("root", state.root.to_string()),
+                ("editor_cwd", state.root.to_string()),
+                ("file", file.to_string()),
+                ("abs_file", absolute_file.to_string()),
+                ("absolute_file", absolute_file.to_string()),
+                ("file_uri", file_uri.clone()),
+                ("editor_uri", editor_uri.clone()),
+                ("rev", rev.to_string()),
+                ("line", line.to_string()),
+                ("line0", line0.to_string()),
+                ("column", column.to_string()),
+                ("column0", column0.to_string()),
+                ("offset", offset_utf8.to_string()),
+                ("source_hash", source_hash.to_string()),
+                ("page_id", page_id.to_string()),
+                ("page_index", page_index),
+                ("page_width", page_width_px),
+                ("page_height", page_height_px),
+                ("page_source_start", page_source_start_utf8),
+                ("page_source_end", page_source_end_utf8),
+                ("page_output_start", page_output_start_utf8),
+                ("page_output_end", page_output_end_utf8),
+                ("item_file", item_file.to_string()),
+                ("item_start", item_start_utf8),
+                ("item_end", item_end_utf8),
+                ("item_output_start", item_output_start_utf8),
+                ("item_output_end", item_output_end_utf8),
+                ("item_id", item_id.to_string()),
+            ];
         }
     }
     let editor_program = state
@@ -3382,33 +3406,42 @@ fn build_editor_bridge_preview(
         EditorPreviewKind::Command => "command",
         EditorPreviewKind::CommandAndUri => "command_and_uri",
     };
-    let preview_materialized_args = if editor_program.is_empty() {
-        materialized_args.clone()
-    } else {
-        materialized_args
+    // Configured arguments are expanded from their templates in one pass, so a
+    // substituted value (a path may contain braces) is never expanded again.
+    let expand_configured_args = |editor_command_line: &str| {
+        let mut placeholders = argument_placeholders
             .iter()
-            .map(|argument| {
-                argument
-                    .replace("{editor_preview_kind}", preview_kind_label)
-                    .replace("{editor_program}", &editor_program)
-                    .replace("{editor_command_line}", "")
-            })
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect::<Vec<_>>();
+        if !editor_program.is_empty() {
+            placeholders.extend([
+                ("editor_preview_kind", preview_kind_label),
+                ("editor_program", editor_program.as_str()),
+                ("editor_command_line", editor_command_line),
+            ]);
+        }
+        state
+            .editor_bridge
+            .iter()
+            .flat_map(|bridge| &bridge.args)
+            .map(|argument| expand_editor_placeholders(argument, &placeholders))
             .collect::<Vec<_>>()
+    };
+    let configured_args = state
+        .editor_bridge
+        .as_ref()
+        .is_some_and(|bridge| !bridge.args.is_empty());
+    let preview_materialized_args = if configured_args {
+        expand_configured_args("")
+    } else {
+        materialized_args.clone()
     };
     let preview_editor_command_line =
         format_editor_command_line(&editor_program, &preview_materialized_args);
-    let materialized_args = if editor_program.is_empty() {
-        materialized_args
+    let materialized_args = if configured_args {
+        expand_configured_args(&preview_editor_command_line)
     } else {
         materialized_args
-            .into_iter()
-            .map(|argument| {
-                argument
-                    .replace("{editor_preview_kind}", preview_kind_label)
-                    .replace("{editor_program}", &editor_program)
-                    .replace("{editor_command_line}", &preview_editor_command_line)
-            })
-            .collect::<Vec<_>>()
     };
     let editor_command_line = preview_editor_command_line;
     let editor_preview_kind = editor_preview_kind(&editor_uri, &editor_command_line);
@@ -10671,6 +10704,63 @@ mod tests {
         assert_eq!(lines[4], "1");
         assert_eq!(lines[5], "1");
         assert_eq!(lines[6], "0");
+    }
+
+    #[test]
+    fn editor_bridge_preview_does_not_expand_placeholders_inside_substituted_values() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let state = AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: Some(EditorBridgeConfig {
+                program: "/usr/bin/myeditor".to_string(),
+                args: vec![
+                    "{file}:{line}".to_string(),
+                    "--program={editor_program}".to_string(),
+                ],
+            }),
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        };
+        // File names may contain braces; they must reach the editor verbatim.
+        let file = Utf8PathBuf::from("notes/{line}-{editor_program}.tex");
+        let absolute_file = root.join(&file);
+
+        let preview = super::build_editor_bridge_preview(
+            &state,
+            &file,
+            &absolute_file,
+            7,
+            0,
+            3,
+            2,
+            1,
+            0,
+            "hash",
+            None,
+        );
+
+        assert_eq!(
+            preview.editor_args,
+            vec![
+                "notes/{line}-{editor_program}.tex:3".to_string(),
+                "--program=/usr/bin/myeditor".to_string(),
+            ]
+        );
     }
 
     #[tokio::test]
