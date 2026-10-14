@@ -641,15 +641,15 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\includegraphics}[2][]{[image]}
 \providecommand{\includepdf}[2][]{}
 \providecommand{\captionof}[2]{#2}
-\providecommand{\fancyhf}[1]{}
+\providecommand{\fancyhf}[2][]{}
 \providecommand{\fancyhead}[2][]{}
 \providecommand{\fancyfoot}[2][]{}
-\providecommand{\lhead}[1]{}
-\providecommand{\chead}[1]{}
-\providecommand{\rhead}[1]{}
-\providecommand{\lfoot}[1]{}
-\providecommand{\cfoot}[1]{}
-\providecommand{\rfoot}[1]{}
+\providecommand{\lhead}[2][]{}
+\providecommand{\chead}[2][]{}
+\providecommand{\rhead}[2][]{}
+\providecommand{\lfoot}[2][]{}
+\providecommand{\cfoot}[2][]{}
+\providecommand{\rfoot}[2][]{}
 \providecommand{\pagestyle}[1]{}
 \providecommand{\thispagestyle}[1]{}
 \providecommand{\twocolumn}[1][]{#1}
@@ -709,10 +709,13 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\normalfont}{}
 \providecommand{\fontsize}[2]{}
 \providecommand{\selectfont}{}
-\providecommand{\textcolor}[2]{#2}
-\providecommand{\color}[1]{}
-\providecommand{\definecolor}[3]{}
-\providecommand{\providecolor}[3]{}
+\providecommand{\textcolor}[3][]{#3}
+\providecommand{\color}[2][]{}
+\providecommand{\colorbox}[3][]{#3}
+\providecommand{\fcolorbox}[4][]{#4}
+\providecommand{\pagecolor}[2][]{}
+\providecommand{\definecolor}[4][]{}
+\providecommand{\providecolor}[4][]{}
 \providecommand{\colorlet}[2]{}
 \providecommand{\cellcolor}[2][]{}
 \providecommand{\rowcolor}[2][]{}
@@ -7852,8 +7855,13 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "color" if in_document => {
+                "color" | "pagecolor" if in_document => {
                     index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_model)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        index = skip_ascii_whitespace(source, after_model);
+                    }
                     if let Some((_, _, _, after)) = read_braced_source_argument(source, index) {
                         index = after;
                     }
@@ -28831,6 +28839,9 @@ fn consume_color_definition_source_arguments(
     let mut index = skip_ascii_whitespace(source, command_end);
     match command {
         "definecolor" | "providecolor" => {
+            if let Some((_, _, _, after_type)) = read_bracket_source_argument(source, index) {
+                index = after_type;
+            }
             for _ in 0..3 {
                 index = skip_ascii_whitespace(source, index);
                 let Some((_, _, _, after)) = read_braced_source_argument(source, index) else {
@@ -52161,6 +52172,41 @@ Fallback text.
             diagnostic.kind == VmDiagnosticKind::ExplicitError
                 && diagnostic.detail.contains("resource limit")
         }));
+    }
+
+    #[test]
+    fn color_and_fancyhdr_shims_consume_optional_arguments() {
+        let source = r"\documentclass{article}\usepackage{xcolor}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf[HF]{}\lhead[EvenL]{OddL}\chead[EvenC]{OddC}\rhead[EvenR]{OddR}\lfoot[EvenLF]{OddLF}\cfoot[EvenCF]{OddCF}\rfoot[EvenRF]{OddRF}\begin{document}\definecolor[named]{brand}{rgb}{1,0,0}\pagecolor[rgb]{1,1,1}A \color[rgb]{1,0,0}B \textcolor[rgb]{0,0,1}{C} and \colorbox[rgb]{1,1,0}{D} and \fcolorbox[rgb]{0,0,0}{1,1,1}{E}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let output = outcome.output.trim();
+        let visible_text = visible_render_event_text(&outcome.render_events);
+
+        assert!(output.ends_with("A B C and D and E."), "{output}");
+        assert!(
+            visible_text.contains("A B C and D and E."),
+            "{visible_text}"
+        );
+        for hidden in [
+            "rgb",
+            "named",
+            "1,0,0",
+            "HF",
+            "Even",
+            "Odd",
+            "colorbox",
+            "pagecolor",
+            "brand",
+        ] {
+            assert!(!output.contains(hidden), "{hidden} in output {output}");
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} in visible text {visible_text}"
+            );
+        }
     }
 
     #[test]
