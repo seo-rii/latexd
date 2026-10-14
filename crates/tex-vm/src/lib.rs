@@ -2376,7 +2376,8 @@ impl<'i> Vm<'i> {
                                     &source[start..command_index]
                                 } else {
                                     let start = command_index;
-                                    command_index += 1;
+                                    command_index +=
+                                        source[start..].chars().next().unwrap().len_utf8();
                                     &source[start..command_index]
                                 };
                                 if command == "label" {
@@ -2455,7 +2456,7 @@ impl<'i> Vm<'i> {
                 &source[start..index]
             } else {
                 let start = index;
-                index += 1;
+                index += source[start..].chars().next().unwrap().len_utf8();
                 &source[start..index]
             };
             let inactive_conditional_body_start = if command == "iffalse" {
@@ -2500,7 +2501,12 @@ impl<'i> Vm<'i> {
                         nested_command_name_end += 1;
                     }
                     if nested_command_name_end == nested_command_name_start {
-                        conditional_cursor = nested_command_name_start + 1;
+                        conditional_cursor = nested_command_name_start
+                            + source[nested_command_name_start..]
+                                .chars()
+                                .next()
+                                .unwrap()
+                                .len_utf8();
                         continue;
                     }
                     let nested_command =
@@ -4353,7 +4359,8 @@ impl<'i> Vm<'i> {
                                             &source[start..command_index]
                                         } else {
                                             let start = command_index;
-                                            command_index += 1;
+                                            command_index +=
+                                                source[start..].chars().next().unwrap().len_utf8();
                                             &source[start..command_index]
                                         };
                                         if command == "label" {
@@ -4656,7 +4663,8 @@ impl<'i> Vm<'i> {
                                             &source[start..body_command_index]
                                         } else {
                                             let start = body_command_index;
-                                            body_command_index += 1;
+                                            body_command_index +=
+                                                source[start..].chars().next().unwrap().len_utf8();
                                             &source[start..body_command_index]
                                         };
                                         match body_command {
@@ -4822,7 +4830,8 @@ impl<'i> Vm<'i> {
                                             &source[start..body_command_index]
                                         } else {
                                             let start = body_command_index;
-                                            body_command_index += 1;
+                                            body_command_index +=
+                                                source[start..].chars().next().unwrap().len_utf8();
                                             &source[start..body_command_index]
                                         };
                                         match body_command {
@@ -8192,7 +8201,8 @@ impl<'i> Vm<'i> {
                                     &source[start..inner_index]
                                 } else {
                                     let start = inner_index;
-                                    inner_index += 1;
+                                    inner_index +=
+                                        source[start..].chars().next().unwrap().len_utf8();
                                     &source[start..inner_index]
                                 };
                                 match inner_command {
@@ -8913,7 +8923,11 @@ impl<'i> Vm<'i> {
                                                         &source[start..argument_inner_index]
                                                     } else {
                                                         let start = argument_inner_index;
-                                                        argument_inner_index += 1;
+                                                        argument_inner_index += source[start..]
+                                                            .chars()
+                                                            .next()
+                                                            .unwrap()
+                                                            .len_utf8();
                                                         &source[start..argument_inner_index]
                                                     };
                                                     match argument_command {
@@ -9788,7 +9802,7 @@ impl<'i> Vm<'i> {
                                                                         } else {
                                                                             let start =
                                                                                 nested_index;
-                                                                            nested_index += 1;
+                                                                            nested_index += source[start..].chars().next().unwrap().len_utf8();
                                                                             &source
                                                                                 [start
                                                                                     ..nested_index]
@@ -11323,7 +11337,7 @@ impl<'i> Vm<'i> {
                                 &source[start..command_index]
                             } else {
                                 let start = command_index;
-                                command_index += 1;
+                                command_index += source[start..].chars().next().unwrap().len_utf8();
                                 &source[start..command_index]
                             };
                             if command == "label" {
@@ -12104,7 +12118,7 @@ impl<'i> Vm<'i> {
                 &source[start..command_index]
             } else {
                 let start = command_index;
-                command_index += 1;
+                command_index += source[start..].chars().next().unwrap().len_utf8();
                 &source[start..command_index]
             };
             let after = match command {
@@ -15316,7 +15330,7 @@ impl<'i> Vm<'i> {
                 }
                 &source[start..command_index]
             } else {
-                command_index += 1;
+                command_index += source[command_index..].chars().next().unwrap().len_utf8();
                 body_index = command_index;
                 continue;
             };
@@ -15884,7 +15898,11 @@ impl<'i> Vm<'i> {
                 }
                 &source[start..label_command_index]
             } else {
-                label_command_index += 1;
+                label_command_index += source[label_command_index..]
+                    .chars()
+                    .next()
+                    .unwrap()
+                    .len_utf8();
                 label_scan_index = label_command_index;
                 continue;
             };
@@ -16010,7 +16028,7 @@ impl<'i> Vm<'i> {
                 }
                 &source[start..command_index]
             } else {
-                command_index += 1;
+                command_index += source[command_index..].chars().next().unwrap().len_utf8();
                 index = command_index;
                 continue;
             };
@@ -28782,7 +28800,12 @@ fn find_latex_environment_end(
             command_name_end += 1;
         }
         if command_name_end == command_name_start {
-            cursor = command_name_start + 1;
+            cursor = command_name_start
+                + source[command_name_start..]
+                    .chars()
+                    .next()
+                    .unwrap()
+                    .len_utf8();
             continue;
         }
         let command = &source[command_name_start..command_name_end];
@@ -31861,7 +31884,7 @@ fn normalize_latex_math_source(source: &str) -> String {
             &source[start..command_index]
         } else {
             let start = command_index;
-            command_index += 1;
+            command_index += source[start..].chars().next().unwrap().len_utf8();
             &source[start..command_index]
         };
         if command == "label"
@@ -32014,7 +32037,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         &source[start..command_index]
                     } else {
                         let start = command_index;
-                        command_index += 1;
+                        command_index += source[start..].chars().next().unwrap().len_utf8();
                         &source[start..command_index]
                     };
                 if let Some(symbol) = latex_math_symbol(command) {
@@ -32547,7 +32570,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                             scan_index += 1;
                                         }
                                     } else {
-                                        scan_index += 1;
+                                        scan_index +=
+                                            source[scan_index..].chars().next().unwrap().len_utf8();
                                     }
                                     if brace_depth == 0
                                         && &source[command_name_start..scan_index] == "of"
@@ -34269,7 +34293,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                     after_next += 1;
                                 }
                             } else {
-                                after_next += 1;
+                                after_next +=
+                                    source[after_next..].chars().next().unwrap().len_utf8();
                             }
                             (&source[next_index..after_next], after_next)
                         } else {
@@ -34760,7 +34785,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                         argument_index += 1;
                                     }
                                 } else {
-                                    argument_index += 1;
+                                    argument_index +=
+                                        source[argument_index..].chars().next().unwrap().len_utf8();
                                 }
                                 script_index = argument_index;
                                 let argument_source = &source[command_start..argument_index];
@@ -43222,6 +43248,38 @@ Fallback text.
                     && graphic.asset_hash.as_deref() == Some(expected_hash.as_str())
         )));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_event_capture_scans_non_ascii_control_symbols() {
+        for body in [
+            "\\é \\中 \\\u{a0}x",
+            r"$$x \é y \中$$",
+            r"\[x \é y \中\]",
+            r"$\é + \中$",
+            r"\(\é + \中\)",
+            r"\begin{equation}x \é \中\end{equation}",
+            r"\begin{figwindow}\é \中\end{figwindow}",
+            r"\begin{figure}\centering\é \中\caption{\é}\end{figure}",
+            r"\footnote{\é \textbf{\中}}",
+            r"\iffalse \é \fi",
+            r"\begin{overpic}{fig}\put(1,2){x}\é\end{overpic}",
+            r"\begin{figure}\ffigbox{\é\caption{x}}{\中}\end{figure}",
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.enable_render_event_capture();
+            let _ = vm.run_plain(&format!(r"\begin{{document}}{body}\end{{document}}"));
+        }
+    }
+
+    #[test]
+    fn math_source_normalization_keeps_non_ascii_control_symbols() {
+        for source in [r"\é + \中", r"\root \é \of x", r"\not\é", r"x^\é"] {
+            let event = super::math_source_event(source);
+
+            assert!(event.raw_source.contains('é'), "{event:?}");
+        }
     }
 
     #[test]
