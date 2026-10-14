@@ -1189,6 +1189,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 }
                 RenderEvent::Caption(event) => {
                     let mut caption_text = event.text.clone();
+                    // Placeholders fill the `[?]` slots left to right; an unresolved
+                    // replacement is itself `[?]`, so never search behind it again.
+                    let mut placeholder_search_start = 0usize;
                     for placeholder in &event.inline_placeholders {
                         let replacement = match placeholder {
                             CaptionInlinePlaceholderEvent::Reference(reference) => {
@@ -1258,8 +1261,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 }
                             }
                         };
-                        if let Some(start) = caption_text.find("[?]") {
+                        if let Some(relative) = caption_text[placeholder_search_start..].find("[?]")
+                        {
+                            let start = placeholder_search_start + relative;
                             caption_text.replace_range(start..start + "[?]".len(), &replacement);
+                            placeholder_search_start = start + replacement.len();
                         }
                     }
                     if event.numbered {
@@ -2571,6 +2577,104 @@ mod tests {
             [IrBlock::Float(float)]
                 if float.caption.as_deref() == Some("Figure 1. See [3] and 2.")
         ));
+    }
+
+    #[test]
+    fn caption_placeholders_fill_in_order_when_one_is_unresolved() {
+        struct CaptionAux;
+
+        impl tex_render_model::AuxView for CaptionAux {
+            fn citation_label(
+                &self,
+                key: &str,
+                _style: CitationStyleHint,
+            ) -> Option<CitationLabel> {
+                (key == "paper").then(|| CitationLabel {
+                    text: "3".to_string(),
+                    form: CitationLabelForm::Numeric,
+                })
+            }
+
+            fn bibliography_record(
+                &self,
+                _key: &str,
+            ) -> Option<tex_render_model::BibliographyRecordView> {
+                None
+            }
+
+            fn label_target(&self, key: &str) -> Option<LabelTargetView> {
+                (key == "fig:other").then(|| LabelTargetView {
+                    key: key.to_string(),
+                    number: "2".to_string(),
+                    page: Some(4),
+                })
+            }
+
+            fn float_caption(
+                &self,
+                path: &camino::Utf8Path,
+                offset_utf8: u32,
+            ) -> Option<FloatCaptionView> {
+                (path == "main.tex" && offset_utf8 == 20).then(|| FloatCaptionView {
+                    kind: "figure".to_string(),
+                    number: "1".to_string(),
+                })
+            }
+        }
+
+        let caption_source = SourceProvenance::file("main.tex", 29, 70).with_related(
+            SourceSpanRole::Invocation,
+            ProvenanceSpan::File(SourceSpan {
+                path: "main.tex".into(),
+                start_utf8: 20,
+                end_utf8: 71,
+            }),
+        );
+        let stream = RenderEventStream::new(
+            Some("unresolved-caption".to_string()),
+            vec![
+                synthetic_envelope(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 14),
+                ),
+                synthetic_envelope(
+                    2,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "See [?] and [?].".to_string(),
+                        numbered: true,
+                        caption_kind: None,
+                        inline_placeholders: vec![
+                            CaptionInlinePlaceholderEvent::Reference(InlineReferenceEvent {
+                                keys: vec!["fig:missing".to_string()],
+                                command: "ref".to_string(),
+                            }),
+                            CaptionInlinePlaceholderEvent::Reference(InlineReferenceEvent {
+                                keys: vec!["fig:other".to_string()],
+                                command: "ref".to_string(),
+                            }),
+                        ],
+                    }),
+                    caption_source,
+                ),
+                synthetic_envelope(
+                    3,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 71, 83),
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &CaptionAux);
+
+        let [IrBlock::Float(float)] = ir.blocks.as_slice() else {
+            panic!("expected one float: {:?}", ir.blocks);
+        };
+        assert_eq!(float.caption.as_deref(), Some("Figure 1. See [?] and 2."));
     }
 
     #[test]
