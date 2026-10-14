@@ -5052,8 +5052,16 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()
                         let payload = serde_json::to_string(&message)?;
                         socket.send(Message::Text(payload.into())).await?;
                     }
-                    Err(error) => {
-                        return Err(anyhow!("websocket broadcast channel closed: {error}"));
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        // The client missed events. Reloading /api/state restores what
+                        // they carried, so ask for that instead of dropping the socket.
+                        warn!("websocket client lagged {skipped} preview events behind; requesting resync");
+                        let applied_rev = state.live.read().await.snapshot.last_applied_rev;
+                        let payload = serde_json::to_string(&ServerMsg::PreviewResyncRequired { preview_rev: applied_rev })?;
+                        socket.send(Message::Text(payload.into())).await?;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Err(anyhow!("websocket broadcast channel closed"));
                     }
                 }
             }
@@ -7897,6 +7905,130 @@ mod tests {
         });
 
         let _router = build_router(state);
+    }
+
+    #[tokio::test]
+    async fn websocket_requests_a_resync_when_a_client_lags_behind() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Server frames are unmasked; returns (opcode, payload), or None once closed.
+        async fn read_frame(stream: &mut tokio::net::TcpStream) -> Option<(u8, Vec<u8>)> {
+            let mut header = [0u8; 2];
+            stream.read_exact(&mut header).await.ok()?;
+            let length = match header[1] & 0x7f {
+                126 => {
+                    let mut extended = [0u8; 2];
+                    stream.read_exact(&mut extended).await.ok()?;
+                    u64::from(u16::from_be_bytes(extended))
+                }
+                127 => {
+                    let mut extended = [0u8; 8];
+                    stream.read_exact(&mut extended).await.ok()?;
+                    u64::from_be_bytes(extended)
+                }
+                length => u64::from(length),
+            };
+            let mut payload = vec![0; usize::try_from(length).ok()?];
+            stream.read_exact(&mut payload).await.ok()?;
+            Some((header[0] & 0x0f, payload))
+        }
+
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("local address");
+        let router = build_router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await });
+        let mut client = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("connect");
+        client
+            .write_all(
+                format!(
+                    "GET /ws HTTP/1.1\r\nHost: {address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("upgrade request");
+        let mut response = Vec::new();
+        while !response.ends_with(b"\r\n\r\n") {
+            let mut byte = [0u8; 1];
+            client
+                .read_exact(&mut byte)
+                .await
+                .expect("upgrade response");
+            response.push(byte[0]);
+        }
+        assert!(
+            response.starts_with(b"HTTP/1.1 101"),
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        timeout(Duration::from_secs(5), async {
+            while state.events.receiver_count() == 0 {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("socket subscribed to preview events");
+
+        // Overflow the 4-slot channel before the socket task runs again.
+        for rev in 1..=16 {
+            let _ = state
+                .events
+                .send(hmr_protocol::ServerMsg::BuildFinished { rev, success: true });
+        }
+        let first = timeout(Duration::from_secs(5), read_frame(&mut client))
+            .await
+            .expect("first frame");
+        let Some((0x1, payload)) = first else {
+            panic!("a lagging client must get a resync request, not a closed socket: {first:?}");
+        };
+        let message: serde_json::Value = serde_json::from_slice(&payload).expect("json frame");
+        assert_eq!(message["type"], "preview_resync_required");
+
+        // The connection stays open and keeps delivering events.
+        let _ = state.events.send(hmr_protocol::ServerMsg::BuildFinished {
+            rev: 99,
+            success: true,
+        });
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let (opcode, payload) = read_frame(&mut client).await.expect("open socket");
+                assert_eq!(opcode, 0x1);
+                let message: serde_json::Value =
+                    serde_json::from_slice(&payload).expect("json frame");
+                if message["rev"] == 99 {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("event after the resync");
+        server.abort();
     }
 
     #[tokio::test]
