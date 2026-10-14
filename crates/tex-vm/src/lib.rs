@@ -27008,7 +27008,11 @@ impl<'i> Vm<'i> {
             return None;
         }
 
-        let mut depth = 0;
+        // Like LaTeX's `[#1]` delimiter: the argument ends at the first `]` outside
+        // braces, brackets do not nest, and one pair of braces around the whole
+        // argument is stripped.
+        self.pop_next_token(queue);
+        let mut brace_depth = 0usize;
         let mut content = Vec::new();
         while let Some(token) = self.pop_next_token(queue) {
             if !macro_name.is_empty()
@@ -27022,25 +27026,20 @@ impl<'i> Vm<'i> {
                 return Some(Err(MacroArgumentError::Paragraph));
             }
             match token.kind {
-                TokenKind::Character { ch: '[', .. } => {
-                    depth += 1;
-                    if depth > 1 {
-                        content.push(token);
-                    }
+                TokenKind::Character {
+                    catcode: CatCode::BeginGroup,
+                    ..
+                } => brace_depth += 1,
+                TokenKind::Character {
+                    catcode: CatCode::EndGroup,
+                    ..
+                } => brace_depth = brace_depth.saturating_sub(1),
+                TokenKind::Character { ch: ']', .. } if brace_depth == 0 => {
+                    return Some(Ok(strip_enclosing_braces(content)));
                 }
-                TokenKind::Character { ch: ']', .. } => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(Ok(content));
-                    }
-                    content.push(token);
-                }
-                _ => {
-                    if depth >= 1 {
-                        content.push(token);
-                    }
-                }
+                _ => {}
             }
+            content.push(token);
         }
 
         Some(Ok(content))
@@ -27415,6 +27414,29 @@ impl<'i> Vm<'i> {
     fn lookup_meaning(&self, name: &str) -> Option<Meaning> {
         self.eqtb.control_sequence(name).cloned()
     }
+}
+
+fn strip_enclosing_braces(tokens: Vec<Token>) -> Vec<Token> {
+    let is_group = |token: &Token, catcode: CatCode| matches!(token.kind, TokenKind::Character { catcode: actual, .. } if actual == catcode);
+    if tokens.len() < 2
+        || !is_group(&tokens[0], CatCode::BeginGroup)
+        || !is_group(&tokens[tokens.len() - 1], CatCode::EndGroup)
+    {
+        return tokens;
+    }
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate() {
+        if is_group(token, CatCode::BeginGroup) {
+            depth += 1;
+        } else if is_group(token, CatCode::EndGroup) {
+            depth -= 1;
+            if depth == 0 && index + 1 < tokens.len() {
+                return tokens;
+            }
+        }
+    }
+    let end = tokens.len() - 1;
+    tokens.into_iter().take(end).skip(1).collect()
 }
 
 fn macro_tokens_equal_text(tokens: &[Token], expected: &str) -> bool {
@@ -38895,6 +38917,28 @@ mod tests {
 
         assert_eq!(outcome.output, "new x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn optional_arguments_end_at_the_first_unbraced_closing_bracket() {
+        let mut failures = Vec::new();
+        for (call, expected) in [
+            (r"\opt[{]}]x", "(])x"),
+            (r"\opt[[a]]x", "([a)]x"),
+            (r"\opt[{[a]}]x", "([a])x"),
+            (r"\opt[a{b]c}d]x", "(ab]cd)x"),
+            (r"\opt x", "(d)x"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(&format!(r"\newcommand{{\opt}}[1][d]{{(#1)}}{call}"));
+
+            if outcome.output != expected || !outcome.diagnostics.is_empty() {
+                failures.push((call, outcome.output, outcome.diagnostics));
+            }
+        }
+
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 
     #[test]
