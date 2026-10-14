@@ -3350,6 +3350,7 @@ impl CompilerDriver {
         for (program, args, expected_output_path, expected_output_kind, is_tex_engine) in commands {
             let pass_count = if is_tex_engine { 3 } else { 1 };
             for pass_index in 0..pass_count {
+                let rerun_inputs = is_tex_engine.then(|| tex_rerun_inputs(&rev_dir));
                 trace.trace.external_processes += 1;
                 execute_external_command(
                     &program,
@@ -3376,6 +3377,12 @@ impl CompilerDriver {
                         )
                         .await?;
                     }
+                }
+                // Another pass would read exactly the auxiliary files this
+                // pass (and the bibliography step) read, so it cannot change
+                // the output.
+                if rerun_inputs.is_some_and(|before| before == tex_rerun_inputs(&rev_dir)) {
+                    break;
                 }
             }
 
@@ -3671,6 +3678,39 @@ fn is_external_compiler_warning(line: &str) -> bool {
         || lower
             .split_once(" warning:")
             .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+}
+
+/// Hashes the files a TeX pass can read back on its next run: `.aux`, `.toc`,
+/// `.bbl` and package-specific auxiliaries, including `\include` aux files in
+/// subdirectories. Output documents, logs and recorder files change on every
+/// run without feeding the next one, so they are left out.
+fn tex_rerun_inputs(rev_dir: &Utf8Path) -> BTreeMap<Utf8PathBuf, blake3::Hash> {
+    let mut inputs = BTreeMap::new();
+    let mut pending = vec![rev_dir.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let (Ok(path), Ok(kind)) =
+                (Utf8PathBuf::from_path_buf(entry.path()), entry.file_type())
+            else {
+                continue;
+            };
+            if kind.is_dir() {
+                pending.push(path);
+            } else if kind.is_file()
+                && !matches!(
+                    path.extension(),
+                    Some("pdf" | "dvi" | "xdv" | "ps" | "log" | "blg" | "fls" | "gz")
+                )
+                && let Ok(bytes) = fs::read(&path)
+            {
+                inputs.insert(path, blake3::hash(&bytes));
+            }
+        }
+    }
+    inputs
 }
 
 fn copy_previous_external_aux_files(
@@ -5096,7 +5136,7 @@ mod tests {
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_checkpoint_bundle_observed, save_source_texts,
         select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
-        shift_shipout_source_offset, should_capture_shipout_checkpoints,
+        shift_shipout_source_offset, should_capture_shipout_checkpoints, tex_rerun_inputs,
     };
 
     #[test]
@@ -5197,6 +5237,68 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[test]
+    fn tex_rerun_inputs_track_auxiliary_files_but_not_outputs_or_logs() {
+        let tempdir = tempdir().expect("tempdir");
+        let rev_dir = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 dir");
+        fs::create_dir_all(rev_dir.join("chapters")).expect("chapters dir");
+        fs::write(rev_dir.join("main.aux"), "aux").expect("aux");
+        fs::write(rev_dir.join("chapters/intro.aux"), "intro").expect("include aux");
+        fs::write(rev_dir.join("main.log"), "log").expect("log");
+        fs::write(rev_dir.join("main.pdf"), "pdf").expect("pdf");
+        let before = tex_rerun_inputs(&rev_dir);
+
+        fs::write(rev_dir.join("main.log"), "a different log").expect("rewrite log");
+        fs::write(rev_dir.join("main.pdf"), "a different pdf").expect("rewrite pdf");
+        assert_eq!(tex_rerun_inputs(&rev_dir), before);
+
+        fs::write(rev_dir.join("chapters/intro.aux"), "changed").expect("rewrite aux");
+        assert_ne!(tex_rerun_inputs(&rev_dir), before);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex (and no tectonic) on PATH"]
+    async fn external_pdflatex_stops_rerunning_once_aux_files_settle() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\begin{document}\section{Intro}\label{sec}See \ref{sec}.\end{document}",
+        )
+        .expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let driver = CompilerDriver::new(None, Vec::new());
+        let mut external_processes = Vec::new();
+        for rev in 1..=2 {
+            let outcome = driver
+                .compile(CompileRequest {
+                    root: root.clone(),
+                    manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                    toplevel: Utf8PathBuf::from("main.tex"),
+                    rev,
+                    build_root: build_root.clone(),
+                    changed_files: vec![Utf8PathBuf::from("main.tex")],
+                })
+                .await
+                .expect("external pdflatex build");
+            let text = lopdf::Document::load(&outcome.pdf_path)
+                .expect("pdf")
+                .extract_text(&[1])
+                .expect("page text");
+            assert!(text.contains("See 1"), "rev {rev}: {text:?}");
+            let build_meta: serde_json::Value = serde_json::from_slice(
+                &fs::read(build_root.join(format!("rev-{rev}/build-meta.json")))
+                    .expect("build meta"),
+            )
+            .expect("parse build meta");
+            external_processes.push(build_meta["trace"]["external_processes"].clone());
+        }
+
+        // rev 1: the second pass rewrites an identical aux, so no third pass.
+        // rev 2: the aux seeded from rev 1 is already final after one pass.
+        assert_eq!(external_processes, [2, 1]);
     }
 
     #[test]
