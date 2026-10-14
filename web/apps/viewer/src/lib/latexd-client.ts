@@ -114,9 +114,15 @@ export interface UpdateSourceFileResponse {
   byte_len: number;
 }
 
+// A daemon that accepts a request but never answers (a half-open connection after
+// sleep, a wedged proxy) must not leave callers waiting forever: the viewer skips new
+// state fetches while one is pending, so a hung /api/state would stall every resync.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export interface LatexdViewerTransportOptions {
   apiBase?: string;
   fetch?: typeof fetch;
+  requestTimeoutMs?: number;
   WebSocket?: typeof WebSocket;
   window?: Window & typeof globalThis;
   wsPath?: string;
@@ -245,6 +251,7 @@ export function openLatexdWebSocket(
 function createLatexdApiContext(options: LatexdViewerTransportOptions) {
   const viewerWindow = options.window ?? window;
   const viewerFetch = options.fetch ?? fetch;
+  const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const apiBase = new URL(options.apiBase ?? "./", viewerWindow.location.href);
   const wsPath = options.wsPath ?? "ws";
 
@@ -255,11 +262,22 @@ function createLatexdApiContext(options: LatexdViewerTransportOptions) {
     return url.toString();
   };
   const fetchJson = async (input: URL | string, init: RequestInit = {credentials: 'include'}) => {
-    const response = await viewerFetch(input, init);
-    if (!response.ok) {
-      throw new Error(`latexd request failed: ${response.status}`);
+    // A plain timer rather than AbortSignal.timeout(): Node 22 does not let that
+    // timer keep the event loop alive, and clearing it frees the request promptly.
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("latexd request timed out", "TimeoutError")),
+      requestTimeoutMs
+    );
+    try {
+      const response = await viewerFetch(input, { ...init, signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`latexd request failed: ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      clearTimeout(timer);
     }
-    return response.json();
   };
 
   return {

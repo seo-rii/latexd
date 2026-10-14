@@ -96,6 +96,24 @@ test("latexd api client resolves endpoints relative to the current base path", a
   ]);
 });
 
+test("latexd api requests time out instead of hanging forever", { timeout: 5_000 }, async () => {
+  const client = createLatexdApiClient({
+    window: {
+      location: new URL("http://example.test/")
+    } as Window & typeof globalThis,
+    requestTimeoutMs: 20,
+    fetch: (_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })
+  });
+
+  await assert.rejects(client.fetchState(), { name: "TimeoutError" });
+  await assert.rejects(
+    client.updateSourceFile({ file: "main.tex", content: "x" }),
+    { name: "TimeoutError" }
+  );
+});
+
 test("latexd viewer transport can reuse an app-owned websocket", () => {
   const socket = {
     readyState: 1,
