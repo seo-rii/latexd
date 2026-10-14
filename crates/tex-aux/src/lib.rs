@@ -1375,9 +1375,18 @@ fn infer_project_citation_mode(
 fn scan_source_citation_mode(source: &str) -> CitationMode {
     let mut index = 0usize;
     let mut mode = CitationMode::Auto;
+    // Position of the first `%` at or after `index`, or `source.len()`. Searching
+    // afresh for every command rescans to the end of a file without comments,
+    // which made this quadratic in the file size.
+    let mut comment_position = source.find('%').unwrap_or(source.len());
     while index < source.len() {
         let next_command = source[index..].find('\\').map(|offset| index + offset);
-        let next_comment = source[index..].find('%').map(|offset| index + offset);
+        if comment_position < index {
+            comment_position = source[index..]
+                .find('%')
+                .map_or(source.len(), |offset| index + offset);
+        }
+        let next_comment = (comment_position < source.len()).then_some(comment_position);
         if next_comment.is_some_and(|comment| next_command.is_none_or(|command| comment < command))
         {
             index = skip_comment(source, next_comment.expect("comment checked above"));
@@ -2705,7 +2714,7 @@ fn rewrite_source(
                 {
                     let environment = environment.trim();
                     if let Some(block) = scan.blocks.iter().find(|block| {
-                        block.file == path && block.offset_utf8 == command_start as u32
+                        block.offset_utf8 == command_start as u32 && block.file == path
                     }) {
                         let mut cursor = skip_whitespace(source, argument_end);
                         let mut parsed_title = None;
@@ -10937,6 +10946,22 @@ mod tests {
 
         assert_eq!(aux.citation_keys, vec!["alpha".to_string()]);
         assert_eq!(aux.citation_alias_text("alpha"), Some("Paper I"));
+    }
+
+    #[test]
+    fn citation_mode_scan_skips_comments_but_not_escaped_percent_signs() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "50\\% done % \\usepackage[numbers]{natbib}\n\\textbf{x} \\% \\emph{y}\n% \\usepackage[numbers]{natbib}\n\\usepackage[authoryear]{natbib}\n\\begin{document}\\end{document}",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+
+        assert_eq!(aux.citation_mode, super::CitationMode::AuthorYear);
     }
 
     #[test]
