@@ -3354,6 +3354,7 @@ impl CompilerDriver {
                 execute_external_command(
                     &program,
                     &args,
+                    &[],
                     &request.root,
                     &request.toplevel,
                     &mut diagnostics,
@@ -3369,6 +3370,7 @@ impl CompilerDriver {
                         execute_external_command(
                             &bibliography_program,
                             &bibliography_args,
+                            &bibliography_search_env(&request.root),
                             &rev_dir,
                             &request.toplevel,
                             &mut diagnostics,
@@ -3574,12 +3576,14 @@ impl CompilerDriver {
 async fn run_external_command(
     program: &str,
     args: &[String],
+    env: &[(&str, String)],
     current_dir: &Utf8Path,
     timeout: Duration,
 ) -> Result<Output, ExternalCommandError> {
     let mut command = tokio::process::Command::new(program);
     command
         .args(args)
+        .envs(env.iter().map(|(key, value)| (*key, value)))
         .current_dir(current_dir.as_std_path())
         .kill_on_drop(true);
     match tokio::time::timeout(timeout, command.output()).await {
@@ -3592,12 +3596,13 @@ async fn run_external_command(
 async fn execute_external_command(
     program: &str,
     args: &[String],
+    env: &[(&str, String)],
     current_dir: &Utf8Path,
     toplevel: &Utf8Path,
     diagnostics: &mut Vec<Diagnostic>,
     timeout: Duration,
 ) -> Result<Output, CompileFailure> {
-    let output = run_external_command(program, args, current_dir, timeout)
+    let output = run_external_command(program, args, env, current_dir, timeout)
         .await
         .map_err(|error| {
             let message = match error {
@@ -3696,6 +3701,21 @@ fn copy_previous_external_aux_files(
             break;
         }
     }
+}
+
+/// BibTeX and Biber run in the revision directory to read the job's `.aux`
+/// or `.bcf`, but `\bibliography{refs}` and `\bibliographystyle{style}` name
+/// files in the project. Search the project root first, then whatever the
+/// user configured; an empty trailing entry keeps kpathsea's defaults.
+fn bibliography_search_env(project_root: &Utf8Path) -> Vec<(&'static str, String)> {
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    ["BIBINPUTS", "BSTINPUTS"]
+        .into_iter()
+        .map(|name| {
+            let inherited = std::env::var(name).unwrap_or_default();
+            (name, format!("{project_root}{separator}{inherited}"))
+        })
+        .collect()
 }
 
 fn bibliography_command(rev_dir: &Utf8Path, main_stem: &str) -> Option<(String, Vec<String>)> {
@@ -5083,15 +5103,16 @@ mod tests {
         ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
         SnapshotWritePolicyObservation, StoredModuleCheckpoint, StoredModuleTrace,
         StoredSourceTexts, UnchangedTail, annotate_display_list_image_diagnostics,
-        build_renderer_page_state, capture_internal_render_ir,
+        bibliography_search_env, build_renderer_page_state, capture_internal_render_ir,
         capture_internal_render_ir_from_project_root,
         capture_internal_render_ir_from_project_run_with_asset_cache,
         copy_previous_external_aux_files, earliest_changed_offset,
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
-        has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
-        load_latest_previous_internal_build, map_internal_diagnostics,
-        map_missing_graphic_render_diagnostic, materialize_display_list_asset, parse_depfile,
-        parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        execute_external_command, has_fatal_internal_diagnostics, included_pdf_pages,
+        is_external_compiler_warning, load_latest_previous_internal_build,
+        map_internal_diagnostics, map_missing_graphic_render_diagnostic,
+        materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_checkpoint_bundle_observed, save_source_texts,
@@ -5191,12 +5212,95 @@ mod tests {
         let result = run_external_command(
             "/bin/sh",
             &["-c".to_string(), "sleep 5".to_string()],
+            &[],
             &root,
             Duration::from_millis(20),
         )
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_bibliography_finds_project_bib_files_from_revision_dir() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 root");
+        let rev_dir = root.join(".latexd/build/rev-1");
+        fs::create_dir_all(&rev_dir).expect("revision dir");
+        fs::write(root.join("refs.bib"), "@misc{alpha, title={A}}").expect("bib");
+        fs::write(rev_dir.join("main.aux"), "\\bibdata{refs}\n").expect("aux");
+        // Like BibTeX, look for the database in `.` (the revision directory)
+        // and in each BIBINPUTS entry, and exit 2 when it is missing.
+        let bibtex =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("bibtex")).expect("utf8 bibtex path");
+        fs::write(
+            &bibtex,
+            concat!(
+                "#!/bin/sh\n",
+                "IFS=:\n",
+                "for dir in . $BIBINPUTS; do\n",
+                "  if [ -n \"$dir\" ] && [ -f \"$dir/refs.bib\" ]; then exit 0; fi\n",
+                "done\n",
+                "echo \"I couldn't open database file refs.bib\"\n",
+                "exit 2\n",
+            ),
+        )
+        .expect("fake bibtex");
+        fs::set_permissions(&bibtex, fs::Permissions::from_mode(0o755)).expect("chmod bibtex");
+        let mut diagnostics = Vec::new();
+
+        execute_external_command(
+            bibtex.as_str(),
+            &["main".to_string()],
+            &bibliography_search_env(&root),
+            &rev_dir,
+            Utf8Path::new("main.tex"),
+            &mut diagnostics,
+            Duration::from_secs(10),
+        )
+        .await
+        .expect("bibtex finds the project bibliography");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex and bibtex (and no tectonic) on PATH"]
+    async fn external_pdflatex_bibtex_build_finds_project_bibliography() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            concat!(
+                r"\documentclass{article}\begin{document}\cite{alpha}",
+                r"\bibliographystyle{plain}\bibliography{refs}\end{document}",
+            ),
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("refs.bib"),
+            "@article{alpha, author={A. Author}, title={T}, journal={J}, year={2020}}",
+        )
+        .expect("refs bib");
+
+        CompilerDriver::new(None, Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: root.join(".latexd/build"),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("external pdflatex build with BibTeX");
+
+        assert!(
+            fs::read_to_string(root.join(".latexd/build/rev-1/main.bbl"))
+                .expect("bbl")
+                .contains(r"\bibitem{alpha}")
+        );
     }
 
     #[test]
