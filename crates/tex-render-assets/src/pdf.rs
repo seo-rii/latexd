@@ -245,22 +245,32 @@ fn selected_page_box(
             )));
         }
     };
-    if let Some(key) = page_only_key
+    let media_box = inherited_object(document, page_id, b"MediaBox")?
+        .map(|value| parse_page_box(document, &value))
+        .transpose()?;
+    let selected_box = if let Some(key) = page_only_key
         && let Some(value) = page_object(document, page_id, key)?
     {
-        return parse_page_box(document, &value);
-    }
-    let inherited_candidates: &[&[u8]] = if normalized == "mediabox" {
-        &[b"MediaBox"]
+        Some(parse_page_box(document, &value)?)
+    } else if normalized != "mediabox"
+        && let Some(value) = inherited_object(document, page_id, b"CropBox")?
+    {
+        Some(parse_page_box(document, &value)?)
     } else {
-        &[b"CropBox", b"MediaBox"]
+        None
     };
-    for key in inherited_candidates {
-        if let Some(value) = inherited_object(document, page_id, key)? {
-            return parse_page_box(document, &value);
-        }
+    match (selected_box, media_box) {
+        // Crop, bleed, trim and art boxes are effectively reduced to their
+        // intersection with the media box (ISO 32000-1 14.11.2).
+        (Some([llx, lly, urx, ury]), Some([media_llx, media_lly, media_urx, media_ury])) => Ok([
+            llx.max(media_llx),
+            lly.max(media_lly),
+            urx.min(media_urx),
+            ury.min(media_ury),
+        ]),
+        (Some(page_box), None) | (None, Some(page_box)) => Ok(page_box),
+        (None, None) => Err(PreparePdfError::new("PDF page has no usable page box")),
     }
-    Err(PreparePdfError::new("PDF page has no usable page box"))
 }
 
 fn inherited_integer(
@@ -325,12 +335,15 @@ fn parse_page_box(document: &Document, value: &Object) -> Result<[f32; 4], Prepa
             "PDF page box must contain four numbers",
         ));
     }
-    Ok([
+    let [x1, y1, x2, y2] = [
         parse_number(document, &values[0])?,
         parse_number(document, &values[1])?,
         parse_number(document, &values[2])?,
         parse_number(document, &values[3])?,
-    ])
+    ];
+    // Any two diagonally opposite corners form a valid rectangle (ISO 32000-1
+    // 7.9.5); normalize to lower-left and upper-right.
+    Ok([x1.min(x2), y1.min(y2), x1.max(x2), y1.max(y2)])
 }
 
 fn parse_number(document: &Document, value: &Object) -> Result<f32, PreparePdfError> {
@@ -905,6 +918,95 @@ mod tests {
             pagebox: Some("unknownbox".to_string()),
         });
         assert!(prepare_pdf_form(&request, &two_page_pdf()).is_err());
+    }
+
+    #[test]
+    fn normalizes_page_box_corners_and_clips_selected_boxes_to_the_media_box() {
+        let pdf_with_page = |page: lopdf::Dictionary| {
+            let mut document = Document::with_version("1.7");
+            let pages_id = document.new_object_id();
+            let page_id = document.new_object_id();
+            let content =
+                document.add_object(Stream::new(dictionary! {}, b"0 0 20 10 re f".to_vec()));
+            let mut page = page;
+            page.set("Type", "Page");
+            page.set("Parent", pages_id);
+            page.set("Contents", content);
+            document.set_object(page_id, page);
+            document.set_object(
+                pages_id,
+                dictionary! {
+                    "Type" => "Pages",
+                    "Kids" => vec![page_id.into()],
+                    "Count" => 1,
+                    "Resources" => dictionary! {},
+                },
+            );
+            let catalog_id = document.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => pages_id,
+            });
+            document.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            document.save_to(&mut bytes).expect("serialize fixture PDF");
+            bytes
+        };
+        let request = |pagebox: Option<&str>| GraphicAssetRequest {
+            asset_ref: "figures/page.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: Some(GraphicPageSelection {
+                page: Some(1),
+                pagebox: pagebox.map(str::to_string),
+            }),
+            asset_hash: None,
+        };
+
+        // Any two opposite corners are a valid PDF rectangle (ISO 32000 7.9.5).
+        let flipped = pdf_with_page(dictionary! {
+            "MediaBox" => vec![0.into(), 792.into(), 612.into(), 0.into()],
+        });
+        let form = prepare_pdf_form(&request(None), &flipped).expect("flipped MediaBox");
+        assert_eq!(
+            (form.natural_width_pt, form.natural_height_pt),
+            (612.0, 792.0)
+        );
+
+        // Crop, bleed, trim and art boxes are clipped to the media box.
+        let oversized = pdf_with_page(dictionary! {
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "CropBox" => vec![(-50).into(), 100.into(), 700.into(), 900.into()],
+            "TrimBox" => vec![500.into(), 700.into(), 100.into(), (-20).into()],
+        });
+        let cropped = prepare_pdf_form(&request(Some("cropbox")), &oversized).expect("CropBox");
+        assert_eq!(
+            (cropped.natural_width_pt, cropped.natural_height_pt),
+            (612.0, 692.0)
+        );
+        let trimmed = prepare_pdf_form(&request(Some("trimbox")), &oversized).expect("TrimBox");
+        assert_eq!(
+            (trimmed.natural_width_pt, trimmed.natural_height_pt),
+            (400.0, 700.0)
+        );
+        let root = cropped
+            .objects
+            .get(&cropped.root_object_id)
+            .expect("root form");
+        let PreparedPdfObject::Stream { data, .. } = root else {
+            panic!("root object is not a stream");
+        };
+        let matrix = String::from_utf8_lossy(data)
+            .lines()
+            .next()
+            .expect("form matrix")
+            .to_string();
+        let expected = normalized_page_matrix([0.0, 100.0, 612.0, 792.0], 0);
+        assert_eq!(
+            matrix,
+            format!(
+                "{} {} {} {} {} {} cm",
+                expected[0], expected[1], expected[2], expected[3], expected[4], expected[5]
+            )
+        );
     }
 
     #[test]
