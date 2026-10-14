@@ -383,7 +383,7 @@ async fn run_reference_variants_command_forms(case: ReferenceVariantsCommandForm
         ),
         ReferenceVariantsCommandFormsCase::CrefRange => (
             "\\documentclass{article}\\begin{document}\\section{Intro}\\subsection{Scope}\\label{sub:scope}\\subsection{Detail}\\label{sub:detail}\\paragraph{Claim}\\label{par:claim}\\paragraph{Case}\\label{par:case}See \\crefrange{sub:scope}{sub:detail} and \\Crefrange{par:claim}{par:case}.\\end{document}",
-            "See Subsections 1.1 to 1.2 and Paragraphs 1.2.1 to 1.2.2.",
+            "See Subsections 1.1 to 1.2 and Paragraphs 1.2.0.1 to 1.2.0.2.",
             &["\\crefrange", "\\Crefrange"],
         ),
         ReferenceVariantsCommandFormsCase::Wrappers => (
