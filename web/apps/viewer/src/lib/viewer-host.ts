@@ -93,7 +93,9 @@ export function mountLatexdViewerHost(
         if (nextHash && nextHash !== viewerWindow.location.hash) {
           const url = new URL(viewerWindow.location.href);
           url.hash = nextHash.slice(1);
-          viewerWindow.history.replaceState({}, "", url);
+          // Keep the entry's state: SvelteKit stores its history and navigation
+          // indexes there and needs them for back/forward and scroll restoration.
+          viewerWindow.history.replaceState(viewerWindow.history.state, "", url);
         }
       }
     }
