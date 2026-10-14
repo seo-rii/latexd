@@ -15835,17 +15835,28 @@ impl<'i> Vm<'i> {
                     .collect::<Vec<_>>()
             };
             'candidate: for candidate in candidates {
-                if let Some(path) = self.resolve_existing_project_path(&candidate) {
+                if let Some(path) = self.resolve_existing_project_path(&candidate)
+                    && !self
+                        .file_root
+                        .as_ref()
+                        .is_some_and(|root| root.join(&path).is_dir())
+                {
                     resolved_path = path.as_str().to_owned();
                     break;
                 }
-                if candidate.extension().is_some() {
+                // Like graphicx, only a supported extension stops probing: a dotted
+                // name such as `plot.v2` still gets `.png` etc. appended in full.
+                if candidate.extension().is_some_and(|candidate_extension| {
+                    extensions
+                        .iter()
+                        .any(|extension| extension.eq_ignore_ascii_case(candidate_extension))
+                }) {
                     continue;
                 }
                 for extension in &extensions {
-                    if let Some(path) =
-                        self.resolve_existing_project_path(&candidate.with_extension(extension))
-                    {
+                    if let Some(path) = self.resolve_existing_project_path(Utf8Path::new(&format!(
+                        "{candidate}.{extension}"
+                    ))) {
                         resolved_path = path.as_str().to_owned();
                         break 'candidate;
                     }
@@ -43222,6 +43233,52 @@ Fallback text.
                     && graphic.asset_hash.as_deref() == Some(expected_hash.as_str())
         )));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn graphic_resolution_appends_extensions_to_dotted_names() {
+        let source = r"\begin{document}\includegraphics{figures/plot.v2}\includegraphics{fig.old}\includegraphics{explicit.png}\includegraphics{figures/plot}\end{document}";
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-dotted-graphic-names-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("figures/plot")).expect("create figures dirs");
+        for file in [
+            "figures/plot.v2.png",
+            "figures/plot.pdf",
+            "fig.png",
+            "fig.old.png",
+            "explicit.png",
+        ] {
+            std::fs::write(root.join(file), b"fixture").expect("write asset");
+        }
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.set_file_root(root.clone());
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let _ = std::fs::remove_dir_all(root);
+
+        let paths = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::GraphicRef(graphic) => Some(graphic.path.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            [
+                "figures/plot.v2.png",
+                "fig.old.png",
+                "explicit.png",
+                "figures/plot.pdf"
+            ]
+        );
     }
 
     #[test]
