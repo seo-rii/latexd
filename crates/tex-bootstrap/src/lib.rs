@@ -82,6 +82,22 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\bf{}
 \def\it{}
 \def\tt{}
+\def\sf{}
+\def\sl{}
+\def\sc{}
+\def\em{}
+\def\cal{}
+\def\mit{}
+\def\slshape{}
+\def\upshape{}
+\def\textsl#1{#1}
+\def\fontencoding#1{}
+\def\fontfamily#1{}
+\def\fontseries#1{}
+\def\fontshape#1{}
+\def\fontsize#1#2{}
+\def\selectfont{}
+\def\usefont#1#2#3#4{}
 \def\small{}
 \def\footnotesize{}
 \def\scriptsize{}
@@ -1952,6 +1968,32 @@ mod tests {
                     .detail
                     .contains("paragraph ended before \\mbox was complete")
         }));
+    }
+
+    #[test]
+    fn mini_kernel_font_switches_do_not_print_their_names() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("main.tex"),
+            concat!(
+                r"\begin{document}{\em J} {\sl s} {\sf f} {\sc c} {\slshape l} {\upshape u} ",
+                r"{\cal X} {\mit m} \textsl{y} ",
+                r"{\fontencoding{T1}\fontfamily{cmr}\fontseries{b}\fontshape{it}\selectfont z} ",
+                r"{\fontsize{8}{9}\selectfont w} {\usefont{T1}{cmr}{m}{n}v}\end{document}",
+            ),
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output, "J s f c l u X m y z w v");
     }
 
     #[test]
