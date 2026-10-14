@@ -63,7 +63,8 @@ pub(crate) fn extract_page_artifacts(
     let mut artifacts = Vec::new();
     for (index, &id) in pages.values().enumerate() {
         let mut page = source.get_dictionary(id)?.clone();
-        let mut document = source.clone();
+        // This page's rewritten annotations, shadowing the source objects.
+        let mut rewritten_objects = BTreeMap::new();
         for name in [b"MediaBox".as_slice(), b"CropBox", b"Resources", b"Rotate"] {
             if let Some(value) = inherited(&source, id, name)? {
                 page.set(name, value);
@@ -71,7 +72,8 @@ pub(crate) fn extract_page_artifacts(
         }
         page.remove(b"Parent");
         let remote_links = rewrite_annotations(
-            &mut document,
+            &source,
+            &mut rewritten_objects,
             &mut page,
             id,
             &page_indices,
@@ -143,6 +145,12 @@ pub(crate) fn extract_page_artifacts(
                 .map(|v| Object::Real(v as f32))
                 .collect::<Vec<_>>(),
         );
+        let mut document = Document::with_version(source.version.clone());
+        document.binary_mark = source.binary_mark.clone();
+        document.reference_table.cross_reference_type = source.reference_table.cross_reference_type;
+        document.max_id = source.max_id;
+        document.objects =
+            standalone_page_objects(&source, rewritten_objects, id, [&page, &page_context]);
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"latexd-external-page-v1\0");
         let mut seen = BTreeMap::from([(id, 0)]);
@@ -204,6 +212,56 @@ pub(crate) fn extract_page_artifacts(
         serde_json::to_vec_pretty(&metadata)?,
     )?;
     Ok((metadata, artifacts))
+}
+
+/// The objects a standalone page reaches from its dictionary and paint context,
+/// with `rewritten` objects in place of the source's. The page's own id is left
+/// out: the caller inserts the standalone page dictionary under it. Copying only
+/// these, rather than cloning the whole source for every page, keeps extraction
+/// linear in the document size; the result is what `prune_objects` would keep.
+fn standalone_page_objects(
+    source: &Document,
+    mut rewritten: BTreeMap<ObjectId, Object>,
+    page_id: ObjectId,
+    roots: [&Dictionary; 2],
+) -> BTreeMap<ObjectId, Object> {
+    let mut objects = BTreeMap::new();
+    let mut seen = BTreeSet::from([page_id]);
+    let mut references = Vec::new();
+    for root in roots {
+        for (_, value) in root.iter() {
+            push_references(value, &mut references);
+        }
+    }
+    while let Some(id) = references.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(object) = rewritten
+            .remove(&id)
+            .or_else(|| source.objects.get(&id).cloned())
+        else {
+            continue;
+        };
+        push_references(&object, &mut references);
+        objects.insert(id, object);
+    }
+    objects
+}
+
+fn push_references(object: &Object, references: &mut Vec<ObjectId>) {
+    let mut stack = vec![object];
+    while let Some(object) = stack.pop() {
+        match object {
+            Object::Reference(id) => references.push(*id),
+            Object::Array(items) => stack.extend(items),
+            Object::Dictionary(dictionary) => {
+                stack.extend(dictionary.iter().map(|(_, value)| value))
+            }
+            Object::Stream(stream) => stack.extend(stream.dict.iter().map(|(_, value)| value)),
+            _ => {}
+        }
+    }
 }
 
 struct NamedDestination {
@@ -478,7 +536,8 @@ fn rewrite_additional_actions(
 }
 
 fn rewrite_annotations(
-    source: &mut Document,
+    source: &Document,
+    rewritten_objects: &mut BTreeMap<ObjectId, Object>,
     page: &mut Dictionary,
     page_id: ObjectId,
     pages: &BTreeMap<ObjectId, usize>,
@@ -544,7 +603,7 @@ fn rewrite_annotations(
         if let Some(id) = annotation_id {
             // AcroForm Fields may reference this same widget. Retain object
             // identity so the field tree and Page Annots observe one action.
-            source.objects.insert(id, Object::Dictionary(annotation));
+            rewritten_objects.insert(id, Object::Dictionary(annotation));
             rewritten.push(original);
         } else {
             rewritten.push(Object::Dictionary(annotation));
