@@ -3048,10 +3048,8 @@ fn source_offset_column(source_text: Option<&String>, offset: u32) -> u32 {
     let Some(text) = source_text else {
         return 1;
     };
-    let clamped = usize::try_from(offset)
-        .ok()
-        .map(|value| value.min(text.len()))
-        .unwrap_or(text.len());
+    // Offsets come from clients; one inside a multi-byte character selects it.
+    let clamped = text.floor_char_boundary(usize::try_from(offset).unwrap_or(usize::MAX));
     let line_start = text.as_bytes()[..clamped]
         .iter()
         .rposition(|byte| *byte == b'\n')
@@ -5353,6 +5351,19 @@ mod tests {
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
     };
+
+    #[test]
+    fn source_offset_column_accepts_offsets_inside_multibyte_characters() {
+        // Byte ranges: 가 0..3, 나 3..6, newline 6, 😀 7..11, b 11..12.
+        let text = "가나\n😀b".to_string();
+
+        assert_eq!(super::source_offset_column(Some(&text), 3), 2);
+        assert_eq!(super::source_offset_column(Some(&text), 4), 2);
+        assert_eq!(super::source_offset_column(Some(&text), 9), 1);
+        assert_eq!(super::source_offset_column(Some(&text), 11), 2);
+        assert_eq!(super::source_offset_column(Some(&text), 99), 3);
+        assert_eq!(super::source_offset_line(Some(&text), 9), 2);
+    }
 
     #[tokio::test]
     async fn build_cache_ignores_untracked_paths_and_unchanged_hashes() {
