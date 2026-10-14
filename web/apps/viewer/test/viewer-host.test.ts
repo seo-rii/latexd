@@ -701,6 +701,22 @@ test("stale initial state cannot overwrite a newer websocket revision", async ()
   });
 });
 
+test("per-page PDF frames carry an accessible title", async () => {
+  await withViewerBrowserHarness({
+    stateResponse: {
+      page_ids: ["page-a", "page-b"],
+      page_artifacts: [
+        { page_id: "page-a", pdf_url: "/artifacts/rev/15/pages/page-a.pdf" },
+        { page_id: "page-b", pdf_url: "/artifacts/rev/15/pages/page-b.pdf" }
+      ]
+    }
+  }, async ({ elements }) => {
+    const frames = elements.get("preview-stack").children.map((card) => card.querySelector(".page-frame"));
+    assert.deepEqual(frames.map((frame) => frame.hidden), [false, false]);
+    assert.deepEqual(frames.map((frame) => frame.title), ["Page 1 of 2", "Page 2 of 2"]);
+  });
+});
+
 test("viewer next and prev buttons scroll the frame to the active page", async () => {
   await withViewerBrowserHarness({
     stateResponse: {
