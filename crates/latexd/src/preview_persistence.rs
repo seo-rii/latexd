@@ -209,17 +209,43 @@ pub(crate) async fn recover(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
-        // Failed/unpublished builds still reserve their ids across restarts.
+        // Failed/unpublished builds still reserve their ids across restarts. A run
+        // killed mid-build also leaves state that only its own cleanup removes: the
+        // build's input snapshot, an uncommitted publication and partial PDF exports.
         for entry in fs::read_dir(&build_root)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir()
-                && let Some(rev) = entry
-                    .file_name()
-                    .to_str()
-                    .and_then(|name| name.strip_prefix("rev-"))
-                    .and_then(|rev| rev.parse::<u64>().ok())
-            {
-                live.snapshot.current_rev = live.snapshot.current_rev.max(rev);
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if name.starts_with("input-") {
+                if let Err(error) = fs::remove_dir_all(entry.path()) {
+                    tracing::warn!("failed to remove interrupted input snapshot {name}: {error}");
+                }
+                continue;
+            }
+            let Some(rev) = name
+                .strip_prefix("rev-")
+                .and_then(|rev| rev.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            live.snapshot.current_rev = live.snapshot.current_rev.max(rev);
+            let Ok(files) = fs::read_dir(entry.path()) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let file_name = file.file_name();
+                let Some(file_name) = file_name.to_str() else {
+                    continue;
+                };
+                if (file_name == "preview.pending" || file_name.ends_with(".pdf.exporting"))
+                    && let Err(error) = fs::remove_file(file.path())
+                {
+                    tracing::warn!("failed to remove interrupted {name}/{file_name}: {error}");
+                }
             }
         }
         live.snapshot.building = false;
@@ -566,6 +592,35 @@ mod tests {
         reserve_revision(root, recovered.snapshot.current_rev + 1)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn preview_persistence_recover_sweeps_state_of_an_interrupted_run() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = Utf8Path::from_path(temp.path()).unwrap();
+        prepare(root, &candidate(root, 1))
+            .await
+            .unwrap()
+            .commit()
+            .unwrap();
+        // A daemon killed mid-build leaves its input snapshot, an uncommitted
+        // publication and a partial PDF export behind; nothing else removes them.
+        fs::create_dir_all(root.join("input-Ab12Cd/chapters")).unwrap();
+        fs::write(root.join("input-Ab12Cd/chapters/main.tex"), "project copy").unwrap();
+        fs::create_dir_all(root.join("rev-2")).unwrap();
+        fs::write(root.join("rev-2/preview.pending"), "{}").unwrap();
+        fs::write(root.join("rev-1/main.pdf.exporting"), "%PDF-partial").unwrap();
+
+        let recovered = recover(root, false).await.unwrap();
+
+        assert_eq!(recovered.snapshot.last_applied_rev, 1);
+        assert_eq!(recovered.snapshot.current_rev, 2);
+        assert!(!root.join("input-Ab12Cd").exists());
+        assert!(!root.join("rev-2/preview.pending").exists());
+        assert!(!root.join("rev-1/main.pdf.exporting").exists());
+        assert!(root.join("rev-2").is_dir(), "reserved revision ids stay");
+        assert!(root.join("rev-1/main.pdf").is_file());
+        assert!(root.join(MANIFEST).is_file());
     }
 
     #[tokio::test]
