@@ -1134,6 +1134,16 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     }
   }
   let renderedPageIds = [];
+  // Source lines the panel shows. Rebuilding them on every render puts a new
+  // node under a resting pointer, browsers fire mouseenter on it, and the line
+  // requests its hover again: an endless request loop. Reuse them instead.
+  let renderedSourceWindow: {
+    entry: unknown;
+    file: string;
+    windowStart: number;
+    windowEnd: number;
+    lineNodes: Map<number, HTMLElement>;
+  } | null = null;
   const scrollPageIntoFrame = (pageId) => {
     const pageNode = pageNodes.get(pageId);
     if (!pageNode) {
@@ -1337,6 +1347,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     if (focusedSource?.file && !focusedFileEntry && state.lastAppliedRev > 0) {
       ensureSourceFile(focusedSource.file);
     }
+    if (!focusedSource || !focusedFileEntry) {
+      renderedSourceWindow = null;
+    }
     if (!focusedSource) {
       elements.sourceViewer.replaceChildren();
       const empty = viewerDocument.createElement("div");
@@ -1364,17 +1377,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       const centerLine = activeRange?.startLine ?? 1;
       const windowStart = Math.max(1, centerLine - 8);
       const windowEnd = Math.min(lines.length, (activeRange?.endLine ?? centerLine) + 8);
-      const fragment = viewerDocument.createDocumentFragment();
-      if (windowStart > 1) {
-        const skipped = viewerDocument.createElement("div");
-        skipped.className = "source-line source-line--empty";
-        skipped.textContent = `… ${windowStart - 1} line(s) above`;
-        fragment.append(skipped);
-      }
-      for (let lineNumber = windowStart; lineNumber <= windowEnd; lineNumber += 1) {
-        const line = viewerDocument.createElement("button") as HTMLButtonElement;
-        line.type = "button";
-        line.className = "source-line";
+      const markLine = (line: HTMLElement, lineNumber: number) => {
         line.dataset.selected = String(
           !!selectedRange
           && lineNumber >= selectedRange.startLine
@@ -1385,29 +1388,61 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           && lineNumber >= hoveredRange.startLine
           && lineNumber <= hoveredRange.endLine
         );
-        line.innerHTML = `
-          <span class="source-line__number">${lineNumber}</span>
-          <span class="source-line__text"></span>
-        `;
-        const lineText = line.querySelector(".source-line__text") as HTMLElement | null;
-        if (lineText) {
-          lineText.textContent = lines[lineNumber - 1] || " ";
+      };
+      const sameWindow = renderedSourceWindow?.entry === focusedFileEntry
+        && renderedSourceWindow.file === focusedSource.file
+        && renderedSourceWindow.windowStart === windowStart
+        && renderedSourceWindow.windowEnd === windowEnd;
+      if (sameWindow) {
+        for (const [lineNumber, line] of renderedSourceWindow.lineNodes) {
+          markLine(line, lineNumber);
         }
-        line.addEventListener("click", () => {
-          resolveSourceJump({ file: focusedSource.file, line: lineNumber });
-        });
-        line.addEventListener("mouseenter", () => {
-          hoverSourceJump({ file: focusedSource.file, line: lineNumber });
-        });
-        fragment.append(line);
+      } else {
+        const lineNodes = new Map<number, HTMLElement>();
+        const fragment = viewerDocument.createDocumentFragment();
+        if (windowStart > 1) {
+          const skipped = viewerDocument.createElement("div");
+          skipped.className = "source-line source-line--empty";
+          skipped.textContent = `… ${windowStart - 1} line(s) above`;
+          fragment.append(skipped);
+        }
+        for (let lineNumber = windowStart; lineNumber <= windowEnd; lineNumber += 1) {
+          const line = viewerDocument.createElement("button") as HTMLButtonElement;
+          line.type = "button";
+          line.className = "source-line";
+          markLine(line, lineNumber);
+          line.innerHTML = `
+            <span class="source-line__number">${lineNumber}</span>
+            <span class="source-line__text"></span>
+          `;
+          const lineText = line.querySelector(".source-line__text") as HTMLElement | null;
+          if (lineText) {
+            lineText.textContent = lines[lineNumber - 1] || " ";
+          }
+          line.addEventListener("click", () => {
+            resolveSourceJump({ file: focusedSource.file, line: lineNumber });
+          });
+          line.addEventListener("mouseenter", () => {
+            hoverSourceJump({ file: focusedSource.file, line: lineNumber });
+          });
+          lineNodes.set(lineNumber, line);
+          fragment.append(line);
+        }
+        if (windowEnd < lines.length) {
+          const skipped = viewerDocument.createElement("div");
+          skipped.className = "source-line source-line--empty";
+          skipped.textContent = `… ${lines.length - windowEnd} line(s) below`;
+          fragment.append(skipped);
+        }
+        elements.sourceViewer.replaceChildren(fragment);
+        renderedSourceWindow = {
+          entry: focusedFileEntry,
+          file: focusedSource.file,
+          windowStart,
+          windowEnd,
+          lineNodes
+        };
       }
-      if (windowEnd < lines.length) {
-        const skipped = viewerDocument.createElement("div");
-        skipped.className = "source-line source-line--empty";
-        skipped.textContent = `… ${lines.length - windowEnd} line(s) below`;
-        fragment.append(skipped);
-      }
-      elements.sourceViewer.replaceChildren(fragment);
     }
 
     elements.diagnostics.textContent = "";
