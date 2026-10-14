@@ -779,6 +779,29 @@ test("viewer frame scrolling updates the active page label", async () => {
   });
 });
 
+test("hovering a source panel line updates it in place instead of rebuilding the panel", async () => {
+  await withViewerBrowserHarness(async ({ window, elements, fetchCalls, flush }) => {
+    await window.latexdSelectSource({ file: "main.tex", line: 2, column: 4 });
+    await flush();
+    const sourceViewer = elements.get("source-viewer");
+    const lineButtons = () => sourceViewer.children.filter((node) => node.tagName === "BUTTON");
+    const before = lineButtons();
+    assert.ok(before.length >= 3);
+    const jumpRequests = () => fetchCalls.filter((call) => call.url.includes("/api/source-jump/")).length;
+    const requestsBeforeHover = jumpRequests();
+
+    before[2].dispatchEvent(new Event("mouseenter"));
+    await flush();
+
+    // A rebuilt panel puts a new node under a resting pointer; browsers then fire
+    // mouseenter again, which would request the same hover over and over.
+    assert.equal(jumpRequests(), requestsBeforeHover + 1);
+    assert.equal(lineButtons().length, before.length);
+    lineButtons().forEach((node, index) => assert.strictEqual(node, before[index]));
+    assert.equal(before[1].dataset.hovered, "true");
+  });
+});
+
 test("viewer hover over the same preview item does not re-emit app events", async () => {
   const seenEvents = [];
   await withViewerBrowserHarness({
