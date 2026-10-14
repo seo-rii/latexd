@@ -4151,9 +4151,11 @@ pub fn build_page_display_lists(
                             } else {
                                 continuation_width_pt
                             };
-                            let space_adjustment_pt = if !line.final_line
-                                && !line.forced_break
-                                && line.interword_spaces > 0
+                            // Ragged lines keep natural spacing unless the breaker let
+                            // them shrink to fit the measure.
+                            let space_adjustment_pt = if line.interword_spaces > 0
+                                && (!(line.final_line || line.forced_break)
+                                    || line.natural_width_pt > target_width_pt)
                             {
                                 (target_width_pt - line.natural_width_pt)
                                     / line.interword_spaces as f32
@@ -9227,6 +9229,64 @@ mod tests {
             "first line ended at {first_line_end}, expected {target_end}: {text_runs:?}"
         );
         assert!(last_line_end < target_end - 1.0);
+    }
+
+    #[test]
+    fn paragraph_breaker_shrinks_an_overlong_last_line_to_the_measure() {
+        let text = "alpha alpha alpha";
+        let source = SourceProvenance::file("main.tex", 0, text.len() as u32);
+        let font = FontRequest {
+            family: FontFamilyRequest::Serif,
+            series: FontSeries::Regular,
+            shape: FontShape::Upright,
+            size_pt: 11.0,
+            role: FontRole::Body,
+        };
+        // Half of the two spaces' shrink is needed to fit the measure.
+        let shrink_pt = 2.0 * text_advance_pt(" ", &font, 11.0) / 3.0;
+        let line_width_pt = text_advance_pt(text, &font, 11.0) - shrink_pt / 2.0;
+        let options = PageDisplayListOptions {
+            page_width_pt: line_width_pt + 20.0,
+            margin_left_pt: 10.0,
+            max_chars_per_line: usize::MAX,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let text_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !run.text.trim().is_empty() => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let baseline = text_runs[0].origin.y;
+        let line_end = text_runs
+            .iter()
+            .map(|run| run.origin.x + run.approximate_advance_pt)
+            .fold(options.margin_left_pt, f32::max);
+        let target_end = options.page_width_pt - options.margin_left_pt;
+
+        assert!(
+            text_runs
+                .iter()
+                .all(|run| (run.origin.y - baseline).abs() < 0.01),
+            "the paragraph must stay on one line: {text_runs:?}"
+        );
+        assert!(
+            (line_end - target_end).abs() < 0.02,
+            "line ended at {line_end}, expected {target_end}: {text_runs:?}"
+        );
     }
 
     #[test]
