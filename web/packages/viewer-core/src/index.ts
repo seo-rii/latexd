@@ -1116,6 +1116,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   let reconnectAttempt = 0;
   const pageNodes = new Map();
   const pageMetrics = new Map();
+  // Tile layer each page's tile container currently shows. Every render visits
+  // every page; rebuilding unchanged <img> tiles each time is wasted DOM work.
+  const renderedTileLayers = new WeakMap<Element, unknown>();
   const TILE_SIZE = 256;
   const FALLBACK_PAGE_WIDTH = 612;
   const FALLBACK_PAGE_HEIGHT = 792;
@@ -1545,20 +1548,20 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         applyMarker(selectedMarker, state.selectedSource);
         applyMarker(hoverMarker, state.hoveredSource);
         const tileLayer = state.tileLayers[page.pageId];
-        if (tileLayer && tileLayer.zoomBucket === zoomBucket) {
+        const visibleTileLayer = tileLayer && tileLayer.zoomBucket === zoomBucket ? tileLayer : null;
+        if (renderedTileLayers.get(tiles) !== visibleTileLayer) {
+          renderedTileLayers.set(tiles, visibleTileLayer);
           const tileFragment = viewerDocument.createDocumentFragment();
-          for (const tile of tileLayer.items) {
+          for (const tile of visibleTileLayer?.items ?? []) {
             const tileNode = viewerDocument.createElement("img");
             tileNode.className = "page-tile";
             tileNode.alt = "";
             tileNode.src = tile.png_url;
-            tileNode.style.left = `${tile.tile_x * tileLayer.tileSize}px`;
-            tileNode.style.top = `${tile.tile_y * tileLayer.tileSize}px`;
+            tileNode.style.left = `${tile.tile_x * visibleTileLayer.tileSize}px`;
+            tileNode.style.top = `${tile.tile_y * visibleTileLayer.tileSize}px`;
             tileFragment.append(tileNode);
           }
           tiles.replaceChildren(tileFragment);
-        } else {
-          tiles.replaceChildren();
         }
         stage.hidden = false;
         frame.hidden = true;
@@ -1571,6 +1574,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         stage.hidden = true;
         selectedMarker.hidden = true;
         hoverMarker.hidden = true;
+        renderedTileLayers.delete(tiles);
         tiles.replaceChildren();
         frame.hidden = false;
       }

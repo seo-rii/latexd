@@ -590,6 +590,32 @@ test("viewer open-source without editor bridge still fetches resolved payload", 
   });
 });
 
+test("re-rendering keeps the tile images of an unchanged tile layer", async () => {
+  const options: any = {
+    driveAnimationFrames: true,
+    tileManifestResponse: () => ({
+      rev: 15,
+      page_id: "page-a",
+      tile_size: 256,
+      items: [{ tile_x: 0, tile_y: 0, png_url: "/tiles/a.png" }]
+    })
+  };
+  await withViewerBrowserHarness(options, async ({ elements, sockets, flush }) => {
+    await flush();
+    const tiles = elements.get("preview-stack").children[0].querySelector(".page-tiles");
+    const [tile] = tiles.children;
+    assert.equal(tile?.src, "/tiles/a.png");
+
+    // Any state change re-renders every page, e.g. a build notice or a hover.
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "build_started", rev: 16, changed_files: ["main.tex"]
+    }) }));
+    await flush();
+    assert.equal(tiles.children.length, 1);
+    assert.strictEqual(tiles.children[0], tile, "the tile <img> is reused, not recreated");
+  });
+});
+
 test("viewer host forwards state changes through the app callback", async () => {
   const seenEvents = [];
   await withViewerBrowserHarness({
