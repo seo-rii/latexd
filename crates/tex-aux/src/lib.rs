@@ -1785,7 +1785,6 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                             [1..=level_index.min(section_counters.len() - 1)]
                             .iter()
                             .copied()
-                            .filter(|value| *value > 0)
                             .map(|value| value.to_string())
                             .collect::<Vec<_>>();
                         suffix.insert(0, appendix_number);
@@ -1795,7 +1794,6 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                             [2..=level_index.min(section_counters.len() - 1)]
                             .iter()
                             .copied()
-                            .filter(|value| *value > 0)
                             .map(|value| value.to_string())
                             .collect::<Vec<_>>();
                         suffix.insert(0, appendix_number);
@@ -1810,7 +1808,6 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                     section_counters[start_index..=level_index.min(section_counters.len() - 1)]
                         .iter()
                         .copied()
-                        .filter(|value| *value > 0)
                         .map(|value| value.to_string())
                         .collect::<Vec<_>>()
                         .join(".")
@@ -12386,6 +12383,36 @@ mod tests {
         assert!(main.contains("See 1a and (2b)."));
         assert!(!main.contains("\\subref"));
         assert!(!main.contains("\\subeqref"));
+    }
+
+    #[test]
+    fn derive_semantic_aux_keeps_zero_levels_in_section_numbers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\subsection{Early}\\label{sub:early}\\section{A}\\subsubsection{B}\\label{subsub:b}\\subsection{C}\\label{sub:c}\\appendix\\section{Proofs}\\subsubsection{Lemma}\\label{app:lemma}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        assert_eq!(
+            aux.toc
+                .iter()
+                .map(|entry| entry.number.as_str())
+                .collect::<Vec<_>>(),
+            vec!["0.1", "1", "1.0.1", "1.1", "A", "A.0.1"]
+        );
+        assert_eq!(aux.label_number("subsub:b"), Some("1.0.1"));
+        assert_eq!(aux.label_number("app:lemma"), Some("A.0.1"));
     }
 
     #[test]
