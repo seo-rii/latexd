@@ -18995,7 +18995,7 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Uppercase => {
-                let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                let tokens = self.read_general_text(queue);
                 for token in self
                     .render_case_transformed_tokens(tokens, true)
                     .into_iter()
@@ -19005,7 +19005,7 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Lowercase => {
-                let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                let tokens = self.read_general_text(queue);
                 for token in self
                     .render_case_transformed_tokens(tokens, false)
                     .into_iter()
@@ -23986,54 +23986,44 @@ impl<'i> Vm<'i> {
                 {
                     self.pop_next_token(queue);
                 }
-                // TeX takes the next non-blank, non-\relax token after expansion: a
-                // brace starts the new list, and a token register is copied.
-                let mut value = Vec::new();
-                for _ in 0..256 {
-                    self.skip_optional_spaces(queue);
-                    let Some(token) = self.pop_next_token(queue) else {
-                        break;
-                    };
-                    let TokenKind::ControlSequence { name } = token.kind else {
-                        if matches!(
-                            token.kind,
-                            TokenKind::Character {
-                                catcode: CatCode::BeginGroup,
-                                ..
-                            }
-                        ) {
-                            self.push_token_front(queue, token);
-                            value = self.read_balanced_group(queue).unwrap_or_default();
-                        } else {
-                            value = vec![token];
-                        }
-                        break;
-                    };
-                    let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
-                    match self
-                        .lookup_meaning(&control_sequence)
-                        .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive))
-                    {
-                        Some(Meaning::Primitive(Primitive::Relax)) => continue,
-                        Some(Meaning::Primitive(Primitive::Toks)) => {
-                            value = self
-                                .read_integer(queue)
+                // A brace starts the new list, and a token register is copied.
+                let value = match self.read_next_non_blank_non_relax_non_call_token(queue) {
+                    Some(
+                        token @ Token {
+                            kind:
+                                TokenKind::Character {
+                                    catcode: CatCode::BeginGroup,
+                                    ..
+                                },
+                            ..
+                        },
+                    ) => {
+                        self.push_token_front(queue, token);
+                        self.read_balanced_group(queue).unwrap_or_default()
+                    }
+                    Some(
+                        token @ Token {
+                            kind: TokenKind::ControlSequence { name },
+                            ..
+                        },
+                    ) => {
+                        let control_sequence =
+                            self.interner.resolve(name).unwrap_or("").to_string();
+                        if self.lookup_meaning(&control_sequence).or_else(|| {
+                            builtin_primitive(&control_sequence).map(Meaning::Primitive)
+                        }) == Some(Meaning::Primitive(Primitive::Toks))
+                        {
+                            self.read_integer(queue)
                                 .and_then(|source| self.eqtb.tokens(source as u32))
                                 .map(|tokens| tokens.to_vec())
-                                .unwrap_or_default();
-                            break;
+                                .unwrap_or_default()
+                        } else {
+                            vec![token]
                         }
-                        _ => {}
                     }
-                    let expanded = self.expand_once(token.clone(), queue);
-                    if expanded.len() == 1 && expanded[0] == token {
-                        value = vec![token];
-                        break;
-                    }
-                    for token in expanded.into_iter().rev() {
-                        self.push_token_front(queue, token);
-                    }
-                }
+                    Some(token) => vec![token],
+                    None => Vec::new(),
+                };
                 let requested_global = mem::take(&mut self.global_prefix);
                 let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
                     std::cmp::Ordering::Greater => AssignmentScope::Global,
@@ -24601,11 +24591,11 @@ impl<'i> Vm<'i> {
                         Vec::new()
                     }
                     Some(Meaning::Primitive(Primitive::Uppercase)) => {
-                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        let tokens = self.read_general_text(queue);
                         self.render_case_transformed_tokens(tokens, true)
                     }
                     Some(Meaning::Primitive(Primitive::Lowercase)) => {
-                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        let tokens = self.read_general_text(queue);
                         self.render_case_transformed_tokens(tokens, false)
                     }
                     Some(Meaning::Primitive(Primitive::ExpandedTokens)) => {
@@ -25329,6 +25319,47 @@ impl<'i> Vm<'i> {
 
     fn read_balanced_group(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
         self.read_balanced_group_with_outer_policy(queue, None)
+    }
+
+    /// TeX's "get the next non-blank non-relax non-call token": skips spaces and
+    /// `\relax`, and expands macros and expandable primitives until an unexpandable
+    /// token arrives. TeX does this before the brace of a general text or a `\toks` value.
+    fn read_next_non_blank_non_relax_non_call_token(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<Token> {
+        for _ in 0..256 {
+            self.skip_optional_spaces(queue);
+            let token = self.pop_next_token(queue)?;
+            let TokenKind::ControlSequence { name } = token.kind else {
+                return Some(token);
+            };
+            let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+            if self
+                .lookup_meaning(&control_sequence)
+                .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive))
+                == Some(Meaning::Primitive(Primitive::Relax))
+            {
+                continue;
+            }
+            let expanded = self.expand_once(token.clone(), queue);
+            if expanded.len() == 1 && expanded[0] == token {
+                return Some(token);
+            }
+            for token in expanded.into_iter().rev() {
+                self.push_token_front(queue, token);
+            }
+        }
+        None
+    }
+
+    /// Reads a general text such as the argument of `\uppercase`: its left brace may
+    /// come from expansion, as in `\uppercase\expandafter{\x}`.
+    fn read_general_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
+        if let Some(token) = self.read_next_non_blank_non_relax_non_call_token(queue) {
+            self.push_token_front(queue, token);
+        }
+        self.read_balanced_group(queue).unwrap_or_default()
     }
 
     fn read_balanced_group_with_outer_policy(
@@ -38787,6 +38818,27 @@ mod tests {
                 "[abc]",
             ),
             (r"\def\x{{abc}}\toks0=\relax\x[\the\toks0]", "[abc]"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn uppercase_and_lowercase_find_their_brace_through_expansion() {
+        for (source, expected) in [
+            (r"\def\x{abc}\uppercase\expandafter{\x}", "ABC"),
+            (r"\def\x{abc}\expandafter\uppercase\expandafter{\x}", "ABC"),
+            (r"\def\y{{DEF}}\lowercase\y", "def"),
+            (r"\uppercase\relax{x}", "X"),
         ] {
             let mut interner = ControlSequenceInterner::new();
             let mut vm = Vm::new(&mut interner);
