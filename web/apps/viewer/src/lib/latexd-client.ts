@@ -262,14 +262,22 @@ function createLatexdApiContext(options: LatexdViewerTransportOptions) {
     return url.toString();
   };
   const fetchJson = async (input: URL | string, init: RequestInit = {credentials: 'include'}) => {
-    const response = await viewerFetch(input, {
-      ...init,
-      signal: AbortSignal.timeout(requestTimeoutMs)
-    });
-    if (!response.ok) {
-      throw new Error(`latexd request failed: ${response.status}`);
+    // A plain timer rather than AbortSignal.timeout(): Node 22 does not let that
+    // timer keep the event loop alive, and clearing it frees the request promptly.
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("latexd request timed out", "TimeoutError")),
+      requestTimeoutMs
+    );
+    try {
+      const response = await viewerFetch(input, { ...init, signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`latexd request failed: ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      clearTimeout(timer);
     }
-    return response.json();
   };
 
   return {
