@@ -1582,15 +1582,6 @@ impl CompilerDriver {
                 None
             } else {
                 load_latest_previous_internal_build(&request.build_root, previous_revision_limit)
-                    .map_err(|error| CompileFailure {
-                        diagnostics: vec![Diagnostic {
-                            level: DiagnosticLevel::Error,
-                            file: Some(request.toplevel.to_string()),
-                            line: None,
-                            message: format!("failed to load prior internal build state: {error}"),
-                        }],
-                        message: format!("failed to load prior internal build state: {error}"),
-                    })?
             };
             let aux_scan =
                 scan_project(&request.root, &request.toplevel).map_err(|error| CompileFailure {
@@ -3775,15 +3766,15 @@ fn map_internal_diagnostics(toplevel: &Utf8Path, diagnostics: &[VmDiagnostic]) -
 fn load_latest_previous_internal_build(
     build_root: &Utf8Path,
     current_rev: u64,
-) -> anyhow::Result<Option<PreviousInternalBuild>> {
+) -> Option<PreviousInternalBuild> {
     if current_rev <= 1 {
-        return Ok(None);
+        return None;
     }
 
     for previous_rev in (1..current_rev).rev() {
         let rev_dir = build_root.join(format!("rev-{previous_rev}"));
         if is_live_preview_revision(build_root, previous_rev) {
-            return Ok(None);
+            return None;
         }
         let checkpoint_path = rev_dir.join("checkpoints.json");
         let page_metadata_path = rev_dir.join("page-metadata.json");
@@ -3803,70 +3794,82 @@ fn load_latest_previous_internal_build(
         else {
             continue;
         };
-        let checkpoint_page_metadata_path = if execution_page_metadata_path.exists() {
-            &execution_page_metadata_path
-        } else {
-            &page_metadata_path
-        };
-        let page_metadata = load_page_artifact_metadata(checkpoint_page_metadata_path)?;
-        let output = fs::read_to_string(output_path.as_std_path())
-            .with_context(|| format!("failed to read {output_path}"))?;
-        let sources = serde_json::from_slice::<StoredSourceTexts>(
-            &fs::read(sources_path.as_std_path())
-                .with_context(|| format!("failed to read {sources_path}"))?,
-        )
-        .with_context(|| format!("failed to parse {sources_path}"))?;
-        let semantic_aux_payload = if aux_path.exists() {
-            Some(
-                fs::read(aux_path.as_std_path())
-                    .with_context(|| format!("failed to read {aux_path}"))?,
+        let load_revision = || -> anyhow::Result<PreviousInternalBuild> {
+            let checkpoint_page_metadata_path = if execution_page_metadata_path.exists() {
+                &execution_page_metadata_path
+            } else {
+                &page_metadata_path
+            };
+            let page_metadata = load_page_artifact_metadata(checkpoint_page_metadata_path)?;
+            let output = fs::read_to_string(output_path.as_std_path())
+                .with_context(|| format!("failed to read {output_path}"))?;
+            let sources = serde_json::from_slice::<StoredSourceTexts>(
+                &fs::read(sources_path.as_std_path())
+                    .with_context(|| format!("failed to read {sources_path}"))?,
             )
-        } else {
-            None
-        };
-        let semantic_aux_concrete_payload = if concrete_aux_path.exists() {
-            Some(
-                fs::read(concrete_aux_path.as_std_path())
-                    .with_context(|| format!("failed to read {concrete_aux_path}"))?,
-            )
-        } else {
-            None
-        };
-        let raw_sources = sources.files;
-        let executed_sources = if sources.executed_files.is_empty() {
-            raw_sources.clone()
-        } else {
-            sources.executed_files
-        };
-        return Ok(Some(PreviousInternalBuild {
-            rev: previous_rev,
-            bundle,
-            page_metadata,
-            output,
-            sources: raw_sources,
-            executed_sources,
-            rewrite_spans: sources.rewrite_spans,
-            module_traces: sources.module_traces,
-            module_checkpoints: sources.module_checkpoints,
-            semantic_aux: if let Some(payload) = semantic_aux_payload.as_deref() {
+            .with_context(|| format!("failed to parse {sources_path}"))?;
+            let semantic_aux_payload = if aux_path.exists() {
                 Some(
-                    serde_json::from_slice::<SemanticAux>(payload)
-                        .with_context(|| format!("failed to parse {aux_path}"))?,
-                )
-            } else if let Some(payload) = semantic_aux_concrete_payload.as_deref() {
-                Some(
-                    parse_concrete_semantic_aux(payload)
-                        .with_context(|| format!("failed to parse {concrete_aux_path}"))?,
+                    fs::read(aux_path.as_std_path())
+                        .with_context(|| format!("failed to read {aux_path}"))?,
                 )
             } else {
                 None
-            },
-            semantic_aux_payload,
-            semantic_aux_concrete_payload,
-        }));
+            };
+            let semantic_aux_concrete_payload = if concrete_aux_path.exists() {
+                Some(
+                    fs::read(concrete_aux_path.as_std_path())
+                        .with_context(|| format!("failed to read {concrete_aux_path}"))?,
+                )
+            } else {
+                None
+            };
+            let raw_sources = sources.files;
+            let executed_sources = if sources.executed_files.is_empty() {
+                raw_sources.clone()
+            } else {
+                sources.executed_files
+            };
+            Ok(PreviousInternalBuild {
+                rev: previous_rev,
+                bundle,
+                page_metadata,
+                output,
+                sources: raw_sources,
+                executed_sources,
+                rewrite_spans: sources.rewrite_spans,
+                module_traces: sources.module_traces,
+                module_checkpoints: sources.module_checkpoints,
+                semantic_aux: if let Some(payload) = semantic_aux_payload.as_deref() {
+                    Some(
+                        serde_json::from_slice::<SemanticAux>(payload)
+                            .with_context(|| format!("failed to parse {aux_path}"))?,
+                    )
+                } else if let Some(payload) = semantic_aux_concrete_payload.as_deref() {
+                    Some(
+                        parse_concrete_semantic_aux(payload)
+                            .with_context(|| format!("failed to parse {concrete_aux_path}"))?,
+                    )
+                } else {
+                    None
+                },
+                semantic_aux_payload,
+                semantic_aux_concrete_payload,
+            })
+        };
+        // Revision files are reuse caches, not build inputs: a damaged one
+        // falls back to an older revision or a cold build, never a failure.
+        match load_revision() {
+            Ok(previous) => return Some(previous),
+            Err(error) => tracing::warn!(
+                rev = previous_rev,
+                %error,
+                "skipping unreadable previous internal build"
+            ),
+        }
     }
 
-    Ok(None)
+    None
 }
 
 fn load_page_artifact_metadata(path: &Utf8Path) -> anyhow::Result<Vec<PageArtifactMeta>> {
@@ -7850,9 +7853,7 @@ mod tests {
         )
         .expect("write concrete aux");
 
-        let loaded = load_latest_previous_internal_build(&build_root, 3)
-            .expect("load previous state")
-            .expect("previous state");
+        let loaded = load_latest_previous_internal_build(&build_root, 3).expect("previous state");
 
         assert_eq!(loaded.rev, 2);
         assert_eq!(loaded.output, "prefix tail");
@@ -7923,10 +7924,64 @@ mod tests {
         fs::write(rev_dir.join("output.txt"), b"").expect("write output");
         fs::write(rev_dir.join("sources.json"), b"{}").expect("write sources");
 
-        let previous = load_latest_previous_internal_build(&build_root, 2)
-            .expect("corrupt cache must not fail compilation");
+        let previous = load_latest_previous_internal_build(&build_root, 2);
 
-        assert!(previous.is_none());
+        assert!(
+            previous.is_none(),
+            "corrupt cache must not fail compilation"
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_skips_unreadable_previous_build_state() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Body.\end{document}",
+        )
+        .expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        let request = |rev| CompileRequest {
+            root: root.clone(),
+            manifest: manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        };
+        driver.compile(request(1)).await.expect("first compile");
+        driver.compile(request(2)).await.expect("second compile");
+        let previous =
+            load_latest_previous_internal_build(&build_root, 3).expect("intact previous state");
+        assert_eq!(previous.rev, 2);
+
+        // A damaged newest revision falls back to the older intact one.
+        for damaged in ["execution-page-metadata.json", "sources.json", "aux.json"] {
+            let path = build_root.join("rev-2").join(damaged);
+            let original = fs::read(&path).ok();
+            fs::write(&path, b"{truncated").expect("damage previous state");
+            let previous = load_latest_previous_internal_build(&build_root, 3)
+                .expect("unreadable revision must be skipped");
+            assert_eq!(previous.rev, 1, "{damaged}");
+            match original {
+                Some(original) => fs::write(&path, original).expect("restore previous state"),
+                None => fs::remove_file(&path).expect("remove damaged state"),
+            }
+        }
+
+        // With no readable revision left, the next build compiles from scratch.
+        for rev in ["rev-1", "rev-2"] {
+            fs::write(build_root.join(rev).join("sources.json"), b"{truncated")
+                .expect("damage previous sources");
+        }
+        let outcome = driver
+            .compile(request(3))
+            .await
+            .expect("unreadable previous builds must not fail compilation");
+        assert_eq!(outcome.reused_checkpoint_id, None);
     }
 
     #[test]
