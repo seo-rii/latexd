@@ -10,6 +10,27 @@ pub fn read_tex_source_lossy(path: &Utf8Path) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// Byte offset of the first `\begin{document}` that is not commented out with `%`.
+pub fn find_document_begin(source: &str) -> Option<usize> {
+    const BEGIN_DOCUMENT: &str = r"\begin{document}";
+    let mut search_from = 0usize;
+    while let Some(relative) = source[search_from..].find(BEGIN_DOCUMENT) {
+        let start = search_from + relative;
+        let line_start = source[..start].rfind('\n').map_or(0, |newline| newline + 1);
+        let mut escaped = false;
+        let commented = source[line_start..start].chars().any(|ch| {
+            let comment = ch == '%' && !escaped;
+            escaped = ch == '\\' && !escaped;
+            comment
+        });
+        if !commented {
+            return Some(start);
+        }
+        search_from = start + BEGIN_DOCUMENT.len();
+    }
+    None
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TexLiveVersion {
@@ -276,8 +297,20 @@ mod tests {
 
     use super::{
         CompilerMode, ProjectManifest, ProjectWorld, SourceUsage, TexLiveVersion,
-        normalize_relative_path, read_tex_source_lossy,
+        find_document_begin, normalize_relative_path, read_tex_source_lossy,
     };
+
+    #[test]
+    fn finds_the_first_uncommented_begin_document() {
+        let source = "% \\begin{document} comes below\n\\usepackage{x}% \\begin{document}\n\\\\%\\begin{document}\n50\\% done\\begin{document}Body";
+
+        assert_eq!(
+            find_document_begin(source),
+            Some(source.len() - r"\begin{document}Body".len())
+        );
+        assert_eq!(find_document_begin("%\\begin{document}"), None);
+        assert_eq!(find_document_begin("\\begin{document}"), Some(0));
+    }
 
     #[test]
     fn tex_source_reader_preserves_valid_text_and_replaces_invalid_utf8() {
