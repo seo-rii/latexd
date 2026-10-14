@@ -2502,8 +2502,16 @@ fn atomic_write_source_file(path: &Utf8Path, contents: &[u8]) -> anyhow::Result<
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("source file path has no parent: {path}"))?;
+    let permissions = std::fs::metadata(path)
+        .with_context(|| format!("failed to read source file metadata for {path}"))?
+        .permissions();
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .with_context(|| format!("failed to create temporary source file beside {path}"))?;
+    // The temporary file is created 0600; keep the source file's own mode.
+    temporary
+        .as_file()
+        .set_permissions(permissions)
+        .with_context(|| format!("failed to copy source file permissions for {path}"))?;
     temporary
         .write_all(contents)
         .with_context(|| format!("failed to write temporary source file for {path}"))?;
@@ -9880,6 +9888,61 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("main.tex")).expect("read updated source"),
             "alpha\nbeta\ngamma\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn update_source_file_endpoint_keeps_source_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "alpha\n").expect("main tex");
+        fs::set_permissions(root.join("main.tex"), fs::Permissions::from_mode(0o664))
+            .expect("source permissions");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = update_source_file(
+            State(state),
+            Json(UpdateSourceFileRequest {
+                file: "main.tex".to_string(),
+                content: "alpha\nbeta\n".to_string(),
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            fs::read_to_string(root.join("main.tex")).expect("read updated source"),
+            "alpha\nbeta\n"
+        );
+        // The atomic replacement must not narrow the file to the temp file's 0600.
+        assert_eq!(
+            fs::metadata(root.join("main.tex"))
+                .expect("updated source metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o664
         );
     }
 
