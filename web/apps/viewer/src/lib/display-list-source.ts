@@ -13,8 +13,6 @@ export type BrowserSourceSelection = {
   end_column: number;
 };
 
-const encoder = new TextEncoder();
-
 export function browserSourceKey(source: BrowserSourceProvenance): string | null {
   const span = source?.primary;
   if (
@@ -50,9 +48,13 @@ export function resolveBrowserSourceSelection(
   let utf16Index = 0;
   let startIndex = span.start_utf8 === 0 ? 0 : -1;
   let endIndex = span.end_utf8 === 0 ? 0 : -1;
-  for (const character of source) {
-    utf8Offset += encoder.encode(character).byteLength;
-    utf16Index += character.length;
+  while (utf16Index < source.length) {
+    // UTF-8 width from the code point; a TextEncoder call per character made
+    // one hover over a large file cost hundreds of milliseconds. A lone
+    // surrogate counts 3 bytes, as TextEncoder encodes it as U+FFFD.
+    const codePoint = source.codePointAt(utf16Index)!;
+    utf8Offset += codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+    utf16Index += codePoint > 0xffff ? 2 : 1;
     if (utf8Offset === span.start_utf8) {
       startIndex = utf16Index;
     }
