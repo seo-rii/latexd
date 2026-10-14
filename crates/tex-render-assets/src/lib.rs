@@ -4931,6 +4931,8 @@ pub fn parse_svg_with_embedded_assets(
     let parse_path = |raw: &str, transform: VectorTransform| -> SimplePathParse {
         let mut tokens = Vec::new();
         let mut index = 0usize;
+        // Position within the current arc's seven arguments, while in an arc command.
+        let mut arc_argument = None::<usize>;
         while index < raw.len() {
             let ch = raw[index..].chars().next()?;
             if ch.is_whitespace() || ch == ',' {
@@ -4960,7 +4962,16 @@ pub fn parse_svg_with_embedded_assets(
                     | 'z'
             ) {
                 tokens.push(SimplePathToken::Command(ch));
+                arc_argument = matches!(ch, 'A' | 'a').then_some(0);
                 index += ch.len_utf8();
+                continue;
+            }
+            // The large-arc and sweep flags are one character each and need no
+            // separator, so `a10 10 0 0110 10` is flags 0 and 1, then x = 10.
+            if matches!(arc_argument, Some(3 | 4)) && matches!(ch, '0' | '1') {
+                tokens.push(SimplePathToken::Number(if ch == '1' { 1.0 } else { 0.0 }));
+                arc_argument = arc_argument.map(|argument| argument + 1);
+                index += 1;
                 continue;
             }
             let start = index;
@@ -4993,6 +5004,7 @@ pub fn parse_svg_with_embedded_assets(
                 return None;
             }
             tokens.push(SimplePathToken::Number(raw[start..index].parse().ok()?));
+            arc_argument = arc_argument.map(|argument| (argument + 1) % 7);
         }
 
         let mut token_index = 0usize;
@@ -9504,6 +9516,28 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn parses_svg_arc_flags_written_without_separators() {
+        let path = |d: &str| {
+            let scene = parse_svg(&format!(
+                r#"<svg width="100" height="100" viewBox="0 0 100 100"><path d="{d}" fill="none" stroke="black"/></svg>"#
+            ))
+            .expect("parse svg");
+            assert_eq!(scene.paths.len(), 1, "{d}");
+            scene.paths[0].clone()
+        };
+
+        // Arc flags are single characters, so `0110` is flags 0 and 1, then x 10.
+        assert_eq!(
+            path("M10 40a10 10 0 0110 10A5 5 0 1050 50"),
+            path("M10 40 a10 10 0 0 1 10 10 A5 5 0 1 0 50 50")
+        );
+        assert_eq!(
+            path("M10 40a10,10 -30 0,1 10-10"),
+            path("M10 40 a10 10 -30 0 1 10 -10")
+        );
     }
 
     #[test]
