@@ -473,6 +473,8 @@ pub struct FloatSite {
 pub struct CaptionSite {
     pub kind: FloatKind,
     pub numbered: bool,
+    /// A `\caption` inside a `subfigure`/`subtable` environment.
+    pub subcaption: bool,
     pub list_title: String,
     pub body_title: String,
     pub file: Utf8PathBuf,
@@ -582,6 +584,7 @@ enum CommandEvent {
         offset: u32,
         kind: FloatKind,
         numbered: bool,
+        subcaption: bool,
         list_title: String,
         body_title: String,
     },
@@ -1171,12 +1174,14 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                     offset,
                     kind,
                     numbered,
+                    subcaption,
                     list_title,
                     body_title,
                 } => {
                     captions.push(CaptionSite {
                         kind,
                         numbered,
+                        subcaption,
                         list_title,
                         body_title,
                         file: path.to_path_buf(),
@@ -1690,6 +1695,8 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
     let mut figure_counter = 0u32;
     let mut table_counter = 0u32;
     let mut algorithm_counter = 0u32;
+    let mut main_float_numbers = Vec::<(Utf8PathBuf, u32, FloatKind, String)>::new();
+    let mut subcaption_counters = BTreeMap::new();
     let mut block_counters = BTreeMap::<(String, Option<String>), u32>::new();
     let mut numbered_sections = Vec::new();
     let mut numbered_equations = Vec::new();
@@ -1851,7 +1858,51 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 .iter()
                 .find(|caption| caption.order == order)
                 .unwrap();
-            if caption.numbered {
+            if caption.numbered && caption.subcaption {
+                // subcaption numbers sub-floats "1a", "1b", ... within the enclosing
+                // float, whose main caption usually follows the sub-floats.
+                let Some(parent_offset) = scan
+                    .floats
+                    .iter()
+                    .filter(|float| {
+                        float.file == file
+                            && float.kind == caption.kind
+                            && float.offset_utf8 <= offset_utf8
+                    })
+                    .map(|float| float.offset_utf8)
+                    .max()
+                else {
+                    continue;
+                };
+                let parent_number = main_float_numbers
+                    .iter()
+                    .rev()
+                    .find(|(float_file, float_offset, float_kind, _)| {
+                        *float_file == file
+                            && *float_kind == caption.kind
+                            && *float_offset >= parent_offset
+                    })
+                    .map(|(_, _, _, number)| number.clone())
+                    .unwrap_or_else(|| {
+                        let counter = match caption.kind {
+                            FloatKind::Figure => figure_counter,
+                            FloatKind::Table => table_counter,
+                            FloatKind::Algorithm => algorithm_counter,
+                        };
+                        (counter + 1).to_string()
+                    });
+                let sub_counter = subcaption_counters
+                    .entry((file.clone(), parent_offset))
+                    .or_insert(0u32);
+                let letter = char::from(b'a' + (*sub_counter % 26) as u8);
+                *sub_counter += 1;
+                numbered_floats.push((
+                    file,
+                    offset_utf8,
+                    caption.kind,
+                    format!("{parent_number}{letter}"),
+                ));
+            } else if caption.numbered {
                 let number = if caption.kind == FloatKind::Figure {
                     figure_counter += 1;
                     figure_counter.to_string()
@@ -1862,6 +1913,7 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                     algorithm_counter += 1;
                     algorithm_counter.to_string()
                 };
+                main_float_numbers.push((file.clone(), offset_utf8, caption.kind, number.clone()));
                 numbered_floats.push((file, offset_utf8, caption.kind, number));
             }
             continue;
@@ -1980,7 +2032,7 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
             },
         );
     }
-    for caption in &scan.captions {
+    for caption in scan.captions.iter().filter(|caption| !caption.subcaption) {
         let number = numbered_floats
             .iter()
             .rev()
@@ -7366,16 +7418,23 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                     cursor = option_end;
                 }
                 if let Some((argument_end, title)) = read_braced_argument(source, cursor) {
-                    if let Some((kind, _)) = environment_stack
-                        .iter()
-                        .rev()
-                        .find_map(|(_, current_float)| *current_float)
+                    let mut subcaption = false;
+                    if let Some((kind, _)) =
+                        environment_stack
+                            .iter()
+                            .rev()
+                            .find_map(|(environment, current_float)| {
+                                subcaption |=
+                                    matches!(environment.as_str(), "subfigure" | "subtable");
+                                *current_float
+                            })
                     {
                         let body_title = title.trim().to_string();
                         events.push(CommandEvent::Caption {
                             offset: command_start as u32,
                             kind,
                             numbered: !starred,
+                            subcaption,
                             list_title: list_title.unwrap_or_else(|| body_title.clone()),
                             body_title,
                         });
@@ -7412,6 +7471,7 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                                 offset: command_start as u32,
                                 kind,
                                 numbered: !starred,
+                                subcaption: false,
                                 list_title: list_title.unwrap_or_else(|| body_title.clone()),
                                 body_title,
                             });
@@ -12659,6 +12719,46 @@ mod tests {
                 .map(|caption| caption.number.as_str())
                 .collect::<Vec<_>>(),
             vec!["", "", "1", "2"]
+        );
+    }
+
+    #[test]
+    fn derive_semantic_aux_numbers_subfigure_captions_within_their_figure() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\begin{figure}\n\\begin{subfigure}{0.45\\linewidth}\\caption{Left}\\label{fig:left}\\end{subfigure}\n\\begin{subfigure}{0.45\\linewidth}\\caption{Right}\\label{fig:right}\\end{subfigure}\n\\caption{Both}\\label{fig:both}\n\\end{figure}\n\\begin{figure}\\caption{Next}\\label{fig:next}\\end{figure}\n\\begin{table}\\begin{subtable}{\\linewidth}\\caption{Part}\\label{tab:part}\\end{subtable}\\caption{Whole}\\label{tab:whole}\\end{table}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        let label_number = |key: &str| {
+            aux.labels
+                .iter()
+                .find(|label| label.key == key)
+                .map(|label| label.number.as_str())
+        };
+        assert_eq!(label_number("fig:left"), Some("1a"));
+        assert_eq!(label_number("fig:right"), Some("1b"));
+        assert_eq!(label_number("fig:both"), Some("1"));
+        assert_eq!(label_number("fig:next"), Some("2"));
+        assert_eq!(label_number("tab:part"), Some("1a"));
+        assert_eq!(label_number("tab:whole"), Some("1"));
+        assert_eq!(
+            aux.float_captions
+                .iter()
+                .map(|caption| (caption.kind.as_str(), caption.number.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("figure", "1"), ("figure", "2"), ("table", "1")]
         );
     }
 
