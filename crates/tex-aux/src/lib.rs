@@ -6448,13 +6448,11 @@ fn bibliography_text_by_file(scan: &ProjectScan) -> BTreeMap<Utf8PathBuf, String
 }
 
 fn parse_bibliography_entries(path: &Utf8Path, source: &str) -> Vec<ParsedBibliographyEntry> {
+    let source = strip_bibliography_comments(source);
+    let source = source.as_str();
     let mut entries = Vec::new();
     let mut index = 0usize;
-    while let Some(command_rel) = source[index..].find("\\bibitem") {
-        let command_start = index + command_rel;
-        let Some((command_end, _)) = read_command_name(source, command_start) else {
-            break;
-        };
+    while let Some((_, command_end)) = find_bibitem_command(source, index) {
         let (cursor, label) =
             if let Some((label_end, label)) = read_bracket_argument(source, command_end) {
                 (label_end, Some(clean_bibliography_text(&label)))
@@ -6465,9 +6463,9 @@ fn parse_bibliography_entries(path: &Utf8Path, source: &str) -> Vec<ParsedBiblio
             index = command_end;
             continue;
         };
-        let next_start = source[item_end..]
-            .find("\\bibitem")
-            .map(|next| item_end + next)
+        let key = key.trim().to_string();
+        let next_start = find_bibitem_command(source, item_end)
+            .map(|(next_start, _)| next_start)
             .unwrap_or(source.len());
         let raw_entry = &source[item_end..next_start];
         let mut fields = Vec::new();
@@ -6509,6 +6507,56 @@ fn parse_bibliography_entries(path: &Utf8Path, source: &str) -> Vec<ParsedBiblio
         index = next_start;
     }
     entries
+}
+
+// Finds the next `\bibitem` command, skipping longer names such as REVTeX's
+// `\bibitemStart`/`\bibitemNoStop` that share the prefix.
+fn find_bibitem_command(source: &str, mut index: usize) -> Option<(usize, usize)> {
+    while let Some(command_rel) = source[index..].find("\\bibitem") {
+        let command_start = index + command_rel;
+        let (command_end, command_name) = read_command_name(source, command_start)?;
+        if command_name == "bibitem" {
+            return Some((command_start, command_end));
+        }
+        index = command_end;
+    }
+    None
+}
+
+// Drops TeX comments from a .bbl file: a `%` removes the rest of its line, the
+// line break and the next line's leading blanks, so `\bibitem[label]%` keeps its
+// key on the following line (ACM-Reference-Format) and `% \bibitem{old}` stays
+// commented out. `\url`/`\href` targets keep a literal `%`, as url.sty does.
+fn strip_bibliography_comments(source: &str) -> String {
+    let mut output = String::with_capacity(source.len());
+    let mut index = 0usize;
+    while let Some(ch) = source[index..].chars().next() {
+        match ch {
+            '\\' => {
+                let Some((mut end, command_name)) = read_command_name(source, index) else {
+                    break;
+                };
+                if matches!(command_name.as_str(), "url" | "href")
+                    && let Some((argument_end, _)) = read_braced_argument(source, end)
+                {
+                    end = argument_end;
+                }
+                output.push_str(&source[index..end]);
+                index = end;
+            }
+            '%' => {
+                index = skip_comment(source, index);
+                index += source[index..]
+                    .find(|ch: char| ch != ' ' && ch != '\t')
+                    .unwrap_or(source.len() - index);
+            }
+            _ => {
+                output.push(ch);
+                index += ch.len_utf8();
+            }
+        }
+    }
+    output
 }
 
 fn extract_bibliography_url(source: &str) -> Option<String> {
@@ -9469,6 +9517,31 @@ mod tests {
                 "{hidden} leaked into {:?}",
                 entries[0].text
             );
+        }
+    }
+
+    #[test]
+    fn bibliography_parser_reads_only_real_bibitem_commands() {
+        let entries = parse_bibliography_entries(
+            Utf8Path::new("refs.bbl"),
+            "\\begin{thebibliography}{3}%\n\\providecommand \\bibitemStart [1]{}%\n\\providecommand \\bibitemNoStop {.}%\n\\bibitem [{Alpha(2020)}]{alpha}%\n  \\BibitemOpen Alpha entry.\\BibitemShut {NoStop}%\n\\bibitem[Beta(2021)]%\n        {beta}\nBeta entry.\n% \\bibitem{old} Old entry.\n\\bibitem{ gamma }\nGamma entry.\n\\end{thebibliography}",
+        );
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "beta", "gamma"]
+        );
+        assert_eq!(entries[1].label.as_deref(), Some("Beta(2021)"));
+        for (entry, text) in entries
+            .iter()
+            .zip(["Alpha entry.", "Beta entry.", "Gamma entry."])
+        {
+            assert!(entry.text.starts_with(text), "{:?}", entry.text);
+            assert!(!entry.text.contains('%'), "{:?}", entry.text);
+            assert!(!entry.text.contains("Old entry"), "{:?}", entry.text);
         }
     }
 
