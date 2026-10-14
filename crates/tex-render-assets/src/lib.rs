@@ -13,12 +13,28 @@ use tex_render_model::{
 };
 
 fn decode_raster_image(bytes: &[u8]) -> Option<EmbeddedRasterImage> {
-    let image = image::load_from_memory(bytes).ok()?.to_rgb8();
-    let (width, height) = image.dimensions();
+    let image = image::load_from_memory(bytes).ok()?;
+    let (width, height) = (image.width(), image.height());
+    if !image.color().has_alpha() {
+        let rgb = image.into_rgb8().into_raw();
+        return Some(EmbeddedRasterImage {
+            width,
+            height,
+            rgb,
+            alpha: None,
+        });
+    }
+    let rgba = image.into_rgba8();
+    let rgb = rgba
+        .pixels()
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    let alpha = rgba.pixels().map(|pixel| pixel[3]).collect::<Vec<_>>();
     Some(EmbeddedRasterImage {
         width,
         height,
-        rgb: image.into_raw(),
+        rgb,
+        alpha: alpha.iter().any(|&value| value != u8::MAX).then_some(alpha),
     })
 }
 
