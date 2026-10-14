@@ -8202,7 +8202,9 @@ fn decode_aux_text(encoded: &str) -> Result<String> {
     let mut bytes = Vec::with_capacity(encoded.len() / 2);
     let mut index = 0usize;
     while index < encoded.len() {
-        let byte = u8::from_str_radix(&encoded[index..index + 2], 16)
+        let byte = encoded
+            .get(index..index + 2)
+            .and_then(|pair| u8::from_str_radix(pair, 16).ok())
             .with_context(|| format!("invalid hex payload at byte {}", index / 2))?;
         bytes.push(byte);
         index += 2;
@@ -8351,6 +8353,14 @@ mod tests {
         let loaded = parse_concrete_semantic_aux(&payload).expect("parse concrete aux");
 
         assert_eq!(loaded, aux);
+    }
+
+    #[test]
+    fn concrete_aux_rejects_non_ascii_hex_payload() {
+        let error = parse_concrete_semantic_aux("\\newlabel{aé0}{{31}{1}{6d}{0}}".as_bytes())
+            .expect_err("non-ascii hex payload");
+
+        assert!(format!("{error:#}").contains("invalid hex payload"));
     }
 
     #[test]
