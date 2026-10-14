@@ -1794,13 +1794,18 @@ fn viewer_dist_file(path: &str) -> Option<Utf8PathBuf> {
 fn viewer_content_type(path: &Utf8Path) -> &'static str {
     match path.extension() {
         Some("html") => "text/html; charset=utf-8",
-        Some("js") => "text/javascript; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("json") | Some("map") => "application/json",
+        // `WebAssembly.compileStreaming` rejects the browser compiler otherwise.
+        Some("wasm") => "application/wasm",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
         Some("ico") => "image/x-icon",
         Some("txt") => "text/plain; charset=utf-8",
+        Some("woff") => "font/woff",
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     }
@@ -7840,6 +7845,29 @@ mod tests {
         let outside_response =
             revision_artifact(Path((3, "build-meta.json".to_string())), State(state)).await;
         assert_eq!(outside_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn viewer_content_type_labels_wasm_and_web_assets() {
+        // `WebAssembly.compileStreaming` rejects any type but application/wasm.
+        for (path, expected) in [
+            ("wasi/latexd-wasi.wasm", "application/wasm"),
+            (
+                "_app/immutable/workers/compiler.mjs",
+                "text/javascript; charset=utf-8",
+            ),
+            ("fonts/cmr10.woff", "font/woff"),
+            ("fonts/cmr10.woff2", "font/woff2"),
+            ("figures/plot.webp", "image/webp"),
+            ("figures/plot.jpg", "image/jpeg"),
+            ("figures/plot.jpeg", "image/jpeg"),
+        ] {
+            assert_eq!(
+                super::viewer_content_type(camino::Utf8Path::new(path)),
+                expected,
+                "{path}"
+            );
+        }
     }
 
     #[test]
