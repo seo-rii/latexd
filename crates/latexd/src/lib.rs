@@ -1093,7 +1093,11 @@ pub(crate) fn viewer_prefixed_path_for(base_path: &str, path: &str) -> String {
     if base_path.is_empty() || path.is_empty() {
         return path.to_string();
     }
-    if path.starts_with(base_path) {
+    // Only a whole leading segment counts: base `/a` does not cover `/artifacts`.
+    if path
+        .strip_prefix(base_path)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    {
         return path.to_string();
     }
     if path.starts_with('/') {
@@ -7869,6 +7873,23 @@ mod tests {
             "/viewer/api/state"
         );
         assert_eq!(viewer_prefixed_path_for("", "/api/state"), "/api/state");
+    }
+
+    #[test]
+    fn viewer_prefixed_path_for_matches_whole_base_path_segments() {
+        assert_eq!(
+            viewer_prefixed_path_for("/a", "/artifacts/rev/1/main.pdf"),
+            "/a/artifacts/rev/1/main.pdf"
+        );
+        assert_eq!(
+            viewer_prefixed_path_for("/viewer", "/viewer-assets/app.js"),
+            "/viewer/viewer-assets/app.js"
+        );
+        assert_eq!(
+            viewer_prefixed_path_for("/a", "/a/artifacts/rev/1/main.pdf"),
+            "/a/artifacts/rev/1/main.pdf"
+        );
+        assert_eq!(viewer_prefixed_path_for("/a", "/a"), "/a");
     }
 
     #[tokio::test]
