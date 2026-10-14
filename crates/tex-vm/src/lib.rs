@@ -24141,45 +24141,40 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::EndInput => {
-                let Some(current_path) = self.source_stack.last().map(|frame| frame.path.clone())
-                else {
+                if self.source_stack.is_empty() {
                     return;
-                };
-                while let Some(item) = queue.pop_front() {
-                    match item {
-                        QueueItem::ModuleEnd {
-                            path,
-                            source_start_utf8,
-                            source_end_utf8,
-                            output_start_utf8,
-                            checkpoint,
-                        } if path == current_path => {
-                            queue.push_front(QueueItem::ModuleEnd {
-                                path,
-                                source_start_utf8,
-                                source_end_utf8,
-                                output_start_utf8,
-                                checkpoint,
-                            });
-                            break;
+                }
+                // TeX closes the file only once the current line is finished: pending
+                // token lists and the rest of this line are still read.
+                let mut index = 0;
+                let mut current_line_kept = false;
+                while index < queue.len() {
+                    match &mut queue[index] {
+                        QueueItem::ModuleEnd { .. } => break,
+                        QueueItem::Token(_) => index += 1,
+                        QueueItem::CharacterSource(mouth) if !current_line_kept => {
+                            current_line_kept = true;
+                            let input = mouth.input();
+                            let position = mouth.position();
+                            let line_end = input[position..].find(['\n', '\r']).map_or(
+                                input.len(),
+                                |offset| {
+                                    let newline = position + offset;
+                                    if input[newline..].starts_with("\r\n") {
+                                        newline + 2
+                                    } else {
+                                        newline + 1
+                                    }
+                                },
+                            );
+                            if let Some(current_line) = mouth.rebase_input(&input[..line_end]) {
+                                *mouth = current_line;
+                            }
+                            index += 1;
                         }
-                        QueueItem::ModuleEnd {
-                            path,
-                            source_start_utf8,
-                            source_end_utf8,
-                            output_start_utf8,
-                            checkpoint,
-                        } => {
-                            queue.push_front(QueueItem::ModuleEnd {
-                                path,
-                                source_start_utf8,
-                                source_end_utf8,
-                                output_start_utf8,
-                                checkpoint,
-                            });
-                            break;
+                        QueueItem::CharacterSource(_) => {
+                            queue.remove(index);
                         }
-                        QueueItem::Token(_) | QueueItem::CharacterSource(_) => {}
                     }
                 }
             }
@@ -36933,7 +36928,7 @@ mod tests {
     fn endinput_skips_remaining_tokens_in_input_files() {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
-        vm.mount_file("child.tex", "AB\\endinput CD");
+        vm.mount_file("child.tex", "AB\\endinput\nCD");
 
         let outcome = vm.run_plain(r"X\input{child}Y");
 
@@ -36948,7 +36943,7 @@ mod tests {
         let mut vm = Vm::new(&mut interner);
         vm.mount_file(
             "shim.sty",
-            r"\ProvidesPackage{shim}[2024/01/01]\def\shimflag{shim-ready}\endinput BROKEN",
+            "\\ProvidesPackage{shim}[2024/01/01]\\def\\shimflag{shim-ready}\\endinput\nBROKEN",
         );
 
         let outcome = vm.run_plain(r"\usepackage{shim}\shimflag");
@@ -36956,6 +36951,37 @@ mod tests {
         assert_eq!(outcome.output, "shim-ready");
         assert!(outcome.diagnostics.is_empty());
         assert_eq!(outcome.loaded_modules, vec![Utf8PathBuf::from("shim.sty")]);
+    }
+
+    #[test]
+    fn endinput_finishes_the_current_line_before_closing_the_file() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("child.tex", "A\\endinput B\nC\n");
+
+        let outcome = vm.run_plain(r"X\input{child}Y");
+
+        assert_eq!(outcome.output, "XAB Y");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn endinput_inside_a_conditional_still_reaches_its_fi() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "guard.tex",
+            "\\ifx\\guardloaded\\undefined\\else\\endinput\\fi\n\\def\\guardloaded{}LOADED\n",
+        );
+
+        let outcome = vm.run_plain(r"\input{guard}\input{guard}[\ifnum1=2 T\else F\fi]");
+
+        assert_eq!(outcome.output, "LOADED [F]");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            vm.conditionals.is_empty(),
+            "\\endinput left a conditional open"
+        );
     }
 
     #[test]
