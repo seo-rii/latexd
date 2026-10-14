@@ -415,6 +415,9 @@ pub struct ProjectScan {
     pub bibliography_style: Option<String>,
     pub custom_block_environments: Vec<String>,
     pub has_table_of_contents: bool,
+    /// Explicit `\numberwithin`/`\counterwithin`/`\counterwithout` settings: the
+    /// sectioning level a counter resets with, and whether its number is prefixed.
+    pub counters_within: BTreeMap<String, Option<(u8, bool)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -600,6 +603,10 @@ enum CommandEvent {
     FloatList,
     BibliographyHeading,
     TableOfContents,
+    CounterWithin {
+        counter: String,
+        within: Option<(u8, bool)>,
+    },
     Bibliography {
         stems: Vec<String>,
     },
@@ -971,6 +978,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
     let mut custom_block_environments = Vec::<String>::new();
     let mut seen_custom_block_environments = HashSet::<String>::new();
     let mut has_table_of_contents = false;
+    let mut counters_within = BTreeMap::new();
     let mut active = HashSet::new();
     let mut include_only = None;
     let mut order = 0usize;
@@ -997,6 +1005,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         custom_block_environments: &mut Vec<String>,
         seen_custom_block_environments: &mut HashSet<String>,
         has_table_of_contents: &mut bool,
+        counters_within: &mut BTreeMap<String, Option<(u8, bool)>>,
         active: &mut HashSet<Utf8PathBuf>,
         include_only: &mut Option<HashSet<Utf8PathBuf>>,
         order: &mut usize,
@@ -1196,6 +1205,9 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                     *order += 1;
                 }
                 CommandEvent::TableOfContents => *has_table_of_contents = true,
+                CommandEvent::CounterWithin { counter, within } => {
+                    counters_within.insert(counter, within);
+                }
                 CommandEvent::Bibliography { stems } => {
                     for stem in stems {
                         let Ok(mut path) = normalize_relative_path(Utf8Path::new(&stem)) else {
@@ -1263,6 +1275,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                             custom_block_environments,
                             seen_custom_block_environments,
                             has_table_of_contents,
+                            counters_within,
                             active,
                             include_only,
                             order,
@@ -1300,6 +1313,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         &mut custom_block_environments,
         &mut seen_custom_block_environments,
         &mut has_table_of_contents,
+        &mut counters_within,
         &mut active,
         &mut include_only,
         &mut order,
@@ -1337,6 +1351,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         bibliography_style,
         custom_block_environments,
         has_table_of_contents,
+        counters_within,
     })
 }
 
@@ -1686,10 +1701,37 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
         }
     }
     let mut section_counters = vec![0u32; 6];
-    let mut equation_counter = 0u32;
-    let mut figure_counter = 0u32;
-    let mut table_counter = 0u32;
-    let mut algorithm_counter = 0u32;
+    // Book-like classes (anything with \chapter) number figures, tables and
+    // equations within chapters; \numberwithin and friends override that.
+    let has_chapters = scan.sections.iter().any(|section| section.level == 0);
+    let counter_within = |counter: &str| match scan.counters_within.get(counter) {
+        Some(within) => *within,
+        None => (has_chapters && matches!(counter, "equation" | "figure" | "table"))
+            .then_some((0, true)),
+    };
+    let mut section_scopes = vec![None::<String>; 6];
+    let mut scoped_counters = BTreeMap::<(&'static str, Option<String>), u32>::new();
+    fn next_scoped_number(
+        scoped_counters: &mut BTreeMap<(&'static str, Option<String>), u32>,
+        counter: &'static str,
+        within: Option<(u8, bool)>,
+        section_scopes: &[Option<String>],
+    ) -> String {
+        // LaTeX prints \thechapter as 0 before the first numbered chapter.
+        let scope = within.map(|(level, _)| {
+            section_scopes
+                .get(level as usize)
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| "0".to_string())
+        });
+        let value = scoped_counters.entry((counter, scope.clone())).or_insert(0);
+        *value += 1;
+        match (within, scope) {
+            (Some((_, true)), Some(scope)) => format!("{scope}.{value}"),
+            _ => value.to_string(),
+        }
+    }
     let mut block_counters = BTreeMap::<(String, Option<String>), u32>::new();
     let mut numbered_sections = Vec::new();
     let mut numbered_equations = Vec::new();
@@ -1749,6 +1791,7 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
         if kind == 0 {
             in_appendix = true;
             section_counters.fill(0);
+            section_scopes.fill(None);
             current_number = None;
             continue;
         }
@@ -1828,6 +1871,13 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 offset_utf8: section.offset_utf8,
             });
             if section.numbered {
+                let level_index = section.level as usize;
+                if level_index < section_scopes.len() {
+                    section_scopes[level_index] = Some(number.clone());
+                    for scope in section_scopes.iter_mut().skip(level_index + 1) {
+                        *scope = None;
+                    }
+                }
                 current_number = Some(number.clone());
                 numbered_sections.push((file, offset_utf8, section.level, number));
             }
@@ -1840,8 +1890,13 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 .find(|equation| equation.order == order)
                 .unwrap();
             if equation.numbered {
-                equation_counter += 1;
-                numbered_equations.push((file, offset_utf8, equation_counter.to_string()));
+                let number = next_scoped_number(
+                    &mut scoped_counters,
+                    "equation",
+                    counter_within("equation"),
+                    &section_scopes,
+                );
+                numbered_equations.push((file, offset_utf8, number));
             }
             continue;
         }
@@ -1852,16 +1907,17 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 .find(|caption| caption.order == order)
                 .unwrap();
             if caption.numbered {
-                let number = if caption.kind == FloatKind::Figure {
-                    figure_counter += 1;
-                    figure_counter.to_string()
-                } else if caption.kind == FloatKind::Table {
-                    table_counter += 1;
-                    table_counter.to_string()
-                } else {
-                    algorithm_counter += 1;
-                    algorithm_counter.to_string()
+                let counter = match caption.kind {
+                    FloatKind::Figure => "figure",
+                    FloatKind::Table => "table",
+                    FloatKind::Algorithm => "algorithm",
                 };
+                let number = next_scoped_number(
+                    &mut scoped_counters,
+                    counter,
+                    counter_within(counter),
+                    &section_scopes,
+                );
                 numbered_floats.push((file, offset_utf8, caption.kind, number));
             }
             continue;
@@ -7707,6 +7763,35 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                     }
                 }
             }
+            "numberwithin" | "counterwithin" | "counterwithout" => {
+                let star_end = skip_optional_command_star(source, command_end);
+                let prefixed = star_end == command_end;
+                let cursor = skip_optional_bracket_arguments(source, star_end);
+                if let Some((counter_end, counter)) = read_braced_argument(source, cursor)
+                    && let Some((within_end, within)) = read_braced_argument(source, counter_end)
+                {
+                    let level = match within.trim() {
+                        "chapter" => Some(0),
+                        "section" => Some(1),
+                        "subsection" => Some(2),
+                        "subsubsection" => Some(3),
+                        _ => None,
+                    };
+                    if command_name == "counterwithout" {
+                        events.push(CommandEvent::CounterWithin {
+                            counter: counter.trim().to_string(),
+                            within: None,
+                        });
+                    } else if let Some(level) = level {
+                        events.push(CommandEvent::CounterWithin {
+                            counter: counter.trim().to_string(),
+                            within: Some((level, prefixed)),
+                        });
+                    }
+                    index = within_end;
+                    continue;
+                }
+            }
             "includeonly" => {
                 if let Some((argument_end, raw_paths)) = read_braced_argument(source, command_end) {
                     let paths = raw_paths
@@ -8977,6 +9062,68 @@ mod tests {
         assert_eq!(aux.toc[1].number, "A");
         assert_eq!(aux.toc[2].number, "A.1");
         assert_eq!(aux.labels[0].number, "A.1");
+    }
+
+    #[test]
+    fn derive_semantic_aux_numbers_floats_and_equations_within_chapters() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\counterwithout{table}{chapter}\\chapter{One}\\begin{figure}\\caption{A}\\label{fig:a}\\end{figure}\\begin{equation}x\\label{eq:a}\\end{equation}\\begin{table}\\caption{T}\\label{tab:a}\\end{table}\\chapter{Two}\\begin{figure}\\caption{B}\\label{fig:b}\\end{figure}\\begin{equation}y\\label{eq:b}\\end{equation}\\begin{table}\\caption{U}\\label{tab:b}\\end{table}\\appendix\\chapter{Proofs}\\begin{figure}\\caption{C}\\label{fig:c}\\end{figure}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        for (key, number) in [
+            ("fig:a", "1.1"),
+            ("eq:a", "1.1"),
+            ("tab:a", "1"),
+            ("fig:b", "2.1"),
+            ("eq:b", "2.1"),
+            ("tab:b", "2"),
+            ("fig:c", "A.1"),
+        ] {
+            assert_eq!(aux.label_number(key), Some(number), "{key}");
+        }
+    }
+
+    #[test]
+    fn derive_semantic_aux_honors_numberwithin_and_counterwithin() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\numberwithin{equation}{section}\\counterwithin*{figure}{section}\\section{S}\\begin{equation}a\\label{eq:s1}\\end{equation}\\begin{equation}b\\label{eq:s2}\\end{equation}\\section{T}\\begin{equation}c\\label{eq:t1}\\end{equation}\\begin{figure}\\caption{F}\\label{fig:t1}\\end{figure}\\begin{table}\\caption{G}\\label{tab:g}\\end{table}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        for (key, number) in [
+            ("eq:s1", "1.1"),
+            ("eq:s2", "1.2"),
+            ("eq:t1", "2.1"),
+            ("fig:t1", "1"),
+            ("tab:g", "1"),
+        ] {
+            assert_eq!(aux.label_number(key), Some(number), "{key}");
+        }
     }
 
     #[test]
