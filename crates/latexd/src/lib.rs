@@ -1554,9 +1554,18 @@ impl AppState {
                         let mut live = self.live.write().await;
                         // Drain edits accepted during artifact publication too. There
                         // are no awaits between this gate and the preview state commit.
+                        // Only paths that could change this build supersede it, as in
+                        // `plan_rebuild`: an untracked file whose existence is unchanged
+                        // (editor swap files, `.DS_Store`) cannot.
                         while let Ok(paths) = rebuild_rx.try_recv() {
                             for path in paths {
-                                if !path.starts_with(".latexd") && !path.starts_with(".git") {
+                                if path.starts_with(".latexd") || path.starts_with(".git") {
+                                    continue;
+                                }
+                                let relevant = consumed_cache.tracked_inputs.contains(&path)
+                                    || self.root.join(&path).exists()
+                                        != consumed_cache.observed_paths.contains(&path);
+                                if relevant {
                                     pending.insert(path);
                                     superseded = true;
                                 }
@@ -5407,6 +5416,100 @@ mod tests {
             .await
             .expect("tile render reply")
             .expect("tile render result")
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_commits_despite_unrelated_file_churn() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "first").expect("main tex");
+        fs::write(root.join(".main.tex.swp"), "0").expect("swap file");
+        let build_root = root.join(".latexd/build");
+        let artifacts_root = root.join(".latexd/artifacts");
+        tokio::fs::create_dir_all(build_root.as_std_path())
+            .await
+            .expect("build root");
+        tokio::fs::create_dir_all(artifacts_root.as_std_path())
+            .await
+            .expect("artifacts root");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root,
+            artifacts_root,
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(Some("internal".to_string()), Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(8).0,
+        });
+        let (rebuild_tx, rebuild_rx) = mpsc::unbounded_channel();
+        let loop_state = state.clone();
+        let build_task = tokio::spawn(async move {
+            loop_state.run_build_loop(rebuild_rx).await;
+        });
+        let wait_for_applied_rev = |rev: u64| {
+            let state = state.clone();
+            timeout(Duration::from_secs(30), async move {
+                while state.live.read().await.snapshot.last_applied_rev < rev {
+                    sleep(Duration::from_millis(20)).await;
+                }
+            })
+        };
+
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("initial rebuild");
+        wait_for_applied_rev(1).await.expect("initial build");
+
+        // An editor keeps saving a swap file that no build reads, so watcher
+        // events for it arrive during every phase of the next build.
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let churn = {
+            let rebuild_tx = rebuild_tx.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    if rebuild_tx
+                        .send(vec![Utf8PathBuf::from(".main.tex.swp")])
+                        .is_err()
+                    {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_micros(100));
+                }
+            })
+        };
+        fs::write(root.join("main.tex"), "second").expect("edit main tex");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("edit rebuild");
+        let applied = wait_for_applied_rev(2).await;
+        stop.store(true, Ordering::SeqCst);
+        churn.join().expect("churn thread");
+        applied.expect("an edit must publish while an unrelated file churns");
+
+        // The edit published as revision 2: no build was discarded for the churn,
+        // and the churn alone never starts another one.
+        sleep(Duration::from_millis(400)).await;
+        let live = state.live.read().await;
+        assert_eq!(live.snapshot.last_applied_rev, 2);
+        assert_eq!(live.snapshot.current_rev, 2);
+        drop(live);
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
     }
 
     #[tokio::test]
