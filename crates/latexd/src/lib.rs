@@ -1411,35 +1411,24 @@ impl AppState {
                             continue;
                         }
                     }
-                    if outcome.pdf_path.is_file() {
-                        let latest_pdf_path = self.artifacts_root.join("latest.pdf");
-                        if let Err(error) = tokio::fs::copy(
+                    // External PDF viewers can follow .latexd/artifacts/latest.pdf. Stage
+                    // the copy now and rename it into place only when this revision is
+                    // published; this convenience copy must never fail the preview.
+                    let latest_pdf_path = self.artifacts_root.join("latest.pdf");
+                    let staged_latest_pdf_path = self.artifacts_root.join(".latest.pdf.partial");
+                    let latest_pdf_staged = outcome.pdf_path.is_file()
+                        && match tokio::fs::copy(
                             outcome.pdf_path.as_std_path(),
-                            latest_pdf_path.as_std_path(),
+                            staged_latest_pdf_path.as_std_path(),
                         )
                         .await
                         {
-                            let diagnostics = vec![Diagnostic {
-                                level: DiagnosticLevel::Error,
-                                file: Some(toplevel.to_string()),
-                                line: None,
-                                message: format!("failed to copy rendered PDF: {error}"),
-                            }];
-                            {
-                                let mut live = self.live.write().await;
-                                live.snapshot.apply_failure(rev, diagnostics.clone());
+                            Ok(_) => true,
+                            Err(error) => {
+                                warn!("failed to stage {latest_pdf_path}: {error}");
+                                false
                             }
-                            let _ = self.events.send(ServerMsg::Diagnostics {
-                                rev,
-                                items: diagnostics,
-                            });
-                            let _ = self.events.send(ServerMsg::BuildFinished {
-                                rev,
-                                success: false,
-                            });
-                            continue;
-                        }
-                    }
+                        };
 
                     let pdf_file = outcome
                         .pdf_path
@@ -1588,6 +1577,12 @@ impl AppState {
                                 success: false,
                             });
                             continue;
+                        }
+                        if latest_pdf_staged
+                            && let Err(error) =
+                                std::fs::rename(&staged_latest_pdf_path, &latest_pdf_path)
+                        {
+                            warn!("failed to update {latest_pdf_path}: {error}");
                         }
                         *build_cache = consumed_cache;
                         *live = candidate;
@@ -5495,6 +5490,98 @@ mod tests {
             json["render_ir_artifacts"]["display_list_svg_urls"][0],
             "/artifacts/rev/3/render-ir/display-list-page-page-a.svg"
         );
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_publishes_when_latest_pdf_copy_fails() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "first").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        let artifacts_root = root.join(".latexd/artifacts");
+        tokio::fs::create_dir_all(build_root.as_std_path())
+            .await
+            .expect("build root");
+        // A directory in the way makes the latest.pdf convenience copy fail.
+        tokio::fs::create_dir_all(artifacts_root.join("latest.pdf").as_std_path())
+            .await
+            .expect("blocking directory");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: artifacts_root.clone(),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(Some("internal".to_string()), Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(8).0,
+        });
+        let (rebuild_tx, rebuild_rx) = mpsc::unbounded_channel();
+        let loop_state = state.clone();
+        let build_task = tokio::spawn(async move {
+            loop_state.run_build_loop(rebuild_rx).await;
+        });
+        let wait_for_finished_rev = |rev: u64, context: &'static str| {
+            let state = state.clone();
+            async move {
+                timeout(Duration::from_secs(30), async {
+                    loop {
+                        {
+                            let live = state.live.read().await;
+                            if live.snapshot.current_rev == rev && !live.snapshot.building {
+                                return;
+                            }
+                        }
+                        sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect(context);
+            }
+        };
+
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("initial rebuild");
+        wait_for_finished_rev(1, "initial build").await;
+        {
+            let live = state.live.read().await;
+            assert_eq!(live.snapshot.last_build_succeeded, Some(true));
+            assert_eq!(live.snapshot.last_applied_rev, 1);
+        }
+
+        fs::remove_dir(artifacts_root.join("latest.pdf")).expect("remove blocking directory");
+        fs::write(root.join("main.tex"), "second").expect("edit main tex");
+        rebuild_tx
+            .send(vec![Utf8PathBuf::from("main.tex")])
+            .expect("second rebuild");
+        wait_for_finished_rev(2, "second build").await;
+        assert_eq!(state.live.read().await.snapshot.last_applied_rev, 2);
+        assert_eq!(
+            fs::read(artifacts_root.join("latest.pdf")).expect("latest pdf"),
+            fs::read(build_root.join("rev-2/main.pdf")).expect("revision pdf")
+        );
+        let leftovers = fs::read_dir(&artifacts_root)
+            .expect("artifacts root")
+            .map(|entry| entry.expect("entry").file_name())
+            .filter(|name| name != "latest.pdf")
+            .collect::<Vec<_>>();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
     }
 
     #[tokio::test]
