@@ -48,6 +48,8 @@ jobs:
       - name: Install Rust toolchain with WebAssembly target
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Same toolchain CI tests with (ci.yml); the deployed WASM must not float.
+          toolchain: 1.94.0
           targets: wasm32-unknown-unknown,wasm32-wasip1
 
       - name: Install wasm-pack
