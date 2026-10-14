@@ -19,18 +19,3 @@ export function createBrowserCompiler() {
     `${base}/wasi/latexd-wasi.wasm`
   );
 }
-
-const defaultCompiler = createBrowserCompiler();
-
-export function compileProjectInBrowser(
-  files: Record<string, Uint8Array>,
-  entry = "main.tex",
-  revision = 0,
-  options: { signal?: AbortSignal } = {}
-) {
-  return defaultCompiler.compileProject(files, entry, revision, options);
-}
-
-export function compileInBrowser(source: string, revision = 0) {
-  return defaultCompiler.compileSource(source, revision);
-}
