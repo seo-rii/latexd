@@ -25673,6 +25673,30 @@ impl<'i> Vm<'i> {
                         let index = self.read_integer(queue)? as u32;
                         Some(self.eqtb.count(index).unwrap_or(0))
                     }
+                    Some(Meaning::Primitive(Primitive::CatCode)) => {
+                        let ch = u32::try_from(self.read_integer(queue)?)
+                            .ok()
+                            .and_then(char::from_u32)?;
+                        // The category the lexer would use now: transient overrides,
+                        // then the current source frame's, then the eqtb table.
+                        let catcode = self
+                            .transient_catcode_overrides
+                            .get(&ch)
+                            .copied()
+                            .or_else(|| {
+                                self.source_stack.last().and_then(|frame| {
+                                    frame
+                                        .catcode_overrides
+                                        .get(&ch)
+                                        .filter(|_| {
+                                            !frame.suppressed_catcode_overrides.contains_key(&ch)
+                                        })
+                                        .copied()
+                                })
+                            })
+                            .unwrap_or_else(|| self.eqtb.catcodes().catcode(ch));
+                        Some(catcode as i32)
+                    }
                     Some(Meaning::Primitive(Primitive::MathCode)) => {
                         let character = self.read_code_table_character_v1(queue)?;
                         Some(self.eqtb.mathcode(character).raw())
@@ -38688,6 +38712,34 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn catcode_reads_as_an_internal_integer() {
+        for (source, expected) in [
+            (r"\the\catcode`\{;\number\catcode`\a", "1;11"),
+            (r"\ifnum\catcode`\@=12 Y\else N\fi", "Y"),
+            (
+                r"\makeatletter\ifnum\catcode`\@=11 Y\else N\fi\makeatother",
+                "Y",
+            ),
+            (
+                r"{\catcode`\[=1\relax\the\catcode`\[}\the\catcode`\[",
+                "112",
+            ),
+            (r"\edef\x{\the\catcode`\%}\x", "14"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
     }
 
     #[test]
