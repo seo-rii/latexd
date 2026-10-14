@@ -5053,6 +5053,48 @@ fn rewrite_source(
                     continue;
                 }
             }
+            "citep" | "Citep" | "citet" | "Citet" | "citealt" | "Citealt" | "citealp"
+            | "Citealp" | "onlinecite"
+                if aux.citation_mode == CitationMode::Numeric =>
+            {
+                // natbib's `numbers` mode prints bibliography numbers, and like
+                // natbib a lone optional argument is the post-note.
+                let star_end = skip_optional_command_star(source, command_end);
+                let mut cursor = star_end;
+                let mut notes = Vec::new();
+                while notes.len() < 2
+                    && let Some((note_end, note)) = read_bracket_argument(source, cursor)
+                {
+                    notes.push(note.trim().to_string());
+                    cursor = note_end;
+                }
+                let (pre_note, post_note) = match notes.as_slice() {
+                    [pre_note, post_note] => (pre_note.as_str(), post_note.as_str()),
+                    [post_note] => ("", post_note.as_str()),
+                    _ => ("", ""),
+                };
+                if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
+                    let rendered = render_natbib_numeric_citation(
+                        aux,
+                        &command_name,
+                        star_end != command_end,
+                        &keys,
+                        pre_note,
+                        post_note,
+                    );
+                    let output_start_utf8 = output.len() as u32;
+                    output.push_str(&rendered);
+                    rewrite_spans.push(MaterializedRewriteSpan {
+                        start_utf8: command_start as u32,
+                        end_utf8: argument_end as u32,
+                        output_start_utf8,
+                        output_end_utf8: output.len() as u32,
+                        rendered,
+                    });
+                    index = argument_end;
+                    continue;
+                }
+            }
             "citep" | "Citep" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
                 let mut cursor = skip_optional_command_star(source, command_end);
@@ -7837,6 +7879,99 @@ fn read_bracket_argument(source: &str, start: usize) -> Option<(usize, String)> 
     Some((end, source[start + 1..].to_string()))
 }
 
+/// Renders a natbib citation command in `numbers` mode the way natbib prints it:
+/// `\citep` gives `[see 1, 2, p. 3]`, `\citet` gives `Author [1]` per key,
+/// `\citealt` gives `Author 1` and `\citealp` the bare numbers.
+fn render_natbib_numeric_citation(
+    aux: &SemanticAux,
+    command_name: &str,
+    starred: bool,
+    keys: &str,
+    pre_note: &str,
+    post_note: &str,
+) -> String {
+    let keys = keys
+        .split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .collect::<Vec<_>>();
+    let number = |key: &str| {
+        aux.bibliography_number(key)
+            .map(|number| number.to_string())
+            .unwrap_or_else(|| "?".to_string())
+    };
+    let with_notes = |list: String, first: bool, last: bool| {
+        let mut text = list;
+        if first && !pre_note.is_empty() {
+            text = format!("{pre_note} {text}");
+        }
+        if last && !post_note.is_empty() {
+            text = format!("{text}, {post_note}");
+        }
+        text
+    };
+    let capitalize = command_name.starts_with(|ch: char| ch.is_ascii_uppercase());
+    let author = |key: &str| {
+        aux.citation_display_author(key, starred).map(|author| {
+            let mut chars = author.chars();
+            match chars.next() {
+                Some(first) if capitalize => {
+                    first.to_uppercase().collect::<String>() + chars.as_str()
+                }
+                _ => author,
+            }
+        })
+    };
+    let last_index = keys.len().saturating_sub(1);
+    match command_name.to_ascii_lowercase().as_str() {
+        "citet" => keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                let bracket = format!(
+                    "[{}]",
+                    with_notes(number(key), index == 0, index == last_index)
+                );
+                match author(key) {
+                    Some(author) => format!("{author} {bracket}"),
+                    None => bracket,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        "citealt" => with_notes(
+            keys.iter()
+                .map(|key| match author(key) {
+                    Some(author) => format!("{author} {}", number(key)),
+                    None => number(key),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            true,
+            true,
+        ),
+        "citep" => format!(
+            "[{}]",
+            with_notes(
+                keys.iter()
+                    .map(|key| number(key))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                true,
+                true,
+            )
+        ),
+        _ => with_notes(
+            keys.iter()
+                .map(|key| number(key))
+                .collect::<Vec<_>>()
+                .join(", "),
+            true,
+            true,
+        ),
+    }
+}
+
 fn read_multicite_groups(
     source: &str,
     start: usize,
@@ -9610,6 +9745,40 @@ mod tests {
         assert!(!main.contains("\\pageref*"));
         assert!(!main.contains("\\cite[see][chap.~2]"));
         assert_eq!(bibliography, "[1] Alpha entry.");
+    }
+
+    #[test]
+    fn materialize_project_renders_natbib_numbers_mode_citations_as_numbers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\usepackage[numbers]{natbib}\begin{document}P \citep{alpha} Q \citep{beta,alpha} R \citep[see][p.~2]{alpha} S \citep[p.~4]{beta} T \citet{alpha} U \citet{alpha,beta} V \citet[p.~2]{alpha} W \citealt{alpha,beta} X \citealp[see][p.~2]{alpha} Y \Citet{gamma} Z \citep*{alpha}.\bibliography{refs}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{3}\bibitem[Alpha(2001)Alpha]{alpha} Ann Alpha. One.\bibitem[Beta(2002)]{beta} Bob Beta. Two.\bibitem[von Gamma(2003)]{gamma} Carl von Gamma. Three.\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+        assert_eq!(aux.citation_mode, super::CitationMode::Numeric);
+
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        // pdflatex + natbib [numbers] prints exactly these forms.
+        assert!(
+            main.contains(
+                "P [1] Q [2, 1] R [see 1, p.~2] S [2, p.~4] T Alpha [1] U Alpha [1], Beta [2] V Alpha [1, p.~2] W Alpha 1, Beta 2 X see 1, p.~2 Y Von Gamma [3] Z [1]."
+            ),
+            "{main}"
+        );
     }
 
     #[test]
