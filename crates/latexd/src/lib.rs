@@ -2548,7 +2548,11 @@ async fn open_source(
         .build_root
         .join(format!("rev-{rev}/sources.json"))
         .exists()
+        || !state.world.manifest.toplevels.contains(&file)
     {
+        // Without a revision snapshot only the toplevels are resolved against the
+        // live workspace, as the source-file API does; today's text of any other
+        // file would be passed off as the revision's.
         return text_response(
             StatusCode::NOT_FOUND,
             "requested source file was not found in the revision snapshot",
@@ -10219,6 +10223,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_source_endpoint_does_not_read_live_non_toplevel_files_without_snapshot() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "\\input{chapter}\n").expect("main tex");
+        // Today's text of a file revision 14 may have read differently.
+        fs::write(root.join("chapter.tex"), "edited\nafter\nrevision 14\n").expect("chapter");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        // Revision 14 has no source snapshot (pruned, or never published).
+        let response = open_source(
+            Path(14),
+            State(state),
+            Json(OpenSourceRequest {
+                file: "chapter.tex".to_string(),
+                offset: None,
+                line: Some(3),
+                column: Some(2),
+                source_hash: None,
+                launch: Some(false),
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn open_source_endpoint_without_configured_editor_bridge_degrades_to_preview() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -10848,6 +10897,19 @@ mod tests {
         fs::create_dir_all(root.join("sections").as_std_path()).expect("sections dir");
         fs::write(root.join("main.tex"), "\\input{sections/intro}\n").expect("main tex");
         fs::write(root.join("sections/intro.tex"), "nested\n").expect("intro tex");
+        // Files other than the toplevels resolve only inside a revision snapshot.
+        fs::create_dir_all(root.join(".latexd/build/rev-3")).expect("rev dir");
+        fs::write(
+            root.join(".latexd/build/rev-3/sources.json"),
+            serde_json::json!({
+                "files": {
+                    "main.tex": "\\input{sections/intro}\n",
+                    "sections/intro.tex": "nested\n"
+                }
+            })
+            .to_string(),
+        )
+        .expect("write sources");
         let build_root = root.join(".latexd/build");
         let state = Arc::new(AppState {
             root: root.clone(),
@@ -11001,6 +11063,19 @@ mod tests {
         fs::write(root.join("main.tex"), "\\input{sections/intro}\n").expect("main tex");
         fs::write(root.join("wrong.tex"), "wrong\n").expect("wrong tex");
         fs::write(root.join("sections/intro.tex"), "nested\n").expect("intro tex");
+        // Files other than the toplevels resolve only inside a revision snapshot.
+        fs::create_dir_all(root.join(".latexd/build/rev-4")).expect("rev dir");
+        fs::write(
+            root.join(".latexd/build/rev-4/sources.json"),
+            serde_json::json!({
+                "files": {
+                    "main.tex": "\\input{sections/intro}\n",
+                    "sections/intro.tex": "nested\n"
+                }
+            })
+            .to_string(),
+        )
+        .expect("write sources");
         let build_root = root.join(".latexd/build");
         let state = Arc::new(AppState {
             root: root.clone(),
