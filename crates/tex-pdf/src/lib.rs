@@ -1789,17 +1789,18 @@ fn render_display_list_pdf_with_font_mode(
                             .unwrap_or(&bytes);
                         let decoded = decode_pdf_image(raster_bytes);
                         if let Some(decoded) = decoded {
+                            let (pixel_width, pixel_height) = decoded.size();
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
-                                decoded.width as f32,
-                                decoded.height as f32,
+                                pixel_width as f32,
+                                pixel_height as f32,
                             );
                             let object_id = next_extra_object_id;
                             next_extra_object_id += 1;
                             let resource_name = format!("Im{next_page_image_index}");
                             next_page_image_index += 1;
                             image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
-                            extra_objects.push(build_image_xobject(object_id, &decoded));
+                            extra_objects.push(decoded.xobject(object_id));
                             let dest_x = image.rect.x;
                             let dest_y = page.height_pt - image.rect.y - image.rect.height;
                             let draw = image_draw_placement(
@@ -2036,14 +2037,119 @@ fn image_draw_placement(
     placement
 }
 
-fn decode_pdf_image(bytes: &[u8]) -> Option<EmbeddedRasterImage> {
+enum PdfRasterImage<'a> {
+    Pixels(EmbeddedRasterImage),
+    /// JPEG data PDF readers decode themselves (`/DCTDecode`).
+    Jpeg {
+        width: u32,
+        height: u32,
+        components: u8,
+        bytes: &'a [u8],
+    },
+}
+
+impl PdfRasterImage<'_> {
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::Pixels(image) => (image.width, image.height),
+            Self::Jpeg { width, height, .. } => (*width, *height),
+        }
+    }
+
+    fn xobject(&self, object_id: usize) -> Vec<u8> {
+        match self {
+            Self::Pixels(image) => build_image_xobject(object_id, image),
+            Self::Jpeg {
+                width,
+                height,
+                components,
+                bytes,
+            } => {
+                let color_space = if *components == 1 {
+                    "DeviceGray"
+                } else {
+                    "DeviceRGB"
+                };
+                let mut object = format!(
+                    "{object_id} 0 obj << /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /{color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >> stream\n",
+                    bytes.len()
+                )
+                .into_bytes();
+                object.extend_from_slice(bytes);
+                object.extend_from_slice(b"\nendstream\nendobj\n");
+                object
+            }
+        }
+    }
+}
+
+fn decode_pdf_image(bytes: &[u8]) -> Option<PdfRasterImage<'_>> {
+    if let Some((width, height, components)) = jpeg_dct_frame(bytes) {
+        return Some(PdfRasterImage::Jpeg {
+            width,
+            height,
+            components,
+            bytes,
+        });
+    }
     let image = image::load_from_memory(bytes).ok()?.to_rgb8();
     let (width, height) = image.dimensions();
-    Some(EmbeddedRasterImage {
+    Some(PdfRasterImage::Pixels(EmbeddedRasterImage {
         width,
         height,
         rgb: image.into_raw(),
-    })
+    }))
+}
+
+// Width, height and component count of a JPEG that `/DCTDecode` reproduces
+// as-is: an 8-bit baseline, extended sequential or progressive Huffman frame
+// with one (gray) or three (YCbCr or RGB, per the Adobe marker) components.
+// CMYK/YCCK, 12-bit, lossless and arithmetic-coded files return None and are
+// decoded to RGB samples instead.
+fn jpeg_dct_frame(bytes: &[u8]) -> Option<(u32, u32, u8)> {
+    if !bytes.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let mut offset = 2;
+    loop {
+        if *bytes.get(offset)? != 0xff {
+            return None;
+        }
+        let marker = *bytes.get(offset + 1)?;
+        offset += 2;
+        match marker {
+            // Fill byte before a marker.
+            0xff => offset -= 1,
+            // Markers without a length.
+            0x01 | 0xd0..=0xd7 => {}
+            // Scan data or end of image before any frame header.
+            0xd9 | 0xda => return None,
+            _ => {
+                let length = usize::from(u16::from_be_bytes([
+                    *bytes.get(offset)?,
+                    *bytes.get(offset + 1)?,
+                ]));
+                if length < 2 {
+                    return None;
+                }
+                match marker {
+                    0xc0..=0xc2 => {
+                        let frame = bytes.get(offset + 2..offset + 8)?;
+                        let height = u16::from_be_bytes([frame[1], frame[2]]);
+                        let width = u16::from_be_bytes([frame[3], frame[4]]);
+                        let components = frame[5];
+                        return (frame[0] == 8
+                            && width > 0
+                            && height > 0
+                            && matches!(components, 1 | 3))
+                        .then_some((u32::from(width), u32::from(height), components));
+                    }
+                    0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf => return None,
+                    _ => offset += length,
+                }
+            }
+        }
+    }
 }
 
 fn build_image_xobject(object_id: usize, image: &EmbeddedRasterImage) -> Vec<u8> {
@@ -27592,5 +27698,79 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn display_list_pdf_embeds_jpeg_bytes_as_dct_images() {
+        use image::ImageEncoder;
+
+        let encode_jpeg = |pixels: &[u8], color: image::ExtendedColorType| {
+            let mut bytes = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 90)
+                .write_image(pixels, 16, 8, color)
+                .expect("encode jpeg");
+            bytes
+        };
+        let rgb_jpeg = encode_jpeg(&[200; 16 * 8 * 3], image::ExtendedColorType::Rgb8);
+        let gray_jpeg = encode_jpeg(&[90; 16 * 8], image::ExtendedColorType::L8);
+        let image = |asset_ref: &str, asset_format, y: f32| {
+            DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: Some(asset_format),
+                page_selection: None,
+                asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                image("photo.jpg", GraphicAssetFormat::Jpeg, 72.0),
+                image("scan.jpg", GraphicAssetFormat::Jpeg, 200.0),
+                image("plot.png", GraphicAssetFormat::Png, 400.0),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| match asset_ref {
+            "photo.jpg" => Some(rgb_jpeg.clone()),
+            "scan.jpg" => Some(gray_jpeg.clone()),
+            "plot.png" => Some(tiny_png_bytes()),
+            _ => None,
+        });
+        let stream_after = |header: &str| {
+            let start = pdf
+                .windows(header.len())
+                .position(|window| window == header.as_bytes())
+                .unwrap_or_else(|| panic!("{header} in {}", String::from_utf8_lossy(&pdf)))
+                + header.len();
+            &pdf[start..]
+        };
+
+        for (jpeg, color_space) in [(&rgb_jpeg, "DeviceRGB"), (&gray_jpeg, "DeviceGray")] {
+            let header = format!(
+                " /Subtype /Image /Width 16 /Height 8 /ColorSpace /{color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >> stream\n",
+                jpeg.len()
+            );
+            assert!(stream_after(&header).starts_with(jpeg));
+        }
+        // Other formats are still decoded to raw RGB samples.
+        stream_after(
+            " /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 12 >> stream\n",
+        );
     }
 }
