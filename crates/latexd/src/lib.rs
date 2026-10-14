@@ -2403,7 +2403,10 @@ async fn source_file(
         .build_root
         .join(format!("rev-{rev}/sources.json"))
         .exists()
+        || !state.world.manifest.toplevels.contains(&file)
     {
+        // Without a revision snapshot only the toplevels `source_files`
+        // offers are read live; other project files are not served.
         return text_response(
             StatusCode::NOT_FOUND,
             "requested source file was not found in the revision snapshot",
@@ -2454,7 +2457,38 @@ async fn update_source_file(
     if file.as_str().is_empty() {
         return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
     }
-    let absolute_file = state.root.join(&file);
+    if !is_project_source_file(&state, &file).await {
+        return text_response(
+            StatusCode::FORBIDDEN,
+            "requested path is not a project source file",
+        );
+    }
+    let (canonical_root, canonical_file) = match (
+        tokio::fs::canonicalize(state.root.as_std_path()).await,
+        tokio::fs::canonicalize(state.root.join(&file).as_std_path()).await,
+    ) {
+        (Ok(root), Ok(file)) => (root, file),
+        (_, Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return text_response(StatusCode::NOT_FOUND, "requested source file was not found");
+        }
+        (Err(error), _) | (_, Err(error)) => {
+            return text_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to access source file: {error}"),
+            );
+        }
+    };
+    // Lexical normalization cannot see symlinks; the resolved file must stay
+    // inside the project root.
+    if !canonical_file.starts_with(&canonical_root) {
+        return text_response(
+            StatusCode::FORBIDDEN,
+            "requested source file resolves outside the project root",
+        );
+    }
+    let Ok(absolute_file) = Utf8PathBuf::from_path_buf(canonical_file) else {
+        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+    };
     match tokio::fs::metadata(absolute_file.as_std_path()).await {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_) => {
@@ -2494,6 +2528,37 @@ async fn update_source_file(
         byte_len: request.content.len() as u64,
     })
     .into_response()
+}
+
+/// The viewer only offers the manifest toplevels and the files of the applied
+/// revision's source snapshot, so those are the only files the source-file
+/// API writes. Everything else under the root (`.git`, `.latexd`, build
+/// scripts) stays out of reach.
+async fn is_project_source_file(state: &AppState, file: &Utf8Path) -> bool {
+    if state
+        .world
+        .manifest
+        .toplevels
+        .iter()
+        .any(|toplevel| toplevel == file)
+    {
+        return true;
+    }
+    let applied_rev = {
+        let live = state.live.read().await;
+        if live
+            .snapshot
+            .source_snapshot
+            .iter()
+            .any(|entry| Utf8Path::new(&entry.file) == file)
+        {
+            return true;
+        }
+        live.snapshot.last_applied_rev
+    };
+    load_revision_source_texts(&state.build_root, applied_rev)
+        .await
+        .contains_key(file)
 }
 
 fn atomic_write_source_file(path: &Utf8Path, contents: &[u8]) -> anyhow::Result<()> {
@@ -9918,6 +9983,143 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn update_source_file_endpoint_writes_only_project_sources_inside_root() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 root");
+        let outside =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("outside")).expect("utf8 outside");
+        fs::create_dir_all(root.join(".git")).expect("git dir");
+        fs::create_dir_all(root.join("chapters")).expect("chapters dir");
+        fs::create_dir_all(root.join(".latexd/build/rev-1")).expect("revision dir");
+        fs::create_dir_all(&outside).expect("outside dir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "main").expect("main tex");
+        fs::write(root.join("chapters/intro.tex"), "intro").expect("intro tex");
+        fs::write(root.join(".git/config"), "[core]").expect("git config");
+        fs::write(root.join("notes.txt"), "notes").expect("notes");
+        fs::write(outside.join("secret.tex"), "secret").expect("outside source");
+        std::os::unix::fs::symlink(&outside, root.join("linked")).expect("linked dir");
+        fs::write(
+            root.join(".latexd/build/rev-1/sources.json"),
+            r#"{"files":{"main.tex":"main","chapters/intro.tex":"intro","linked/secret.tex":"secret"}}"#,
+        )
+        .expect("revision sources");
+        let mut live = LivePreviewState::default();
+        live.snapshot.last_applied_rev = 1;
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(live),
+            events: broadcast::channel(4).0,
+        });
+
+        for (file, expected) in [
+            (".git/config", StatusCode::FORBIDDEN),
+            ("notes.txt", StatusCode::FORBIDDEN),
+            (".latexd/build/rev-1/sources.json", StatusCode::FORBIDDEN),
+            ("linked/secret.tex", StatusCode::FORBIDDEN),
+            ("chapters/intro.tex", StatusCode::OK),
+            ("main.tex", StatusCode::OK),
+        ] {
+            let response = update_source_file(
+                State(state.clone()),
+                Json(UpdateSourceFileRequest {
+                    file: file.to_string(),
+                    content: "edited".to_string(),
+                }),
+            )
+            .await;
+            assert_eq!(response.status(), expected, "{file}");
+        }
+        assert_eq!(
+            fs::read_to_string(root.join(".git/config")).expect("git config"),
+            "[core]"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("notes.txt")).expect("notes"),
+            "notes"
+        );
+        assert_eq!(
+            fs::read_to_string(outside.join("secret.tex")).expect("outside source"),
+            "secret"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("chapters/intro.tex")).expect("intro tex"),
+            "edited"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("main.tex")).expect("main tex"),
+            "edited"
+        );
+    }
+
+    #[tokio::test]
+    async fn source_file_endpoint_without_revision_snapshot_reads_only_toplevels() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "main").expect("main tex");
+        fs::write(root.join(".env"), "TOKEN=secret").expect("dotenv");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let dotenv = source_file(
+            Path(7),
+            Query(SourceFileQuery {
+                file: ".env".to_string(),
+            }),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(dotenv.status(), StatusCode::NOT_FOUND);
+
+        let toplevel = source_file(
+            Path(7),
+            Query(SourceFileQuery {
+                file: "main.tex".to_string(),
+            }),
+            State(state),
+        )
+        .await;
+        assert_eq!(toplevel.status(), StatusCode::OK);
+        let body = to_bytes(toplevel.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload: SourceFileResponse =
+            serde_json::from_slice(&body).expect("decode source file response");
+        assert_eq!(payload.content, "main");
     }
 
     #[tokio::test]
