@@ -36,7 +36,7 @@ use axum::{
     },
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use hmr_protocol::{
@@ -1038,7 +1038,10 @@ fn build_api_router(state: Arc<AppState>) -> Router {
         .route("/api/syncmap/{rev}/{page_id}", get(page_syncmap))
         .route("/api/source-files/{rev}", get(source_files))
         .route("/api/source-file/{rev}", get(source_file))
-        .route("/api/source-file", put(update_source_file))
+        .route(
+            "/api/source-file",
+            get(current_source_file).put(update_source_file),
+        )
         .route("/api/source-jump/{rev}", get(source_jump))
         .route("/api/open-source/{rev}", post(open_source))
         .route("/api/tiles/{rev}/{page_id}", get(required_tiles))
@@ -2142,6 +2145,13 @@ struct SourceFileResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct CurrentSourceFileResponse {
+    file: Utf8PathBuf,
+    content: String,
+    line_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct UpdateSourceFileRequest {
     file: String,
     content: String,
@@ -2447,21 +2457,29 @@ async fn source_files(Path(rev): Path<u64>, State(state): State<Arc<AppState>>) 
     axum::Json(SourceFilesResponse { rev, files }).into_response()
 }
 
-async fn update_source_file(
-    State(state): State<Arc<AppState>>,
-    Json(request): Json<UpdateSourceFileRequest>,
-) -> Response {
-    let Ok(file) = normalize_relative_path(Utf8Path::new(&request.file)) else {
-        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+/// Resolves a source-file API path to a project source file the editor may read or
+/// write live, returning its relative and canonical absolute paths.
+async fn resolve_project_source_file(
+    state: &AppState,
+    requested: &str,
+) -> Result<(Utf8PathBuf, Utf8PathBuf), Response> {
+    let Ok(file) = normalize_relative_path(Utf8Path::new(requested)) else {
+        return Err(text_response(
+            StatusCode::BAD_REQUEST,
+            "invalid source file path",
+        ));
     };
     if file.as_str().is_empty() {
-        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+        return Err(text_response(
+            StatusCode::BAD_REQUEST,
+            "invalid source file path",
+        ));
     }
-    if !is_project_source_file(&state, &file).await {
-        return text_response(
+    if !is_project_source_file(state, &file).await {
+        return Err(text_response(
             StatusCode::FORBIDDEN,
             "requested path is not a project source file",
-        );
+        ));
     }
     let (canonical_root, canonical_file) = match (
         tokio::fs::canonicalize(state.root.as_std_path()).await,
@@ -2469,44 +2487,90 @@ async fn update_source_file(
     ) {
         (Ok(root), Ok(file)) => (root, file),
         (_, Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            return text_response(StatusCode::NOT_FOUND, "requested source file was not found");
+            return Err(text_response(
+                StatusCode::NOT_FOUND,
+                "requested source file was not found",
+            ));
         }
         (Err(error), _) | (_, Err(error)) => {
-            return text_response(
+            return Err(text_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("failed to access source file: {error}"),
-            );
+            ));
         }
     };
     // Lexical normalization cannot see symlinks; the resolved file must stay
     // inside the project root.
     if !canonical_file.starts_with(&canonical_root) {
-        return text_response(
+        return Err(text_response(
             StatusCode::FORBIDDEN,
             "requested source file resolves outside the project root",
-        );
+        ));
     }
     let Ok(absolute_file) = Utf8PathBuf::from_path_buf(canonical_file) else {
-        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+        return Err(text_response(
+            StatusCode::BAD_REQUEST,
+            "invalid source file path",
+        ));
     };
     match tokio::fs::metadata(absolute_file.as_std_path()).await {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => {
-            return text_response(
-                StatusCode::BAD_REQUEST,
-                "requested source path does not point to a file",
-            );
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return text_response(StatusCode::NOT_FOUND, "requested source file was not found");
-        }
-        Err(error) => {
-            return text_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to access source file: {error}"),
-            );
-        }
+        Ok(metadata) if metadata.is_file() => Ok((file, absolute_file)),
+        Ok(_) => Err(text_response(
+            StatusCode::BAD_REQUEST,
+            "requested source path does not point to a file",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(text_response(
+            StatusCode::NOT_FOUND,
+            "requested source file was not found",
+        )),
+        Err(error) => Err(text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to access source file: {error}"),
+        )),
     }
+}
+
+/// The editor's view of a source file: its current content on disk. After a failed
+/// build this is newer than the applied revision's snapshot, and an editor seeded
+/// from the snapshot would save stale text over it. It serves exactly the files
+/// `update_source_file` may write.
+async fn current_source_file(
+    Query(query): Query<SourceFileQuery>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let (file, absolute_file) = match resolve_project_source_file(&state, &query.file).await {
+        Ok(resolved) => resolved,
+        Err(response) => return response,
+    };
+    match tokio::fs::read_to_string(absolute_file.as_std_path()).await {
+        Ok(content) => axum::Json(CurrentSourceFileResponse {
+            file,
+            line_count: source_line_count(&content),
+            content,
+        })
+        .into_response(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            text_response(StatusCode::NOT_FOUND, "requested source file was not found")
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => text_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "requested source file is not valid UTF-8",
+        ),
+        Err(error) => text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to read source file: {error}"),
+        ),
+    }
+}
+
+async fn update_source_file(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<UpdateSourceFileRequest>,
+) -> Response {
+    let (file, absolute_file) = match resolve_project_source_file(&state, &request.file).await {
+        Ok(resolved) => resolved,
+        Err(response) => return response,
+    };
     let write_path = absolute_file.clone();
     let write_content = request.content.clone();
     let write_result = tokio::task::spawn_blocking(move || {
@@ -5392,9 +5456,9 @@ mod tests {
     use tex_world::ProjectWorld;
 
     use super::{
-        AppState, BuildCache, EditorBridgeConfig, EditorPreviewKind, LivePreviewState,
-        OpenSourceRequest, OpenSourceResponse, PageSyncMapResponse, PreviewSnapshot,
-        RASTER_CACHE_ENTRY_BUDGET, RENDER_SESSION_ATTACHED_PAGE_BUDGET,
+        AppState, BuildCache, CurrentSourceFileResponse, EditorBridgeConfig, EditorPreviewKind,
+        LivePreviewState, OpenSourceRequest, OpenSourceResponse, PageSyncMapResponse,
+        PreviewSnapshot, RASTER_CACHE_ENTRY_BUDGET, RENDER_SESSION_ATTACHED_PAGE_BUDGET,
         RENDER_SESSION_ATTACHED_REVISION_WINDOW, RENDER_SESSION_RECENT_EVENT_WINDOW,
         RENDER_SESSION_TILE_CACHE_BUDGET, RENDER_SESSION_TILE_CACHE_PAGE_BUDGET,
         RENDER_SESSION_WARM_BUCKET_BUDGET, RENDER_SESSION_WARM_BUCKET_PAGE_BUDGET, RasterCacheKey,
@@ -5405,15 +5469,15 @@ mod tests {
         SourceFileQuery, SourceFileResponse, SourceFilesResponse, SourceJumpQuery,
         SourceJumpResponse, TileManifestResponse, TileRendererConfig, UpdateSourceFileRequest,
         UpdateSourceFileResponse, attach_render_revision, build_router, build_router_with_base,
-        cache_raster_image, detach_render_revision, hash_input, insert_raster_cache_entry,
-        load_revision_page_input, load_revision_page_metadata, load_revision_page_metadata_set,
-        lookup_attached_page_input, normalize_viewer_base_path, open_source, page_syncmap,
-        parse_png_path_suffix, parse_png_u32_path_suffix, prewarm_viewport_rasters,
-        prune_old_build_revisions, raster_cache_path, render_session_handle, render_session_key,
-        render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
-        revision_artifact, revision_page_png, revision_tile_png, snapshot, source_editor_uri,
-        source_file, source_file_uri, source_files, source_jump, update_source_file,
-        viewer_prefixed_path_for,
+        cache_raster_image, current_source_file, detach_render_revision, hash_input,
+        insert_raster_cache_entry, load_revision_page_input, load_revision_page_metadata,
+        load_revision_page_metadata_set, lookup_attached_page_input, normalize_viewer_base_path,
+        open_source, page_syncmap, parse_png_path_suffix, parse_png_u32_path_suffix,
+        prewarm_viewport_rasters, prune_old_build_revisions, raster_cache_path,
+        render_session_handle, render_session_key, render_session_metrics_snapshot,
+        render_sessions, renderer_session_metrics, required_tiles, revision_artifact,
+        revision_page_png, revision_tile_png, snapshot, source_editor_uri, source_file,
+        source_file_uri, source_files, source_jump, update_source_file, viewer_prefixed_path_for,
     };
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
@@ -10067,6 +10131,122 @@ mod tests {
             fs::read_to_string(root.join("main.tex")).expect("main tex"),
             "edited"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn current_source_file_endpoint_reads_live_project_sources_only() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 root");
+        let outside =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("outside")).expect("utf8 outside");
+        fs::create_dir_all(root.join(".git")).expect("git dir");
+        fs::create_dir_all(root.join("chapters")).expect("chapters dir");
+        fs::create_dir_all(root.join(".latexd/build/rev-1")).expect("revision dir");
+        fs::create_dir_all(&outside).expect("outside dir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        // The applied revision captured the old text; a later save (whose build
+        // failed) left newer text on disk, which is what the editor must load.
+        fs::write(root.join("main.tex"), "main after a failed build").expect("main tex");
+        fs::write(
+            root.join("chapters/intro.tex"),
+            "intro after a failed build",
+        )
+        .expect("intro tex");
+        fs::write(root.join(".git/config"), "[core]").expect("git config");
+        fs::write(root.join("notes.txt"), "notes").expect("notes");
+        fs::write(outside.join("secret.tex"), "secret").expect("outside source");
+        std::os::unix::fs::symlink(&outside, root.join("linked")).expect("linked dir");
+        fs::write(
+            root.join(".latexd/build/rev-1/sources.json"),
+            r#"{"files":{"main.tex":"main","chapters/intro.tex":"intro","linked/secret.tex":"secret"}}"#,
+        )
+        .expect("revision sources");
+        let mut live = LivePreviewState::default();
+        live.snapshot.last_applied_rev = 1;
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(live),
+            events: broadcast::channel(4).0,
+        });
+
+        for (file, expected) in [
+            (".git/config", StatusCode::FORBIDDEN),
+            ("notes.txt", StatusCode::FORBIDDEN),
+            (".latexd/build/rev-1/sources.json", StatusCode::FORBIDDEN),
+            ("linked/secret.tex", StatusCode::FORBIDDEN),
+            ("../outside/secret.tex", StatusCode::BAD_REQUEST),
+            ("", StatusCode::BAD_REQUEST),
+        ] {
+            let response = current_source_file(
+                Query(SourceFileQuery {
+                    file: file.to_string(),
+                }),
+                State(state.clone()),
+            )
+            .await;
+            assert_eq!(response.status(), expected, "{file}");
+        }
+        for (file, expected) in [
+            ("chapters/intro.tex", "intro after a failed build"),
+            ("main.tex", "main after a failed build"),
+        ] {
+            let response = current_source_file(
+                Query(SourceFileQuery {
+                    file: file.to_string(),
+                }),
+                State(state.clone()),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK, "{file}");
+            let body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read current source file body");
+            let current: CurrentSourceFileResponse =
+                serde_json::from_slice(&body).expect("decode current source file response");
+            assert_eq!(current.file, Utf8PathBuf::from(file));
+            assert_eq!(current.content, expected);
+            assert_eq!(current.line_count, 1);
+        }
+        // The revision endpoint keeps serving the applied snapshot, which is why the
+        // editor must not seed its buffer from it.
+        let snapshot = source_file(
+            Path(1),
+            Query(SourceFileQuery {
+                file: "chapters/intro.tex".to_string(),
+            }),
+            State(state.clone()),
+        )
+        .await;
+        let body = to_bytes(snapshot.into_body(), usize::MAX)
+            .await
+            .expect("read revision source file body");
+        let snapshot: SourceFileResponse =
+            serde_json::from_slice(&body).expect("decode revision source file response");
+        assert_eq!(snapshot.content, "intro");
+
+        fs::remove_file(root.join("main.tex")).expect("remove main tex");
+        let missing = current_source_file(
+            Query(SourceFileQuery {
+                file: "main.tex".to_string(),
+            }),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

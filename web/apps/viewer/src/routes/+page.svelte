@@ -505,15 +505,10 @@ Inline math such as $x^2 + y^2 = z^2$ and citations \\cite{demo} are preserved.
     const requestId = ++loadSerial;
     editorStatus = "loading";
     editorMessage = `Loading ${file}…`;
-    const currentRev = previewState.lastAppliedRev;
-    const cachedSourceFiles = viewerController?.getState()?.sourceFiles as
-      | Record<string, { rev: number; content: string }>
-      | undefined;
-    const cached = cachedSourceFiles?.[file];
     try {
-      const content = cached && cached.rev === currentRev
-        ? cached.content
-        : (await apiClient.fetchSourceFile({ rev: currentRev, file })).content;
+      // Load what is on disk now, not the last successful revision's snapshot: after a
+      // failed build the snapshot is older, and the next keystroke would save it back.
+      const { content } = await apiClient.fetchCurrentSourceFile({ file });
       if (requestId !== loadSerial) {
         return;
       }

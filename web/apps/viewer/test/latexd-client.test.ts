@@ -89,10 +89,12 @@ test("latexd api client resolves endpoints relative to the current base path", a
 
   await client.fetchState();
   await client.fetchSourceFiles({ rev: 3 });
+  await client.fetchCurrentSourceFile({ file: "chapters/intro & notes.tex" });
 
   assert.deepEqual(calls, [
     "http://example.test/viewer/api/state",
-    "http://example.test/viewer/api/source-files/3"
+    "http://example.test/viewer/api/source-files/3",
+    "http://example.test/viewer/api/source-file?file=chapters%2Fintro+%26+notes.tex"
   ]);
 });
 

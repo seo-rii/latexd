@@ -103,6 +103,12 @@ export interface SourceFileResponse {
   line_count: number;
 }
 
+export interface CurrentSourceFileResponse {
+  file: string;
+  content: string;
+  line_count: number;
+}
+
 export interface UpdateSourceFileRequest {
   file: string;
   content: string;
@@ -146,6 +152,10 @@ export interface LatexdApiClient {
   fetchSourceFiles(args: {
     rev: number;
   }): Promise<SourceFilesResponse>;
+  /** The file as it is on disk now, which can be newer than any built revision. */
+  fetchCurrentSourceFile(args: {
+    file: string;
+  }): Promise<CurrentSourceFileResponse>;
   jumpToSource(args: {
     request: SourceJumpRequest;
     rev: number;
@@ -186,6 +196,11 @@ export function createLatexdApiClient(
     },
     fetchSourceFiles({ rev }) {
       return fetchJson(resolveApiUrl(`api/source-files/${rev}`));
+    },
+    fetchCurrentSourceFile({ file }) {
+      const url = resolveApiUrl("api/source-file");
+      url.searchParams.set("file", file);
+      return fetchJson(url);
     },
     jumpToSource({ rev, request }) {
       return fetchJson(buildSourceJumpUrl(resolveApiUrl(`api/source-jump/${rev}`), request));
