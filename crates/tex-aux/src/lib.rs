@@ -455,6 +455,8 @@ pub struct AppendixSite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EquationSite {
     pub numbered: bool,
+    /// Explicit `\tag{...}` text, used instead of the equation counter.
+    pub tag: Option<String>,
     pub file: Utf8PathBuf,
     pub offset_utf8: u32,
     order: usize,
@@ -572,6 +574,7 @@ enum CommandEvent {
     Equation {
         offset: u32,
         numbered: bool,
+        tag: Option<String>,
     },
     Float {
         offset: u32,
@@ -1054,9 +1057,14 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                         offset_utf8: offset,
                     });
                 }
-                CommandEvent::Equation { offset, numbered } => {
+                CommandEvent::Equation {
+                    offset,
+                    numbered,
+                    tag,
+                } => {
                     equations.push(EquationSite {
                         numbered,
+                        tag,
                         file: path.to_path_buf(),
                         offset_utf8: offset,
                         order: *order,
@@ -1839,7 +1847,9 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 .iter()
                 .find(|equation| equation.order == order)
                 .unwrap();
-            if equation.numbered {
+            if let Some(tag) = &equation.tag {
+                numbered_equations.push((file, offset_utf8, tag.clone()));
+            } else if equation.numbered {
                 equation_counter += 1;
                 numbered_equations.push((file, offset_utf8, equation_counter.to_string()));
             }
@@ -6359,6 +6369,57 @@ fn rewrite_source(
     (output, rewrite_spans)
 }
 
+// Splits a display math body at its top-level `\\` row separators, ignoring
+// those inside braces or nested environments such as `aligned`.
+fn split_display_math_rows(body: &str) -> Vec<(usize, &str)> {
+    let mut rows = Vec::new();
+    let mut row_start = 0usize;
+    let mut brace_depth = 0i32;
+    let mut environment_depth = 0i32;
+    let mut index = 0usize;
+    while let Some(ch) = body[index..].chars().next() {
+        let rest = &body[index..];
+        if rest.starts_with("\\begin{") {
+            environment_depth += 1;
+            index += "\\begin{".len();
+        } else if rest.starts_with("\\end{") {
+            environment_depth -= 1;
+            index += "\\end{".len();
+        } else if rest.starts_with("\\\\") {
+            if brace_depth == 0 && environment_depth == 0 {
+                rows.push((row_start, &body[row_start..index]));
+                row_start = index + 2;
+            }
+            index += 2;
+        } else if ch == '\\' {
+            index += 1 + rest[1..].chars().next().map_or(0, char::len_utf8);
+        } else {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => brace_depth -= 1,
+                _ => {}
+            }
+            index += ch.len_utf8();
+        }
+    }
+    rows.push((row_start, &body[row_start..]));
+    rows
+}
+
+// Returns the end of the first `\name` control word in `source`.
+fn find_display_math_command(source: &str, name: &str) -> Option<usize> {
+    let mut search_from = 0usize;
+    while let Some(relative) = source[search_from..].find('\\') {
+        let command_start = search_from + relative;
+        let (command_end, command_name) = read_command_name(source, command_start)?;
+        if command_name == name {
+            return Some(command_end);
+        }
+        search_from = command_end;
+    }
+    None
+}
+
 fn is_display_math_environment(environment: &str) -> bool {
     matches!(
         environment,
@@ -7268,10 +7329,41 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                 {
                     let environment = environment.trim();
                     if is_display_math_environment(environment) {
-                        events.push(CommandEvent::Equation {
-                            offset: command_start as u32,
-                            numbered: environment != "displaymath" && !environment.ends_with('*'),
-                        });
+                        let numbered = environment != "displaymath" && !environment.ends_with('*');
+                        let end_tag = format!("\\end{{{environment}}}");
+                        let body_end = source[argument_end..]
+                            .find(&end_tag)
+                            .map_or(source.len(), |end| argument_end + end);
+                        let body = &source[argument_end..body_end];
+                        // amsmath numbers every row of align/gather/eqnarray but a
+                        // multline or equation once; \nonumber, \notag and \tag apply
+                        // to the row they appear in.
+                        let rows = if matches!(
+                            environment.trim_end_matches('*'),
+                            "align" | "flalign" | "alignat" | "gather" | "eqnarray"
+                        ) {
+                            split_display_math_rows(body)
+                        } else {
+                            vec![(0, body)]
+                        };
+                        for (row_index, (row_start, row)) in rows.into_iter().enumerate() {
+                            let tag = find_display_math_command(row, "tag").and_then(|tag_end| {
+                                let tag_end = skip_optional_command_star(row, tag_end);
+                                read_braced_argument(row, tag_end)
+                                    .map(|(_, tag)| tag.trim().to_string())
+                            });
+                            let suppressed = find_display_math_command(row, "nonumber").is_some()
+                                || find_display_math_command(row, "notag").is_some();
+                            events.push(CommandEvent::Equation {
+                                offset: if row_index == 0 {
+                                    command_start
+                                } else {
+                                    argument_end + row_start
+                                } as u32,
+                                numbered: tag.is_some() || (numbered && !suppressed),
+                                tag,
+                            });
+                        }
                     } else if environment == "figure"
                         || environment == "figure*"
                         || environment == "table"
@@ -12468,6 +12560,41 @@ mod tests {
                 .number,
             "2"
         );
+    }
+
+    #[test]
+    fn derive_semantic_aux_numbers_each_row_of_multiline_equations() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\begin{align}\na &= b \\label{eq:first} \\\\\nc &= d \\nonumber \\\\\ne &= f \\label{eq:third} \\\\\ng &= h \\tag{$\\star$} \\label{eq:star}\n\\end{align}\n\\begin{equation}x\\label{eq:next}\\end{equation}\n\\begin{align*}\np &= q \\\\\nr &= s \\tag{T} \\label{eq:tagged}\n\\end{align*}\n\\begin{multline}\nlong \\\\ continued \\label{eq:multline}\n\\end{multline}\n\\begin{gather}\nu \\label{eq:g1} \\\\\nv \\notag \\\\\n\\begin{aligned} w \\\\ z \\end{aligned} \\label{eq:g3}\n\\end{gather}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        let label_number = |key: &str| {
+            aux.labels
+                .iter()
+                .find(|label| label.key == key)
+                .map(|label| label.number.as_str())
+        };
+        assert_eq!(label_number("eq:first"), Some("1"));
+        assert_eq!(label_number("eq:third"), Some("2"));
+        assert_eq!(label_number("eq:star"), Some("$\\star$"));
+        assert_eq!(label_number("eq:next"), Some("3"));
+        assert_eq!(label_number("eq:tagged"), Some("T"));
+        assert_eq!(label_number("eq:multline"), Some("4"));
+        assert_eq!(label_number("eq:g1"), Some("5"));
+        assert_eq!(label_number("eq:g3"), Some("6"));
     }
 
     #[test]
