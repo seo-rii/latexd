@@ -26944,7 +26944,9 @@ impl<'i> Vm<'i> {
                     .filter_map(|part| part.parse::<f32>().ok())
                     .collect::<Vec<_>>();
                 if values.len() >= 4 {
-                    dimensions_from_pt(values[2] - values[0], values[3] - values[1])
+                    // Any two opposite corners form a valid PDF rectangle
+                    // (ISO 32000-1 7.9.5), e.g. `[0 792 612 0]`.
+                    dimensions_from_pt((values[2] - values[0]).abs(), (values[3] - values[1]).abs())
                 } else {
                     None
                 }
@@ -43250,6 +43252,41 @@ Fallback text.
                         natural_height_pt_milli: Some(180_000),
                     })
         )));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_flipped_pdf_media_box_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/flipped.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        // Any two opposite corners form a valid PDF rectangle (ISO 32000-1 7.9.5).
+        vm.mount_file(
+            "figures/flipped.pdf",
+            "%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [0 792 612 0] >>\nendobj\n",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let dimensions = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::GraphicRef(graphic) if graphic.path == "figures/flipped.pdf" => {
+                    Some(graphic.asset_dimensions.clone())
+                }
+                _ => None,
+            });
+        assert_eq!(
+            dimensions,
+            Some(Some(GraphicAssetDimensions {
+                width_px: 612,
+                height_px: 792,
+                density: None,
+                natural_width_pt_milli: Some(612_000),
+                natural_height_pt_milli: Some(792_000),
+            }))
+        );
     }
 
     #[test]
