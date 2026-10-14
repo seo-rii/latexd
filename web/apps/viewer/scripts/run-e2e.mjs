@@ -1,14 +1,23 @@
 import { spawnSync } from "node:child_process";
 
-const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+// Windows resolves pnpm to a .cmd shim, and Node refuses to spawn .cmd/.bat files
+// without a shell (EINVAL since the CVE-2024-27980 fix). Each step therefore runs
+// as one shell command; the commands are fixed literals, so nothing needs quoting.
+const wasm = process.argv.includes("--wasm");
 const env = {
   ...process.env,
-  LATEXD_VIEWER_BASE_PATH: "/viewer"
+  ...(wasm
+    ? { LATEXD_VIEWER_BASE_PATH: "/latexd", VITE_LATEXD_BROWSER_ONLY: "true" }
+    : { LATEXD_VIEWER_BASE_PATH: "/viewer" })
 };
+const playwright = wasm
+  ? "pnpm exec playwright test --config playwright.wasm.config.ts"
+  : "pnpm exec playwright test";
 
-for (const args of [["build"], ["exec", "playwright", "test"]]) {
-  const result = spawnSync(command, args, {
+for (const command of ["pnpm build", playwright]) {
+  const result = spawnSync(command, {
     env,
+    shell: true,
     stdio: "inherit"
   });
   if (result.error) {
