@@ -578,8 +578,9 @@ pub fn parse_svg_with_embedded_assets(
         .and_then(|raw| parse_preserve_aspect_ratio(raw))
         .unwrap_or(default_preserve_aspect_ratio);
     let svg_content_start = tag_start + tag_end + 1;
+    // The root closes at the last `</svg>`; an earlier one may close a nested <svg>.
     let svg_content_end = text[svg_content_start..]
-        .find("</svg>")
+        .rfind("</svg>")
         .map(|relative| svg_content_start + relative)
         .unwrap_or(text.len());
     let svg_content = &text[svg_content_start..svg_content_end];
@@ -9504,6 +9505,26 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn keeps_root_content_after_a_nested_svg() {
+        let scene = parse_svg(
+            r##"<svg width="100" height="50" viewBox="0 0 100 50">
+                <svg width="50" height="50"><rect x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>
+                <rect x="50" y="0" width="10" height="10" fill="#00ff00"/>
+                <text x="60" y="40" font-size="10">after</text>
+            </svg>"##,
+        )
+        .expect("parse svg");
+
+        assert_eq!(scene.rects.len(), 2);
+        assert_eq!(
+            scene.rects[1].fill.expect("rect after nested svg").rgb,
+            (0.0, 1.0, 0.0)
+        );
+        assert_eq!(scene.texts.len(), 1);
+        assert_eq!(scene.texts[0].text, "after");
     }
 
     #[test]
