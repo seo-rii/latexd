@@ -4286,6 +4286,10 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     let _ = reply.send(page);
                 }
                 RenderSessionRequest::PrewarmPage { page, scale, reply } => {
+                    // A newer viewport aborted the prewarm that queued this request.
+                    if reply.is_closed() {
+                        continue;
+                    }
                     if let Some(index) = attached_order
                         .iter()
                         .position(|candidate| *candidate == page.revision)
@@ -5044,6 +5048,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()
     let applied_rev = state.live.read().await.snapshot.last_applied_rev;
     lease.set_revision(applied_rev, applied_rev).await;
     let mut receiver = state.events.subscribe();
+    let mut viewport_prewarm = ViewportPrewarm::default();
     loop {
         tokio::select! {
             result = receiver.recv() => {
@@ -5069,12 +5074,10 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()
                                     socket.send(Message::Text(payload.into())).await?;
                                 }
                             }
-                            Ok(message) => {
-                                let state = state.clone();
-                                tokio::spawn(async move {
-                                    prewarm_viewport_rasters(&state, message).await;
-                                });
+                            Ok(message @ ClientMsg::ViewportChanged { .. }) => {
+                                viewport_prewarm.replace(state.clone(), message);
                             }
+                            Ok(ClientMsg::OpenDocument { .. }) => {}
                             Err(error) => {
                                 warn!("failed to decode client websocket message: {error}");
                             }
@@ -5085,6 +5088,47 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) -> Result<()
                 }
             }
         }
+    }
+}
+
+/// A connection's viewport prewarm. The viewer reports its viewport on every
+/// scroll frame, and only the latest one is worth warming: a newer viewport
+/// aborts the previous task, so stale pages stop queueing ahead of visible
+/// tiles on the single render lane. Dropping it, when the socket closes, aborts
+/// the pending prewarm too.
+#[derive(Default)]
+struct ViewportPrewarm {
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ViewportPrewarm {
+    fn replace(&mut self, state: Arc<AppState>, message: ClientMsg) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+        self.task = Some(tokio::spawn(async move {
+            prewarm_viewport_rasters(&state, message).await;
+        }));
+    }
+}
+
+impl Drop for ViewportPrewarm {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+/// Releases an in-flight prewarm claim, including when the prewarm is aborted.
+struct InflightPrewarmClaim((RenderSessionKey, RasterCacheKey));
+
+impl Drop for InflightPrewarmClaim {
+    fn drop(&mut self) {
+        render_session_inflight_prewarms()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.0);
     }
 }
 
@@ -5189,6 +5233,7 @@ async fn prewarm_viewport_rasters(state: &Arc<AppState>, message: ClientMsg) {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             inflight.insert((session_key.clone(), prewarm_key.clone()))
         };
+        let claim = claimed.then(|| InflightPrewarmClaim((session_key, prewarm_key)));
         if !claimed {
             let metrics = render_session_metrics_handle(state);
             metrics
@@ -5251,11 +5296,7 @@ async fn prewarm_viewport_rasters(state: &Arc<AppState>, message: ClientMsg) {
                 }
             }
         }
-        let mut inflight = render_session_inflight_prewarms()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        inflight.remove(&(session_key, prewarm_key));
-        drop(inflight);
+        drop(claim);
         if warmed {
             continue;
         }
@@ -7353,6 +7394,144 @@ mod tests {
                 ("page-b".to_string(), Some(115)),
                 ("page-b".to_string(), Some(135)),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn viewport_prewarm_superseded_by_a_newer_viewport_skips_stale_pages() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::CountingMock {
+                calls: calls.clone(),
+                tile_calls: Arc::new(AtomicUsize::new(0)),
+                sessions: Arc::new(AtomicUsize::new(0)),
+                // Long enough that the busy render below still occupies the lane
+                // while the test supersedes the first viewport.
+                sleep_ms: 500,
+            },
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState {
+                snapshot: PreviewSnapshot {
+                    last_applied_rev: 23,
+                    ..PreviewSnapshot::default()
+                },
+                latest_pdf_path: None,
+                page_metadata: (0..12)
+                    .map(|index| PageArtifactMeta {
+                        page_id: format!("page-{index}"),
+                        index,
+                        line_count: 1,
+                        width_pt: 256,
+                        height_pt: 256,
+                        natural_size_pt: None,
+                        content_hash: format!("hash-{index}"),
+                        text_start_utf8: index as u32 * 10,
+                        text_end_utf8: index as u32 * 10 + 10,
+                        pdf_artifact_path: Utf8PathBuf::from(format!(
+                            "rev-23/pages/page-{index}.pdf"
+                        )),
+                        source_spans: vec![],
+                    })
+                    .collect(),
+            }),
+            events: broadcast::channel(4).0,
+        });
+        let viewport = |current_page: u32, zoom: f32| ClientMsg::ViewportChanged {
+            zoom,
+            current_page,
+            scroll_top: 0.0,
+            visible_pages: vec![format!("page-{}", current_page - 1)],
+        };
+        let wait_until = |condition: &dyn Fn() -> bool| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !condition() {
+                assert!(std::time::Instant::now() < deadline, "condition timed out");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+
+        // Keep the single render lane busy, so the first viewport's prewarm
+        // request waits in the queue when the user scrolls on.
+        let handle = render_session_handle(&state);
+        let busy_page = super::page_input_from_metadata(
+            &state.build_root,
+            23,
+            state.live.read().await.page_metadata[11].clone(),
+        );
+        let (busy_tx, mut busy_rx) = oneshot::channel();
+        assert!(
+            handle
+                .tx
+                .send(RenderSessionRequest::RenderPage {
+                    page: busy_page,
+                    scale: 3.0,
+                    reply: busy_tx,
+                })
+                .await
+                .is_ok()
+        );
+        wait_until(&|| calls.load(Ordering::SeqCst) == 1);
+
+        let mut prewarm = super::ViewportPrewarm::default();
+        prewarm.replace(state.clone(), viewport(1, 1.0));
+        let queue = handle.tx.tx.clone();
+        timeout(Duration::from_secs(10), async {
+            while queue.capacity() == queue.max_capacity() {
+                sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .expect("first viewport prewarm request is queued");
+        prewarm.replace(state.clone(), viewport(10, 2.0));
+        assert!(
+            matches!(
+                busy_rx.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ),
+            "the busy render must still hold the lane when the viewport changes"
+        );
+        timeout(
+            Duration::from_secs(30),
+            prewarm.task.take().expect("latest viewport prewarm"),
+        )
+        .await
+        .expect("latest viewport prewarm finishes")
+        .expect("latest viewport prewarm task");
+        busy_rx
+            .await
+            .expect("busy render")
+            .expect("busy render result");
+        // Answered after every request queued before it.
+        render_session_metrics_snapshot(&state).await;
+
+        // The busy page, then the five targets of the latest viewport: page-9 at
+        // 1.9, 2.0 and 2.1, and its neighbours page-8 and page-10. The superseded
+        // viewport's four targets around page-0 are never rendered.
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        let session_key = render_session_key(&state);
+        assert!(
+            !super::render_session_inflight_prewarms()
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(key, _)| *key == session_key),
+            "an aborted prewarm must release its in-flight claim"
         );
     }
 
