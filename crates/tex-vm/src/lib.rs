@@ -21246,8 +21246,7 @@ impl<'i> Vm<'i> {
                 let Some(body) = self.read_balanced_group(queue) else {
                     return;
                 };
-                let exists =
-                    self.lookup_meaning(&target).is_some() || builtin_primitive(&target).is_some();
+                let exists = !self.latex_control_sequence_is_undefined(&target);
                 if primitive == Primitive::NewCommand && exists {
                     self.diagnostics.push(VmDiagnostic {
                         kind: VmDiagnosticKind::ExplicitError,
@@ -22390,8 +22389,7 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let name = name.strip_prefix('\\').unwrap_or(&name);
-                let is_defined =
-                    self.lookup_meaning(name).is_some() || builtin_primitive(name).is_some();
+                let is_defined = !self.latex_control_sequence_is_undefined(name);
                 for token in if is_defined { else_body } else { then_body }
                     .into_iter()
                     .rev()
@@ -22406,7 +22404,7 @@ impl<'i> Vm<'i> {
                 let Some(body) = self.read_balanced_group(queue) else {
                     return;
                 };
-                if self.lookup_meaning(&target).is_none() && builtin_primitive(&target).is_none() {
+                if self.latex_control_sequence_is_undefined(&target) {
                     for token in body.into_iter().rev() {
                         self.push_token_front(queue, token);
                     }
@@ -24657,6 +24655,11 @@ impl<'i> Vm<'i> {
 
     fn expand_csname(&mut self, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
         let name = self.read_csname_name(queue);
+        // TeX gives a name that \csname reaches undefined the meaning \relax, in the
+        // current group, so `\expandafter\ifx\csname x\endcsname\relax` tests definedness.
+        if self.lookup_meaning(&name).is_none() && builtin_primitive(&name).is_none() {
+            self.define(name.clone(), Meaning::Primitive(Primitive::Relax), false);
+        }
         let token = Token::control_sequence(self.interner.intern(&name), 0, 0);
         vec![token]
     }
@@ -27414,6 +27417,18 @@ impl<'i> Vm<'i> {
 
     fn lookup_meaning(&self, name: &str) -> Option<Meaning> {
         self.eqtb.control_sequence(name).cloned()
+    }
+
+    /// LaTeX's `\@ifundefined` view: a name with no meaning, or the meaning `\relax`
+    /// that `\csname` leaves behind, counts as undefined.
+    fn latex_control_sequence_is_undefined(&self, name: &str) -> bool {
+        match self
+            .lookup_meaning(name)
+            .or_else(|| builtin_primitive(name).map(Meaning::Primitive))
+        {
+            None => true,
+            Some(meaning) => meaning == Meaning::Primitive(Primitive::Relax),
+        }
     }
 }
 
@@ -38688,6 +38703,78 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn csname_makes_undefined_names_relax_within_the_current_group() {
+        for (source, expected) in [
+            (
+                r"\expandafter\ifx\csname x\endcsname\relax Y\else N\fi",
+                "Y",
+            ),
+            (r"\csname foo\endcsname X\ifx\foo\relax Y\else N\fi", "XY"),
+            (
+                r"\let\a\relax\csname bar\endcsname\ifx\bar\a Y\else N\fi",
+                "Y",
+            ),
+            (r"{\csname qq\endcsname}\ifx\qq\undefined U\else D\fi", "U"),
+            (r"\def\zz{Z}\csname zz\endcsname", "Z"),
+            (
+                r"\expandafter\ifx\csname relax\endcsname\relax Y\else N\fi",
+                "Y",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn latex_definedness_tests_treat_relax_as_undefined() {
+        for (source, expected) in [
+            (r"\makeatletter\let\zz\relax\@ifundefined{zz}{U}{D}", "U"),
+            (
+                r"\makeatletter\expandafter\ifx\csname zz\endcsname\relax\fi\@ifundefined{zz}{U}{D}",
+                "U",
+            ),
+            (r"\makeatletter\def\zz{}\@ifundefined{zz}{U}{D}", "D"),
+            (r"\let\zz\relax\newcommand\zz{N}\zz", "N"),
+            (r"\let\zz\relax\providecommand\zz{P}\zz", "P"),
+            (r"\makeatletter\let\zz\relax\@ifdefinable\zz{D}", "D"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\let\zz\relax\renewcommand\zz{R}\zz");
+
+        assert_eq!(outcome.output, "");
+        assert!(
+            outcome
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.detail == r"renewcommand \zz undefined"),
+            "{:?}",
+            outcome.diagnostics
+        );
     }
 
     #[test]
