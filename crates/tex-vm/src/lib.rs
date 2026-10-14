@@ -19886,20 +19886,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(value) = self.read_number_expression(queue) else {
                     return;
                 };
@@ -20780,20 +20769,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
                 else {
                     return;
@@ -20829,20 +20807,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
                 else {
                     return;
@@ -20878,20 +20845,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
                 else {
                     return;
@@ -20927,20 +20883,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(register_index) = self
                     .read_integer(queue)
                     .and_then(|value| u32::try_from(value).ok())
@@ -21174,20 +21119,9 @@ impl<'i> Vm<'i> {
                 let Some(name) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if !matches!(
-                    self.peek_next_token(queue),
-                    Some(Token {
-                        kind: TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                        ..
-                    })
-                ) {
+                if !self.scan_optional_equals_before_value(queue) {
                     return;
                 }
-                self.pop_next_token(queue);
                 let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
                 else {
                     return;
@@ -23785,17 +23719,7 @@ impl<'i> Vm<'i> {
                 let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if let Some(Token {
-                    kind:
-                        TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                    ..
-                }) = self.peek_next_token(queue)
-                {
-                    self.pop_next_token(queue);
+                if self.scan_optional_equals_before_value(queue) {
                     if let Some(value) = self.read_number_expression(queue) {
                         let requested_global = mem::take(&mut self.global_prefix);
                         let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
@@ -23824,17 +23748,7 @@ impl<'i> Vm<'i> {
                 let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if let Some(Token {
-                    kind:
-                        TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                    ..
-                }) = self.peek_next_token(queue)
-                {
-                    self.pop_next_token(queue);
+                if self.scan_optional_equals_before_value(queue) {
                     if let Some(value) = self.read_dimension_expression(queue) {
                         let requested_global = mem::take(&mut self.global_prefix);
                         let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
@@ -23864,17 +23778,7 @@ impl<'i> Vm<'i> {
                 let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if let Some(Token {
-                    kind:
-                        TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                    ..
-                }) = self.peek_next_token(queue)
-                {
-                    self.pop_next_token(queue);
+                if self.scan_optional_equals_before_value(queue) {
                     if let Some(value) = self.read_glue_expression(queue) {
                         let requested_global = mem::take(&mut self.global_prefix);
                         let assignment_scope = match self.current_globaldefs_value().cmp(&0) {
@@ -23906,18 +23810,7 @@ impl<'i> Vm<'i> {
                 };
                 let Ok(index) = u32::try_from(raw_index) else {
                     self.global_prefix = false;
-                    self.skip_optional_spaces(queue);
-                    if matches!(
-                        self.peek_next_token(queue),
-                        Some(Token {
-                            kind: TokenKind::Character {
-                                ch: '=',
-                                catcode: CatCode::Other,
-                            },
-                            ..
-                        })
-                    ) {
-                        self.pop_next_token(queue);
+                    if self.scan_optional_equals_before_value(queue) {
                         let _ = self.read_muglue_expression(queue);
                     }
                     if let Some(token) = self.after_assignment_token.take() {
@@ -23925,17 +23818,7 @@ impl<'i> Vm<'i> {
                     }
                     return;
                 };
-                self.skip_optional_spaces(queue);
-                if let Some(Token {
-                    kind:
-                        TokenKind::Character {
-                            ch: '=',
-                            catcode: CatCode::Other,
-                        },
-                    ..
-                }) = self.peek_next_token(queue)
-                {
-                    self.pop_next_token(queue);
+                if self.scan_optional_equals_before_value(queue) {
                     let requested_global = mem::take(&mut self.global_prefix);
                     if let Some(value) = self.read_muglue_expression(queue) {
                         if value.has_unsupported_components {
@@ -26286,6 +26169,29 @@ impl<'i> Vm<'i> {
                 .and_then(|value| u32::try_from(value).ok());
         }
         self.resolve_muskip_register_name(&name)
+    }
+
+    /// TeX's `<optional equals>` before a register value. Returns whether a value
+    /// should be read: after an explicit `=`, or when the next token can begin a
+    /// number, dimension or glue. Otherwise nothing is consumed, so a missing value
+    /// leaves the following text in place.
+    fn scan_optional_equals_before_value(&mut self, queue: &mut VecDeque<QueueItem>) -> bool {
+        self.skip_optional_spaces(queue);
+        match self.peek_next_token(queue).map(|token| token.kind) {
+            Some(TokenKind::Character {
+                ch: '=',
+                catcode: CatCode::Other,
+            }) => {
+                self.pop_next_token(queue);
+                true
+            }
+            Some(TokenKind::Character {
+                ch,
+                catcode: CatCode::Other,
+            }) => matches!(ch, '0'..='9' | '+' | '-' | '.' | ',' | '\'' | '"' | '`'),
+            Some(TokenKind::ControlSequence { .. }) => true,
+            _ => false,
+        }
     }
 
     fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
@@ -38802,6 +38708,70 @@ mod tests {
 
         assert_eq!(outcome.output, "[6][4]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn register_assignments_and_definitions_take_optional_equals() {
+        let run = |source: &str| {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+            outcome.output
+        };
+        for (without_equals, with_equals) in [
+            (
+                r"\count0 5\relax[\the\count0]",
+                r"\count0=5\relax[\the\count0]",
+            ),
+            (
+                r"\dimen0 2pt\relax[\the\dimen0]",
+                r"\dimen0=2pt\relax[\the\dimen0]",
+            ),
+            (
+                r"\skip0 3pt plus 1pt\relax[\the\skip0]",
+                r"\skip0=3pt plus 1pt\relax[\the\skip0]",
+            ),
+            (
+                r"\muskip0 3mu\relax[\the\muskip0]",
+                r"\muskip0=3mu\relax[\the\muskip0]",
+            ),
+            (r"\chardef\x 65\relax[\x]", r"\chardef\x=65\relax[\x]"),
+            (
+                r"\countdef\c 7\relax\c=9\relax[\the\count7]",
+                r"\countdef\c=7\relax\c=9\relax[\the\count7]",
+            ),
+            (
+                r"\dimendef\d 7\relax\d=4pt\relax[\the\dimen7]",
+                r"\dimendef\d=7\relax\d=4pt\relax[\the\dimen7]",
+            ),
+            (
+                r"\skipdef\s 7\relax\s=1pt\relax[\the\skip7]",
+                r"\skipdef\s=7\relax\s=1pt\relax[\the\skip7]",
+            ),
+            (
+                r"\muskipdef\m 7\relax\m=2mu\relax[\the\muskip7]",
+                r"\muskipdef\m=7\relax\m=2mu\relax[\the\muskip7]",
+            ),
+            (
+                r"\toksdef\t 7\relax\t={abc}[\the\toks7]",
+                r"\toksdef\t=7\relax\t={abc}[\the\toks7]",
+            ),
+            (
+                r"\makeatletter\count@=7\relax\count@\z@\relax[\the\count@]\makeatother",
+                r"\makeatletter\count@=7\relax\count@=\z@\relax[\the\count@]\makeatother",
+            ),
+        ] {
+            assert_eq!(run(without_equals), run(with_equals), "{without_equals}");
+        }
+
+        assert_eq!(run(r"\count0 5\relax[\the\count0]"), "[5]");
+        assert_eq!(run(r"\chardef\x 65\relax[\x]"), "[A]");
+        assert_eq!(run(r"\count0 foo"), "foo");
     }
 
     #[test]
