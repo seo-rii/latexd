@@ -132,8 +132,8 @@ async fn run_split_preamble_biblatex_paper_family_workflow_case(
         SplitPreambleBiblatexPaperFamilyWorkflowCase::RenderOutput => {
             let main_tex = Utf8PathBuf::from("main.tex");
             let executed_main = &run.stored_sources.executed_files[&main_tex];
-            let expected_render = "See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).";
-            let stale_duplicated_tail = "References and Observation Lemma A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2). References";
+            let expected_render = "See Section 1, Figure 1, and Appendix A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).";
+            let stale_duplicated_tail = "References and Appendix A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2). References";
             let stale_degraded_cite = "and (see beta).";
             let debug_context = format!(
                 "compiler output: {}\nexecuted main: {}\nprevious spans: {:?}\ncurrent spans: {:?}",
