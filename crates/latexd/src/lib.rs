@@ -72,6 +72,9 @@ use crate::renderer_cache::{
 pub struct ServeArgs {
     pub root: Utf8PathBuf,
     pub bind: String,
+    /// DNS names, besides loopback names and IP literals, accepted in `Host`
+    /// and `Origin` headers (for example a reverse proxy's public name).
+    pub allowed_hosts: Vec<String>,
     pub compiler_bin: Option<String>,
     pub compiler_args: Vec<String>,
     pub tile_renderer: TileRendererConfig,
@@ -982,7 +985,10 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         .send(state.world.manifest.toplevels.clone())
         .map_err(|error| anyhow!("failed to enqueue initial build: {error}"))?;
 
-    let router = build_router(state);
+    let router = build_guarded_router(
+        state,
+        TrustedRequestHosts::new(&args.bind, &args.allowed_hosts),
+    );
     let listener = tokio::net::TcpListener::bind(&args.bind)
         .await
         .with_context(|| format!("failed to bind {}", args.bind))?;
@@ -995,6 +1001,124 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 
 fn build_router(state: Arc<AppState>) -> Router {
     build_router_with_base(state, &viewer_base_path())
+}
+
+fn build_guarded_router(state: Arc<AppState>, trusted_hosts: TrustedRequestHosts) -> Router {
+    build_router(state).layer(axum::middleware::from_fn_with_state(
+        Arc::new(trusted_hosts),
+        reject_untrusted_request,
+    ))
+}
+
+/// Hosts the daemon answers to besides loopback names and IP literals.
+///
+/// Browsers let any page reach loopback ports, attach `Origin` to WebSocket
+/// upgrades without applying CORS, and resolve attacker DNS names to
+/// 127.0.0.1 (DNS rebinding). Requests therefore must name a host that cannot
+/// be attacker-controlled, and a browser `Origin`, when present, must be
+/// loopback, explicitly allowed, or the request's own host.
+#[derive(Debug)]
+struct TrustedRequestHosts {
+    allowed_hosts: Vec<String>,
+}
+
+impl TrustedRequestHosts {
+    fn new(bind: &str, allowed_hosts: &[String]) -> Self {
+        let mut hosts = allowed_hosts
+            .iter()
+            .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+            .filter(|host| !host.is_empty())
+            .collect::<Vec<_>>();
+        if let Some(bind_host) = authority_host(bind) {
+            hosts.push(bind_host.trim_end_matches('.').to_ascii_lowercase());
+        }
+        Self {
+            allowed_hosts: hosts,
+        }
+    }
+
+    fn is_allowed_name(&self, host: &str) -> bool {
+        let host = host.trim_end_matches('.');
+        self.allowed_hosts
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(host))
+    }
+
+    fn is_trusted_host(&self, host: &str) -> bool {
+        is_loopback_host(host)
+            || host.parse::<std::net::IpAddr>().is_ok()
+            || self.is_allowed_name(host)
+    }
+
+    fn is_trusted_origin(&self, origin: &str, request_authority: Option<&str>) -> bool {
+        let Some((_, authority)) = origin.split_once("://") else {
+            return false;
+        };
+        let Some(host) = authority_host(authority) else {
+            return false;
+        };
+        is_loopback_host(host)
+            || self.is_allowed_name(host)
+            || request_authority.is_some_and(|request| request.eq_ignore_ascii_case(authority))
+    }
+}
+
+fn authority_host(authority: &str) -> Option<&str> {
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        let (host, port) = bracketed.split_once(']')?;
+        if !port.is_empty() && !port.starts_with(':') {
+            return None;
+        }
+        host
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port))
+                if !host.contains(':') && port.bytes().all(|byte| byte.is_ascii_digit()) =>
+            {
+                host
+            }
+            Some(_) => return None,
+            None => authority,
+        }
+    };
+    (!host.is_empty()).then_some(host)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+async fn reject_untrusted_request(
+    State(trusted_hosts): State<Arc<TrustedRequestHosts>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .map(|value| value.to_str().ok());
+    if let Some(host) = host
+        && !host
+            .and_then(authority_host)
+            .is_some_and(|host| trusted_hosts.is_trusted_host(host))
+    {
+        warn!("rejected request with untrusted Host header {host:?}");
+        return text_response(StatusCode::FORBIDDEN, "untrusted Host header");
+    }
+    if let Some(origin) = request.headers().get(header::ORIGIN)
+        && !origin
+            .to_str()
+            .is_ok_and(|origin| trusted_hosts.is_trusted_origin(origin, host.flatten()))
+    {
+        warn!("rejected cross-origin request from {origin:?}");
+        return text_response(StatusCode::FORBIDDEN, "cross-origin request rejected");
+    }
+    next.run(request).await
 }
 
 fn build_router_with_base(state: Arc<AppState>, base_path: &str) -> Router {
@@ -5308,11 +5432,12 @@ mod tests {
     };
 
     use axum::{
+        Router,
         body::{Body, to_bytes},
         extract::{Json, Path, Query, State},
         http::{Request, StatusCode, header},
     };
-    use camino::Utf8PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
     use tempfile::tempdir;
     use tex_render_gs::{GsApiRuntime, PageRenderInput, Rect, TileImage, probe_gsapi_library};
     use tokio::{
@@ -5338,13 +5463,14 @@ mod tests {
         RenderSessionLatencySummary, RenderSessionMetrics, RenderSessionRequest,
         RenderSessionTileCacheSnapshot, RenderSessionWarmBucketSnapshot, RequiredTilesQuery,
         SourceFileQuery, SourceFileResponse, SourceFilesResponse, SourceJumpQuery,
-        SourceJumpResponse, TileManifestResponse, TileRendererConfig, UpdateSourceFileRequest,
-        UpdateSourceFileResponse, attach_render_revision, build_router, build_router_with_base,
-        cache_raster_image, detach_render_revision, hash_input, insert_raster_cache_entry,
-        load_revision_page_input, load_revision_page_metadata, load_revision_page_metadata_set,
-        lookup_attached_page_input, normalize_viewer_base_path, open_source, page_syncmap,
-        parse_png_path_suffix, parse_png_u32_path_suffix, prewarm_viewport_rasters,
-        prune_old_build_revisions, raster_cache_path, render_session_handle, render_session_key,
+        SourceJumpResponse, TileManifestResponse, TileRendererConfig, TrustedRequestHosts,
+        UpdateSourceFileRequest, UpdateSourceFileResponse, attach_render_revision,
+        build_guarded_router, build_router, build_router_with_base, cache_raster_image,
+        detach_render_revision, hash_input, insert_raster_cache_entry, load_revision_page_input,
+        load_revision_page_metadata, load_revision_page_metadata_set, lookup_attached_page_input,
+        normalize_viewer_base_path, open_source, page_syncmap, parse_png_path_suffix,
+        parse_png_u32_path_suffix, prewarm_viewport_rasters, prune_old_build_revisions,
+        raster_cache_path, render_session_handle, render_session_key,
         render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
         revision_artifact, revision_page_png, revision_tile_png, snapshot, source_editor_uri,
         source_file, source_file_uri, source_files, source_jump, update_source_file,
@@ -7975,6 +8101,141 @@ mod tests {
             .await
             .expect("nested state response");
         assert_eq!(nested_state.status(), StatusCode::OK);
+    }
+
+    fn guarded_test_router(root: &Utf8Path) -> Router {
+        let state = Arc::new(AppState {
+            root: root.to_path_buf(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.to_path_buf()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        build_guarded_router(
+            state,
+            TrustedRequestHosts::new("127.0.0.1:4380", &["preview.example.test".to_string()]),
+        )
+    }
+
+    #[tokio::test]
+    async fn guarded_router_rejects_rebinding_hosts_and_cross_origin_requests() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let router = guarded_test_router(&root);
+
+        for (host, origin, expected) in [
+            (None, None, StatusCode::OK),
+            (Some("127.0.0.1:4380"), None, StatusCode::OK),
+            (
+                Some("localhost:4380"),
+                Some("http://localhost:5173"),
+                StatusCode::OK,
+            ),
+            (
+                Some("[::1]:4380"),
+                Some("http://[::1]:4380"),
+                StatusCode::OK,
+            ),
+            (
+                Some("192.168.1.5:4380"),
+                Some("http://192.168.1.5:4380"),
+                StatusCode::OK,
+            ),
+            (
+                Some("preview.example.test"),
+                Some("https://preview.example.test"),
+                StatusCode::OK,
+            ),
+            (Some("attacker.example:4380"), None, StatusCode::FORBIDDEN),
+            (
+                Some("127.0.0.1:4380"),
+                Some("https://attacker.example"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some("192.168.1.5:4380"),
+                Some("http://192.168.1.9:4380"),
+                StatusCode::FORBIDDEN,
+            ),
+            (Some("127.0.0.1:4380"), Some("null"), StatusCode::FORBIDDEN),
+        ] {
+            let mut request = Request::builder().uri("/api/state");
+            if let Some(host) = host {
+                request = request.header(header::HOST, host);
+            }
+            if let Some(origin) = origin {
+                request = request.header(header::ORIGIN, origin);
+            }
+            let response = router
+                .clone()
+                .oneshot(request.body(Body::empty()).expect("state request"))
+                .await
+                .expect("state response");
+            assert_eq!(
+                response.status(),
+                expected,
+                "host={host:?} origin={origin:?}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn guarded_router_rejects_cross_origin_websocket_upgrades() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let address = listener.local_addr().expect("listener address");
+        let router = guarded_test_router(&root);
+        let server = tokio::spawn(async move { axum::serve(listener, router).await });
+
+        let upgrade_status = |origin: &'static str| {
+            tokio::task::spawn_blocking(move || {
+                use std::io::{BufRead, BufReader, Write};
+
+                let mut stream = std::net::TcpStream::connect(address).expect("connect");
+                write!(
+                    stream,
+                    "GET /ws HTTP/1.1\r\nHost: {address}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: {origin}\r\n\r\n"
+                )
+                .expect("write upgrade request");
+                let mut status_line = String::new();
+                BufReader::new(stream)
+                    .read_line(&mut status_line)
+                    .expect("read status line");
+                status_line
+            })
+        };
+
+        let cross_origin = upgrade_status("https://attacker.example")
+            .await
+            .expect("cross-origin upgrade");
+        assert!(cross_origin.starts_with("HTTP/1.1 403"), "{cross_origin}");
+        let loopback = upgrade_status("http://localhost:5173")
+            .await
+            .expect("loopback upgrade");
+        assert!(loopback.starts_with("HTTP/1.1 101"), "{loopback}");
+        server.abort();
     }
 
     #[tokio::test]

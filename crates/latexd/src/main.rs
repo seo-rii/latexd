@@ -31,6 +31,10 @@ struct ServeCli {
     root: String,
     #[arg(long, default_value = "127.0.0.1:4380")]
     bind: String,
+    /// Extra DNS host name to accept in Host/Origin headers, e.g. a reverse
+    /// proxy's public name. Loopback names and IP literals are always accepted.
+    #[arg(long = "allow-host")]
+    allowed_hosts: Vec<String>,
     #[arg(long)]
     compiler_bin: Option<String>,
     #[arg(long = "compiler-arg")]
@@ -125,6 +129,7 @@ async fn main() -> Result<()> {
             serve(ServeArgs {
                 root,
                 bind: command.bind,
+                allowed_hosts: command.allowed_hosts,
                 compiler_bin: command.compiler_bin,
                 compiler_args: command.compiler_args,
                 tile_renderer,
