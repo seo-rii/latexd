@@ -124,6 +124,26 @@ impl ActiveFloat {
     }
 }
 
+/// The factor of a plain `<factor>\\textwidth` length. Only a graphic narrower than
+/// half the text width can fit one column of a two-column page; wider ones span.
+fn textwidth_factor(value: &str) -> Option<f32> {
+    let value = value
+        .trim()
+        .trim_matches(|ch| ch == '{' || ch == '}')
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    let factor = value.strip_suffix("\\textwidth")?;
+    let factor = factor.strip_suffix('*').unwrap_or(factor);
+    if factor.is_empty() {
+        return Some(1.0);
+    }
+    factor
+        .parse::<f32>()
+        .ok()
+        .filter(|factor| factor.is_finite())
+}
+
 fn float_kind_and_width(block: &tex_render_model::BlockKind) -> Option<(FloatKind, bool)> {
     match block {
         tex_render_model::BlockKind::Figure => Some((FloatKind::Figure, false)),
@@ -1151,7 +1171,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         event.options.as_deref().is_some_and(|options| {
                             options.split(',').any(|part| {
                                 part.split_once('=').is_some_and(|(key, value)| {
-                                    key.trim() == "width" && value.contains("\\textwidth")
+                                    key.trim() == "width"
+                                        && value.contains("\\textwidth")
+                                        && textwidth_factor(value)
+                                            .is_none_or(|factor| factor >= 0.5)
                                 })
                             })
                         });
@@ -1602,6 +1625,54 @@ mod tests {
             origin,
         )
         .expect("synthetic layout fixture must use a valid event origin")
+    }
+
+    #[test]
+    fn only_graphics_narrower_than_half_the_text_width_stay_in_a_column() {
+        let options = [
+            "width=0.3\\textwidth",
+            "width = {.45\\textwidth}",
+            "width=0.5\\textwidth",
+            "width=\\textwidth",
+            "width=0.9\\textwidth",
+            "width=\\textwidth-2cm",
+        ];
+        let stream = RenderEventStream::new(
+            Some("graphic-widths".to_string()),
+            options
+                .iter()
+                .enumerate()
+                .map(|(index, options)| {
+                    synthetic_envelope(
+                        index as u64 + 1,
+                        RenderEvent::GraphicRef(GraphicRefEvent {
+                            path: format!("figures/{index}.png"),
+                            options: Some(options.to_string()),
+                            page_selection: None,
+                            asset_format: None,
+                            asset_hash: None,
+                            asset_dimensions: None,
+                        }),
+                        SourceProvenance::file("main.tex", 0, 30),
+                    )
+                })
+                .collect(),
+        );
+
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::new(),
+                targets: BTreeMap::new(),
+            },
+        );
+        let full_width = ir
+            .blocks
+            .iter()
+            .map(|block| matches!(block, IrBlock::FullWidthGraphic(_)))
+            .collect::<Vec<_>>();
+
+        assert_eq!(full_width, [false, false, true, true, true, true]);
     }
 
     #[test]
