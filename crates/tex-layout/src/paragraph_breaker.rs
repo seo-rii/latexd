@@ -445,18 +445,21 @@ fn run_pass(
                     } else {
                         0.0
                     };
+                // Like TeX's active list, a state is deactivated at the first overfull
+                // line: later endpoints only add width, so none of them can fit either.
                 let ragged_line = endpoint.final_line() || endpoint.forced_break();
                 let (badness, fitness) = if ragged_line {
                     if natural_width_pt > target_width_pt + WIDTH_EPSILON_PT {
-                        continue;
+                        break;
                     }
                     (0.0, FitnessClass::Decent)
                 } else {
                     let difference_pt = target_width_pt - natural_width_pt;
                     if interword_spaces == 0 {
-                        if difference_pt < -WIDTH_EPSILON_PT
-                            || difference_pt > emergency_stretch_pt + WIDTH_EPSILON_PT
-                        {
+                        if difference_pt < -WIDTH_EPSILON_PT {
+                            break;
+                        }
+                        if difference_pt > emergency_stretch_pt + WIDTH_EPSILON_PT {
                             continue;
                         }
                         let ratio = if difference_pt > WIDTH_EPSILON_PT {
@@ -477,7 +480,7 @@ fn run_pass(
                         } else {
                             let shrink_pt = interword_spaces as f32 * space_width_pt / 3.0;
                             if -difference_pt > shrink_pt + WIDTH_EPSILON_PT {
-                                continue;
+                                break;
                             }
                             difference_pt as f64 / shrink_pt as f64
                         };
@@ -767,6 +770,26 @@ mod tests {
         assert_eq!(
             &text[lines[0].start_utf8..lines[0].end_utf8],
             "aaaaaaaaa1 bbbbbbbbb2"
+        );
+    }
+
+    #[test]
+    fn long_sloppy_paragraph_stays_within_the_transition_budget() {
+        let sentence = "Typesetting long paragraphs requires careful consideration of \
+                        hyphenation, spacing, and the overall appearance of every printed page. ";
+        let text = sentence.repeat(60);
+        let font = serif_font();
+        let mut sloppy = request(&text, &font, 345.0, 345.0);
+        sloppy.settings.tolerance = 9_999.0;
+        sloppy.settings.emergency_stretch_pt = 30.0;
+
+        let lines = select_paragraph_breaks(sloppy)
+            .expect("a long paragraph must not exhaust the breaker's transition budget");
+
+        assert!(lines.len() > 40, "{} lines", lines.len());
+        assert_eq!(
+            lines.last().map(|line| line.end_utf8),
+            Some(text.trim_end().len())
         );
     }
 
