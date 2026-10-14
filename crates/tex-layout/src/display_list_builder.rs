@@ -4021,83 +4021,7 @@ pub fn build_page_display_lists(
                         }
                     };
 
-                for segment in &logical.segments {
-                    if segment.text.is_empty()
-                        && segment
-                            .link_target
-                            .as_deref()
-                            .is_some_and(|target| target.starts_with("latexd-footnote:"))
-                    {
-                        current_line.push(segment.clone());
-                        continue;
-                    }
-                    let mut remaining = segment.text.as_str();
-                    let mut remaining_start_chars = 0usize;
-                    while !remaining.is_empty() {
-                        if let Some(newline_index) = remaining.find('\n') {
-                            let before_newline = &remaining[..newline_index];
-                            let before_newline_chars = before_newline.chars().count();
-                            let table_vertical_rule_offsets = segment
-                                .table_vertical_rule_offsets
-                                .iter()
-                                .filter_map(|(offset, count)| {
-                                    if *offset >= remaining_start_chars
-                                        && *offset <= remaining_start_chars + before_newline_chars
-                                    {
-                                        Some((*offset - remaining_start_chars, *count))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            push_segment_text(
-                                before_newline,
-                                &segment.source,
-                                segment.link_target.as_deref(),
-                                segment.table_rule,
-                                segment.table_rule_trim_start_pt,
-                                segment.table_rule_trim_end_pt,
-                                &table_vertical_rule_offsets,
-                                &mut current_line,
-                                &mut current_len,
-                                &mut wrapped_lines,
-                            );
-                            wrapped_lines.push(std::mem::take(&mut current_line));
-                            current_len = 0;
-                            remaining = &remaining[newline_index + 1..];
-                            remaining_start_chars += before_newline_chars + 1;
-                        } else {
-                            let table_vertical_rule_offsets = segment
-                                .table_vertical_rule_offsets
-                                .iter()
-                                .filter_map(|(offset, count)| {
-                                    if *offset >= remaining_start_chars {
-                                        Some((*offset - remaining_start_chars, *count))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            push_segment_text(
-                                remaining,
-                                &segment.source,
-                                segment.link_target.as_deref(),
-                                segment.table_rule,
-                                segment.table_rule_trim_start_pt,
-                                segment.table_rule_trim_end_pt,
-                                &table_vertical_rule_offsets,
-                                &mut current_line,
-                                &mut current_len,
-                                &mut wrapped_lines,
-                            );
-                            remaining = "";
-                        }
-                    }
-                }
-                if !current_line.is_empty() || wrapped_lines.is_empty() {
-                    wrapped_lines.push(current_line);
-                }
-                let mut line_space_adjustments_pt = vec![0.0; wrapped_lines.len()];
+                let mut line_space_adjustments_pt = Vec::new();
                 let can_set_as_paragraph = logical.font.role == FontRole::Body
                     && !full_width
                     && !logical.preserve_leading_whitespace
@@ -4236,6 +4160,89 @@ pub fn build_page_display_lists(
                         wrapped_lines = paragraph_wrapped_lines;
                         line_space_adjustments_pt = paragraph_space_adjustments;
                     }
+                }
+                // Greedy wrapping is the fallback for text the paragraph breaker does
+                // not set. It rescans the rest of each segment per line, so skip it
+                // when the breaker already chose the lines.
+                if wrapped_lines.is_empty() {
+                    for segment in &logical.segments {
+                        if segment.text.is_empty()
+                            && segment
+                                .link_target
+                                .as_deref()
+                                .is_some_and(|target| target.starts_with("latexd-footnote:"))
+                        {
+                            current_line.push(segment.clone());
+                            continue;
+                        }
+                        let mut remaining = segment.text.as_str();
+                        let mut remaining_start_chars = 0usize;
+                        while !remaining.is_empty() {
+                            if let Some(newline_index) = remaining.find('\n') {
+                                let before_newline = &remaining[..newline_index];
+                                let before_newline_chars = before_newline.chars().count();
+                                let table_vertical_rule_offsets = segment
+                                    .table_vertical_rule_offsets
+                                    .iter()
+                                    .filter_map(|(offset, count)| {
+                                        if *offset >= remaining_start_chars
+                                            && *offset
+                                                <= remaining_start_chars + before_newline_chars
+                                        {
+                                            Some((*offset - remaining_start_chars, *count))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                push_segment_text(
+                                    before_newline,
+                                    &segment.source,
+                                    segment.link_target.as_deref(),
+                                    segment.table_rule,
+                                    segment.table_rule_trim_start_pt,
+                                    segment.table_rule_trim_end_pt,
+                                    &table_vertical_rule_offsets,
+                                    &mut current_line,
+                                    &mut current_len,
+                                    &mut wrapped_lines,
+                                );
+                                wrapped_lines.push(std::mem::take(&mut current_line));
+                                current_len = 0;
+                                remaining = &remaining[newline_index + 1..];
+                                remaining_start_chars += before_newline_chars + 1;
+                            } else {
+                                let table_vertical_rule_offsets = segment
+                                    .table_vertical_rule_offsets
+                                    .iter()
+                                    .filter_map(|(offset, count)| {
+                                        if *offset >= remaining_start_chars {
+                                            Some((*offset - remaining_start_chars, *count))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                push_segment_text(
+                                    remaining,
+                                    &segment.source,
+                                    segment.link_target.as_deref(),
+                                    segment.table_rule,
+                                    segment.table_rule_trim_start_pt,
+                                    segment.table_rule_trim_end_pt,
+                                    &table_vertical_rule_offsets,
+                                    &mut current_line,
+                                    &mut current_len,
+                                    &mut wrapped_lines,
+                                );
+                                remaining = "";
+                            }
+                        }
+                    }
+                    if !current_line.is_empty() || wrapped_lines.is_empty() {
+                        wrapped_lines.push(current_line);
+                    }
+                    line_space_adjustments_pt = vec![0.0; wrapped_lines.len()];
                 }
                 if keep_together {
                     let required_height_pt = wrapped_lines
