@@ -253,7 +253,10 @@ fn export(build_root: &Utf8Path, target: &Utf8Path) -> Result<()> {
     );
     let mut catalog = dictionary! { "Type" => "Catalog", "Pages" => root_pages };
     if !named_destinations.is_empty() {
+        // Name tree keys must be unique: keep the first page's entry for a
+        // repeated name, as the legacy `/Dests` merge does (the sort is stable).
         named_destinations.sort_by(|left, right| left.0.cmp(&right.0));
+        named_destinations.dedup_by(|later, earlier| later.0 == earlier.0);
         let entries = named_destinations
             .into_iter()
             .flat_map(|(name, destination)| [Object::string_literal(name), destination])
@@ -569,6 +572,69 @@ mod tests {
         };
         assert_eq!(resolved_links(&eager), vec![(1, 2), (2, 1)]);
         assert_eq!(resolved_links(&exported), resolved_links(&eager));
+    }
+
+    #[tokio::test]
+    async fn pdf_export_keeps_first_of_duplicate_destination_names() {
+        use tex_render_model::{Destination, DrawOp, PageDisplayList, Point, SourceProvenance};
+        let directory = tempfile::tempdir().unwrap();
+        let root = Utf8Path::from_path(directory.path()).unwrap();
+        let metadata = ["first", "second"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let display = PageDisplayList {
+                    page_id: name.into(),
+                    width_pt: 612.0,
+                    height_pt: 792.0,
+                    content_hash: name.into(),
+                    source_spans: vec![],
+                    ops: vec![DrawOp::NamedDestination(Destination {
+                        name: "fig:dup".into(),
+                        point: Point { x: 72.0, y: 90.0 },
+                        source: SourceProvenance::file("main.tex", 0, 1),
+                    })],
+                };
+                let mut artifact = page(root, 1, name, "Helvetica");
+                artifact.index = index;
+                artifact.width_pt = display.width_pt as u32;
+                artifact.height_pt = display.height_pt as u32;
+                fs::write(
+                    root.join(&artifact.pdf_artifact_path),
+                    tex_pdf::render_display_list_pdf(std::slice::from_ref(&display)),
+                )
+                .unwrap();
+                artifact
+            })
+            .collect::<Vec<_>>();
+        let target = root.join("rev-1/main.pdf");
+        write_recipe(root, 1, &target, &metadata).unwrap();
+        ensure_pdf(root, &target).await.unwrap();
+
+        let exported = Document::load(&target).unwrap();
+        let names = exported.catalog().unwrap().get(b"Names").unwrap();
+        let tree = exported
+            .dereference(names)
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap()
+            .get(b"Dests")
+            .unwrap();
+        let mut destinations = vec![];
+        collect_names(&exported, tree, &mut destinations, 0).unwrap();
+        assert_eq!(destinations.len(), 1);
+        assert_eq!(destinations[0].0, b"fig:dup");
+        let destination = exported
+            .dereference(&destinations[0].1)
+            .unwrap()
+            .1
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            destination[0].as_reference().unwrap(),
+            exported.get_pages()[&1]
+        );
     }
 
     #[tokio::test]
