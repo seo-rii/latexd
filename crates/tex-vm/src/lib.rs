@@ -18557,9 +18557,7 @@ impl<'i> Vm<'i> {
                 self.transcript.push(format!("newwrite \\{name}={stream}"));
             }
             Primitive::OpenOut => {
-                let Some(_) = self.read_macro_argument(queue) else {
-                    return;
-                };
+                self.skip_write_stream_number(queue);
                 self.skip_optional_spaces(queue);
                 if matches!(
                     self.peek_next_token(queue).map(|token| token.kind),
@@ -18583,7 +18581,10 @@ impl<'i> Vm<'i> {
                         TokenKind::Character {
                             catcode: CatCode::Space,
                             ..
-                        } => break,
+                        } => {
+                            self.pop_next_token(queue);
+                            break;
+                        }
                         TokenKind::ControlSequence { name }
                             if self
                                 .interner
@@ -18599,14 +18600,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::CloseOut => {
-                let Some(_) = self.read_macro_argument(queue) else {
-                    return;
-                };
+                self.skip_write_stream_number(queue);
             }
             Primitive::Write => {
-                let Some(_) = self.read_macro_argument(queue) else {
-                    return;
-                };
+                self.skip_write_stream_number(queue);
                 let Some(body) = self.read_macro_argument(queue) else {
                     return;
                 };
@@ -26286,6 +26283,21 @@ impl<'i> Vm<'i> {
                 .and_then(|value| u32::try_from(value).ok());
         }
         self.resolve_muskip_register_name(&name)
+    }
+
+    /// `\openout`, `\write` and `\closeout` stream numbers are TeX integers.
+    /// The VM does not model output streams, so the value is discarded.
+    fn skip_write_stream_number(&mut self, queue: &mut VecDeque<QueueItem>) {
+        self.skip_optional_spaces(queue);
+        match self.peek_next_token(queue).map(|token| token.kind) {
+            Some(TokenKind::Character { .. }) => {
+                let _ = self.read_integer_with_policy(queue, IntegerScanPolicy::TeX82Parameter);
+            }
+            Some(TokenKind::ControlSequence { .. }) => {
+                self.pop_next_token(queue);
+            }
+            None => {}
+        }
     }
 
     fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
@@ -38653,6 +38665,18 @@ mod tests {
         );
 
         assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn write_family_reads_multi_digit_stream_numbers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"A\immediate\write16{msg}B\write18{cmd}C\immediate\openout15=notes.out D\closeout15 E\immediate\write-1{log}F",
+        );
+
+        assert_eq!(outcome.output, "ABCDEF");
         assert!(outcome.diagnostics.is_empty());
     }
 
