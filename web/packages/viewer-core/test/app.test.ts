@@ -2329,3 +2329,41 @@ test("stale tile manifests are ignored and zoom changes clear tile layers", () =
   });
   assert.deepEqual(state.tileLayers, {});
 });
+
+test("server source hashes are used only as same-document fragments", () => {
+  const item = {
+    file: "main.tex",
+    start_utf8: 8,
+    end_utf8: 14,
+    output_start_utf8: 40,
+    output_end_utf8: 56,
+    start_line: 2,
+    end_line: 3,
+    left_px: 72,
+    right_px: 180,
+    top_px: 100,
+    bottom_px: 220
+  };
+  for (const hostile of ["javascript:alert(document.domain)", "https://evil.example/#src=x", "//evil.example/"]) {
+    const response = {
+      page_id: "page-a",
+      source_hash: hostile,
+      page_width_px: 612,
+      page_height_px: 792,
+      page_source_start_utf8: 5,
+      page_source_end_utf8: 20,
+      page_output_start_utf8: 32,
+      page_output_end_utf8: 64,
+      item
+    };
+    const selection = syncSelectionFromJumpContext(response);
+    assert.equal(selection?.sourceHash, undefined);
+    const computedHash = formatSourceSelectionHash(selection);
+    assert.match(computedHash, /^#src=main\.tex&/);
+    assert.equal(formatSourceSelectionHash({ ...selection, sourceHash: hostile }), computedHash);
+    assert.equal(
+      resolvedSourceRequestDetail(15, { file: "main.tex", offset: 8, line: null }, response).sourceHash,
+      computedHash
+    );
+  }
+});

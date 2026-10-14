@@ -347,11 +347,16 @@ export function sourceRequestFromSelection(source: SourceSelection | null): Sour
   return null;
 }
 
+// Source hashes become the source link's href, so only a same-document fragment is
+// accepted from the daemon; anything else (`javascript:`, another origin) is dropped
+// and the hash is rebuilt from the selection instead.
+function sourceHashFragment(value: unknown): string {
+  return typeof value === "string" && value.startsWith("#") ? value : "";
+}
+
 export function formatSourceSelectionHash(source: SourceSelection | null): string {
-  if (typeof source?.sourceHash === "string" && source.sourceHash.length > 0) {
-    return source.sourceHash;
-  }
-  return formatSourceRequestHash(sourceRequestFromSelection(source));
+  return sourceHashFragment(source?.sourceHash)
+    || formatSourceRequestHash(sourceRequestFromSelection(source));
 }
 
 export function formatSourceRequestHash(request: Partial<SourceJumpRequest> | null): string {
@@ -540,10 +545,11 @@ export function syncSelectionFromJumpContext(context: any): SourceSelection | nu
   if (!selection) {
     return null;
   }
-  return typeof context.source_hash === "string" && context.source_hash.length > 0
+  const sourceHash = sourceHashFragment(context.source_hash);
+  return sourceHash
     ? {
       ...selection,
-      sourceHash: context.source_hash
+      sourceHash
     }
     : selection;
 }
@@ -580,11 +586,9 @@ export function resolvedSourceRequestDetail(
     launched: response?.launched === true,
     launchRequested: !previewOnly,
     previewOnly,
-    sourceHash: typeof response?.source_hash === "string" && response.source_hash.length > 0
-      ? response.source_hash
-      : typeof request?.source_hash === "string" && request.source_hash.length > 0
-        ? request.source_hash
-        : formatSourceSelectionHash(item ?? source)
+    sourceHash: sourceHashFragment(response?.source_hash)
+      || sourceHashFragment(request?.source_hash)
+      || formatSourceSelectionHash(item ?? source)
   };
 }
 
