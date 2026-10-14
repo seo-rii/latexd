@@ -187,7 +187,7 @@ fn render_display_list_pdf_with_font_mode(
     let first_content_object_id = 3 + font_resource_count;
     let content_object_id = |index: usize| first_content_object_id + index * 2;
     let page_object_id = |index: usize| first_content_object_id + 1 + index * 2;
-    let font_resources = (1..=font_resource_count)
+    let mut font_resources = (1..=font_resource_count)
         .map(|slot| format!("/F{slot} {} 0 R", slot + 2))
         .collect::<Vec<_>>()
         .join(" ");
@@ -441,6 +441,25 @@ fn render_display_list_pdf_with_font_mode(
         }
     }
 
+    // In TeX-font mode /F1 is the embedded CMR10, whose built-in encoding does
+    // not match the plain text written by SVG serif text and image
+    // placeholders. Those draws get a base-14 Times-Roman of their own.
+    let plain_serif_font = if prefer_tex_fonts && resolve_font(TexFontFace::Roman10).is_some() {
+        let object_id = next_extra_object_id;
+        next_extra_object_id += 1;
+        extra_objects.push(
+            format!(
+                "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> endobj\n"
+            )
+            .into_bytes(),
+        );
+        let resource = format!("F{}", font_resource_count + 1);
+        font_resources.push_str(&format!(" /{resource} {object_id} 0 R"));
+        resource
+    } else {
+        "F1".to_string()
+    };
+
     let mut imported_pdf_forms = BTreeMap::<String, (usize, f32, f32)>::new();
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
@@ -600,6 +619,7 @@ fn render_display_list_pdf_with_font_mode(
                             page.height_pt,
                             image,
                             placeholder_status,
+                            &plain_serif_font,
                         );
                     } else if let Some(materialized) =
                         materialize_asset(&GraphicAssetRequest::from(image))
@@ -1444,7 +1464,7 @@ fn render_display_list_pdf_with_font_mode(
                                             VectorFontFamily::Serif,
                                             FontSeries::Regular,
                                             FontShape::Upright,
-                                        ) => "F1",
+                                        ) => plain_serif_font.as_str(),
                                         (
                                             VectorFontFamily::Serif,
                                             FontSeries::Bold,
@@ -1848,6 +1868,7 @@ fn render_display_list_pdf_with_font_mode(
                                 page.height_pt,
                                 image,
                                 ImagePlaceholderStatus::from_decode_failure(image),
+                                &plain_serif_font,
                             );
                         }
                     } else {
@@ -1856,6 +1877,7 @@ fn render_display_list_pdf_with_font_mode(
                             page.height_pt,
                             image,
                             ImagePlaceholderStatus::from_image(image),
+                            &plain_serif_font,
                         );
                     }
                 }
@@ -2194,6 +2216,7 @@ fn push_image_placeholder(
     page_height_pt: f32,
     image: &PositionedImage,
     status: ImagePlaceholderStatus,
+    font_resource: &str,
 ) {
     let rotated = push_pdf_image_rotation(stream, page_height_pt, image);
     stream.push_str(&format!(
@@ -2207,7 +2230,7 @@ fn push_image_placeholder(
         image.rect.width,
         image.rect.height
     ));
-    stream.push_str("BT /F1 8 Tf ");
+    stream.push_str(&format!("BT /{font_resource} 8 Tf "));
     stream.push_str(&format!(
         "1 0 0 1 {} {} Tm ",
         image.rect.x + 4.0,
@@ -27592,5 +27615,97 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn tex_font_pdf_draws_svg_serif_text_and_placeholders_with_a_base14_font() {
+        if resolve_font(TexFontFace::Roman10).is_none() {
+            return;
+        }
+        let image = |asset_ref: &str, asset_format, diagnostic: Option<&str>, y: f32| {
+            DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: Some(asset_format),
+                page_selection: None,
+                asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: diagnostic.map(str::to_string),
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                image(
+                    "figures/missing.png",
+                    GraphicAssetFormat::Png,
+                    Some("missing graphic asset figures/missing.png"),
+                    72.0,
+                ),
+                image("figures/label.svg", GraphicAssetFormat::Svg, None, 300.0),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets_and_tex_fonts(&[page], |asset_ref| {
+            (asset_ref == "figures/label.svg").then(|| {
+                br##"<svg width="20" height="10"><text x="1" y="8" font-family="serif" font-size="4" fill="#0000ff">Label</text></svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        // In TeX-font mode /F1 is the embedded CMR10, whose built-in encoding
+        // does not match the plain text these draws write.
+        let base_font_of = |resource: &str| {
+            let font_dictionary = pdf_text
+                .split_once("/Font << ")
+                .and_then(|(_, rest)| rest.split_once(" >>"))
+                .map(|(fonts, _)| fonts)
+                .expect("page font resources");
+            let object_id = font_dictionary
+                .split(&format!("/{resource} "))
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next())
+                .expect("font resource reference");
+            pdf_text
+                .split_once(&format!("\n{object_id} 0 obj << /Type /Font "))
+                .and_then(|(_, rest)| rest.split_once("/BaseFont /"))
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                .expect("font object")
+                .to_string()
+        };
+        let draws = pdf_text
+            .split("BT /")
+            .skip(1)
+            .filter_map(|draw| {
+                let (resource, rest) = draw.split_once(' ')?;
+                let text = rest.split_once('(')?.1.split_once(')')?.0;
+                Some((resource.to_string(), text.to_string()))
+            })
+            .collect::<Vec<_>>();
+        for needle in ["[missing image: figures/missing.png]", "Label"] {
+            let (resource, _) = draws
+                .iter()
+                .find(|(_, text)| text == needle)
+                .unwrap_or_else(|| panic!("{needle} is drawn: {draws:?}"));
+            assert_eq!(
+                base_font_of(resource),
+                "Times-Roman",
+                "{needle} via /{resource}"
+            );
+        }
     }
 }
