@@ -278,6 +278,23 @@ test("positioned glyph rendering falls back for identity or coverage mismatches"
   }]), null);
 });
 
+test("positioned glyph lookups follow each artifact's own font list", () => {
+  const first = browserPositionedGlyphOutlines(textRun, [fontAsset]);
+  assert.ok(first);
+  // The next build ships new font objects; the cached index of the previous
+  // artifact must not answer for them.
+  const rebuiltFont: BrowserFontAsset = {
+    ...fontAsset,
+    glyphs: fontAsset.glyphs.map((outline) => outline.glyph_id === 65
+      ? { glyph_id: 65, commands: [{ kind: "move_to", x: 1, y: 1 }, { kind: "close" }] }
+      : outline)
+  };
+  const second = browserPositionedGlyphOutlines(textRun, [rebuiltFont]);
+  assert.equal(second?.[0].path, "M 1 1 Z");
+  assert.equal(browserPositionedGlyphOutlines(textRun, [{ ...fontAsset, glyphs: [] }]), null);
+  assert.deepEqual(browserPositionedGlyphOutlines(textRun, [fontAsset]), first);
+});
+
 test("display-list preparation applies nested clips until restore", () => {
   const prepared = prepareDisplayListOps([
     { kind: "save" },
