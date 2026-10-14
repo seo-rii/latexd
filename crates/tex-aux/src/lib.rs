@@ -7756,7 +7756,15 @@ fn is_comment_start(source: &str, index: usize) -> bool {
         .rfind('\n')
         .map(|position| position + 1)
         .unwrap_or(0);
-    source[line_start..index].contains('%')
+    let mut escaped = false;
+    for ch in source[line_start..index].chars() {
+        match ch {
+            '%' if !escaped => return true,
+            '\\' => escaped = !escaped,
+            _ => escaped = false,
+        }
+    }
+    false
 }
 
 fn skip_comment(source: &str, index: usize) -> usize {
@@ -11100,6 +11108,27 @@ mod tests {
             vec!["beta".to_string(), "alpha".to_string()]
         );
         assert_eq!(scan.bibliography_files, vec![Utf8PathBuf::from("refs.bbl")]);
+    }
+
+    #[test]
+    fn scan_project_does_not_treat_escaped_percent_as_comment() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\begin{figure}\\caption{Error (\\%)}\\label{fig:err}\\end{figure}\nLine break\\\\% \\label{sec:commented}\n",
+        )
+        .expect("write main");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert_eq!(
+            scan.labels
+                .iter()
+                .map(|label| label.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fig:err"]
+        );
     }
 
     #[test]
