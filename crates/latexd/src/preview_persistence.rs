@@ -243,7 +243,11 @@ mod tests {
             extract::{Path, Query, State},
             http::StatusCode,
         };
-        use std::{collections::BTreeMap, sync::Arc, time::Duration};
+        use std::{
+            collections::BTreeMap,
+            sync::{Arc, Mutex as StdMutex},
+            time::Duration,
+        };
         use tokio::sync::{RwLock, broadcast, mpsc};
 
         let directory = tempfile::tempdir().unwrap();
@@ -271,7 +275,7 @@ mod tests {
                 tile_renderer: TileRendererConfig::Mock,
                 editor_bridge: None,
                 raster_cache: RwLock::new(BTreeMap::new()),
-                inflight_rasters: RwLock::new(BTreeMap::new()),
+                inflight_rasters: StdMutex::new(BTreeMap::new()),
                 build_cache: RwLock::new(BuildCache::default()),
                 live: RwLock::new(live),
                 events,
