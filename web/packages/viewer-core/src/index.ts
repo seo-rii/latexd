@@ -138,6 +138,23 @@ export function zoomBucketForZoom(zoom) {
   return Math.round(Math.max(0.5, Math.min(3, zoom)) * 100);
 }
 
+// `scroll_top` is part of the wire format, but the daemon prewarms rasters from the
+// zoom, current page and visible pages only. Resending on those alone keeps a scroll
+// within the same pages from sending one message (and starting one server prewarm
+// task) per animation frame.
+export function viewportChangedMessage(state, scrollTop: number, visiblePages: string[]) {
+  return {
+    key: JSON.stringify([state.zoom, state.currentPage, visiblePages]),
+    payload: JSON.stringify({
+      type: "viewport_changed",
+      zoom: state.zoom,
+      current_page: state.currentPage,
+      scroll_top: scrollTop,
+      visible_pages: visiblePages
+    })
+  };
+}
+
 function activePageForState(state) {
   if (state.pages.length === 0) {
     return null;
@@ -1125,7 +1142,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   const syncMapInflight = new Map();
   const sourceFileInflight = new Map();
   const syncInteractionSerials = new Map();
-  let lastViewportPayload = null;
+  let lastViewportKey = null;
   let lastLeaseRev: number | null = null;
   function sendPreviewLease() {
     if (socket?.readyState === 1 && lastLeaseRev !== state.lastAppliedRev) {
@@ -1270,16 +1287,10 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
             }
           });
       }
-      const payload = JSON.stringify({
-        type: "viewport_changed",
-        zoom: state.zoom,
-        current_page: state.currentPage,
-        scroll_top: elements.frame.scrollTop,
-        visible_pages: visiblePages
-      });
-      if (socket?.readyState === 1 && payload !== lastViewportPayload) {
-        lastViewportPayload = payload;
-        socket.send(payload);
+      const viewport = viewportChangedMessage(state, elements.frame.scrollTop, visiblePages);
+      if (socket?.readyState === 1 && viewport.key !== lastViewportKey) {
+        lastViewportKey = viewport.key;
+        socket.send(viewport.payload);
       }
     });
   };
@@ -2111,7 +2122,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     lastLeaseRev = null;
     sendPreviewLease();
     refreshPreviewSnapshot();
-    lastViewportPayload = null;
+    lastViewportKey = null;
     queueTileRefresh();
   };
   const handleSocketMessage = (event: any) => {
@@ -2145,7 +2156,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
     }, delay);
   };
   const handleSocketClose = () => {
-    lastViewportPayload = null;
+    lastViewportKey = null;
     state = reduce(state, {
       type: "diagnostics",
       rev: state.currentRev,

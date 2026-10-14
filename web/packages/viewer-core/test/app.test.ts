@@ -10,7 +10,8 @@ import {
   resolvedSourceRequestDetail,
   sourceRequestFromSelection,
   syncSelectionFromJumpContext,
-  selectNearestSyncItem
+  selectNearestSyncItem,
+  viewportChangedMessage
 } from "../src/index.ts";
 
 function previewManifest(rev: number, pageIds: string[]) {
@@ -2328,4 +2329,22 @@ test("stale tile manifests are ignored and zoom changes clear tile layers", () =
     items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-stale.png" }]
   });
   assert.deepEqual(state.tileLayers, {});
+});
+
+test("viewport messages resend only when zoom, page or visible pages change", () => {
+  const state = { ...initialState, zoom: 1.25, currentPage: 2 };
+  const atTop = viewportChangedMessage(state, 0, ["page-a", "page-b"]);
+  const scrolled = viewportChangedMessage(state, 480.5, ["page-a", "page-b"]);
+
+  assert.equal(scrolled.key, atTop.key);
+  assert.deepEqual(JSON.parse(scrolled.payload), {
+    type: "viewport_changed",
+    zoom: 1.25,
+    current_page: 2,
+    scroll_top: 480.5,
+    visible_pages: ["page-a", "page-b"]
+  });
+  assert.notEqual(viewportChangedMessage(state, 900, ["page-b", "page-c"]).key, atTop.key);
+  assert.notEqual(viewportChangedMessage({ ...state, currentPage: 3 }, 0, ["page-a", "page-b"]).key, atTop.key);
+  assert.notEqual(viewportChangedMessage({ ...state, zoom: 1.5 }, 0, ["page-a", "page-b"]).key, atTop.key);
 });
