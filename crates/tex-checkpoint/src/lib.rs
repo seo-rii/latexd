@@ -1529,6 +1529,15 @@ pub fn select_reusable_preamble(
         .find(|checkpoint| {
             checkpoint.meta.kind == CheckpointKind::Preamble
                 && checkpoint.meta.boundary_hash == current_preamble_key
+                // The key covers only the toplevel's preamble text. A file the
+                // preamble read, such as `\input{macros}`, is part of the state too.
+                && checkpoint.snapshot_for_restore().is_some_and(|restore| {
+                    !restore
+                        .state()
+                        .loaded_modules
+                        .iter()
+                        .any(|module| changed_files.contains(module))
+                })
                 && checkpoint_is_replay_safe(checkpoint)
         })
         .cloned()
@@ -3882,6 +3891,31 @@ mod tests {
                 .expect("selected checkpoint");
         assert_eq!(selected.meta.kind, CheckpointKind::Preamble);
         assert!(selected.snapshot_for_restore().is_some());
+    }
+
+    #[test]
+    fn rejects_preamble_checkpoint_when_a_file_read_by_the_preamble_changed() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("macros.tex", r"\def\foo{alpha}");
+        vm.run_plain(r"\input{macros}");
+        let snapshot = vm.snapshot();
+        assert!(
+            snapshot
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("macros.tex"))
+        );
+        let preamble_key = preamble_key_for_source("\\documentclass{article}\\input{macros}");
+        let bundle = build_checkpoint_bundle(1, &snapshot, &preamble_key, &[]).expect("bundle");
+
+        assert!(
+            select_reusable_preamble(&bundle, &[Utf8PathBuf::from("macros.tex")], &preamble_key)
+                .is_none()
+        );
+        assert!(
+            select_reusable_preamble(&bundle, &[Utf8PathBuf::from("main.tex")], &preamble_key)
+                .is_some()
+        );
     }
 
     #[test]
