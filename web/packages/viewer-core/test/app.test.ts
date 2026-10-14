@@ -1073,6 +1073,11 @@ test("source selection hash formatting and parsing roundtrip line-based links", 
   });
 });
 
+test("the viewer template announces build status changes to assistive technology", async () => {
+  const { VIEWER_TEMPLATE } = await import("../src/template.ts");
+  assert.match(VIEWER_TEMPLATE, /<div id="build-status" role="status" aria-live="polite">/);
+});
+
 test("source selection hash canonicalizes explicit column one to the omitted form", () => {
   const canonicalHash = formatSourceSelectionHash({
     file: "main.tex",

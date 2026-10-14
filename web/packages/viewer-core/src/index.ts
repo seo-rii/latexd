@@ -1506,6 +1506,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       const selectedMarker = node.querySelector(".page-sync-marker--selected");
       const hoverMarker = node.querySelector(".page-sync-marker--hover");
       const frame = node.querySelector(".page-frame");
+      frame.title = `Page ${index + 1} of ${state.pages.length}`;
       if (page.svgUrl) {
         if (image.dataset.src !== page.svgUrl) {
           image.dataset.src = page.svgUrl;
