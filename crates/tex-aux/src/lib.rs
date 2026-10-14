@@ -875,6 +875,23 @@ impl BlockKind {
 fn parse_citation_label(label: &str) -> (Option<String>, Option<String>, Option<String>) {
     let label = normalize_bibliography_inline_markup(label);
     let label = label.trim();
+    // natbib splits `\bibitem[short(year)long]` at the first `(` and the first
+    // `)` after it, whatever the year is: "n.d.", "in press" and "2020a" alike.
+    if let Some(open_paren) = label.find('(')
+        && let Some(close_rel) = label[open_paren + 1..].find(')')
+    {
+        let close_paren = open_paren + 1 + close_rel;
+        let year = label[open_paren + 1..close_paren].trim();
+        if !year.is_empty() {
+            let short_author = label[..open_paren]
+                .trim_end_matches(|ch: char| ch == ',' || ch.is_whitespace())
+                .to_string();
+            let full_author = Some(label[close_paren + 1..].trim())
+                .filter(|tail| !tail.is_empty())
+                .map(ToOwned::to_owned);
+            return (Some(short_author), Some(year.to_string()), full_author);
+        }
+    }
     let mut year = None;
     let mut year_start = None;
     for (index, _) in label.char_indices() {
@@ -9610,6 +9627,40 @@ mod tests {
         assert!(!main.contains("\\pageref*"));
         assert!(!main.contains("\\cite[see][chap.~2]"));
         assert_eq!(bibliography, "[1] Alpha entry.");
+    }
+
+    #[test]
+    fn natbib_labels_take_the_year_from_parentheses() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\usepackage[round]{natbib}\begin{document}A \citep{nd} B \citet{nd} C \citep{ip} D \citet{ip} E \citeyear{nd} F \citeauthor{ip} G \citealt{nd} I \citep{alpha}.\bibliography{refs}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{3}\bibitem[Alpha(2001)]{alpha} Ann Alpha. One.\bibitem[Nodate(n.d.)]{nd} Nora Nodate. Undated.\bibitem[Press and Queue(in press)]{ip} Pat Press and Quinn Queue. Pending.\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+
+        assert_eq!(aux.citation_year("nd").as_deref(), Some("n.d."));
+        assert_eq!(aux.citation_year("ip").as_deref(), Some("in press"));
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+        // pdflatex + natbib [round] prints exactly these forms.
+        assert!(
+            main.contains(
+                "A (Nodate, n.d.) B Nodate (n.d.) C (Press and Queue, in press) D Press and Queue (in press) E n.d. F Press and Queue G Nodate n.d. I (Alpha, 2001)."
+            ),
+            "{main}"
+        );
     }
 
     #[test]
