@@ -673,6 +673,51 @@ test("viewer ignores malformed websocket frames", async () => {
   });
 });
 
+test("a restarted daemon with lower revisions replaces the stranded preview", async () => {
+  const options: any = { stateResponse: { preview_protocol_version: 1 } };
+  await withViewerBrowserHarness(options, async ({ viewer, sockets, flush, fetchCalls }) => {
+    assert.equal(viewer.getState().lastAppliedRev, 15);
+    // The daemon restarts with a fresh .latexd (or another project takes the
+    // port): its revisions start over below the viewer's applied revision 15.
+    options.stateResponse = {
+      preview_protocol_version: 1, current_rev: 2, last_applied_rev: 2,
+      pdf_url: "/artifacts/rev/2/main.pdf", page_ids: ["page-new"],
+      page_artifacts: [{ page_id: "page-new", pdf_url: "/artifacts/rev/2/pages/page-new.pdf" }]
+    };
+    const leases = [];
+    sockets[0].send = (payload) => leases.push(JSON.parse(payload));
+    sockets[0].readyState = 1;
+    sockets[0].dispatchEvent(new Event("open"));
+    // The daemon answers the lease for revision 15 with its own preview.
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "preview_resync_required", preview_rev: 2
+    }) }));
+    await flush();
+    await flush();
+    assert.equal(viewer.getState().lastAppliedRev, 2);
+    assert.deepEqual(viewer.getState().pageIds, ["page-new"]);
+    assert.equal(viewer.getState().previewResyncRev, 0);
+    assert.deepEqual(leases.filter((frame) => frame.type === "preview_lease").at(-1), { type: "preview_lease", rev: 2 });
+
+    // Later builds of the new session apply normally.
+    sockets[0].dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "preview_committed", base_preview_rev: 2, new_preview_rev: 3,
+      pdf_url: "/artifacts/rev/3/main.pdf", page_ids: ["page-new"],
+      page_artifacts: [{ page_id: "page-new", pdf_url: "/artifacts/rev/3/pages/page-new.pdf" }],
+      source_snapshot: [], ops: []
+    }) }));
+    assert.equal(viewer.getState().lastAppliedRev, 3);
+
+    const stateFetches = fetchCalls.filter((call) => call.url.endsWith("/api/state")).length;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(
+      fetchCalls.filter((call) => call.url.endsWith("/api/state")).length,
+      stateFetches,
+      "no more /api/state polling once resynchronized"
+    );
+  });
+});
+
 test("stale initial state cannot overwrite a newer websocket revision", async () => {
   let resolveState;
   const stateResponsePromise = new Promise((resolve) => {
