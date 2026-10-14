@@ -60,7 +60,7 @@ fn compile() -> Result<CompileResponse, String> {
         if !is_tex_source(&path) {
             continue;
         }
-        let source = fs::read_to_string(Path::new(WORKSPACE).join(&path))
+        let source = read_tex_source(&Path::new(WORKSPACE).join(&path))
             .map_err(|error| format!("failed to read {path}: {error}"))?;
         sources.insert(path, source);
     }
@@ -143,6 +143,12 @@ fn compile() -> Result<CompileResponse, String> {
     })
 }
 
+/// Decodes like the native compiler (`tex_world::read_tex_source_lossy`), so a
+/// Latin-1 source previews instead of failing the whole browser build.
+fn read_tex_source(path: &Path) -> std::io::Result<String> {
+    Ok(String::from_utf8_lossy(&fs::read(path)?).into_owned())
+}
+
 fn normalize_path(path: &str) -> Result<String, String> {
     let path = Utf8PathBuf::from(path.replace('\\', "/"));
     if path.is_absolute()
@@ -170,7 +176,9 @@ mod tests {
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::Vm;
 
-    use super::{explicit_error_message, normalize_path};
+    use std::fs;
+
+    use super::{explicit_error_message, normalize_path, read_tex_source};
 
     #[test]
     fn project_paths_are_relative_and_sandboxed() {
@@ -191,6 +199,21 @@ mod tests {
         assert_eq!(
             explicit_error_message(&outcome.diagnostics).as_deref(),
             Some("ExplicitError: errmessage: browser failure")
+        );
+    }
+
+    #[test]
+    fn sources_that_are_not_utf8_are_read_like_the_native_reader() {
+        let path =
+            std::env::temp_dir().join(format!("latexd-wasi-latin1-{}.tex", std::process::id()));
+        fs::write(&path, b"caf\xe9 au lait").expect("latin-1 source");
+
+        let source = read_tex_source(&path);
+        fs::remove_file(&path).expect("remove source");
+
+        assert_eq!(
+            source.expect("a Latin-1 source should be readable"),
+            "caf\u{fffd} au lait"
         );
     }
 
