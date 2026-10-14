@@ -389,15 +389,22 @@ fi
             load_revision_source_texts(&build_root, final_rev).await[Utf8Path::new("main.tex")],
             final_source
         );
-        while let Ok(event) = received.try_recv() {
-            if let ServerMsg::PreviewCommitted {
-                new_preview_rev: rev,
-                ..
-            } = event
-            {
-                assert_eq!(rev, final_rev);
+        // The live snapshot is replaced before the commit is broadcast, so wait
+        // for the broadcast itself instead of draining whatever has arrived.
+        timeout(Duration::from_secs(10), async {
+            loop {
+                if let ServerMsg::PreviewCommitted {
+                    new_preview_rev: rev,
+                    ..
+                } = received.recv().await.expect("build events stay open")
+                {
+                    assert_eq!(rev, final_rev, "only the latest save is published");
+                    break;
+                }
             }
-        }
+        })
+        .await
+        .expect("latest preview commit broadcast");
     }
     // Old preview source reads remain bound to their revision after another save.
     fs::write(root.join("main.tex"), "not yet compiled").unwrap();
