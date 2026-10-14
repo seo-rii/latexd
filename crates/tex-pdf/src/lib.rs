@@ -1,6 +1,6 @@
 mod pdf_form;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use pdf_form::build_pdf_form_objects;
 use tex_fonts::{ResolvedTexFont, TexFontFace, encode_text, face_for_request, resolve_font};
@@ -385,6 +385,22 @@ fn render_display_list_pdf_with_font_mode(
         "Times-BoldItalic",
         "Symbol",
     ];
+    // Each preview page is written as its own PDF, so embedding every TeX font
+    // program (30-45 KB apiece) into every page dominated the file size. Embed
+    // a TeX face only when some text run selects it; an unused slot keeps its
+    // small base-14 font object, so resource names and object ids are unchanged.
+    let used_tex_faces = if prefer_tex_fonts {
+        pages
+            .iter()
+            .flat_map(|page| &page.ops)
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => face_for_request(&run.font, run.size_pt),
+                _ => None,
+            })
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
     for slot in 1..=font_resource_count {
         let object_id = slot + 2;
         let tex_font_face = if prefer_tex_fonts {
@@ -403,7 +419,9 @@ fn render_display_list_pdf_with_font_mode(
         } else {
             None
         };
-        let tex_font = tex_font_face.and_then(resolve_font);
+        let tex_font = tex_font_face
+            .filter(|face| used_tex_faces.contains(face))
+            .and_then(resolve_font);
         if let Some(font) = tex_font {
             let descriptor_id = next_extra_object_id;
             let font_file_id = descriptor_id + 1;
@@ -3246,6 +3264,48 @@ mod tests {
     }
 
     #[test]
+    fn tex_font_pdf_embeds_only_the_tex_fonts_its_text_uses() {
+        if resolve_font(TexFontFace::Roman10).is_none() {
+            return;
+        }
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "Body text".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 10.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 10.0,
+                approximate_advance_pt: 40.0,
+                resolved_font: None,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 9),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+
+        let pdf = render_display_list_pdf_with_materialized_assets_and_tex_fonts(&[page], |_| None);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/BaseFont /CMR10"));
+        assert!(text.contains("/F1 10 Tf"));
+        assert_eq!(text.matches("/FontFile ").count(), 1, "{} bytes", pdf.len());
+        for unused in ["CMMI10", "CMMI7", "CMR7", "CMEX10", "NimbusRomNo9L-"] {
+            assert!(!text.contains(&format!("/BaseFont /{unused}")), "{unused}");
+        }
+        assert_eq!(tex_render_assets::pdf_page_count(&pdf), Ok(1));
+    }
+
+    #[test]
     fn emits_valid_pdf_header_and_trailer() {
         let layout = layout_text("hello pdf", LayoutOptions::default());
         let pdf = render_pdf(&layout);
@@ -3346,27 +3406,49 @@ mod tests {
         }
 
         let source = SourceProvenance::file("main.tex", 0, 9);
-        let page = PageDisplayList {
-            page_id: "page-1".to_string(),
-            width_pt: 612.0,
-            height_pt: 792.0,
-            ops: vec![DrawOp::TextRun(PositionedTextRun {
-                origin: Point { x: 72.0, y: 72.0 },
-                text: "following".to_string(),
+        // One run per face: only the faces some run selects are embedded.
+        let run = |text: &str, family, shape, size_pt: f32, y: f32| {
+            DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y },
+                text: text.to_string(),
                 font: FontRequest {
-                    family: FontFamilyRequest::Serif,
+                    family,
                     series: FontSeries::Regular,
-                    shape: FontShape::Upright,
-                    size_pt: 10.0,
+                    shape,
+                    size_pt,
                     role: FontRole::Body,
                 },
-                size_pt: 10.0,
+                size_pt,
                 approximate_advance_pt: 38.9,
                 resolved_font: None,
                 glyphs: None,
                 clusters: None,
-                source,
-            })],
+                source: source.clone(),
+            })
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                run(
+                    "following",
+                    FontFamilyRequest::Serif,
+                    FontShape::Upright,
+                    10.0,
+                    72.0,
+                ),
+                run("2", FontFamilyRequest::Math, FontShape::Upright, 7.0, 96.0),
+                run("x", FontFamilyRequest::Math, FontShape::Italic, 10.0, 120.0),
+                run("y", FontFamilyRequest::Math, FontShape::Italic, 7.0, 144.0),
+                run(
+                    "\u{2211}",
+                    FontFamilyRequest::MathExtension,
+                    FontShape::Upright,
+                    10.0,
+                    168.0,
+                ),
+            ],
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
         };
