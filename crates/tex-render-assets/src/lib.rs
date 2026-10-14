@@ -173,6 +173,40 @@ fn decode_simple_xml_attribute_value(raw_value: &str) -> String {
     decoded
 }
 
+/// Applies SVG text white-space handling the way browsers do (CSS
+/// `white-space: normal`): each run of spaces, tabs and line breaks becomes one
+/// space, and a leading space is dropped when the previous chunk of the same
+/// `<text>` already ended with one. With `xml:space="preserve"`, line breaks and
+/// tabs each become a space and nothing collapses.
+fn normalize_svg_text_space(text: &str, preserve: bool, after_space: bool) -> String {
+    if preserve {
+        return text
+            .chars()
+            .map(|ch| {
+                if matches!(ch, '\t' | '\n' | '\r') {
+                    ' '
+                } else {
+                    ch
+                }
+            })
+            .collect();
+    }
+    let mut normalized = String::with_capacity(text.len());
+    let mut in_space = after_space;
+    for ch in text.chars() {
+        if matches!(ch, ' ' | '\t' | '\n' | '\r') {
+            if !in_space {
+                normalized.push(' ');
+                in_space = true;
+            }
+        } else {
+            normalized.push(ch);
+            in_space = false;
+        }
+    }
+    normalized
+}
+
 /// Rewrites external raster references so the SVG can be embedded without loading remote data.
 ///
 /// Resolved PNG and JPEG assets become data URIs. Unresolved or unsupported external references
@@ -8769,7 +8803,8 @@ pub fn parse_svg_with_embedded_assets(
             return Vec::new();
         };
         if !text_body.contains('<') {
-            let text = decode_xml_text(text_body);
+            let text =
+                normalize_svg_text_space(&decode_xml_text(text_body), preserve_text_space, false);
             let presentation =
                 apply_text_length_spacing(text_tag, presentation, &text, local_font_size);
             return vec![(point, font_size, presentation, text)];
@@ -8778,10 +8813,16 @@ pub fn parse_svg_with_embedded_assets(
         let mut current_x = text_x;
         let mut current_y = text_raw_y;
         let mut tspan_texts = Vec::new();
+        // Collapsed white space also collapses across chunk boundaries.
+        let mut previous_ends_with_space = false;
         while !remaining.is_empty() {
             let Some(tspan_start) = remaining.find("<tspan") else {
                 if !remaining.is_empty() && (preserve_text_space || !remaining.trim().is_empty()) {
-                    let literal_text = decode_xml_text(remaining);
+                    let literal_text = normalize_svg_text_space(
+                        &decode_xml_text(remaining),
+                        preserve_text_space,
+                        previous_ends_with_space,
+                    );
                     let literal_baseline_y = current_y
                         + baseline_y_offset(presentation, local_font_size)
                         + baseline_shift_y_offset(presentation, local_font_size);
@@ -8795,9 +8836,29 @@ pub fn parse_svg_with_embedded_assets(
                 break;
             };
             if tspan_start > 0
+                && !preserve_text_space
+                && remaining[..tspan_start].trim().is_empty()
+                && !previous_ends_with_space
+                && !tspan_texts.is_empty()
+            {
+                // White space between two chunks still renders as one space.
+                current_x += estimate_text_advance(
+                    " ",
+                    local_font_size,
+                    presentation.letter_spacing.unwrap_or(0.0),
+                    presentation.word_spacing.unwrap_or(0.0),
+                );
+                previous_ends_with_space = true;
+            }
+            if tspan_start > 0
                 && (preserve_text_space || !remaining[..tspan_start].trim().is_empty())
             {
-                let literal_text = decode_xml_text(&remaining[..tspan_start]);
+                let literal_text = normalize_svg_text_space(
+                    &decode_xml_text(&remaining[..tspan_start]),
+                    preserve_text_space,
+                    previous_ends_with_space,
+                );
+                previous_ends_with_space = literal_text.ends_with(' ');
                 let literal_baseline_y = current_y
                     + baseline_y_offset(presentation, local_font_size)
                     + baseline_shift_y_offset(presentation, local_font_size);
@@ -8863,7 +8924,12 @@ pub fn parse_svg_with_embedded_assets(
                 remaining = &tspan_tail[tspan_close_end..];
                 continue;
             }
-            let tspan_text = decode_xml_text(tspan_body);
+            let tspan_text = normalize_svg_text_space(
+                &decode_xml_text(tspan_body),
+                preserve_tspan_space,
+                previous_ends_with_space,
+            );
+            previous_ends_with_space = tspan_text.ends_with(' ');
             let tspan_local_font_size = resolved_font_size(tspan_presentation);
             let tspan_presentation = apply_text_length_spacing(
                 tspan_tag,
@@ -9504,6 +9570,44 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn collapses_svg_text_whitespace_like_browsers() {
+        let scene = parse_svg(
+            "<svg width=\"100\" height=\"60\" viewBox=\"0 0 100 60\">\
+             <text x=\"0\" y=\"10\">Total\n        count</text>\
+             <text x=\"0\" y=\"30\">A  <tspan>  B</tspan>\t C</text>\
+             <text x=\"0\" y=\"50\" xml:space=\"preserve\">a\tb  c</text>\
+             </svg>",
+        )
+        .expect("parse svg");
+
+        let texts = scene
+            .texts
+            .iter()
+            .map(|text| text.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(texts, ["Total count", "A ", "B", " C", "a b  c"]);
+
+        // White space between two tspans still separates them by one space.
+        let tspan_x = |body: &str| {
+            let scene = parse_svg(&format!(
+                "<svg width=\"100\" height=\"20\" viewBox=\"0 0 100 20\"><text x=\"0\" y=\"10\">{body}</text></svg>"
+            ))
+            .expect("parse svg");
+            scene
+                .texts
+                .iter()
+                .map(|text| text.x_ratio)
+                .collect::<Vec<_>>()
+        };
+        let adjacent = tspan_x("a<tspan>b</tspan><tspan>c</tspan>");
+        let spaced = tspan_x("a<tspan>b</tspan>\n   <tspan>c</tspan>");
+        assert_eq!(adjacent.len(), 3);
+        assert_eq!(spaced.len(), 3);
+        assert_eq!(spaced[1], adjacent[1]);
+        assert!(spaced[2] > adjacent[2], "{spaced:?} vs {adjacent:?}");
     }
 
     #[test]
