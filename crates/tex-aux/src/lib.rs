@@ -6673,6 +6673,12 @@ fn clean_bibliography_text(source: &str) -> String {
                     if let Some((argument_end, argument)) = argument {
                         let mut argument_chars = argument.chars();
                         if let Some(base) = argument_chars.next() {
+                            // \'{\i} is an accented i: compose on the dotted letter.
+                            let base = match base {
+                                'ı' => 'i',
+                                'ȷ' => 'j',
+                                base => base,
+                            };
                             text.extend([base, combining_mark].into_iter().nfc());
                             text.extend(argument_chars);
                         }
@@ -7173,10 +7179,38 @@ fn clean_bibliography_text(source: &str) -> String {
                     index = value_end;
                     continue;
                 }
+                if command_name == "penalty" {
+                    // \penalty takes an integer and the space that ends it:
+                    // "3\penalty0 (2)" prints as "3(2)".
+                    let mut cursor = skip_whitespace(&source, command_end);
+                    if source[cursor..].starts_with(['-', '+']) {
+                        cursor += 1;
+                    }
+                    let digits = source[cursor..]
+                        .bytes()
+                        .take_while(u8::is_ascii_digit)
+                        .count();
+                    index = if digits == 0 {
+                        command_end
+                    } else if source[cursor + digits..].starts_with(' ') {
+                        cursor + digits + 1
+                    } else {
+                        cursor + digits
+                    };
+                    continue;
+                }
+                if let Some(symbol) = bibliography_text_symbol(&command_name) {
+                    text.push_str(symbol);
+                    // Like TeX, a control word swallows the spaces after it.
+                    index = skip_whitespace(&source, command_end);
+                    continue;
+                }
                 if command_name.len() == 1 {
                     match command_name.as_str() {
                         "\\" => text.push(' '),
-                        "{" | "}" => {}
+                        // \- (discretionary hyphen), \/ (italic correction) and
+                        // \@ (spacing marker) print nothing.
+                        "{" | "}" | "-" | "/" | "@" => {}
                         command => text.push_str(command),
                     }
                 }
@@ -7190,6 +7224,60 @@ fn clean_bibliography_text(source: &str) -> String {
         index += ch.len_utf8();
     }
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Text for LaTeX's argument-less text symbols and logos in bibliography text.
+fn bibliography_text_symbol(command_name: &str) -> Option<&'static str> {
+    Some(match command_name {
+        "ss" => "ß",
+        "SS" => "SS",
+        "o" => "ø",
+        "O" => "Ø",
+        "aa" => "å",
+        "AA" => "Å",
+        "ae" => "æ",
+        "AE" => "Æ",
+        "oe" => "œ",
+        "OE" => "Œ",
+        "l" => "ł",
+        "L" => "Ł",
+        "i" => "ı",
+        "j" => "ȷ",
+        "dh" => "ð",
+        "DH" => "Ð",
+        "th" => "þ",
+        "TH" => "Þ",
+        "ng" => "ŋ",
+        "NG" => "Ŋ",
+        "dj" => "đ",
+        "DJ" => "Đ",
+        "TeX" => "TeX",
+        "LaTeX" => "LaTeX",
+        "LaTeXe" => "LaTeX2ε",
+        "BibTeX" => "BibTeX",
+        "S" | "textsection" => "§",
+        "P" | "textparagraph" => "¶",
+        "dag" | "textdagger" => "†",
+        "ddag" | "textdaggerdbl" => "‡",
+        "copyright" | "textcopyright" => "©",
+        "textregistered" => "®",
+        "texttrademark" => "™",
+        "textdegree" => "°",
+        "pounds" | "textsterling" => "£",
+        "euro" | "texteuro" => "€",
+        "dots" | "ldots" | "textellipsis" => "…",
+        "textquoteleft" => "‘",
+        "textquoteright" => "’",
+        "textquotedblleft" => "“",
+        "textquotedblright" => "”",
+        "guillemotleft" | "guillemetleft" => "«",
+        "guillemotright" | "guillemetright" => "»",
+        "textbullet" => "•",
+        "textperiodcentered" => "·",
+        "textexclamdown" => "¡",
+        "textquestiondown" => "¿",
+        _ => return None,
+    })
 }
 
 fn page_for_offset(pages: &[PageSourceSlice], file: &Utf8Path, offset_utf8: u32) -> Option<u32> {
@@ -10688,6 +10776,24 @@ mod tests {
         assert!(main.contains("Alpha entry. and Beta entry.."));
         assert!(!main.contains("\\fullcite"));
         assert!(!main.contains("\\bibentry"));
+    }
+
+    #[test]
+    fn bibliography_text_translates_text_symbols_penalties_and_control_symbols() {
+        let entries = parse_bibliography_entries(
+            Utf8Path::new("main.bbl"),
+            r#"\begin{thebibliography}{1}\bibitem{k1} J.~M{\"u}ller and K.~{\O}stergaard and \O{}rsted and \o\ x.
+\newblock Stra{\ss}e and Stra\ss e and \AA ngstr\"om, \ae, \OE uvre, \l\'od\'z, \i, \L.
+\newblock {\TeX} and \LaTeX\ and \LaTeXe{} and co\-operation and shelf\/ful and Dr.\@ X.
+\newblock \emph{J}, 3\penalty0 (2):\penalty0 1--10, 2020. \S 2, \copyright, \dag.
+\end{thebibliography}"#,
+        );
+
+        // pdflatex prints the same text, with -- for the en dash.
+        assert_eq!(
+            entries[0].text,
+            "J.~Müller and K.~Østergaard and Ørsted and ø x. Straße and Straße and Ångström, æ, Œuvre, łódź, ı, Ł. TeX and LaTeX and LaTeX2ε and cooperation and shelfful and Dr. X. J, 3(2):1--10, 2020. §2, ©, †."
+        );
     }
 
     #[test]
