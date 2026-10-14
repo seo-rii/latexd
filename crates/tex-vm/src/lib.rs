@@ -2796,7 +2796,7 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), link_macro);
                                 }
                             }
-                            if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
+                            if parameter_count == 1 && !body.contains("#2") {
                                 let wrapper_macro = RenderReadableWrapperMacro {
                                     definition_span: RenderMacroDefinitionSpan {
                                         path: source_path.to_owned(),
@@ -3173,7 +3173,7 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
-                            if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
+                            if parameter_count == 1 && !body.contains("#2") {
                                 scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
                                     RenderReadableWrapperMacro {
@@ -49338,6 +49338,34 @@ Fallback text.
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
         assert!(!visible_text.contains("https://hidden.test"));
+    }
+
+    #[test]
+    fn render_event_capture_drops_arguments_unused_by_one_argument_macros() {
+        for (source, expected) in [
+            (
+                r"\newcommand{\comment}[1]{}\begin{document}Visible \comment{secret note} text.\end{document}",
+                "Visible  text.",
+            ),
+            (
+                r"\def\comment#1{}\begin{document}Visible \comment{secret note} text.\end{document}",
+                "Visible  text.",
+            ),
+            (
+                r"\newcommand{\placeholder}[1]{TBD}\begin{document}Visible \placeholder{secret note} text.\end{document}",
+                "Visible TBD text.",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let visible_text = visible_render_event_text(&outcome.render_events);
+
+            assert!(visible_text.contains(expected), "{source}: {visible_text}");
+            assert!(!visible_text.contains("secret"), "{source}: {visible_text}");
+        }
     }
 
     #[test]
