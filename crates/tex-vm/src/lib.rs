@@ -24521,6 +24521,24 @@ impl<'i> Vm<'i> {
                 {
                     Some(Meaning::Macro(definition)) => self.expand_macro(&name, definition, queue),
                     Some(Meaning::Token(token)) => vec![token],
+                    // `\expandafter\expandafter\expandafter` chains expand the inner
+                    // \expandafter too; returning it unexpanded let `\expandafter\def
+                    // \expandafter\x...` redefine \expandafter itself.
+                    Some(Meaning::Primitive(Primitive::ExpandAfter)) => {
+                        let Some(first) = self.pop_next_token(queue) else {
+                            return Vec::new();
+                        };
+                        let Some(second) = self.pop_next_token(queue) else {
+                            return vec![first];
+                        };
+                        let mut expanded = vec![first];
+                        expanded.extend(self.expand_once_with_protected_macros(
+                            second,
+                            queue,
+                            additional_protected_macros,
+                        ));
+                        expanded
+                    }
                     Some(Meaning::Primitive(Primitive::CsName)) => self.expand_csname(queue),
                     Some(Meaning::Primitive(Primitive::String)) => self
                         .pop_next_token(queue)
@@ -38688,6 +38706,39 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn expandafter_expands_a_following_expandafter() {
+        for (source, expected) in [
+            (
+                r"\def\y{Y}\expandafter\def\expandafter\x\expandafter{\y}\def\y{Z}\x",
+                "Y",
+            ),
+            (
+                r"\def\y{Y}\expandafter\def\expandafter\x\expandafter{\y}\meaning\expandafter",
+                r"\expandafter",
+            ),
+            (
+                r"\def\a{\b}\def\b{B}\expandafter\expandafter\expandafter\def\expandafter\expandafter\expandafter\z\expandafter\expandafter\expandafter{\a}\def\b{Z}\z",
+                "B",
+            ),
+            (
+                r"\def\p{P}\def\q{\p}\expandafter\expandafter\expandafter\let\expandafter\expandafter\expandafter\r\q\r",
+                "P",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
     }
 
     #[test]
