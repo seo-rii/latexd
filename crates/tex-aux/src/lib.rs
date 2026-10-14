@@ -1581,6 +1581,7 @@ fn materialize_project_with_bibliography_policy(
         };
         block_numbers.insert(block.order, number);
     }
+    let cite_list_style = cite_list_style(&scan.files);
     let mut files = BTreeMap::new();
     let mut rewrite_spans = BTreeMap::new();
     for (path, source) in &scan.files {
@@ -1604,6 +1605,7 @@ fn materialize_project_with_bibliography_policy(
             &scan,
             &block_numbers,
             preserve_jobname_bibliography,
+            cite_list_style,
         );
         files.insert(path.clone(), rewritten);
         rewrite_spans.insert(path.clone(), file_rewrite_spans);
@@ -2671,6 +2673,7 @@ fn rewrite_source(
     scan: &ProjectScan,
     block_numbers: &BTreeMap<usize, String>,
     preserve_jobname_bibliography: bool,
+    cite_list_style: CiteListStyle,
 ) -> (String, Vec<MaterializedRewriteSpan>) {
     let mut output = String::with_capacity(source.len());
     let mut rewrite_spans = Vec::new();
@@ -5040,7 +5043,7 @@ fn rewrite_source(
                                 .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
-                    let mut rendered = rendered.join(", ");
+                    let mut rendered = cite_list_style.join(rendered);
                     if let Some(pre_note) = pre_note.as_deref().filter(|note| !note.is_empty()) {
                         rendered = format!("{pre_note} {rendered}");
                     }
@@ -5456,6 +5459,7 @@ fn rewrite_source(
                         scan,
                         block_numbers,
                         preserve_jobname_bibliography,
+                        cite_list_style,
                     );
                     let rendered = format!("({})", nested.trim());
                     let output_start_utf8 = output.len() as u32;
@@ -7876,6 +7880,111 @@ fn read_multicite_groups(
     }
 }
 
+/// How `\cite` orders and joins its labels. The cite package sorts and
+/// compresses numbers by default; natbib does so only with its `sort` and
+/// `compress` options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CiteListStyle {
+    sort: bool,
+    compress: bool,
+}
+
+impl CiteListStyle {
+    /// Joins `\cite` labels like the cite package: unknown keys (`?`) first,
+    /// numbers sorted when `sort` is set, and runs of three or more consecutive
+    /// numbers written as `first--last` when `compress` is set. Lists with
+    /// non-numeric labels are joined unchanged.
+    fn join(self, labels: Vec<String>) -> String {
+        let numbers = labels
+            .iter()
+            .filter(|label| label.as_str() != "?")
+            .map(|label| label.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>();
+        let Some(mut numbers) = numbers.filter(|_| self.sort || self.compress) else {
+            return labels.join(", ");
+        };
+        if self.sort {
+            numbers.sort_unstable();
+        }
+        let mut parts = vec!["?".to_string(); labels.len() - numbers.len()];
+        let mut index = 0;
+        while index < numbers.len() {
+            let mut run_end = index;
+            while self.compress
+                && run_end + 1 < numbers.len()
+                && numbers[run_end + 1] == numbers[run_end] + 1
+            {
+                run_end += 1;
+            }
+            if run_end >= index + 2 {
+                parts.push(format!("{}--{}", numbers[index], numbers[run_end]));
+            } else {
+                run_end = index;
+                parts.push(numbers[index].to_string());
+            }
+            index = run_end + 1;
+        }
+        parts.join(", ")
+    }
+}
+
+fn cite_list_style(files: &BTreeMap<Utf8PathBuf, String>) -> CiteListStyle {
+    let mut style = CiteListStyle::default();
+    for source in files.values() {
+        let mut index = 0usize;
+        // The first `%` at or after `index`, or `source.len()`, kept between
+        // commands so that a file without comments is not rescanned each time.
+        let mut comment_position = source.find('%').unwrap_or(source.len());
+        while index < source.len() {
+            let next_command = source[index..].find('\\').map(|offset| index + offset);
+            if comment_position < index {
+                comment_position = source[index..]
+                    .find('%')
+                    .map_or(source.len(), |offset| index + offset);
+            }
+            if comment_position < source.len()
+                && next_command.is_none_or(|command| comment_position < command)
+            {
+                index = skip_comment(source, comment_position);
+                continue;
+            }
+            let Some(command_start) = next_command else {
+                break;
+            };
+            let Some((command_end, command_name)) = read_command_name(source, command_start) else {
+                index = command_start + 1;
+                continue;
+            };
+            index = command_end;
+            if command_name != "usepackage" {
+                continue;
+            }
+            let (cursor, options) = read_bracket_argument(source, command_end)
+                .unwrap_or_else(|| (command_end, String::new()));
+            let Some((packages_end, packages)) = read_braced_argument(source, cursor) else {
+                continue;
+            };
+            index = packages_end;
+            let options = split_option_items(&options);
+            for package in packages.split(',').map(str::trim) {
+                match package {
+                    "cite" => {
+                        style.sort = !options.contains(&"nosort");
+                        style.compress = !options.contains(&"nocompress");
+                    }
+                    "natbib" => {
+                        let sort_and_compress = options.contains(&"sort&compress");
+                        style.sort = sort_and_compress || options.contains(&"sort");
+                        style.compress = sort_and_compress || options.contains(&"compress");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    style
+}
+
 fn split_option_items(options: &str) -> Vec<&str> {
     let mut items = Vec::new();
     let mut depth = 0i32;
@@ -9649,6 +9758,63 @@ mod tests {
             main.contains("A [Alp01] B [Bet02, Gam03] C [Alp01, 4]."),
             "{main}"
         );
+    }
+
+    #[test]
+    fn cite_sorts_and_compresses_numbers_like_the_cite_package() {
+        let render = |preamble: &str, body: &str| {
+            let tempdir = tempdir().expect("tempdir");
+            let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+            fs::write(
+                root.join("main.tex"),
+                format!(
+                    "{preamble}\\begin{{document}}{body}\\bibliographystyle{{unsrt}}\\bibliography{{refs}}\\end{{document}}"
+                ),
+            )
+            .expect("write main");
+            fs::write(
+                root.join("main.bbl"),
+                r"\begin{thebibliography}{7}\bibitem{a} A.\bibitem{b} B.\bibitem{c} C.\bibitem{e} E.\bibitem{d} D.\bibitem{x} X.\bibitem{s} S.\end{thebibliography}",
+            )
+            .expect("write bbl");
+            let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+            let aux = derive_semantic_aux(&scan, &[]);
+            let materialized = materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux)
+                .expect("materialize");
+            materialized.files[&Utf8PathBuf::from("main.tex")].clone()
+        };
+        let body =
+            r"A \cite{a,b,c} B \cite{e,c} C \cite{a,b,c,e,d} E \cite{a,zz,b,c} F \cite{x,a,s,b,c}.";
+        let plain = "A [1, 2, 3] B [4, 3] C [1, 2, 3, 4, 5] E [1, ?, 2, 3] F [6, 1, 7, 2, 3].";
+
+        // pdflatex output for each preamble, with -- for the en dash.
+        for (preamble, body, expected) in [
+            (
+                r"\usepackage{cite}",
+                body,
+                "A [1--3] B [3, 4] C [1--5] E [?, 1--3] F [1--3, 6, 7].",
+            ),
+            (
+                r"\usepackage[nosort]{cite}",
+                body,
+                "A [1--3] B [4, 3] C [1--5] E [?, 1--3] F [6, 1, 7, 2, 3].",
+            ),
+            (
+                r"\usepackage[nocompress]{cite}",
+                body,
+                "A [1, 2, 3] B [3, 4] C [1, 2, 3, 4, 5] E [?, 1, 2, 3] F [1, 2, 3, 6, 7].",
+            ),
+            (
+                r"\usepackage[numbers,sort&compress]{natbib}",
+                r"A \cite{a,b,c} B \cite{e,c} C \cite{a,b,c,e,d} F \cite{x,a,s,b,c}.",
+                "A [1--3] B [3, 4] C [1--5] F [1--3, 6, 7].",
+            ),
+            ("", body, plain),
+            ("%\\usepackage{cite}\n", body, plain),
+        ] {
+            let main = render(preamble, body);
+            assert!(main.contains(expected), "{preamble}: {main}");
+        }
     }
 
     #[test]
