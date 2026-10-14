@@ -3214,7 +3214,7 @@ impl CompilerDriver {
                                 "--keep-intermediates".to_string(),
                                 "--outdir".to_string(),
                                 rev_dir.to_string(),
-                                request.toplevel.to_string(),
+                                engine_input_argument(&request.toplevel),
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
@@ -3230,7 +3230,7 @@ impl CompilerDriver {
                                 "-recorder".to_string(),
                                 "-output-directory".to_string(),
                                 rev_dir.to_string(),
-                                request.toplevel.to_string(),
+                                engine_input_argument(&request.toplevel),
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
@@ -3259,7 +3259,7 @@ impl CompilerDriver {
                                 "-recorder".to_string(),
                                 "-output-directory".to_string(),
                                 rev_dir.to_string(),
-                                request.toplevel.to_string(),
+                                engine_input_argument(&request.toplevel),
                             ],
                             Some(pdf_path.clone()),
                             "PDF",
@@ -3314,7 +3314,7 @@ impl CompilerDriver {
                             "-recorder".to_string(),
                             "-output-directory".to_string(),
                             rev_dir.to_string(),
-                            request.toplevel.to_string(),
+                            engine_input_argument(&request.toplevel),
                         ],
                         Some(dvi_path.clone()),
                         "DVI",
@@ -3671,6 +3671,16 @@ fn is_external_compiler_warning(line: &str) -> bool {
         || lower
             .split_once(" warning:")
             .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+}
+
+/// TeX engines parse any argument that starts with `-` as an option, so a
+/// toplevel named `-paper.tex` is passed as `./-paper.tex`.
+fn engine_input_argument(toplevel: &Utf8Path) -> String {
+    if toplevel.as_str().starts_with('-') {
+        format!("./{toplevel}")
+    } else {
+        toplevel.to_string()
+    }
 }
 
 fn copy_previous_external_aux_files(
@@ -5088,10 +5098,11 @@ mod tests {
         capture_internal_render_ir_from_project_run_with_asset_cache,
         copy_previous_external_aux_files, earliest_changed_offset,
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
-        has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
-        load_latest_previous_internal_build, map_internal_diagnostics,
-        map_missing_graphic_render_diagnostic, materialize_display_list_asset, parse_depfile,
-        parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        engine_input_argument, has_fatal_internal_diagnostics, included_pdf_pages,
+        is_external_compiler_warning, load_latest_previous_internal_build,
+        map_internal_diagnostics, map_missing_graphic_render_diagnostic,
+        materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_checkpoint_bundle_observed, save_source_texts,
@@ -5197,6 +5208,50 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[test]
+    fn engine_input_argument_cannot_be_parsed_as_an_option() {
+        assert_eq!(
+            engine_input_argument(Utf8Path::new("-paper.tex")),
+            "./-paper.tex"
+        );
+        assert_eq!(engine_input_argument(Utf8Path::new("main.tex")), "main.tex");
+        assert_eq!(
+            engine_input_argument(Utf8Path::new("chapters/main.tex")),
+            "chapters/main.tex"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex (and no tectonic) on PATH"]
+    async fn external_pdflatex_builds_dash_prefixed_toplevel() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - -paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("-paper.tex"),
+            r"\documentclass{article}\begin{document}Hi\end{document}",
+        )
+        .expect("toplevel");
+
+        let outcome = CompilerDriver::new(None, Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                toplevel: Utf8PathBuf::from("-paper.tex"),
+                rev: 1,
+                build_root: root.join(".latexd/build"),
+                changed_files: vec![Utf8PathBuf::from("-paper.tex")],
+            })
+            .await
+            .expect("external pdflatex build of -paper.tex");
+
+        assert!(outcome.pdf_path.exists());
     }
 
     #[test]
