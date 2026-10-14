@@ -1069,8 +1069,13 @@ function reconcilePagesAfterPatch(previousPages, nextPageArtifacts) {
 export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   const viewerWindow = (options.window ?? window) as (Window & typeof globalThis & Record<string, any>);
   const viewerDocument = options.document ?? document;
+  // Requests still in flight at destroy() settle later; once destroyed, their
+  // handlers must neither render into the detached shadow root nor reach the app.
+  let destroyed = false;
   const emitEvent = (event: ViewerEvent) => {
-    options.onEvent?.(event);
+    if (!destroyed) {
+      options.onEvent?.(event);
+    }
   };
   const transport = options.transport;
   const shadowRoot = root.shadowRoot ?? root.attachShadow({ mode: "open" });
@@ -1108,7 +1113,6 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   let state = initialState;
-  let destroyed = false;
   let stateFetch: Promise<void> | null = null;
   let stateRetry: ReturnType<typeof setTimeout> | null = null;
   let socket: ViewerSocket | null = null;
@@ -1285,6 +1289,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   const render = () => {
+    if (destroyed) {
+      return;
+    }
     const pageInventoryChanged = renderedPageIds.length !== state.pageIds.length
       || renderedPageIds.some((pageId, index) => pageId !== state.pageIds[index]);
     const previousActiveNode = pageInventoryChanged
@@ -1610,6 +1617,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   };
 
   const dispatch = (message) => {
+    if (destroyed) {
+      return;
+    }
     const previousHovered = state.hoveredSource;
     const previousSelected = state.selectedSource;
     state = reduce(state, message);

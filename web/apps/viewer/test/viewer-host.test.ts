@@ -499,6 +499,55 @@ test("viewer leases the applied preview, replaces it on commit, and releases on 
   });
 });
 
+test("a destroyed viewer ignores responses that arrive after destroy", async () => {
+  let resolveJump;
+  const json = (body) => ({ ok: true, status: 200, json: async () => body });
+  const fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/state") {
+      return json({
+        current_rev: 15, last_applied_rev: 15, pdf_url: "/artifacts/rev/15/main.pdf",
+        page_ids: ["page-a"],
+        page_artifacts: [{ page_id: "page-a", pdf_url: "/artifacts/rev/15/pages/page-a.pdf" }],
+        diagnostics: [], changed_files: [], building: false, last_build_succeeded: true
+      });
+    }
+    if (url.pathname === "/api/source-jump/15") {
+      return new Promise((resolve) => {
+        resolveJump = () => resolve(json({
+          rev: 15, file: "main.tex", line: 2, column: 1, page_id: "page-a", page_index: 0,
+          page_width_px: 612, page_height_px: 792,
+          item: { file: "main.tex", start_utf8: 8, end_utf8: 14, start_line: 2, end_line: 2,
+            left_px: 72, right_px: 180, top_px: 100, bottom_px: 220 }
+        }));
+      });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const appEvents = [];
+  await withViewerBrowserHarness(
+    { hostOptions: { fetch, onEvent: (event) => appEvents.push(event.type) } },
+    async ({ window, viewer, flush }) => {
+      await flush();
+      assert.equal(viewer.getState().lastAppliedRev, 15);
+      const windowEvents = [];
+      window.addEventListener("latexd:source-jump-resolved", (event) => windowEvents.push(event.type));
+      window.addEventListener("latexd:source-selected", (event) => windowEvents.push(event.type));
+      const jump = viewer.jumpToSource({ file: "main.tex", line: 2 });
+      await flush();
+      const hashBefore = window.location.hash;
+      viewer.destroy();
+      appEvents.length = 0;
+      resolveJump();
+      await jump;
+      await flush();
+      assert.deepEqual(appEvents, [], "no app callbacks after destroy");
+      assert.deepEqual(windowEvents, [], "no window events after destroy");
+      assert.equal(window.location.hash, hashBefore, "the URL hash is left alone");
+    }
+  );
+});
+
 function installScrollablePreviewGeometry(elements, options = {}) {
   const frame = elements.get("frame");
   const previewStack = elements.get("preview-stack");
