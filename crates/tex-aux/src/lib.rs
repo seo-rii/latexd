@@ -6622,6 +6622,21 @@ fn clean_bibliography_text(source: &str) -> String {
         let Some(ch) = source[index..].chars().next() else {
             break;
         };
+        // Keep `$...$` and `$$...$$` verbatim: stripping commands and braces
+        // inside math turned `$\alpha$` into `$$`, which opens display math.
+        if ch == '$' {
+            let delimiter = if source[index..].starts_with("$$") {
+                "$$"
+            } else {
+                "$"
+            };
+            let body_start = index + delimiter.len();
+            if let Some(body_end) = find_math_close(&source, body_start, delimiter) {
+                text.push_str(&source[index..body_end + delimiter.len()]);
+                index = body_end + delimiter.len();
+                continue;
+            }
+        }
         if ch == '\\' {
             if let Some((command_end, command_name)) = read_command_name(&source, index) {
                 let starred_end = if source[command_end..].starts_with('*') {
@@ -7190,6 +7205,23 @@ fn clean_bibliography_text(source: &str) -> String {
         index += ch.len_utf8();
     }
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Finds the `delimiter` that closes math opened before `start`, skipping
+/// escaped characters such as `\$`.
+fn find_math_close(source: &str, start: usize, delimiter: &str) -> Option<usize> {
+    let mut index = start;
+    while index < source.len() {
+        let rest = &source[index..];
+        if rest.starts_with('\\') {
+            index += 1 + rest[1..].chars().next().map_or(0, char::len_utf8);
+        } else if rest.starts_with(delimiter) {
+            return Some(index);
+        } else {
+            index += rest.chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    None
 }
 
 fn page_for_offset(pages: &[PageSourceSlice], file: &Utf8Path, offset_utf8: u32) -> Option<u32> {
@@ -10688,6 +10720,19 @@ mod tests {
         assert!(main.contains("Alpha entry. and Beta entry.."));
         assert!(!main.contains("\\fullcite"));
         assert!(!main.contains("\\bibentry"));
+    }
+
+    #[test]
+    fn bibliography_text_keeps_math_verbatim() {
+        let entries = parse_bibliography_entries(
+            Utf8Path::new("main.bbl"),
+            r"\begin{thebibliography}{1}\bibitem{k} The $\alpha$-test of $x^{2n}$ and $$\sum_{i} y$$ in \emph{Proc.}\end{thebibliography}",
+        );
+
+        assert_eq!(
+            entries[0].text,
+            r"The $\alpha$-test of $x^{2n}$ and $$\sum_{i} y$$ in Proc."
+        );
     }
 
     #[test]
