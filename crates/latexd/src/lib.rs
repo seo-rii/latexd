@@ -2285,7 +2285,7 @@ async fn page_syncmap(
             page_source_end_utf8,
             page_output_start_utf8,
             page_output_end_utf8,
-            items: build_sync_items_from_artifacts(&page, &source_texts),
+            items: build_sync_items_from_artifacts(&page, &SourceLineIndex::new(&source_texts)),
         })
         .into_response();
     }
@@ -2293,7 +2293,7 @@ async fn page_syncmap(
         Ok(page) => page,
         Err(response) => return response,
     };
-    let items = build_page_sync_items(&page, &source_texts);
+    let items = build_page_sync_items(&page, &SourceLineIndex::new(&source_texts));
 
     axum::Json(PageSyncMapResponse {
         rev,
@@ -3005,6 +3005,40 @@ fn source_line_count(content: &str) -> u32 {
         + 1
 }
 
+/// Newline offsets of a revision's sources. Sync maps need a start and end line
+/// for every item, and scanning each file from its start for each one made a
+/// source jump cost (items on all pages) x (file size).
+struct SourceLineIndex {
+    files: BTreeMap<Utf8PathBuf, (usize, Vec<usize>)>,
+}
+
+impl SourceLineIndex {
+    fn new(source_texts: &BTreeMap<Utf8PathBuf, String>) -> Self {
+        Self {
+            files: source_texts
+                .iter()
+                .map(|(file, text)| {
+                    let newlines = text
+                        .bytes()
+                        .enumerate()
+                        .filter_map(|(index, byte)| (byte == b'\n').then_some(index))
+                        .collect();
+                    (file.clone(), (text.len(), newlines))
+                })
+                .collect(),
+        }
+    }
+
+    /// The line `source_offset_line` gives for the same file and offset.
+    fn line(&self, file: &Utf8Path, offset: u32) -> u32 {
+        let Some((len, newlines)) = self.files.get(file) else {
+            return 1;
+        };
+        let clamped = usize::try_from(offset).map_or(*len, |offset| offset.min(*len));
+        newlines.partition_point(|&newline| newline < clamped) as u32 + 1
+    }
+}
+
 async fn load_revision_syncmap_artifacts(
     build_root: &Utf8Path,
     rev: u64,
@@ -3459,7 +3493,7 @@ fn normalize_sync_item_bounds(
 
 fn build_sync_items_from_artifacts(
     page: &PageSyncMapArtifact,
-    source_texts: &BTreeMap<Utf8PathBuf, String>,
+    source_lines: &SourceLineIndex,
 ) -> Vec<SyncMapItem> {
     let total_output = page
         .items
@@ -3480,12 +3514,11 @@ fn build_sync_items_from_artifacts(
             / u64::from(total_output.max(1))) as u32;
         let fallback_bottom_px = ((u64::from(output_end_utf8) * u64::from(page.height_pt))
             / u64::from(total_output.max(1))) as u32;
-        let source_text = source_texts.get(&item.file);
-        let start_line = source_offset_line(source_text, item.start_utf8);
+        let start_line = source_lines.line(&item.file, item.start_utf8);
         let end_line = if item.end_utf8 <= item.start_utf8 {
             start_line
         } else {
-            source_offset_line(source_text, item.end_utf8.saturating_sub(1))
+            source_lines.line(&item.file, item.end_utf8.saturating_sub(1))
         };
         let item_id = format!(
             "{}:{}:{}:{}:{}:{}",
@@ -3521,7 +3554,7 @@ fn build_sync_items_from_artifacts(
 
 fn build_page_sync_items(
     page: &PageArtifactMeta,
-    source_texts: &BTreeMap<Utf8PathBuf, String>,
+    source_lines: &SourceLineIndex,
 ) -> Vec<SyncMapItem> {
     let total_weight = page
         .source_spans
@@ -3558,12 +3591,11 @@ fn build_page_sync_items(
                 .saturating_add(((consumed * total_output_weight) / total_weight) as u32)
         }
         .max(output_start_utf8.saturating_add(1));
-        let source_text = source_texts.get(&span.file);
-        let start_line = source_offset_line(source_text, span.start_utf8);
+        let start_line = source_lines.line(&span.file, span.start_utf8);
         let end_line = if span.end_utf8 <= span.start_utf8 {
             start_line
         } else {
-            source_offset_line(source_text, span.end_utf8.saturating_sub(1))
+            source_lines.line(&span.file, span.end_utf8.saturating_sub(1))
         };
         let item_id = format!(
             "{}:{}:{}:{}:{}:{}",
@@ -3604,9 +3636,10 @@ fn resolve_source_jump_from_syncmap_pages(
     source_texts: &BTreeMap<Utf8PathBuf, String>,
     syncmap_pages: &[PageSyncMapArtifact],
 ) -> Option<SourceJumpResponse> {
+    let source_lines = SourceLineIndex::new(source_texts);
     let mut best_match: Option<(u32, usize, usize, &PageSyncMapArtifact, SyncMapItem)> = None;
     for page in syncmap_pages {
-        for (item_index, item) in build_sync_items_from_artifacts(page, source_texts)
+        for (item_index, item) in build_sync_items_from_artifacts(page, &source_lines)
             .into_iter()
             .enumerate()
         {
@@ -3695,9 +3728,10 @@ fn resolve_source_jump_from_page_metadata_set(
     source_texts: &BTreeMap<Utf8PathBuf, String>,
     pages: &[PageArtifactMeta],
 ) -> Option<SourceJumpResponse> {
+    let source_lines = SourceLineIndex::new(source_texts);
     let mut best_match: Option<(u32, usize, usize, &PageArtifactMeta, SyncMapItem)> = None;
     for page in pages {
-        for (item_index, item) in build_page_sync_items(page, source_texts)
+        for (item_index, item) in build_page_sync_items(page, &source_lines)
             .into_iter()
             .enumerate()
         {
@@ -6997,6 +7031,29 @@ mod tests {
                 max_ms: 9,
             }
         );
+    }
+
+    #[test]
+    fn source_line_index_matches_scanning_each_offset() {
+        let texts = BTreeMap::from([
+            (
+                Utf8PathBuf::from("main.tex"),
+                "first\r\nsécond ünïcode\n\nlast line without newline".to_string(),
+            ),
+            (Utf8PathBuf::from("empty.tex"), String::new()),
+            (Utf8PathBuf::from("trailing.tex"), "a\nb\n".to_string()),
+        ]);
+        let index = super::SourceLineIndex::new(&texts);
+        for (file, text) in &texts {
+            for offset in (0..=text.len() as u32 + 3).chain([u32::MAX]) {
+                assert_eq!(
+                    index.line(file, offset),
+                    super::source_offset_line(Some(text), offset),
+                    "{file} at {offset}"
+                );
+            }
+        }
+        assert_eq!(index.line(camino::Utf8Path::new("missing.tex"), 10), 1);
     }
 
     #[tokio::test]
