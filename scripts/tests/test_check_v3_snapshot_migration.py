@@ -38,8 +38,12 @@ EXPECTED_RESULTS = {
     },
     "pre_reader_envelope_to_candidate": {
         "accepted": True,
-        "replay_safe": True,
+        "replay_safe": False,
         "output": "R",
+    },
+    "pre_reader_envelope_to_candidate_reuse": {
+        "reuse": "miss",
+        "reason": "unreadable",
     },
     "candidate_versioned_envelope": {
         "reuse": "hit",

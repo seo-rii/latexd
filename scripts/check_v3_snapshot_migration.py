@@ -49,10 +49,18 @@ EXPECTED_PRE_READER_RESULTS = {
         "versioned_field_present": False,
         "muskip_field_present": False,
     },
+    # The pre-reader stores vm_state_hash as a hash of the raw struct serialization,
+    # which predates canonical semantic hashing. Since identity verification became
+    # part of replay safety, such an attachment is restorable for inspection but not
+    # replay-safe, and production reuse rejects the epoch-less bundle outright.
     "pre_reader_envelope_to_candidate": {
         "accepted": True,
-        "replay_safe": True,
+        "replay_safe": False,
         "output": "R",
+    },
+    "pre_reader_envelope_to_candidate_reuse": {
+        "reuse": "miss",
+        "reason": "unreadable",
     },
     "candidate_versioned_envelope": {
         "reuse": "hit",
@@ -134,19 +142,37 @@ fn consume_raw(path: &Path) {
 }
 
 #[cfg(feature = "candidate")]
-fn produce_muskip_document(path: &Path) {
+fn muskip_snapshot() -> VmSnapshot {
     let mut interner = ControlSequenceInterner::new();
     let vm = Vm::new(&mut interner);
     let mut snapshot = vm.snapshot();
     snapshot.muskip_registers.insert(17, 163840);
     snapshot.muskip_registers.insert(300, 458752);
     snapshot.next_muskip_register = 301;
-    let document = VmSnapshotDocument::from_snapshot(snapshot);
+    snapshot
+}
+
+#[cfg(feature = "candidate")]
+fn produce_muskip_document(path: &Path) {
+    let document = VmSnapshotDocument::from_snapshot(muskip_snapshot());
     fs::write(
         path,
         serde_json::to_vec(&document).expect("serialize canonical muskip document"),
     )
     .expect("write canonical muskip document");
+}
+
+// Replay safety verifies the attachment against meta.vm_state_hash and checkpoint_id,
+// so a fixture that swaps in the muskip document must carry that document's identity.
+#[cfg(feature = "candidate")]
+fn produce_muskip_identity(path: &Path) {
+    let bundle = build_checkpoint_bundle(1, &muskip_snapshot(), "baseline", &[])
+        .expect("build muskip identity bundle");
+    fs::write(
+        path,
+        serde_json::to_vec(&bundle).expect("serialize muskip identity bundle"),
+    )
+    .expect("write muskip identity bundle");
 }
 
 fn produce_bundle(path: &Path) {
@@ -319,6 +345,8 @@ fn main() {
         "consume-raw" => consume_raw(Path::new(&path)),
         #[cfg(feature = "candidate")]
         "produce-muskip-document" => produce_muskip_document(Path::new(&path)),
+        #[cfg(feature = "candidate")]
+        "produce-muskip-identity" => produce_muskip_identity(Path::new(&path)),
         "produce-bundle" => produce_bundle(Path::new(&path)),
         "consume-bundle" => consume_bundle(Path::new(&path)),
         "produce-envelope" => produce_envelope(Path::new(&path)),
@@ -676,6 +704,21 @@ def characterize_pre_reader(
             candidate_muskip_bundle["checkpoints"][0]["versioned_snapshot"] = {
                 "document": candidate_muskip_document
             }
+            muskip_identity_path = temp_root / "candidate-muskip-identity.json"
+            _run(
+                [
+                    str(candidate_binary),
+                    "produce-muskip-identity",
+                    str(muskip_identity_path),
+                ],
+                cwd=repo,
+            )
+            muskip_identity = json.loads(
+                muskip_identity_path.read_text(encoding="utf-8")
+            )["checkpoints"][0]["meta"]
+            muskip_meta = candidate_muskip_bundle["checkpoints"][0]["meta"]
+            for field in ("vm_state_hash", "checkpoint_id"):
+                muskip_meta[field] = muskip_identity[field]
             candidate_muskip_envelope = temp_root / "candidate-muskip-envelope.json"
             _write_wrapped_payload(
                 candidate_binary,
@@ -796,6 +839,9 @@ def characterize_pre_reader(
                     ),
                 },
                 "pre_reader_envelope_to_candidate": baseline_envelope_candidate_result,
+                "pre_reader_envelope_to_candidate_reuse": _read_result(
+                    candidate_binary, "consume-reuse", baseline_envelope_path, repo
+                ),
                 "candidate_versioned_envelope": _read_result(
                     candidate_binary, "consume-reuse", candidate_versioned_envelope, repo
                 ),
