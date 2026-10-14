@@ -1864,35 +1864,58 @@ fn align_char_boundary(source: &str, requested_offset: usize) -> usize {
     offset
 }
 
+/// Moves a replay fragment end to a point where a fresh scanner, which starts in
+/// TeX's new-line state, reads the rest of the source as one run would: the start
+/// of a token after blanks, or the start of a line. Splitting inside a comment, a
+/// control symbol or before blanks would leak comment text, cut `\%` or drop a space.
 fn align_replay_fragment_boundary(source: &str, requested_offset: usize) -> usize {
-    let mut offset = align_char_boundary(source, requested_offset);
+    let offset = align_char_boundary(source, requested_offset);
     if offset == 0 || offset == source.len() {
         return offset;
     }
-    let previous = source[..offset].chars().next_back();
-    let current = source[offset..].chars().next();
-    let is_boundary = |ch: char| {
-        ch.is_whitespace()
-            || matches!(
-                ch,
-                '\\' | '%' | '$' | '{' | '}' | '&' | '#' | '^' | '_' | '~'
-            )
+    let is_blank = |ch: char| matches!(ch, ' ' | '\t' | '\n' | '\r');
+    let char_at = |position: usize| source.get(position..).and_then(|rest| rest.chars().next());
+    let after_line_end = |position: usize| match source[position..].find(['\n', '\r']) {
+        Some(relative) if source[position + relative..].starts_with("\r\n") => {
+            position + relative + 2
+        }
+        Some(relative) => position + relative + 1,
+        None => source.len(),
     };
-    if current.is_some_and(is_boundary)
-        || (previous.is_some_and(is_boundary) && previous != Some('\\'))
+    // An escape owns the character after it, which may be `%` or a blank.
+    let after_escape =
+        |position: usize| position + 1 + char_at(position + 1).map_or(0, char::len_utf8);
+
+    let line_start = source[..offset]
+        .rfind(['\n', '\r'])
+        .map_or(0, |index| index + 1);
+    let mut position = line_start;
+    while position < offset {
+        match char_at(position) {
+            Some('%') => return after_line_end(position),
+            Some('\\') => position = after_escape(position),
+            Some(ch) => position += ch.len_utf8(),
+            None => break,
+        }
+    }
+    if position == offset
+        && source[..offset].chars().next_back().is_some_and(is_blank)
+        && !char_at(offset).is_some_and(is_blank)
     {
         return offset;
     }
-    while offset < source.len() {
-        let Some(ch) = source[offset..].chars().next() else {
-            break;
-        };
-        if is_boundary(ch) {
-            break;
+    while let Some(ch) = char_at(position) {
+        match ch {
+            '%' => return after_line_end(position),
+            '\\' => position = after_escape(position),
+            ch if is_blank(ch) => break,
+            ch => position += ch.len_utf8(),
         }
-        offset += ch.len_utf8();
     }
-    offset
+    while let Some(ch) = char_at(position).filter(|ch| is_blank(*ch)) {
+        position += ch.len_utf8();
+    }
+    position.min(source.len())
 }
 
 #[cfg(test)]
@@ -1902,7 +1925,8 @@ mod tests {
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
     use tex_render_model::{EventProducer, MetadataField, RenderEvent};
-    use tex_vm::{VmDiagnosticKind, VmReplayFrame, VmRestoreError};
+    use tex_tokens::ControlSequenceInterner;
+    use tex_vm::{Vm, VmDiagnosticKind, VmReplayFrame, VmRestoreError};
     use tex_world::ProjectWorld;
 
     use super::{
@@ -1919,7 +1943,7 @@ mod tests {
 
         assert_eq!(
             align_replay_fragment_boundary(source, "alpha w0".len()),
-            "alpha w0000384".len()
+            "alpha w0000384 ".len()
         );
         assert_eq!(
             align_replay_fragment_boundary(source, "alpha ".len()),
@@ -4218,5 +4242,42 @@ Following text.
             result.source_lengths[&Utf8PathBuf::from("zeta.sty")],
             "\\def\\zeta{z}".len()
         );
+    }
+
+    #[test]
+    fn replay_fragments_split_where_a_fresh_scanner_matches_one_run() {
+        // Every replay fragment starts a new scanner in TeX's new-line state, so a
+        // split must not cut a comment, a control symbol or the blanks after a token.
+        let run = |fragments: &[&str]| {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let (last, leading) = fragments.split_last().expect("fragments");
+            let mut output = String::new();
+            for fragment in leading {
+                output.push_str(&vm.run_plain_fragment(fragment, true).output);
+            }
+            output.push_str(&vm.run_plain(last).output);
+            output
+        };
+        for source in [
+            "alpha w0000384 omega",
+            "word\nnext line\n\nnew paragraph",
+            r"50\% done, \$5 \& more",
+            r"a\\b c\ d",
+            "x % hidden comment text\ny z",
+            "lead  % comment \\% with spaces\r\n  after crlf",
+            "caf\u{e9} na\u{ef}ve \u{3b1}\u{3b2} r\u{e9}sum\u{e9}",
+            "line one\\\nline two",
+        ] {
+            let whole = run(&[source]);
+            for requested in 0..=source.len() {
+                let offset = align_replay_fragment_boundary(source, requested);
+                assert_eq!(
+                    run(&[&source[..offset], &source[offset..]]),
+                    whole,
+                    "{source:?} split for offset {requested} at {offset}"
+                );
+            }
+        }
     }
 }
