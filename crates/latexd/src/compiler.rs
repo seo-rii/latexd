@@ -3685,8 +3685,11 @@ fn copy_previous_external_aux_files(
     for suffix in ["aux", "toc", "out", "bbl", "bcf", "run.xml"] {
         let file_name = format!("{main_stem}.{suffix}");
         for rev in (1..current_rev).rev() {
-            let source = build_root.join(format!("rev-{rev}/{file_name}"));
-            if !source.exists() {
+            let previous_rev_dir = build_root.join(format!("rev-{rev}"));
+            let source = previous_rev_dir.join(&file_name);
+            // Only successful builds write build metadata. A failed TeX run
+            // can leave a truncated aux file that fails every later run.
+            if !source.exists() || !previous_rev_dir.join("build-meta.json").exists() {
                 continue;
             }
             let destination = rev_dir.join(&file_name);
@@ -5168,6 +5171,8 @@ mod tests {
         fs::create_dir_all(build_root.join("rev-1")).expect("rev1");
         fs::create_dir_all(build_root.join("rev-2")).expect("rev2");
         fs::create_dir_all(build_root.join("rev-3")).expect("rev3");
+        fs::write(build_root.join("rev-1/build-meta.json"), "{}").expect("rev1 succeeded");
+        fs::write(build_root.join("rev-2/build-meta.json"), "{}").expect("rev2 succeeded");
         fs::write(build_root.join("rev-1/main.aux"), "older aux").expect("old aux");
         fs::write(build_root.join("rev-2/main.toc"), "newer toc").expect("new toc");
 
@@ -5180,6 +5185,28 @@ mod tests {
         assert_eq!(
             fs::read_to_string(build_root.join("rev-3/main.toc")).expect("seeded toc"),
             "newer toc"
+        );
+    }
+
+    #[test]
+    fn external_aux_seed_ignores_files_left_by_failed_revisions() {
+        let tempdir = tempdir().expect("tempdir");
+        let build_root =
+            Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        for rev in ["rev-1", "rev-2", "rev-3"] {
+            fs::create_dir_all(build_root.join(rev)).expect("revision dir");
+        }
+        // rev-1 succeeded; rev-2 failed (no build metadata) and left a
+        // truncated aux file behind.
+        fs::write(build_root.join("rev-1/build-meta.json"), "{}").expect("rev1 succeeded");
+        fs::write(build_root.join("rev-1/main.aux"), "\\relax\n").expect("good aux");
+        fs::write(build_root.join("rev-2/main.aux"), "\\newlabel{sec}{{1").expect("bad aux");
+
+        copy_previous_external_aux_files(&build_root, 3, "main", &build_root.join("rev-3"));
+
+        assert_eq!(
+            fs::read_to_string(build_root.join("rev-3/main.aux")).expect("seeded aux"),
+            "\\relax\n"
         );
     }
 
