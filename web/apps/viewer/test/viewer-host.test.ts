@@ -2640,6 +2640,25 @@ test("viewer select source returns resolved jump detail payload", async () => {
   });
 });
 
+test("viewer keeps the router's history state when it records the selected source hash", async () => {
+  await withViewerBrowserHarness(async ({ window, flush }) => {
+    const routerState = { "sveltekit:history": 4, "sveltekit:navigation": 2 };
+    const replaced = [];
+    const replaceState = window.history.replaceState;
+    window.history.state = routerState;
+    window.history.replaceState = (state, title, url) => {
+      replaced.push(state);
+      replaceState(state, title, url);
+    };
+
+    await window.latexdSelectSource({ file: "main.tex", line: 2, column: 4 });
+    await flush();
+
+    assert.equal(window.location.hash, "#src=main.tex&line=2&column=4");
+    assert.deepEqual(replaced, [routerState]);
+  });
+});
+
 test("viewer hashchange matching selected source hash does not duplicate source jump work", async () => {
   await withViewerBrowserHarness(async ({ window, fetchCalls, flush }) => {
     const resolvedEvents = [];
