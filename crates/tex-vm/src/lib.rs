@@ -26171,6 +26171,21 @@ impl<'i> Vm<'i> {
         self.resolve_muskip_register_name(&name)
     }
 
+    fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        match token.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                self.resolve_stream_register_name(&name)
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, token);
+                self.read_integer(queue).map(|value| value as u32)
+            }
+        }
+    }
+
     /// TeX's `<optional equals>` before a register value. Returns whether a value
     /// should be read: after an explicit `=`, or when the next token can begin a
     /// number, dimension or glue. Otherwise nothing is consumed, so a missing value
@@ -26191,21 +26206,6 @@ impl<'i> Vm<'i> {
             }) => matches!(ch, '0'..='9' | '+' | '-' | '.' | ',' | '\'' | '"' | '`'),
             Some(TokenKind::ControlSequence { .. }) => true,
             _ => false,
-        }
-    }
-
-    fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
-        self.skip_optional_spaces(queue);
-        let token = self.pop_next_token(queue)?;
-        match token.kind {
-            TokenKind::ControlSequence { name } => {
-                let name = self.interner.resolve(name).unwrap_or("").to_string();
-                self.resolve_stream_register_name(&name)
-            }
-            TokenKind::Character { .. } => {
-                self.push_token_front(queue, token);
-                self.read_integer(queue).map(|value| value as u32)
-            }
         }
     }
 
@@ -38711,6 +38711,31 @@ mod tests {
     }
 
     #[test]
+    fn newcount_and_countdef_define_count_register_aliases() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\foo\foo=\@ne\advance\foo by \tw@\countdef\bar=252\bar=\thr@@\multiply\bar by \tw@[\number\foo][\number\bar]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[3][6]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newcount_snapshot_restore_preserves_allocator_progress() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut base_interner, r"\newcount\foo\foo=7");
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome = vm.run_plain(r"\newcount\bar\bar=2[\number\foo][\number\bar]");
+
+        assert_eq!(outcome.output, "[7][2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
     fn register_assignments_and_definitions_take_optional_equals() {
         let run = |source: &str| {
             let mut interner = ControlSequenceInterner::new();
@@ -38772,31 +38797,6 @@ mod tests {
         assert_eq!(run(r"\count0 5\relax[\the\count0]"), "[5]");
         assert_eq!(run(r"\chardef\x 65\relax[\x]"), "[A]");
         assert_eq!(run(r"\count0 foo"), "foo");
-    }
-
-    #[test]
-    fn newcount_and_countdef_define_count_register_aliases() {
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        let outcome = vm.run_plain(
-            r"\makeatletter\newcount\foo\foo=\@ne\advance\foo by \tw@\countdef\bar=252\bar=\thr@@\multiply\bar by \tw@[\number\foo][\number\bar]\makeatother",
-        );
-
-        assert_eq!(outcome.output, "[3][6]");
-        assert!(outcome.diagnostics.is_empty());
-    }
-
-    #[test]
-    fn newcount_snapshot_restore_preserves_allocator_progress() {
-        let mut base_interner = ControlSequenceInterner::new();
-        let snapshot = compile_format_snapshot(&mut base_interner, r"\newcount\foo\foo=7");
-
-        let mut restored_interner = ControlSequenceInterner::new();
-        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
-        let outcome = vm.run_plain(r"\newcount\bar\bar=2[\number\foo][\number\bar]");
-
-        assert_eq!(outcome.output, "[7][2]");
-        assert!(outcome.diagnostics.is_empty());
     }
 
     #[test]
