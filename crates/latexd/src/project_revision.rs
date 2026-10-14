@@ -89,12 +89,33 @@ impl ProjectRevision {
                     bail!("cyclic directory link in snapshot input {relative}");
                 }
                 fs::create_dir_all(snapshot_root.join(&relative))?;
-                for entry in fs::read_dir(&source)? {
+                let entries = match fs::read_dir(&source) {
+                    Ok(entries) => entries,
+                    // One unreadable subdirectory must not fail every build. It is
+                    // absent from this revision, as it is to the TeX engine.
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::PermissionDenied
+                            && !relative.as_str().is_empty() =>
+                    {
+                        tracing::warn!("skipping unreadable project directory {relative}: {error}");
+                        continue;
+                    }
+                    Err(error) => {
+                        return Err(error)
+                            .with_context(|| format!("failed to snapshot directory {relative}"));
+                    }
+                };
+                for entry in entries {
                     let entry = entry?;
-                    let name = entry
-                        .file_name()
-                        .into_string()
-                        .map_err(|_| anyhow::anyhow!("input file name is not UTF-8"))?;
+                    // Inputs are addressed by UTF-8 paths, so such a name could never be
+                    // referenced from a revision. Skip it rather than fail every build.
+                    let Ok(name) = entry.file_name().into_string() else {
+                        tracing::warn!(
+                            "skipping project entry with a non-UTF-8 name in {relative}: {:?}",
+                            entry.file_name()
+                        );
+                        continue;
+                    };
                     if relative.as_str().is_empty() && matches!(name.as_str(), ".latexd" | ".git") {
                         continue;
                     }
@@ -117,8 +138,17 @@ impl ProjectRevision {
                     if metadata.is_dir() {
                         queue.push((path, ancestors.clone()));
                     } else if metadata.is_file() {
-                        let bytes = fs::read(&input)
-                            .with_context(|| format!("failed to snapshot {path}"))?;
+                        let bytes = match fs::read(&input) {
+                            Ok(bytes) => bytes,
+                            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                                tracing::warn!("skipping unreadable project file {path}: {error}");
+                                continue;
+                            }
+                            Err(error) => {
+                                return Err(error)
+                                    .with_context(|| format!("failed to snapshot {path}"));
+                            }
+                        };
                         hashes.insert(path.clone(), blake3::hash(&bytes).to_hex().to_string());
                         if let Ok(text) = String::from_utf8(bytes.clone()) {
                             sources.insert(path.clone(), text);
@@ -133,7 +163,9 @@ impl ProjectRevision {
                         fs::write(&destination, bytes)?;
                         fs::set_permissions(&destination, metadata.permissions())?;
                     } else {
-                        bail!("snapshot input is not a regular file or directory: {path}");
+                        // Sockets, FIFOs and devices are not document inputs, and
+                        // reading a FIFO could block the snapshot forever.
+                        tracing::warn!("skipping project entry that is not a regular file: {path}");
                     }
                 }
             }
@@ -262,5 +294,72 @@ mod tests {
                 .to_string()
                 .contains("cyclic")
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn snapshot_skips_entries_with_non_utf8_names() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = Utf8Path::from_path(directory.path()).unwrap();
+        fs::write(root.join("main.tex"), "source").unwrap();
+        fs::create_dir_all(root.join("figures")).unwrap();
+        // A Latin-1 name, as left behind by unpacking an archive made on Windows.
+        let latin1_name = std::ffi::OsStr::from_bytes(b"caf\xe9.png");
+        fs::write(
+            root.join("figures").as_std_path().join(latin1_name),
+            [1, 2, 3],
+        )
+        .unwrap();
+
+        let revision = ProjectRevision::capture(root, &root.join(".latexd/build"))
+            .await
+            .expect("an unrelated non-UTF-8 file name must not fail the snapshot");
+        assert_eq!(
+            fs::read_to_string(revision.root.join("main.tex")).unwrap(),
+            "source"
+        );
+        assert!(revision.paths.contains(Utf8Path::new("figures")));
+        assert!(
+            fs::read_dir(revision.root.join("figures"))
+                .unwrap()
+                .next()
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_skips_special_files_and_unreadable_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = Utf8Path::from_path(directory.path()).unwrap();
+        fs::write(root.join("main.tex"), "source").unwrap();
+        let _socket = std::os::unix::net::UnixListener::bind(root.join("editor.sock")).unwrap();
+        fs::write(root.join("secret.key"), "private").unwrap();
+        fs::create_dir_all(root.join("private")).unwrap();
+        fs::write(root.join("private/notes.txt"), "private").unwrap();
+        fs::set_permissions(root.join("secret.key"), fs::Permissions::from_mode(0o000)).unwrap();
+        fs::set_permissions(root.join("private"), fs::Permissions::from_mode(0o000)).unwrap();
+        // Permission bits do not restrict root, so only check them when they apply.
+        let permissions_apply = fs::read(root.join("secret.key")).is_err();
+
+        let result = ProjectRevision::capture(root, &root.join(".latexd/build")).await;
+        fs::set_permissions(root.join("private"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(root.join("secret.key"), fs::Permissions::from_mode(0o644)).unwrap();
+        let revision = result.expect("a socket or an unreadable entry must not fail the snapshot");
+        assert_eq!(
+            fs::read_to_string(revision.root.join("main.tex")).unwrap(),
+            "source"
+        );
+        assert!(!revision.root.join("editor.sock").exists());
+        assert!(revision.paths.contains(Utf8Path::new("editor.sock")));
+        if permissions_apply {
+            assert!(!revision.root.join("secret.key").exists());
+            assert!(!revision.root.join("private/notes.txt").exists());
+            assert!(!revision.hashes.contains_key(Utf8Path::new("secret.key")));
+        }
     }
 }
