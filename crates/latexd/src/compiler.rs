@@ -3349,7 +3349,13 @@ impl CompilerDriver {
         let mut diagnostics = Vec::new();
         for (program, args, expected_output_path, expected_output_kind, is_tex_engine) in commands {
             let pass_count = if is_tex_engine { 3 } else { 1 };
+            let mut previous_pass_warnings = None;
             for pass_index in 0..pass_count {
+                // A rerun supersedes the previous pass's warnings about labels
+                // and citations, so only the last pass that runs reports them.
+                if let Some(warnings) = previous_pass_warnings.take() {
+                    diagnostics.drain(warnings);
+                }
                 let pass_diagnostics_start = diagnostics.len();
                 trace.trace.external_processes += 1;
                 execute_external_command(
@@ -3361,11 +3367,7 @@ impl CompilerDriver {
                     EXTERNAL_COMMAND_TIMEOUT,
                 )
                 .await?;
-                // Earlier passes warn about labels and citations that the
-                // final pass resolves, so only the final pass reports.
-                if pass_index + 1 < pass_count {
-                    diagnostics.truncate(pass_diagnostics_start);
-                }
+                previous_pass_warnings = Some(pass_diagnostics_start..diagnostics.len());
 
                 if is_tex_engine && pass_index == 0 {
                     if let Some((bibliography_program, bibliography_args)) =
