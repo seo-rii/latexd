@@ -22,6 +22,47 @@ fn decode_raster_image(bytes: &[u8]) -> Option<EmbeddedRasterImage> {
     })
 }
 
+/// Splits an SVG number (sign, digits, fraction, exponent) off the front of `raw`
+/// and returns it with the rest, usually a unit. An `e` only starts an exponent
+/// when digits follow, so `1em` is `1` with unit `em`. A number that runs on into
+/// more number characters, such as `1.5.5` or `1-2`, is rejected.
+fn svg_number_prefix(raw: &str) -> Option<(f32, &str)> {
+    let bytes = raw.as_bytes();
+    let digits_from = |mut index: usize| {
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        index
+    };
+    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let integer_end = digits_from(end);
+    let mut saw_digit = integer_end > end;
+    end = integer_end;
+    if bytes.get(end) == Some(&b'.') {
+        let fraction_end = digits_from(end + 1);
+        saw_digit |= fraction_end > end + 1;
+        end = fraction_end;
+    }
+    if !saw_digit {
+        return None;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let sign_end = end + 1 + usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+        let exponent_end = digits_from(sign_end);
+        if exponent_end > sign_end {
+            end = exponent_end;
+        }
+    }
+    if matches!(bytes.get(end), Some(b'0'..=b'9' | b'.' | b'+' | b'-')) {
+        return None;
+    }
+    let value = raw[..end]
+        .parse::<f32>()
+        .ok()
+        .filter(|value| value.is_finite())?;
+    Some((value, &raw[end..]))
+}
+
 pub fn parse_svg(text: &str) -> Option<VectorScene> {
     parse_svg_with_embedded_assets(text, &mut |_| None)
 }
@@ -431,24 +472,18 @@ pub fn parse_svg_with_embedded_assets(
     };
     let parse_number_prefix = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
-        if raw.is_empty() || raw.ends_with('%') {
+        if raw.ends_with('%') {
             return None;
         }
-        let split_at = raw
-            .find(|ch: char| !(ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-')))
-            .unwrap_or(raw.len());
-        raw[..split_at]
-            .parse::<f32>()
-            .ok()
-            .filter(|value| value.is_finite())
+        svg_number_prefix(raw).map(|(value, _)| value)
     };
     let parse_length_pt = |raw: &str| -> Option<f32> {
-        let value = parse_number_prefix(raw)?;
-        let unit = raw
-            .trim()
-            .trim_start_matches(|ch: char| ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-'))
-            .trim();
-        let multiplier = match unit {
+        let raw = raw.trim();
+        if raw.ends_with('%') {
+            return None;
+        }
+        let (value, unit) = svg_number_prefix(raw)?;
+        let multiplier = match unit.trim() {
             "" | "px" => 72.0 / 96.0,
             "pt" | "bp" => 1.0,
             "in" => 72.0,
@@ -9407,6 +9442,37 @@ mod tests {
             )
             .expect("encode png");
         bytes
+    }
+
+    #[test]
+    fn parses_exponent_notation_in_svg_lengths_and_coordinates() {
+        let scene = parse_svg(
+            r##"<svg width="1e2pt" height="0.5E2pt" viewBox="0 0 100 50">
+                <rect x="-1.4210855e-14" y="2.5e+1" width="3e1" height="1.0E1" fill="#ff0000"/>
+            </svg>"##,
+        )
+        .expect("parse svg");
+
+        assert_eq!(scene.natural_width_pt, 100.0);
+        assert_eq!(scene.natural_height_pt, 50.0);
+        assert_eq!(scene.rects.len(), 1);
+        let rect = &scene.rects[0];
+        assert!(rect.x_ratio.abs() < 1e-6, "x_ratio {}", rect.x_ratio);
+        assert!(
+            (rect.y_ratio - 0.5).abs() < 1e-6,
+            "y_ratio {}",
+            rect.y_ratio
+        );
+        assert!(
+            (rect.width_ratio - 0.3).abs() < 1e-6,
+            "width_ratio {}",
+            rect.width_ratio
+        );
+        assert!(
+            (rect.height_ratio - 0.2).abs() < 1e-6,
+            "height_ratio {}",
+            rect.height_ratio
+        );
     }
 
     #[test]
