@@ -73,6 +73,25 @@ test("display-list source spans map UTF-8 bytes to textarea UTF-16 ranges", () =
   );
 });
 
+test("display-list source spans agree with TextEncoder byte offsets at every boundary", () => {
+  // ASCII, 2-, 3- and 4-byte UTF-8 sequences, plus lone surrogates, which
+  // TextEncoder writes as the 3-byte U+FFFD.
+  const source = "a\u00e9\u20ac\ud83c\udf0d\nb\ud800c\udc00";
+  let index = 0;
+  while (index < source.length) {
+    const next = index + (source.codePointAt(index)! > 0xffff ? 2 : 1);
+    const start = encoder.encode(source.slice(0, index)).byteLength;
+    const end = encoder.encode(source.slice(0, next)).byteLength;
+    const selection = resolveBrowserSourceSelection(
+      fileProvenance("main.tex", start, end),
+      { "main.tex": source }
+    );
+    assert.equal(selection?.start_index, index, `start of UTF-16 index ${index}`);
+    assert.equal(selection?.end_index, next, `end of UTF-16 index ${index}`);
+    index = next;
+  }
+});
+
 test("display-list source selection rejects generated, missing, and invalid spans", () => {
   const generated: BrowserSourceProvenance = {
     primary: {
