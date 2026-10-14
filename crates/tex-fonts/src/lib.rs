@@ -260,9 +260,15 @@ impl TfmMetrics {
             return None;
         }
         let mut instruction_index = self.char_remainders[char_index] as usize;
+        let first = *self.lig_kern.get(instruction_index)?;
+        if first[0] > 128 {
+            // Programs past instruction 255 are reached through a restart
+            // instruction: the program starts at 256 * op_byte + remainder.
+            instruction_index = (first[2] as usize) << 8 | first[3] as usize;
+        }
         loop {
             let instruction = *self.lig_kern.get(instruction_index)?;
-            if instruction[1] == right && instruction[2] >= 128 {
+            if instruction[1] == right && instruction[0] <= 128 && instruction[2] >= 128 {
                 let kern_index = ((instruction[2] as usize - 128) << 8) | instruction[3] as usize;
                 return self.kerns.get(kern_index).copied();
             }
@@ -844,7 +850,7 @@ fn parse_pfb(bytes: &[u8]) -> Option<Type1Program> {
 mod tests {
     use tex_render_model::{FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape};
 
-    use super::{TexFontFace, encode_text, face_for_request, resolve_font};
+    use super::{TexFontFace, encode_text, face_for_request, parse_tfm, resolve_font};
 
     #[test]
     fn text_encoding_normalizes_all_whitespace_to_the_tex_space_slot() {
@@ -852,6 +858,71 @@ mod tests {
             encode_text(TexFontFace::Roman10, "a\n\tb\u{a0}c"),
             Some(b"a  b c".to_vec())
         );
+    }
+
+    #[test]
+    fn kerns_follow_the_restart_instruction_of_large_lig_kern_programs() {
+        // A TFM with more than 256 lig/kern instructions cannot address a
+        // program through the one-byte char remainder, so the program begins
+        // with a restart instruction (skip byte > 128) whose op and remainder
+        // bytes hold the real start: 256 * op + remainder.
+        let (bc, ec) = (b'Y', b'a');
+        let restart_target = 266u16;
+        let mut lig_kern = vec![[128u8, 0, 0, 0]; usize::from(restart_target) + 1];
+        let [high, low] = restart_target.to_be_bytes();
+        lig_kern[0] = [129, b'a', high, low];
+        lig_kern[usize::from(restart_target)] = [128, b'a', 128, 0];
+        let words = |values: &[u32]| {
+            values
+                .iter()
+                .flat_map(|value| value.to_be_bytes())
+                .collect::<Vec<_>>()
+        };
+        let char_count = usize::from(ec - bc) + 1;
+        let (lh, nw, nh, nd, ni, nk, np) = (2, 2, 1, 1, 1, 1, 2);
+        let lf = 6 + lh + char_count + nw + nh + nd + ni + lig_kern.len() + nk + np;
+        let header = [
+            lf,
+            lh,
+            usize::from(bc),
+            usize::from(ec),
+            nw,
+            nh,
+            nd,
+            ni,
+            lig_kern.len(),
+            nk,
+            0,
+            np,
+        ];
+        let mut tfm = header
+            .iter()
+            .flat_map(|value| (*value as u16).to_be_bytes())
+            .collect::<Vec<_>>();
+        tfm.extend(words(&[0, 10 << 20]));
+        for code in bc..=ec {
+            // Width index 1; only `Y` has a lig/kern program (tag 1, remainder 0).
+            tfm.extend([1, 0, u8::from(code == b'Y'), 0]);
+        }
+        tfm.extend(words(&[0, 1 << 19, 0, 0, 0]));
+        tfm.extend(lig_kern.iter().flatten());
+        tfm.extend(words(&[(-(1i32 << 17)) as u32, 0, 1 << 18]));
+
+        let metrics = parse_tfm(&tfm).expect("synthetic TFM parses");
+        assert_eq!(metrics.kern_em(b'Y', b'a'), Some(-0.125));
+        assert_eq!(metrics.kern_em(b'Y', b'Z'), None);
+        assert!((metrics.advance_em("Ya").unwrap() - 0.875).abs() < 0.000_01);
+    }
+
+    #[test]
+    fn installed_times_metrics_include_kerns_behind_restart_instructions() {
+        let Some(font) = resolve_font(TexFontFace::TimesRoman) else {
+            return;
+        };
+        // `tftopl ptmr8r.tfm`: (LABEL C Y) ... (KRN C a R -0.1). `Y` starts
+        // with a restart instruction because ptmr8r has 718 instructions.
+        assert!((font.metrics.kern_em(b'Y', b'a').unwrap() + 0.1).abs() < 0.000_01);
+        assert!((font.metrics.kern_em(b'A', b'V').unwrap() + 0.135).abs() < 0.000_01);
     }
 
     #[test]
