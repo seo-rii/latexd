@@ -7357,6 +7357,47 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                     continue;
                 }
             }
+            // Definition bodies are not document content: their captions, labels
+            // and `#1` placeholders only take effect where the macro is used.
+            "newcommand" | "renewcommand" | "providecommand" | "DeclareRobustCommand" => {
+                let mut cursor =
+                    skip_whitespace(source, skip_optional_command_star(source, command_end));
+                cursor = match read_braced_argument(source, cursor) {
+                    Some((name_end, _)) => name_end,
+                    None => {
+                        read_command_name(source, cursor).map_or(cursor, |(name_end, _)| name_end)
+                    }
+                };
+                cursor = skip_optional_bracket_arguments(source, cursor);
+                if let Some((body_end, _)) = read_braced_argument(source, cursor) {
+                    index = body_end;
+                    continue;
+                }
+            }
+            "newenvironment" | "renewenvironment" => {
+                let cursor = skip_optional_command_star(source, command_end);
+                if let Some((name_end, _)) = read_braced_argument(source, cursor)
+                    && let Some((begin_end, _)) = read_braced_argument(
+                        source,
+                        skip_optional_bracket_arguments(source, name_end),
+                    )
+                    && let Some((end_end, _)) = read_braced_argument(source, begin_end)
+                {
+                    index = end_end;
+                    continue;
+                }
+            }
+            "def" | "gdef" | "edef" | "xdef" => {
+                let cursor = skip_whitespace(source, command_end);
+                if let Some((name_end, _)) = read_command_name(source, cursor)
+                    && let Some(body_relative) = source[name_end..].find('{')
+                    && let Some((body_end, _)) =
+                        read_braced_argument(source, name_end + body_relative)
+                {
+                    index = body_end;
+                    continue;
+                }
+            }
             "caption" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
                 let mut cursor = skip_optional_command_star(source, command_end);
@@ -12699,6 +12740,42 @@ mod tests {
                 .expect("lemma label")
                 .number,
             "1"
+        );
+    }
+
+    #[test]
+    fn scan_project_skips_macro_definition_bodies() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\newcommand{\\fig}[2]{\\begin{figure}\\caption{#2}\\label{fig:#1}\\end{figure}}\n\\renewcommand*\\sec[1][x]{\\section{#1}\\label{sec:#1}}\n\\def\\tab#1.{\\begin{table}\\caption{T}\\label{tab:#1}\\end{table}}\n\\newenvironment{boxed}[1]{\\begin{figure}\\caption{#1}}{\\end{figure}}\n\\section{Intro}\\label{sec:intro}\n\\begin{figure}\\caption{Real}\\label{fig:real}\\end{figure}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        assert_eq!(
+            aux.labels
+                .iter()
+                .map(|label| (label.key.as_str(), label.number.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("fig:real", "1"), ("sec:intro", "1")]
+        );
+        assert_eq!(aux.toc.len(), 1);
+        assert_eq!(
+            aux.float_captions
+                .iter()
+                .map(|caption| caption.number.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1"]
         );
     }
 
