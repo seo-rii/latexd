@@ -1520,13 +1520,12 @@ impl CompilerDriver {
                 message: format!("failed to create build directory {}: {error}", rev_dir),
             })?;
 
-        let pdf_path = rev_dir.join(
-            Utf8Path::new(request.toplevel.file_stem().unwrap_or("main")).with_extension("pdf"),
-        );
+        // TeX names outputs after the job name, which keeps every dot before
+        // the final extension (`paper.v2.tex` writes `paper.v2.pdf`).
+        let job_name = request.toplevel.file_stem().unwrap_or("main");
+        let pdf_path = rev_dir.join(format!("{job_name}.pdf"));
         let depfile_path = rev_dir.join("deps.mk");
-        let fls_path = rev_dir.join(
-            Utf8Path::new(request.toplevel.file_stem().unwrap_or("main")).with_extension("fls"),
-        );
+        let fls_path = rev_dir.join(format!("{job_name}.fls"));
 
         if self.compiler_bin.as_deref() == Some("internal") {
             if self.preview_artifacts {
@@ -5197,6 +5196,62 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_compiler_uses_jobname_outputs_for_dotted_toplevel() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.v2.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("paper.v2.tex"), r"\input{chapter}").expect("toplevel");
+        fs::write(root.join("chapter.tex"), "Body.").expect("chapter");
+        // Like TeX, the fake engine names its outputs after the job name,
+        // which keeps every dot before the final `.tex`.
+        fs::write(
+            root.join("fake-tex.sh"),
+            concat!(
+                "job=$(basename \"$1\" .tex)\n",
+                "printf '%%PDF-1.4\\n' > \"$2/$job.pdf\"\n",
+                "printf 'INPUT chapter.tex\\n' > \"$2/$job.fls\"\n",
+            ),
+        )
+        .expect("fake engine");
+        let build_root = root.join(".latexd/build");
+
+        let outcome = CompilerDriver::new(
+            Some("/bin/sh".to_string()),
+            vec![
+                "{root}/fake-tex.sh".to_string(),
+                "{main}".to_string(),
+                "{out_dir}".to_string(),
+            ],
+        )
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+            toplevel: Utf8PathBuf::from("paper.v2.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("paper.v2.tex")],
+        })
+        .await
+        .expect("dotted toplevel compiles");
+
+        assert_eq!(outcome.pdf_path, build_root.join("rev-1/paper.v2.pdf"));
+        assert!(
+            outcome
+                .dep_trace
+                .inputs
+                .iter()
+                .any(|input| input == "chapter.tex"),
+            "{:?}",
+            outcome.dep_trace.inputs
+        );
     }
 
     #[test]
