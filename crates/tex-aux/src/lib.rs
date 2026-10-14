@@ -6052,7 +6052,7 @@ fn rewrite_source(
                 }
             }
             "tableofcontents" => {
-                let toc = render_table_of_contents(aux);
+                let toc = render_table_of_contents(aux, toc_depth_before(&source[..command_start]));
                 let output_start_utf8 = output.len() as u32;
                 output.push_str(&toc);
                 rewrite_spans.push(MaterializedRewriteSpan {
@@ -6380,12 +6380,16 @@ fn is_display_math_environment(environment: &str) -> bool {
     )
 }
 
-fn render_table_of_contents(aux: &SemanticAux) -> String {
+fn render_table_of_contents(aux: &SemanticAux, toc_depth: i32) -> String {
     if aux.toc.is_empty() {
         return String::new();
     }
     let mut output = String::from("Contents\n");
-    for entry in &aux.toc {
+    for entry in aux
+        .toc
+        .iter()
+        .filter(|entry| i32::from(entry.level) <= toc_depth)
+    {
         let indent = "  ".repeat(entry.level.saturating_sub(1) as usize);
         if entry.number.is_empty() {
             output.push_str(&format!("{indent}{} .... {}\n", entry.title, entry.page));
@@ -6397,6 +6401,66 @@ fn render_table_of_contents(aux: &SemanticAux) -> String {
         }
     }
     output
+}
+
+/// The `tocdepth` in effect at a `\tableofcontents` preceded by `source`: the
+/// last `\setcounter{tocdepth}{n}`, else the class default (2 for book and
+/// report, 3 for article and everything else).
+fn toc_depth_before(source: &str) -> i32 {
+    let mut class_depth = 3;
+    let mut explicit_depth = None;
+    let mut index = 0usize;
+    // The first `%` at or after `index`, or `source.len()`, kept between
+    // commands so that text without comments is not rescanned each time.
+    let mut comment_position = source.find('%').unwrap_or(source.len());
+    while index < source.len() {
+        let next_command = source[index..].find('\\').map(|offset| index + offset);
+        if comment_position < index {
+            comment_position = source[index..]
+                .find('%')
+                .map_or(source.len(), |offset| index + offset);
+        }
+        if comment_position < source.len()
+            && next_command.is_none_or(|command| comment_position < command)
+        {
+            index = skip_comment(source, comment_position);
+            continue;
+        }
+        let Some(command_start) = next_command else {
+            break;
+        };
+        let Some((command_end, command_name)) = read_command_name(source, command_start) else {
+            index = command_start + 1;
+            continue;
+        };
+        index = command_end;
+        match command_name.as_str() {
+            "documentclass" => {
+                let cursor = read_bracket_argument(source, command_end)
+                    .map_or(command_end, |(options_end, _)| options_end);
+                if let Some((class_end, class)) = read_braced_argument(source, cursor) {
+                    class_depth = match class.trim() {
+                        "book" | "report" | "scrbook" | "scrreprt" => 2,
+                        _ => 3,
+                    };
+                    index = class_end;
+                }
+            }
+            "setcounter" => {
+                if let Some((counter_end, counter)) = read_braced_argument(source, command_end)
+                    && counter.trim() == "tocdepth"
+                    && let Some((value_end, value)) = read_braced_argument(source, counter_end)
+                {
+                    if let Ok(depth) = value.trim().parse::<i32>() {
+                        explicit_depth = Some(depth);
+                    }
+                    index = value_end;
+                }
+            }
+            _ => {}
+        }
+    }
+    explicit_depth.unwrap_or(class_depth)
 }
 
 fn render_float_list(aux: &SemanticAux, kind: &str, heading: &str) -> String {
@@ -9122,6 +9186,40 @@ mod tests {
         assert_eq!(aux.toc[0].title, "Intro");
         assert_eq!(aux.labels.len(), 1);
         assert_eq!(aux.labels[0].key, "sec:intro");
+    }
+
+    #[test]
+    fn table_of_contents_leaves_out_headings_below_tocdepth() {
+        let render = |source: &str| {
+            let tempdir = tempdir().expect("tempdir");
+            let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+            fs::write(root.join("main.tex"), source).expect("write main");
+            let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+            let aux = derive_semantic_aux(&scan, &[]);
+            let materialized = materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux)
+                .expect("materialize");
+            materialized.files[&Utf8PathBuf::from("main.tex")].clone()
+        };
+        let body = r"\begin{document}\tableofcontents\section{Alpha}\subsection{Beta}\subsubsection{Gamma}\paragraph{Para}text\end{document}";
+
+        // article: tocdepth 3, so \paragraph stays out, as in pdflatex.
+        let article = render(&format!(r"\documentclass{{article}}{body}"));
+        assert!(article.contains("1.1.1 Gamma .... 1\n"), "{article}");
+        assert!(!article.contains("Para ...."), "{article}");
+
+        // book and report: tocdepth 2, so \subsubsection stays out too.
+        let book = render(&format!(
+            r"\documentclass[11pt]{{book}}\begin{{document}}\tableofcontents\chapter{{One}}\section{{Alpha}}\subsection{{Beta}}\subsubsection{{Gamma}}\end{{document}}"
+        ));
+        assert!(book.contains("1.1.1 Beta .... 1\n"), "{book}");
+        assert!(!book.contains("Gamma ...."), "{book}");
+
+        // An explicit \setcounter{tocdepth} wins.
+        let shallow = render(&format!(
+            r"\documentclass{{article}}\setcounter{{tocdepth}}{{1}}{body}"
+        ));
+        assert!(shallow.contains("1 Alpha .... 1\n"), "{shallow}");
+        assert!(!shallow.contains("Beta ...."), "{shallow}");
     }
 
     #[test]
