@@ -56,6 +56,9 @@ pub struct CompilerDriver {
 }
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+/// A toplevel containing this text makes the compiler panic in tests.
+#[cfg(test)]
+pub(crate) const TEST_COMPILER_PANIC_MARKER: &str = "%latexd-test-compiler-panic";
 
 #[derive(Debug)]
 enum ExternalCommandError {
@@ -1481,6 +1484,12 @@ impl CompilerDriver {
         request: CompileRequest,
         applied_rev: u64,
     ) -> Result<CompileOutcome, CompileFailure> {
+        #[cfg(test)]
+        if fs::read_to_string(request.root.join(&request.toplevel))
+            .is_ok_and(|source| source.contains(TEST_COMPILER_PANIC_MARKER))
+        {
+            panic!("test compiler panic requested by {}", request.toplevel);
+        }
         // Recovery across an unpublished/failed revision is deliberately cold.
         // Replay and scanner lookahead do not yet share a complete rollback
         // contract, so even the last-good checkpoint can retain stale effects.

@@ -1274,24 +1274,56 @@ impl AppState {
             };
 
             let previous_preview_rev = self.live.read().await.snapshot.last_applied_rev;
-            let outcome = self
-                .compiler
-                .compile_for_preview(
-                    CompileRequest {
-                        root: project_revision.root.clone(),
-                        manifest: project_revision.manifest.clone(),
-                        toplevel: toplevel.clone(),
-                        rev,
-                        build_root: self.build_root.clone(),
-                        changed_files: rebuild_plan
-                            .changed_inputs
-                            .iter()
-                            .map(Utf8PathBuf::from)
-                            .collect(),
-                    },
-                    previous_preview_rev,
+            let request = CompileRequest {
+                root: project_revision.root.clone(),
+                manifest: project_revision.manifest.clone(),
+                toplevel: toplevel.clone(),
+                rev,
+                build_root: self.build_root.clone(),
+                changed_files: rebuild_plan
+                    .changed_inputs
+                    .iter()
+                    .map(Utf8PathBuf::from)
+                    .collect(),
+            };
+            // The compile is long, mostly synchronous work. Keep it off the runtime
+            // workers, and turn a compiler panic into a failed build so this loop
+            // keeps serving later edits instead of dying with `building` set.
+            let compile_state = self.clone();
+            let runtime = tokio::runtime::Handle::current();
+            let outcome = match tokio::task::spawn_blocking(move || {
+                runtime.block_on(
+                    compile_state
+                        .compiler
+                        .compile_for_preview(request, previous_preview_rev),
                 )
-                .await;
+            })
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    let detail = if error.is_panic() {
+                        let payload = error.into_panic();
+                        payload
+                            .downcast_ref::<&str>()
+                            .map(|message| message.to_string())
+                            .or_else(|| payload.downcast_ref::<String>().cloned())
+                            .unwrap_or_else(|| "unknown panic payload".to_string())
+                    } else {
+                        error.to_string()
+                    };
+                    error!("compiler task for revision {rev} failed: {detail}");
+                    Err(CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(toplevel.to_string()),
+                            line: None,
+                            message: format!("internal compiler panicked: {detail}"),
+                        }],
+                        message: format!("compiler task failed: {detail}"),
+                    })
+                }
+            };
 
             let outcome = match outcome {
                 Ok(outcome) => match project_revision
@@ -5418,6 +5450,93 @@ mod tests {
             .await
             .expect("hash missing file");
         assert_eq!(hash, None);
+    }
+
+    #[tokio::test]
+    async fn run_build_loop_keeps_serving_after_a_compiler_panic() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("main.tex"),
+            crate::compiler::TEST_COMPILER_PANIC_MARKER,
+        )
+        .expect("panicking main tex");
+        let build_root = root.join(".latexd/build");
+        let artifacts_root = root.join(".latexd/artifacts");
+        tokio::fs::create_dir_all(build_root.as_std_path())
+            .await
+            .expect("build root");
+        tokio::fs::create_dir_all(artifacts_root.as_std_path())
+            .await
+            .expect("artifacts root");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root,
+            artifacts_root,
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(Some("internal".to_string()), Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(8).0,
+        });
+        let (rebuild_tx, rebuild_rx) = mpsc::unbounded_channel();
+        let loop_state = state.clone();
+        let build_task = tokio::spawn(async move {
+            loop_state.run_build_loop(rebuild_rx).await;
+        });
+        let wait_for_finished_rev = |rev: u64, context: &'static str| {
+            let state = state.clone();
+            async move {
+                timeout(Duration::from_secs(30), async {
+                    loop {
+                        {
+                            let live = state.live.read().await;
+                            if live.snapshot.current_rev == rev && !live.snapshot.building {
+                                return;
+                            }
+                        }
+                        sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect(context);
+            }
+        };
+
+        let _ = rebuild_tx.send(vec![Utf8PathBuf::from("main.tex")]);
+        wait_for_finished_rev(1, "a compiler panic must end the build as a failure").await;
+        {
+            let live = state.live.read().await;
+            assert_eq!(live.snapshot.last_build_succeeded, Some(false));
+            assert!(
+                live.snapshot
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("panicked")),
+                "{:?}",
+                live.snapshot.diagnostics
+            );
+        }
+
+        fs::write(root.join("main.tex"), "recovered").expect("fixed main tex");
+        let _ = rebuild_tx.send(vec![Utf8PathBuf::from("main.tex")]);
+        wait_for_finished_rev(2, "the build loop must keep serving edits after a panic").await;
+        assert_eq!(state.live.read().await.snapshot.last_applied_rev, 2);
+
+        drop(rebuild_tx);
+        timeout(Duration::from_secs(2), build_task)
+            .await
+            .expect("build loop exit")
+            .expect("build loop join");
     }
 
     #[test]
