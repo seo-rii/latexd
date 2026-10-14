@@ -22417,10 +22417,10 @@ impl<'i> Vm<'i> {
                 let Some(expected) = self.pop_next_token(queue) else {
                     return;
                 };
-                let Some(then_body) = self.read_balanced_group(queue) else {
+                let Some(then_body) = self.read_macro_argument(queue) else {
                     return;
                 };
-                let Some(else_body) = self.read_balanced_group(queue) else {
+                let Some(else_body) = self.read_macro_argument(queue) else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -22435,10 +22435,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::IfStar => {
-                let Some(then_body) = self.read_balanced_group(queue) else {
+                let Some(then_body) = self.read_macro_argument(queue) else {
                     return;
                 };
-                let Some(else_body) = self.read_balanced_group(queue) else {
+                let Some(else_body) = self.read_macro_argument(queue) else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -22446,6 +22446,10 @@ impl<'i> Vm<'i> {
                     self.peek_next_token(queue).map(|token| token.kind),
                     Some(TokenKind::Character { ch: '*', .. })
                 );
+                if matches {
+                    // LaTeX's \@ifstar removes the star before running the starred branch.
+                    self.pop_next_token(queue);
+                }
                 for token in if matches { then_body } else { else_body }
                     .into_iter()
                     .rev()
@@ -37635,14 +37639,26 @@ mod tests {
     }
 
     #[test]
-    fn makeatletter_nextchar_and_star_helpers_choose_branches_without_consuming_tokens() {
+    fn makeatletter_nextchar_and_star_helpers_choose_branches() {
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         let outcome = vm.run_plain(
             r"\makeatletter\def\foo{\@ifnextchar[{OPT}{PLAIN}}\def\bar{\@ifstar{STAR}{NOSTAR}}\makeatother\foo [x]\foo y\bar *\bar z",
         );
 
-        assert_eq!(outcome.output, "OPT[x]PLAINySTAR*NOSTARz");
+        assert_eq!(outcome.output, "OPT[x]PLAINySTARNOSTARz");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifstar_and_ifnextchar_follow_latex_argument_rules() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\bar{\@ifstar{[S]}{[N]}}\def\baz#1{<#1>}\def\qux{\@ifstar\baz\baz}\def\foo{\@ifnextchar[\fooopt\foonoopt}\def\fooopt[#1]{(#1)}\def\foonoopt{-}\makeatother\bar*x\bar *y\bar z\qux*{a}\qux{b}\foo[c]\foo d",
+        );
+
+        assert_eq!(outcome.output, "[S]x[S]y[N]z<a><b>(c)-d");
         assert!(outcome.diagnostics.is_empty());
     }
 
@@ -37654,7 +37670,7 @@ mod tests {
             r"\makeatletter\def\foo{\kernel@ifnextchar[{OPT}{PLAIN}}\def\bar{\kernel@ifstar{STAR}{NOSTAR}}\makeatother\foo [x]\foo y\bar *\bar z",
         );
 
-        assert_eq!(outcome.output, "OPT[x]PLAINySTAR*NOSTARz");
+        assert_eq!(outcome.output, "OPT[x]PLAINySTARNOSTARz");
         assert!(outcome.diagnostics.is_empty());
     }
 
