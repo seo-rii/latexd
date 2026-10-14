@@ -4368,6 +4368,11 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     let _ = reply.send(result.map(|_| ()));
                 }
                 RenderSessionRequest::RenderPage { page, scale, reply } => {
+                    // Requests run one at a time; rendering for a caller that already
+                    // gave up (an aborted HTTP request) only delays the queue.
+                    if reply.is_closed() {
+                        continue;
+                    }
                     metrics
                         .render_request_count
                         .fetch_add(1, AtomicOrdering::SeqCst);
@@ -4408,6 +4413,9 @@ fn render_session_handle(state: &Arc<AppState>) -> RenderSessionHandle {
                     rects,
                     reply,
                 } => {
+                    if reply.is_closed() {
+                        continue;
+                    }
                     metrics
                         .tile_render_request_count
                         .fetch_add(1, AtomicOrdering::SeqCst);
@@ -6053,6 +6061,104 @@ mod tests {
         .expect("invalid metadata");
         prune_old_build_revisions(&build_root, 20).await;
         assert!(build_root.join("rev-1").exists());
+    }
+
+    #[tokio::test]
+    async fn render_session_skips_requests_whose_caller_is_gone() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tile_calls = Arc::new(AtomicUsize::new(0));
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::CountingMock {
+                calls: calls.clone(),
+                tile_calls: tile_calls.clone(),
+                sessions: Arc::new(AtomicUsize::new(0)),
+                sleep_ms: 1,
+            },
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let page_metadata = PageArtifactMeta {
+            page_id: "page-a".to_string(),
+            index: 0,
+            line_count: 1,
+            width_pt: 256,
+            height_pt: 256,
+            natural_size_pt: None,
+            content_hash: "hash-a".to_string(),
+            text_start_utf8: 0,
+            text_end_utf8: 10,
+            pdf_artifact_path: Utf8PathBuf::from("rev-91/pages/page-a.pdf"),
+            source_spans: vec![],
+        };
+        attach_render_revision(&state, 91, std::slice::from_ref(&page_metadata)).await;
+        let page = load_revision_page_input(&state, 91, "page-a")
+            .await
+            .expect("page input");
+        let handle = render_session_handle(&state);
+        let calls_before = calls.load(Ordering::SeqCst);
+        let tile_calls_before = tile_calls.load(Ordering::SeqCst);
+
+        // Both callers gave up (an aborted HTTP request) before the actor got to them.
+        let (page_reply, page_rx) = oneshot::channel();
+        drop(page_rx);
+        handle
+            .tx
+            .send(RenderSessionRequest::RenderPage {
+                page: page.clone(),
+                scale: 1.0,
+                reply: page_reply,
+            })
+            .await
+            .expect("send render page");
+        let (tiles_reply, tiles_rx) = oneshot::channel();
+        drop(tiles_rx);
+        handle
+            .tx
+            .send(RenderSessionRequest::RenderTiles {
+                page: page.clone(),
+                scale: 1.0,
+                rects: vec![Rect {
+                    x: 0,
+                    y: 0,
+                    width: 64,
+                    height: 64,
+                }],
+                reply: tiles_reply,
+            })
+            .await
+            .expect("send render tiles");
+        // The actor answers in order, so this reply means both were handled.
+        let (lookup_reply, lookup_rx) = oneshot::channel();
+        handle
+            .tx
+            .send(RenderSessionRequest::LookupPage {
+                rev: 91,
+                page_id: "page-a".to_string(),
+                reply: lookup_reply,
+            })
+            .await
+            .expect("send lookup");
+        lookup_rx.await.expect("lookup reply");
+
+        assert_eq!(calls.load(Ordering::SeqCst), calls_before);
+        assert_eq!(tile_calls.load(Ordering::SeqCst), tile_calls_before);
     }
 
     #[tokio::test]
