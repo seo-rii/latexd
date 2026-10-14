@@ -4964,17 +4964,8 @@ fn rewrite_source(
                 }
             }
             "supercite" | "Supercite" => {
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5009,17 +5000,8 @@ fn rewrite_source(
                 }
             }
             "cite" => {
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5055,17 +5037,8 @@ fn rewrite_source(
             }
             "citep" | "Citep" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5208,17 +5181,8 @@ fn rewrite_source(
             }
             "parencite" | "Parencite" | "autocite" | "Autocite" | "smartcite" | "Smartcite"
             | "footcite" | "Footcite" => {
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5316,17 +5280,8 @@ fn rewrite_source(
             }
             "citet" | "Citet" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5378,17 +5333,8 @@ fn rewrite_source(
             }
             "citealt" | "citealp" | "Citealt" | "Citealp" | "onlinecite" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -5464,17 +5410,8 @@ fn rewrite_source(
             }
             "textcite" | "Textcite" => {
                 let starred = skip_optional_command_star(source, command_end) != command_end;
-                let mut cursor = skip_optional_command_star(source, command_end);
-                let mut pre_note = None;
-                let mut post_note = None;
-                if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-                    pre_note = Some(note.trim().to_string());
-                    cursor = note_end;
-                    if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                        post_note = Some(note.trim().to_string());
-                        cursor = second_note_end;
-                    }
-                }
+                let (cursor, pre_note, post_note) =
+                    read_citation_notes(source, skip_optional_command_star(source, command_end));
                 if let Some((argument_end, keys)) = read_braced_argument(source, cursor) {
                     let rendered = keys
                         .split(',')
@@ -7844,16 +7781,8 @@ fn read_multicite_groups(
     let mut cursor = skip_whitespace(source, start);
     let mut groups = Vec::new();
     loop {
-        let mut pre_note = None;
-        let mut post_note = None;
-        if let Some((note_end, note)) = read_bracket_argument(source, cursor) {
-            pre_note = Some(note.trim().to_string());
-            cursor = note_end;
-            if let Some((second_note_end, note)) = read_bracket_argument(source, cursor) {
-                post_note = Some(note.trim().to_string());
-                cursor = second_note_end;
-            }
-        }
+        let (note_end, pre_note, post_note) = read_citation_notes(source, cursor);
+        cursor = note_end;
         let Some((argument_end, keys)) = read_braced_argument(source, cursor) else {
             break;
         };
@@ -7864,6 +7793,22 @@ fn read_multicite_groups(
         None
     } else {
         Some((cursor, groups))
+    }
+}
+
+// natbib and biblatex read a lone optional argument as the post-note; a
+// pre-note needs both arguments, as in `\cite[see][]{key}`.
+fn read_citation_notes(source: &str, start: usize) -> (usize, Option<String>, Option<String>) {
+    let Some((first_end, first)) = read_bracket_argument(source, start) else {
+        return (start, None, None);
+    };
+    match read_bracket_argument(source, first_end) {
+        Some((second_end, second)) => (
+            second_end,
+            Some(first.trim().to_string()),
+            Some(second.trim().to_string()),
+        ),
+        None => (first_end, None, Some(first.trim().to_string())),
     }
 }
 
@@ -10537,6 +10482,58 @@ mod tests {
     }
 
     #[test]
+    fn materialize_project_reads_a_lone_cite_note_as_postnote() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\addbibresource{refs.bib}\\cite[p.~5]{alpha}; \\parencite[pp.~1--2]{beta}; \\textcite[chap.~2]{alpha}; \\citep[p.~3]{beta}; \\citet[p.~4]{alpha}; \\citealp[p.~6]{beta}; \\supercite[p.~7]{alpha}; \\parencites[p.~8]{alpha}[see][]{beta}.\\printbibliography",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("refs.bbl"),
+            "\\begin{thebibliography}{2}\\bibitem[Alpha 2024]{alpha} Alpha entry.\\bibitem[Beta et al.(2023)Beta and Gamma]{beta} Beta entry.\\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let aux = SemanticAux {
+            bibliography: vec![
+                super::BibliographyEntry {
+                    key: "alpha".to_string(),
+                    text: "Alpha entry.".to_string(),
+                    label: Some("Alpha 2024".to_string()),
+                    file: Utf8PathBuf::from("refs.bbl"),
+                },
+                super::BibliographyEntry {
+                    key: "beta".to_string(),
+                    text: "Beta entry.".to_string(),
+                    label: Some("Beta et al.(2023)Beta and Gamma".to_string()),
+                    file: Utf8PathBuf::from("refs.bbl"),
+                },
+            ],
+            ..SemanticAux::default()
+        };
+
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        assert!(main.contains("[1, p.~5]; "), "{main}");
+        assert!(main.contains("(Beta et al., 2023, pp.~1--2); "), "{main}");
+        assert!(main.contains("Alpha (2024, chap.~2); "), "{main}");
+        assert!(main.contains("(Beta et al., 2023, p.~3); "), "{main}");
+        assert!(main.contains("Alpha (2024, p.~4); "), "{main}");
+        assert!(main.contains("2023, p.~6; "), "{main}");
+        assert!(main.contains("^1, p.~7; "), "{main}");
+        assert!(
+            main.contains("(Alpha, 2024, p.~8; see Beta et al., 2023)."),
+            "{main}"
+        );
+    }
+
+    #[test]
     fn materialize_project_numbers_split_bibliography_files_globally() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
@@ -10618,7 +10615,7 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
         fs::write(
             root.join("main.tex"),
-            "\\supercite{alpha} and \\supercites[see]{alpha}[cf.][pp.~1--2]{beta}.",
+            "\\supercite{alpha} and \\supercites[see][]{alpha}[cf.][pp.~1--2]{beta}.",
         )
         .expect("write main");
         let aux = SemanticAux {
@@ -10696,7 +10693,7 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
         fs::write(
             root.join("main.tex"),
-            "\\textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \\parencites{alpha}[cf.]{beta}.",
+            "\\textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \\parencites{alpha}[cf.][]{beta}.",
         )
         .expect("write main");
         let aux = SemanticAux {
