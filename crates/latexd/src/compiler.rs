@@ -3786,14 +3786,15 @@ fn load_latest_previous_internal_build(
             return Ok(None);
         }
         let checkpoint_path = rev_dir.join("checkpoints.json");
-        let page_metadata_path = rev_dir.join("page-metadata.json");
         let execution_page_metadata_path = rev_dir.join("execution-page-metadata.json");
         let output_path = rev_dir.join("output.txt");
         let sources_path = rev_dir.join("sources.json");
         let aux_path = rev_dir.join("aux.json");
         let concrete_aux_path = rev_dir.join("semantic.aux");
+        // Replay offsets index the execution output, so only execution page
+        // metadata may describe it; presentation pages use other offsets.
         if !checkpoint_path.exists()
-            || !page_metadata_path.exists()
+            || !execution_page_metadata_path.exists()
             || !output_path.exists()
             || !sources_path.exists()
         {
@@ -3803,12 +3804,7 @@ fn load_latest_previous_internal_build(
         else {
             continue;
         };
-        let checkpoint_page_metadata_path = if execution_page_metadata_path.exists() {
-            &execution_page_metadata_path
-        } else {
-            &page_metadata_path
-        };
-        let page_metadata = load_page_artifact_metadata(checkpoint_page_metadata_path)?;
+        let page_metadata = load_page_artifact_metadata(&execution_page_metadata_path)?;
         let output = fs::read_to_string(output_path.as_std_path())
             .with_context(|| format!("failed to read {output_path}"))?;
         let sources = serde_json::from_slice::<StoredSourceTexts>(
@@ -3984,6 +3980,28 @@ fn select_shipout_replay_plan_with_spans(
     current_rewrite_spans: Option<&BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>>,
     force_conservative_files: Option<&[Utf8PathBuf]>,
 ) -> anyhow::Result<Option<ShipoutReplayPlan>> {
+    // Replay prefixes are sliced from `previous.output` at stored checkpoint
+    // and page offsets. An offset inside a UTF-8 character means those offsets
+    // do not index this output, so the state cannot be replayed safely.
+    let offsets_index_output = previous
+        .bundle
+        .checkpoints
+        .iter()
+        .map(|checkpoint| checkpoint.meta.output_start_utf8 as usize)
+        .chain(
+            previous
+                .page_metadata
+                .iter()
+                .map(|page| page.text_start_utf8 as usize),
+        )
+        .all(|offset| {
+            previous
+                .output
+                .is_char_boundary(offset.min(previous.output.len()))
+        });
+    if !offsets_index_output {
+        return Ok(None);
+    }
     let cp0_plan = || -> anyhow::Result<ShipoutReplayPlan> {
         let stored_checkpoint = previous
             .bundle
@@ -7734,7 +7752,7 @@ mod tests {
         )
         .expect("write checkpoints");
         fs::write(
-            rev_dir.join("page-metadata.json").as_std_path(),
+            rev_dir.join("execution-page-metadata.json").as_std_path(),
             serde_json::to_vec_pretty(&vec![PageArtifactMeta {
                 page_id: "p0".to_string(),
                 index: 0,
@@ -7925,6 +7943,38 @@ mod tests {
 
         let previous = load_latest_previous_internal_build(&build_root, 2)
             .expect("corrupt cache must not fail compilation");
+
+        assert!(previous.is_none());
+    }
+
+    #[tokio::test]
+    async fn previous_build_without_execution_page_metadata_is_not_reused() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\begin{document}Body.\end{document}",
+        )
+        .expect("main tex");
+        let build_root = root.join(".latexd/build");
+        CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("first compile");
+        // `page-metadata.json` holds presentation pages; their text offsets
+        // do not index the execution output that replay slices.
+        fs::remove_file(build_root.join("rev-1/execution-page-metadata.json"))
+            .expect("drop execution page metadata");
+
+        let previous =
+            load_latest_previous_internal_build(&build_root, 2).expect("load previous build state");
 
         assert!(previous.is_none());
     }
@@ -8131,6 +8181,122 @@ mod tests {
             plan.checkpoint_id,
             previous.bundle.checkpoints[2].meta.checkpoint_id
         );
+    }
+
+    #[test]
+    fn shipout_replay_plan_rejects_offsets_inside_utf8_characters() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(root.join("main.tex"), "aaaaaaaaaabbbbbbbbbbCCCCCCCCCC").expect("write main");
+
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\fmt{pre}");
+        let shipout_a = compile_format_snapshot(&mut interner, r"\def\fmt{a}");
+        let shipout_b = compile_format_snapshot(&mut interner, r"\def\fmt{b}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            4,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                checkpoint_page("p0", 0, "hash-0"),
+                checkpoint_page("p1", 1, "hash-1"),
+                checkpoint_page("p2", 2, "hash-2"),
+            ],
+            &[
+                shipout_a,
+                shipout_b,
+                compile_format_snapshot(&mut interner, r"\def\fmt{c}"),
+            ],
+            &[10, 20, 30],
+            &[],
+        )
+        .expect("bundle");
+        let previous = PreviousInternalBuild {
+            rev: 4,
+            bundle,
+            page_metadata: vec![
+                PageArtifactMeta {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    natural_size_pt: None,
+                    content_hash: "hash-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 5,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-4/pages/p0.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 0,
+                        end_utf8: 10,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    natural_size_pt: None,
+                    content_hash: "hash-1".to_string(),
+                    text_start_utf8: 6,
+                    text_end_utf8: 11,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-4/pages/p1.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 10,
+                        end_utf8: 20,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    natural_size_pt: None,
+                    content_hash: "hash-2".to_string(),
+                    text_start_utf8: 12,
+                    text_end_utf8: 17,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-4/pages/p2.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 20,
+                        end_utf8: 30,
+                    }],
+                },
+            ],
+            // Page offsets from another domain: byte 12 falls inside `é`.
+            output: "page0\npage1é\npage2".to_string(),
+            sources: BTreeMap::from([(
+                Utf8PathBuf::from("main.tex"),
+                "aaaaaaaaaabbbbbbbbbbcccccccccc".to_string(),
+            )]),
+            executed_sources: BTreeMap::from([(
+                Utf8PathBuf::from("main.tex"),
+                "aaaaaaaaaabbbbbbbbbbcccccccccc".to_string(),
+            )]),
+            rewrite_spans: BTreeMap::new(),
+            module_traces: vec![],
+            module_checkpoints: vec![],
+            semantic_aux: None,
+            semantic_aux_payload: None,
+            semantic_aux_concrete_payload: None,
+        };
+        fs::write(root.join("main.tex"), "aaaaaaaaaabbbbbbbbbbZZZZZZZZZZ").expect("rewrite main");
+
+        let plan = select_shipout_replay_plan(
+            &previous,
+            &root,
+            Utf8Path::new("main.tex"),
+            &[Utf8PathBuf::from("main.tex")],
+            None,
+        )
+        .expect("plan selection");
+
+        assert!(plan.is_none(), "{plan:?}");
     }
 
     #[test]
