@@ -5595,7 +5595,7 @@ fn rewrite_source(
                         .filter(|key| !key.is_empty())
                         .map(|key| {
                             aux.bibliography_text(key)
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>()
@@ -5799,7 +5799,7 @@ fn rewrite_source(
                         .filter(|key| !key.is_empty())
                         .map(|key| {
                             aux.citation_title(key)
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
@@ -5836,7 +5836,7 @@ fn rewrite_source(
                         .filter(|key| !key.is_empty())
                         .map(|key| {
                             aux.citation_url(key)
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "??".to_string())
                         })
                         .collect::<Vec<_>>();
@@ -5874,19 +5874,19 @@ fn rewrite_source(
                         .map(|key| match command_name.as_str() {
                             "citedoi" => aux
                                 .citation_doi(key)
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "??".to_string()),
                             "citeeprint" => aux
                                 .citation_eprint(key)
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "??".to_string()),
                             "citeisbn" => aux
                                 .citation_field(key, "isbn")
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "??".to_string()),
                             "citeissn" => aux
                                 .citation_field(key, "issn")
-                                .map(ToOwned::to_owned)
+                                .map(escape_tex_text)
                                 .unwrap_or_else(|| "??".to_string()),
                             _ => "??".to_string(),
                         })
@@ -5936,6 +5936,7 @@ fn rewrite_source(
                             "text" => aux.bibliography_text(&key).map(ToOwned::to_owned),
                             _ => aux.citation_field(&key, field_name).map(ToOwned::to_owned),
                         }
+                        .map(|value| escape_tex_text(&value))
                         .unwrap_or_else(|| "??".to_string());
                         let output_start_utf8 = output.len() as u32;
                         output.push_str(&rendered);
@@ -8056,6 +8057,25 @@ fn skip_layout_spacing_command(source: &str, command_end: usize) -> usize {
     }
 }
 
+// Cleaned bibliography text is plain text; escape the characters that would
+// change meaning when it is spliced back into TeX source (`%` would comment out
+// the rest of the line, `&` and `#` are errors). `_` is escaped only outside
+// `$...$`, where cleaned titles keep their math.
+fn escape_tex_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    let mut in_math = false;
+    for ch in text.chars() {
+        match ch {
+            '$' => in_math = !in_math,
+            '%' | '&' | '#' => escaped.push('\\'),
+            '_' if !in_math => escaped.push('\\'),
+            _ => {}
+        }
+        escaped.push(ch);
+    }
+    escaped
+}
+
 fn contentsline_level(kind: &str) -> Option<u8> {
     match kind.trim() {
         "chapter" => Some(0),
@@ -9771,6 +9791,37 @@ mod tests {
         assert!(!main.contains("\\citefullauthor"));
         assert!(!main.contains("\\Citefullauthor"));
         assert!(!main.contains("\\Citeyearpar"));
+    }
+
+    #[test]
+    fn materialize_project_for_vm_escapes_tex_specials_in_spliced_bibliography_text() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "See \\fullcite{k} and \\citetitle{k}.\n\\bibliography{refs}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("refs.bbl"),
+            "\\begin{thebibliography}{1}\\bibitem{k} A.~Author. \\newblock \\bibinfo{title}{Mining 95\\% of R\\&D at \\#1 with x\\_y and $x_i$}. \\newblock Proc.\\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+
+        let materialized = materialize_project_for_vm(&root, &Utf8PathBuf::from("main.tex"), &aux)
+            .expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        let title = "Mining 95\\% of R\\&D at \\#1 with x\\_y and $x_i$";
+        assert!(
+            main.contains(&format!("See A.~Author. {title}. Proc. and {title}.")),
+            "{main}"
+        );
     }
 
     #[test]
