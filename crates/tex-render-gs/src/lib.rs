@@ -182,7 +182,7 @@ impl GsApiRuntime {
 
             let mut instance = std::ptr::null_mut();
             let status = new_instance(&mut instance, std::ptr::null_mut());
-            if status != 0 {
+            if status != 0 || instance.is_null() {
                 return Err(anyhow!("gsapi_new_instance failed with status {status}"));
             }
             if let Some(set_arg_encoding) = set_arg_encoding {
@@ -250,6 +250,19 @@ impl GsApiRuntime {
             .instance
             .lock()
             .map_err(|_| anyhow!("ghostscript runtime mutex is poisoned"))?;
+        if *instance == 0 {
+            // A previous render could not prepare its replacement instance.
+            // Create one now instead of handing Ghostscript a null instance.
+            let mut fresh = std::ptr::null_mut();
+            let status = unsafe { (self.new_instance)(&mut fresh, std::ptr::null_mut()) };
+            if status != 0 || fresh.is_null() {
+                return Err(anyhow!("gsapi_new_instance failed with status {status}"));
+            }
+            if let Some(set_arg_encoding) = self.set_arg_encoding {
+                let _ = unsafe { set_arg_encoding(fresh, 1) };
+            }
+            *instance = fresh as usize;
+        }
         let init_status = unsafe {
             (self.init_with_args)(
                 *instance as *mut c_void,
@@ -1418,6 +1431,80 @@ showpage
         assert_eq!(tiles.len(), 2);
         assert_eq!(tiles[0].image.width, 32);
         assert_eq!(tiles[0].image.height, 16);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gs_api_runtime_recreates_a_missing_instance_instead_of_passing_null() {
+        use std::ffi::{c_char, c_int, c_void};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
+
+        static NEW_INSTANCE_SUCCEEDS: AtomicBool = AtomicBool::new(false);
+        static INIT_CALLS: AtomicUsize = AtomicUsize::new(0);
+        static NULL_INSTANCE_CALLS: AtomicUsize = AtomicUsize::new(0);
+        const FAKE_INSTANCE: usize = 0x1000;
+
+        unsafe extern "C" fn new_instance(instance: *mut *mut c_void, _: *mut c_void) -> c_int {
+            if !NEW_INSTANCE_SUCCEEDS.load(SeqCst) {
+                return -100;
+            }
+            unsafe { *instance = FAKE_INSTANCE as *mut c_void };
+            0
+        }
+        unsafe extern "C" fn delete_instance(instance: *mut c_void) {
+            if instance.is_null() {
+                NULL_INSTANCE_CALLS.fetch_add(1, SeqCst);
+            }
+        }
+        unsafe extern "C" fn init_with_args(
+            instance: *mut c_void,
+            _: c_int,
+            _: *mut *mut c_char,
+        ) -> c_int {
+            INIT_CALLS.fetch_add(1, SeqCst);
+            if instance.is_null() {
+                NULL_INSTANCE_CALLS.fetch_add(1, SeqCst);
+            }
+            0
+        }
+        unsafe extern "C" fn exit(instance: *mut c_void) -> c_int {
+            if instance.is_null() {
+                NULL_INSTANCE_CALLS.fetch_add(1, SeqCst);
+            }
+            0
+        }
+
+        // The state a render leaves behind when `gsapi_new_instance` fails while
+        // preparing the replacement instance.
+        let runtime = GsApiRuntime {
+            library_path: "fake-libgs".into(),
+            _library: libloading::os::unix::Library::this().into(),
+            new_instance,
+            delete_instance,
+            init_with_args,
+            exit,
+            set_arg_encoding: None,
+            instance: std::sync::Mutex::new(0),
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_pdf(pdf_file.path(), 144, 72);
+        let page = PageRenderInput {
+            pdf_path: pdf_file.path().to_string_lossy().into_owned(),
+            ..sample_page()
+        };
+
+        let error = runtime
+            .render_full_page(&page, 1.0)
+            .expect_err("render without an instance must fail");
+        assert_eq!(NULL_INSTANCE_CALLS.load(SeqCst), 0, "{error:#}");
+        assert_eq!(INIT_CALLS.load(SeqCst), 0);
+
+        NEW_INSTANCE_SUCCEEDS.store(true, SeqCst);
+        // The fake never writes a PNG, so reading the output still fails; what
+        // matters is that Ghostscript ran on a freshly created instance.
+        let _ = runtime.render_full_page(&page, 1.0);
+        assert_eq!(INIT_CALLS.load(SeqCst), 1);
+        assert_eq!(NULL_INSTANCE_CALLS.load(SeqCst), 0);
     }
 
     #[test]
