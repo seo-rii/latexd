@@ -23782,7 +23782,10 @@ impl<'i> Vm<'i> {
                 self.conditionals.pop();
             }
             Primitive::Count => {
-                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                let Some(index) = self
+                    .read_integer(queue)
+                    .map(|value| self.register_index(value))
+                else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -23821,7 +23824,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Dimen => {
-                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                let Some(index) = self
+                    .read_integer(queue)
+                    .map(|value| self.register_index(value))
+                else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -23861,7 +23867,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Skip => {
-                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                let Some(index) = self
+                    .read_integer(queue)
+                    .map(|value| self.register_index(value))
+                else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -23971,7 +23980,10 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::Toks => {
-                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                let Some(index) = self
+                    .read_integer(queue)
+                    .map(|value| self.register_index(value))
+                else {
                     return;
                 };
                 self.skip_optional_spaces(queue);
@@ -26221,6 +26233,19 @@ impl<'i> Vm<'i> {
         }))
     }
 
+    /// Register numbers outside 0..=32767 are TeX's "Bad register code"; like
+    /// TeX, report it and use register 0 instead of wrapping the sign.
+    fn register_index(&mut self, value: i32) -> u32 {
+        if let Ok(index @ 0..=32767) = u32::try_from(value) {
+            return index;
+        }
+        self.diagnostics.push(VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: format!("Bad register code ({value})"),
+        });
+        0
+    }
+
     fn read_count_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
         self.skip_optional_spaces(queue);
         let token = self.pop_next_token(queue)?;
@@ -26229,7 +26254,9 @@ impl<'i> Vm<'i> {
         };
         let name = self.interner.resolve(name).unwrap_or("").to_string();
         if name == "count" {
-            return self.read_integer(queue).map(|value| value as u32);
+            return self
+                .read_integer(queue)
+                .map(|value| self.register_index(value));
         }
         self.resolve_count_register_name(&name)
     }
@@ -26242,7 +26269,9 @@ impl<'i> Vm<'i> {
         };
         let name = self.interner.resolve(name).unwrap_or("").to_string();
         if name == "dimen" {
-            return self.read_integer(queue).map(|value| value as u32);
+            return self
+                .read_integer(queue)
+                .map(|value| self.register_index(value));
         }
         self.resolve_dimen_register_name(&name)
     }
@@ -26255,7 +26284,9 @@ impl<'i> Vm<'i> {
         };
         let name = self.interner.resolve(name).unwrap_or("").to_string();
         if name == "toks" {
-            return self.read_integer(queue).map(|value| value as u32);
+            return self
+                .read_integer(queue)
+                .map(|value| self.register_index(value));
         }
         self.resolve_toks_register_name(&name)
     }
@@ -26268,7 +26299,9 @@ impl<'i> Vm<'i> {
         };
         let name = self.interner.resolve(name).unwrap_or("").to_string();
         if name == "skip" {
-            return self.read_integer(queue).map(|value| value as u32);
+            return self
+                .read_integer(queue)
+                .map(|value| self.register_index(value));
         }
         self.resolve_skip_register_name(&name)
     }
@@ -38814,6 +38847,32 @@ mod tests {
 
         assert_eq!(outcome.output, "[3][6]");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn out_of_range_register_numbers_report_bad_register_code_and_use_zero() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\count-1=5\relax\dimen40000=2pt\relax\skip-3=3pt\relax\toks-4={t}\advance\count-1 by 1\relax[\the\count0][\the\dimen0][\the\skip0][\the\toks0]",
+        );
+
+        assert_eq!(outcome.output, "[6][2pt][3pt][t]");
+        assert_eq!(
+            outcome
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.detail.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Bad register code (-1)",
+                "Bad register code (40000)",
+                "Bad register code (-3)",
+                "Bad register code (-4)",
+                "Bad register code (-1)",
+            ]
+        );
+        assert!(vm.eqtb.count(u32::MAX).is_none());
     }
 
     #[test]
