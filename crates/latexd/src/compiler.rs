@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{Display, Formatter},
     fs,
     process::Output,
@@ -3578,16 +3578,101 @@ async fn run_external_command(
     timeout: Duration,
 ) -> Result<Output, ExternalCommandError> {
     let mut command = tokio::process::Command::new(program);
+    command.args(args).current_dir(current_dir.as_std_path());
+    run_external_process(command, timeout).await
+}
+
+/// Bytes kept from the start and from the end of each captured stream. A TeX
+/// `\message` loop can print gigabytes before the timeout fires.
+const EXTERNAL_OUTPUT_HEAD_BYTES: usize = 4 * 1024 * 1024;
+const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 1024 * 1024;
+
+async fn run_external_process(
+    mut command: tokio::process::Command,
+    timeout: Duration,
+) -> Result<Output, ExternalCommandError> {
     command
-        .args(args)
-        .current_dir(current_dir.as_std_path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    match tokio::time::timeout(timeout, command.output()).await {
+    // Lead a new process group so a timeout also stops helpers the tool
+    // started (mktexpk, mf, gs), which `kill_on_drop` alone leaves running.
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().map_err(ExternalCommandError::Spawn)?;
+    let process_group = child.id();
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        unreachable!("external process stdout and stderr are piped");
+    };
+    let run = async {
+        let (status, stdout, stderr) = tokio::join!(
+            child.wait(),
+            read_capped_output(stdout),
+            read_capped_output(stderr)
+        );
+        Ok::<_, std::io::Error>(Output {
+            status: status?,
+            stdout: stdout?,
+            stderr: stderr?,
+        })
+    };
+    match tokio::time::timeout(timeout, run).await {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(error)) => Err(ExternalCommandError::Spawn(error)),
-        Err(_) => Err(ExternalCommandError::Timeout),
+        Err(_) => {
+            kill_process_group(process_group);
+            Err(ExternalCommandError::Timeout)
+        }
     }
 }
+
+async fn read_capped_output(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+) -> std::io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+
+    let mut head = Vec::new();
+    let mut tail = VecDeque::<u8>::new();
+    let mut omitted = 0usize;
+    // Heap-allocated: this future is nested inside the (large) compile
+    // future, and an inline array would grow every caller's stack frame.
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let head_room = EXTERNAL_OUTPUT_HEAD_BYTES
+            .saturating_sub(head.len())
+            .min(read);
+        head.extend_from_slice(&buffer[..head_room]);
+        tail.extend(&buffer[head_room..read]);
+        let overflow = tail.len().saturating_sub(EXTERNAL_OUTPUT_TAIL_BYTES);
+        tail.drain(..overflow);
+        omitted += overflow;
+    }
+    if omitted > 0 {
+        head.extend_from_slice(
+            format!("\n[... {omitted} bytes of output omitted ...]\n").as_bytes(),
+        );
+    }
+    head.extend(tail);
+    Ok(head)
+}
+
+#[cfg(unix)]
+fn kill_process_group(process_group: Option<u32>) {
+    if let Some(process_group) = process_group.and_then(|id| libc::pid_t::try_from(id).ok()) {
+        // SAFETY: `killpg` only sends a signal. The group was created for this
+        // child by `process_group(0)` and the child has not been reaped yet.
+        unsafe {
+            libc::killpg(process_group, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_group(_process_group: Option<u32>) {}
 
 async fn execute_external_command(
     program: &str,
@@ -5094,8 +5179,8 @@ mod tests {
         parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
-        run_external_command, save_checkpoint_bundle_observed, save_source_texts,
-        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
+        run_external_command, run_external_process, save_checkpoint_bundle_observed,
+        save_source_texts, select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
         shift_shipout_source_offset, should_capture_shipout_checkpoints,
     };
 
@@ -5197,6 +5282,74 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_process_output_capture_is_bounded() {
+        let mut command = tokio::process::Command::new("/bin/sh");
+        // A `\message` loop can print far more than this within the timeout.
+        command.args(["-c", "head -c 20000000 /dev/zero; echo; echo last line"]);
+
+        let output = run_external_process(command, Duration::from_secs(60))
+            .await
+            .expect("bounded output");
+
+        assert!(output.status.success());
+        assert!(
+            output.stdout.len() < 8 * 1024 * 1024,
+            "{}",
+            output.stdout.len()
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("bytes of output omitted"));
+        assert!(stdout.ends_with("last line\n"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_process_timeout_kills_the_whole_process_group() {
+        let tempdir = tempdir().expect("tempdir");
+        let pid_file = tempdir.path().join("helper.pid");
+        let mut command = tokio::process::Command::new("/bin/sh");
+        // Like pdflatex starting mktexpk, leave a helper process running.
+        command.args([
+            "-c",
+            "sleep 30 & echo $! > \"$1\"; wait",
+            "sh",
+            pid_file.to_str().expect("utf8 pid file"),
+        ]);
+
+        let result = run_external_process(command, Duration::from_millis(500)).await;
+
+        assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+        let helper = fs::read_to_string(&pid_file)
+            .expect("helper pid")
+            .trim()
+            .parse::<libc::pid_t>()
+            .expect("numeric helper pid");
+        let mut helper_alive = true;
+        for _ in 0..40 {
+            // A killed orphan stays a zombie until init reaps it.
+            // SAFETY: signal 0 only probes whether the process exists.
+            helper_alive = unsafe { libc::kill(helper, 0) } == 0
+                && !fs::read_to_string(format!("/proc/{helper}/stat"))
+                    .is_ok_and(|stat| stat.split_whitespace().nth(2) == Some("Z"));
+            if !helper_alive {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if helper_alive {
+            // SAFETY: clean up the helper this test started.
+            unsafe {
+                libc::kill(helper, libc::SIGKILL);
+            }
+        }
+        assert!(
+            !helper_alive,
+            "helper process {helper} survived the timeout"
+        );
     }
 
     #[test]
