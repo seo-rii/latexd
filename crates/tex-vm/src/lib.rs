@@ -2568,9 +2568,29 @@ impl<'i> Vm<'i> {
                     if source[signature_index..].starts_with('*') {
                         signature_index += 1;
                     }
-                    if let Some((target, _, _, after_target)) =
-                        read_braced_source_argument(source, signature_index)
-                    {
+                    signature_index = skip_ascii_whitespace(source, signature_index);
+                    let target = read_braced_source_argument(source, signature_index)
+                        .map(|(target, _, _, after_target)| (target, after_target))
+                        .or_else(|| {
+                            let name_start = signature_index + 1;
+                            if bytes.get(signature_index) != Some(&b'\\')
+                                || name_start >= bytes.len()
+                            {
+                                return None;
+                            }
+                            let mut name_end = name_start;
+                            while name_end < bytes.len()
+                                && (bytes[name_end].is_ascii_alphabetic()
+                                    || bytes[name_end] == b'@')
+                            {
+                                name_end += 1;
+                            }
+                            if name_end == name_start {
+                                name_end += source[name_start..].chars().next()?.len_utf8();
+                            }
+                            Some((&source[signature_index..name_end], name_end))
+                        });
+                    if let Some((target, after_target)) = target {
                         let mut after_signature = after_target;
                         let mut parameter_count = 0usize;
                         let mut optional_first_argument = false;
@@ -49338,6 +49358,51 @@ Fallback text.
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
         assert!(!visible_text.contains("https://hidden.test"));
+    }
+
+    #[test]
+    fn render_event_capture_reads_unbraced_newcommand_targets() {
+        for (source, hidden) in [
+            (
+                r"\begin{document}\renewcommand\thefootnote{\fnsymbol{footnote}}Visible text.\end{document}",
+                "footnote",
+            ),
+            (
+                r"\begin{document}\newcommand\leak{hidden body}Visible text.\end{document}",
+                "hidden body",
+            ),
+            (
+                r"\begin{document}\providecommand*\leak[1]{hidden body #1}Visible text.\end{document}",
+                "hidden body",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let visible_text = visible_render_event_text(&outcome.render_events);
+
+            assert!(
+                visible_text.contains("Visible text."),
+                "{source}: {visible_text}"
+            );
+            assert!(!visible_text.contains(hidden), "{source}: {visible_text}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_registers_unbraced_newcommand_wrappers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(
+            r"\newcommand\note[1]{[TODO: #1]}\begin{document}A \note{check} B.\end{document}",
+        );
+        let visible_text = visible_render_event_text(&outcome.render_events);
+
+        assert!(visible_text.contains("TODO: check"), "{visible_text}");
     }
 
     #[test]
