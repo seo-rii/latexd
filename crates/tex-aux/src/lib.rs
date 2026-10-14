@@ -368,7 +368,7 @@ impl AuxView for SemanticAux {
     fn label_target(&self, key: &str) -> Option<LabelTargetView> {
         self.labels
             .iter()
-            .find(|label| label.key == key)
+            .find(|label| label.key == key.trim())
             .map(|label| LabelTargetView {
                 key: label.key.clone(),
                 number: label.number.clone(),
@@ -641,19 +641,19 @@ impl SemanticAux {
     pub fn label_number(&self, key: &str) -> Option<&str> {
         self.labels
             .iter()
-            .find(|label| label.key == key)
+            .find(|label| label.key == key.trim())
             .map(|label| label.number.as_str())
     }
 
     pub fn label_page(&self, key: &str) -> Option<u32> {
         self.labels
             .iter()
-            .find(|label| label.key == key)
+            .find(|label| label.key == key.trim())
             .map(|label| label.page)
     }
 
     pub fn label_title(&self, key: &str) -> Option<&str> {
-        let label = self.labels.iter().find(|label| label.key == key)?;
+        let label = self.labels.iter().find(|label| label.key == key.trim())?;
         let latest_heading = self
             .toc
             .iter()
@@ -1952,6 +1952,10 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
         });
     }
     labels.sort_by(|left, right| left.key.cmp(&right.key));
+    // A key defined more than once resolves to its last \label, as in LaTeX's .aux.
+    labels.reverse();
+    labels.dedup_by(|duplicate, kept| duplicate.key == kept.key);
+    labels.reverse();
     let include_all_bibliography = scan
         .citations
         .iter()
@@ -2991,7 +2995,7 @@ fn rewrite_source(
                             let reference_kind = aux
                                 .labels
                                 .iter()
-                                .find(|label| label.key == key)
+                                .find(|label| label.key == key.trim())
                                 .map(|label| {
                                     let latest_section = scan
                                         .sections
@@ -3200,7 +3204,7 @@ fn rewrite_source(
                     let reference_kind = aux
                         .labels
                         .iter()
-                        .find(|label| label.key == key)
+                        .find(|label| label.key == key.trim())
                         .map(|label| {
                             let latest_section = scan
                                 .sections
@@ -3351,7 +3355,7 @@ fn rewrite_source(
                     let reference_kind = aux
                         .labels
                         .iter()
-                        .find(|label| label.key == key)
+                        .find(|label| label.key == key.trim())
                         .map(|label| {
                             let latest_section = scan
                                 .sections
@@ -3476,7 +3480,8 @@ fn rewrite_source(
                     let title = scan
                         .labels
                         .iter()
-                        .find(|label| label.key == key)
+                        .rev()
+                        .find(|label| label.key == key.trim())
                         .and_then(|label| {
                             let latest_section = scan
                                 .sections
@@ -3562,7 +3567,8 @@ fn rewrite_source(
                             let is_equation = scan
                                 .labels
                                 .iter()
-                                .find(|label| label.key == key)
+                                .rev()
+                                .find(|label| label.key == key.trim())
                                 .map(|label| {
                                     let latest_section = scan
                                         .sections
@@ -3651,7 +3657,7 @@ fn rewrite_source(
                         let first_kind = aux
                             .labels
                             .iter()
-                            .find(|label| label.key == first_key)
+                            .find(|label| label.key == first_key.trim())
                             .map(|label| {
                                 let latest_section = scan
                                     .sections
@@ -3781,7 +3787,7 @@ fn rewrite_source(
                         let second_kind = aux
                             .labels
                             .iter()
-                            .find(|label| label.key == second_key)
+                            .find(|label| label.key == second_key.trim())
                             .map(|label| {
                                 let latest_section = scan
                                     .sections
@@ -3978,7 +3984,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.labels
                                 .iter()
-                                .find(|label| label.key == key)
+                                .find(|label| label.key == key.trim())
                                 .map(|label| {
                                     let latest_section = scan
                                         .sections
@@ -4464,7 +4470,7 @@ fn rewrite_source(
                     let reference_kind = aux
                         .labels
                         .iter()
-                        .find(|label| label.key == key)
+                        .find(|label| label.key == key.trim())
                         .map(|label| {
                             let latest_section = scan
                                 .sections
@@ -4623,7 +4629,7 @@ fn rewrite_source(
                                 let reference_kind = aux
                                     .labels
                                     .iter()
-                                    .find(|label| label.key == *key)
+                                    .find(|label| label.key == key.trim())
                                     .map(|label| {
                                         let latest_section = scan
                                             .sections
@@ -4793,7 +4799,8 @@ fn rewrite_source(
                     let mut rendered = scan
                         .labels
                         .iter()
-                        .find(|label| label.key == key)
+                        .rev()
+                        .find(|label| label.key == key.trim())
                         .and_then(|label| {
                             let latest_section = scan
                                 .sections
@@ -9541,6 +9548,35 @@ mod tests {
                 .tracked_inputs
                 .contains(&Utf8PathBuf::from("refs.bbl"))
         );
+    }
+
+    #[test]
+    fn materialize_project_resolves_padded_refs_and_redefined_labels_like_latex() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\section{A}\\label{dup}\\label{sec:a}\\section{B}\\label{dup}See \\ref{ sec:a }, \\ref{dup} and \\pageref{ sec:a }.";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![SourceSpan {
+                    file: Utf8PathBuf::from("main.tex"),
+                    start_utf8: 0,
+                    end_utf8: source.len() as u32,
+                }],
+            }],
+        );
+
+        assert_eq!(aux.label_number("dup"), Some("2"));
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+        assert!(main.contains("See 1, 2 and 1."), "{main}");
     }
 
     #[test]
