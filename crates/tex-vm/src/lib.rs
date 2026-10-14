@@ -43251,6 +43251,34 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_pdf_asset_natural_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "figures/plot.pdf",
+            "%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [10 20 370 200] >>\nendobj\n",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Pdf)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 360,
+                        height_px: 180,
+                        density: None,
+                        natural_width_pt_milli: Some(360_000),
+                        natural_height_pt_milli: Some(180_000),
+                    })
+        )));
+    }
+
+    #[test]
     fn render_event_capture_scans_non_ascii_control_symbols() {
         for body in [
             "\\é \\中 \\\u{a0}x",
@@ -43280,34 +43308,6 @@ Fallback text.
 
             assert!(event.raw_source.contains('é'), "{event:?}");
         }
-    }
-
-    #[test]
-    fn render_event_capture_records_pdf_asset_natural_dimensions() {
-        let source = r"\begin{document}\includegraphics{figures/plot.pdf}\end{document}";
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        vm.set_entry_source_path("main.tex");
-        vm.mount_file(
-            "figures/plot.pdf",
-            "%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [10 20 370 200] >>\nendobj\n",
-        );
-        vm.enable_render_event_capture();
-        let outcome = vm.run_plain(source);
-
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::GraphicRef(graphic)
-                if graphic.path == "figures/plot.pdf"
-                    && graphic.asset_format == Some(GraphicAssetFormat::Pdf)
-                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
-                        width_px: 360,
-                        height_px: 180,
-                        density: None,
-                        natural_width_pt_milli: Some(360_000),
-                        natural_height_pt_milli: Some(180_000),
-                    })
-        )));
     }
 
     #[test]
