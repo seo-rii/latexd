@@ -447,10 +447,23 @@ fn run_pass(
                     };
                 let ragged_line = endpoint.final_line() || endpoint.forced_break();
                 let (badness, fitness) = if ragged_line {
-                    if natural_width_pt > target_width_pt + WIDTH_EPSILON_PT {
-                        continue;
+                    let overflow_pt = natural_width_pt - target_width_pt;
+                    if overflow_pt <= WIDTH_EPSILON_PT {
+                        (0.0, FitnessClass::Decent)
+                    } else {
+                        // \parfillskip and the \hfil before \\ only stretch, so an
+                        // overlong ragged line may still use its interword shrink.
+                        let shrink_pt = interword_spaces as f32 * space_width_pt / 3.0;
+                        if overflow_pt > shrink_pt + WIDTH_EPSILON_PT {
+                            continue;
+                        }
+                        let ratio = -overflow_pt as f64 / shrink_pt as f64;
+                        let badness = (100.0 * ratio.abs().powi(3)).min(10_000.0);
+                        if badness > tolerance {
+                            continue;
+                        }
+                        (badness, FitnessClass::from_ratio(ratio))
                     }
-                    (0.0, FitnessClass::Decent)
                 } else {
                     let difference_pt = target_width_pt - natural_width_pt;
                     if interword_spaces == 0 {
@@ -696,6 +709,25 @@ mod tests {
         assert!(lines[0].append_hyphen);
         assert!(text.is_char_boundary(lines[0].end_utf8));
         assert_eq!(&text[lines[1].start_utf8..lines[1].end_utf8], "sive");
+    }
+
+    #[test]
+    fn lets_the_last_line_shrink_its_interword_spaces() {
+        // \parfillskip only stretches, so TeX may shrink the last line's spaces
+        // instead of leaving a one-letter line. Plain TeX (cmtt10 scaled to the
+        // 6pt fallback glyphs, `\spaceskip=6pt plus 3pt minus 2pt`) sets these
+        // two lines.
+        let text = "aa ff eeee c bbb hhh a";
+        let font = mono_font();
+        let lines = select_paragraph_breaks(request(text, &font, 61.0, 61.0)).unwrap();
+        let texts = lines
+            .iter()
+            .map(|line| &text[line.start_utf8..line.end_utf8])
+            .collect::<Vec<_>>();
+
+        assert_eq!(texts, ["aa ff eeee", "c bbb hhh a"]);
+        assert!(lines[1].final_line);
+        assert!(lines[1].natural_width_pt > 61.0);
     }
 
     #[test]
