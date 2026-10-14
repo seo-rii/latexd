@@ -312,16 +312,20 @@ fn render_display_list_pdf_with_font_mode(
         true
     };
     for (index, page) in pages.iter().enumerate() {
+        let page_height_pt = finite_page_extent(page.height_pt, DEFAULT_PAGE_HEIGHT_PT);
         for op in &page.ops {
             if let DrawOp::NamedDestination(destination) = op {
+                let x = destination.point.x;
+                let y = page_height_pt - destination.point.y;
+                if !finite_operands(&[x, y]) {
+                    continue;
+                }
                 destination_entries.push((
                     destination.name.clone(),
                     format!(
-                        "({}) [{} 0 R /XYZ {} {} null]",
+                        "({}) [{} 0 R /XYZ {x} {y} null]",
                         escape_pdf_text(&destination.name),
                         page_object_id(index),
-                        destination.point.x,
-                        page.height_pt - destination.point.y
                     ),
                 ));
             }
@@ -450,6 +454,8 @@ fn render_display_list_pdf_with_font_mode(
         let mut image_resource_refs = Vec::new();
         let mut opacity_resource_keys = Vec::new();
         let mut next_page_image_index = 1usize;
+        let page_width_pt = finite_page_extent(page.width_pt, DEFAULT_PAGE_WIDTH_PT);
+        let page_height_pt = finite_page_extent(page.height_pt, DEFAULT_PAGE_HEIGHT_PT);
         for op in &page.ops {
             match op {
                 DrawOp::Save => {
@@ -459,13 +465,17 @@ fn render_display_list_pdf_with_font_mode(
                     stream.push_str("Q ");
                 }
                 DrawOp::ClipRect(rect) => {
-                    stream.push_str(&format!(
-                        "{} {} {} {} re W n ",
+                    let operands = [
                         rect.x,
-                        page.height_pt - rect.y - rect.height,
+                        page_height_pt - rect.y - rect.height,
                         rect.width,
-                        rect.height
-                    ));
+                        rect.height,
+                    ];
+                    if !finite_operands(&operands) {
+                        continue;
+                    }
+                    let [x, y, width, height] = operands;
+                    stream.push_str(&format!("{x} {y} {width} {height} re W n "));
                 }
                 DrawOp::TextRun(run) => {
                     if !run.size_pt.is_finite()
@@ -565,7 +575,7 @@ fn render_display_list_pdf_with_font_mode(
                     stream.push_str(&format!(
                         "1 0 0 1 {} {} Tm ",
                         run.origin.x,
-                        page.height_pt - run.origin.y
+                        page_height_pt - run.origin.y
                     ));
                     if let Some(face) = resolved_tex_face {
                         stream.push_str(&tex_font_text_operator(face, &run.text));
@@ -584,20 +594,39 @@ fn render_display_list_pdf_with_font_mode(
                     stream.push_str(" ET ");
                 }
                 DrawOp::Rule(rect) => {
-                    stream.push_str(&format!(
-                        "q {} {} {} {} re f Q ",
+                    let operands = [
                         rect.x,
-                        page.height_pt - rect.y - rect.height,
+                        page_height_pt - rect.y - rect.height,
                         rect.width,
-                        rect.height
-                    ));
+                        rect.height,
+                    ];
+                    if !finite_operands(&operands) {
+                        continue;
+                    }
+                    let [x, y, width, height] = operands;
+                    stream.push_str(&format!("q {x} {y} {width} {height} re f Q "));
                 }
                 DrawOp::Image(image) => {
+                    // Every image path (placeholder, raster, PDF form, SVG
+                    // scene) derives its operands from the target rect and the
+                    // rotation angle.
+                    if !finite_operands(&[
+                        image.rect.x,
+                        page_height_pt - image.rect.y - image.rect.height,
+                        image.rect.width,
+                        image.rect.height,
+                    ]) || image
+                        .rotation
+                        .as_ref()
+                        .is_some_and(|rotation| !rotation.angle_degrees.is_finite())
+                    {
+                        continue;
+                    }
                     let placeholder_status = ImagePlaceholderStatus::from_image(image);
                     if placeholder_status == ImagePlaceholderStatus::Draft {
                         push_image_placeholder(
                             &mut stream,
-                            page.height_pt,
+                            page_height_pt,
                             image,
                             placeholder_status,
                         );
@@ -643,7 +672,7 @@ fn render_display_list_pdf_with_font_mode(
                                         form_height_pt,
                                     );
                                 let dest_x = image.rect.x;
-                                let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                                let dest_y = page_height_pt - image.rect.y - image.rect.height;
                                 let draw = image_draw_placement(
                                     Rect {
                                         x: dest_x,
@@ -657,7 +686,7 @@ fn render_display_list_pdf_with_font_mode(
                                     false,
                                 );
                                 let rotated =
-                                    push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                                    push_pdf_image_rotation(&mut stream, page_height_pt, image);
                                 if draw.clip_to_dest {
                                     stream.push_str(&format!(
                                     "q {dest_x} {dest_y} {} {} re W n q {} 0 0 {} {} {} cm /{resource_name} Do Q Q ",
@@ -697,7 +726,7 @@ fn render_display_list_pdf_with_font_mode(
                                 svg.natural_height_pt,
                             );
                             let dest_x = image.rect.x;
-                            let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                            let dest_y = page_height_pt - image.rect.y - image.rect.height;
                             let draw = image_draw_placement(
                                 Rect {
                                     x: dest_x,
@@ -711,7 +740,7 @@ fn render_display_list_pdf_with_font_mode(
                                 false,
                             );
                             let rotated =
-                                push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                                push_pdf_image_rotation(&mut stream, page_height_pt, image);
                             let svg_clip_to_viewport =
                                 svg.preserve_aspect_ratio.scale == VectorAspectScale::Slice;
                             if draw.clip_to_dest || svg_clip_to_viewport {
@@ -1801,7 +1830,7 @@ fn render_display_list_pdf_with_font_mode(
                             image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
                             extra_objects.push(build_image_xobject(object_id, &decoded));
                             let dest_x = image.rect.x;
-                            let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                            let dest_y = page_height_pt - image.rect.y - image.rect.height;
                             let draw = image_draw_placement(
                                 Rect {
                                     x: dest_x,
@@ -1815,7 +1844,7 @@ fn render_display_list_pdf_with_font_mode(
                                 false,
                             );
                             let rotated =
-                                push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                                push_pdf_image_rotation(&mut stream, page_height_pt, image);
                             if draw.clip_to_dest {
                                 stream.push_str(&format!(
                                     "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
@@ -1845,7 +1874,7 @@ fn render_display_list_pdf_with_font_mode(
                         } else {
                             push_image_placeholder(
                                 &mut stream,
-                                page.height_pt,
+                                page_height_pt,
                                 image,
                                 ImagePlaceholderStatus::from_decode_failure(image),
                             );
@@ -1853,22 +1882,28 @@ fn render_display_list_pdf_with_font_mode(
                     } else {
                         push_image_placeholder(
                             &mut stream,
-                            page.height_pt,
+                            page_height_pt,
                             image,
                             ImagePlaceholderStatus::from_image(image),
                         );
                     }
                 }
                 DrawOp::LinkAnnotation(link) => {
+                    let operands = [
+                        link.rect.x,
+                        page_height_pt - link.rect.y - link.rect.height,
+                        link.rect.x + link.rect.width,
+                        page_height_pt - link.rect.y,
+                    ];
+                    if !finite_operands(&operands) {
+                        continue;
+                    }
+                    let [left, bottom, right, top] = operands;
                     let annotation_id = next_extra_object_id;
                     next_extra_object_id += 1;
                     annotation_refs.push(format!("{annotation_id} 0 R"));
                     extra_objects.push(format!(
-                        "{annotation_id} 0 obj << /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI ({}) >> >> endobj\n",
-                        link.rect.x,
-                        page.height_pt - link.rect.y - link.rect.height,
-                        link.rect.x + link.rect.width,
-                        page.height_pt - link.rect.y,
+                        "{annotation_id} 0 obj << /Type /Annot /Subtype /Link /Rect [{left} {bottom} {right} {top}] /Border [0 0 0] /A << /S /URI /URI ({}) >> >> endobj\n",
                         escape_pdf_text(&link.target)
                     )
                     .into_bytes());
@@ -1917,8 +1952,8 @@ fn render_display_list_pdf_with_font_mode(
         };
         objects.push(format!(
             "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {} >>{}{} >> /Contents {content_id} 0 R{} >> endobj\n",
-            page.width_pt,
-            page.height_pt,
+            page_width_pt,
+            page_height_pt,
             font_resources,
             xobjects,
             ext_gstates,
@@ -1956,6 +1991,25 @@ fn render_display_list_pdf_with_font_mode(
     );
 
     pdf
+}
+
+const DEFAULT_PAGE_WIDTH_PT: f32 = 612.0;
+const DEFAULT_PAGE_HEIGHT_PT: f32 = 792.0;
+
+// `f32` formats as `NaN` or `inf`, which are not PDF numbers; an operator with
+// such an operand corrupts the whole content stream, so it is skipped instead.
+fn finite_operands(values: &[f32]) -> bool {
+    values.iter().all(|value| value.is_finite())
+}
+
+// A page extent that is not a positive finite number would also poison every
+// operand derived from it; fall back to the US Letter page the layout uses.
+fn finite_page_extent(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        fallback
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -27592,5 +27646,88 @@ mod tests {
             .find(&format!("(sec:zeta) [{page_reference} /XYZ 72 720 null]"))
             .expect("zeta destination should be present");
         assert!(alpha_index < zeta_index);
+    }
+
+    #[test]
+    fn display_list_pdf_never_writes_non_finite_operands() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let rect = |x: f32, y: f32, width: f32, height: f32| Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let image = |rect: Rect, rotation: Option<ImageRotation>| {
+            DrawOp::Image(PositionedImage {
+                rect,
+                asset_ref: "figures/missing.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
+                asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation,
+                diagnostic: Some("missing graphic asset figures/missing.png".to_string()),
+                source: source.clone(),
+            })
+        };
+        let finite_rule = DrawOp::Rule(rect(72.0, 600.0, 100.0, 2.0));
+        let first = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                DrawOp::Save,
+                DrawOp::ClipRect(rect(f32::NAN, 72.0, 100.0, 100.0)),
+                DrawOp::Restore,
+                DrawOp::Rule(rect(72.0, 72.0, f32::INFINITY, 2.0)),
+                DrawOp::NamedDestination(Destination {
+                    name: "sec:nan".to_string(),
+                    point: Point {
+                        x: f32::NAN,
+                        y: 72.0,
+                    },
+                    source: source.clone(),
+                }),
+                DrawOp::LinkAnnotation(LinkAnnotation {
+                    rect: rect(72.0, f32::NEG_INFINITY, 80.0, 12.0),
+                    target: "https://example.com".to_string(),
+                    source: source.clone(),
+                }),
+                image(rect(72.0, 200.0, 144.0, f32::NAN), None),
+                image(
+                    rect(72.0, 300.0, 144.0, 72.0),
+                    Some(ImageRotation {
+                        angle_degrees: f32::INFINITY,
+                        origin: None,
+                    }),
+                ),
+                finite_rule.clone(),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "first".to_string(),
+        };
+        let second = PageDisplayList {
+            page_id: "page-2".to_string(),
+            width_pt: f32::NAN,
+            height_pt: f32::INFINITY,
+            ops: vec![finite_rule],
+            source_spans: Vec::new(),
+            content_hash: "second".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[first, second]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let non_finite = pdf_text
+            .split(|ch: char| ch.is_whitespace() || "[]()<>/".contains(ch))
+            .filter(|token| token.contains("NaN") || token.trim_start_matches('-') == "inf")
+            .collect::<Vec<_>>();
+        assert!(non_finite.is_empty(), "non-finite operands: {non_finite:?}");
+        assert_eq!(pdf_text.matches("/MediaBox [0 0 612 792]").count(), 2);
+        assert_eq!(pdf_text.matches("q 72 190 100 2 re f Q").count(), 2);
+        assert!(!pdf_text.contains("/Subtype /Link"));
+        assert!(!pdf_text.contains("(sec:nan)"));
     }
 }
