@@ -564,6 +564,9 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
         first_page_arg.as_str(),
         last_page_arg.as_str(),
         "-r72",
+        // The PNG goes to stdout, so PostScript `print` output and the old PDF
+        // interpreter's repair warnings must not: send them to stderr.
+        "-sstdout=%stderr",
         "-sOutputFile=%stdout",
     ];
     if let Some(pagebox_arg) = pagebox_arg.as_deref() {
@@ -695,6 +698,7 @@ fn render_full_page_with_cli(
             "-dFirstPage=1",
             "-dLastPage=1",
             &density,
+            "-sstdout=%stderr",
             "-sOutputFile=%stdout",
             &page.pdf_path,
         ])
@@ -1269,6 +1273,34 @@ showpage
             None,
         )
         .expect("convert eps asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn cli_converter_keeps_postscript_text_output_out_of_the_png_when_available() {
+        let Ok(program) = which::which("gs") else {
+            return;
+        };
+        let eps = b"%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 144 72
+(figure debug output) print flush
+newpath 0 0 moveto 144 72 lineto 144 0 lineto closepath
+0.2 setgray fill
+showpage
+";
+
+        let png = convert_pdf_or_eps_asset_to_png_with_cli(
+            program.to_string_lossy().as_ref(),
+            "figures/printing.eps",
+            eps,
+            None,
+            None,
+        )
+        .expect("convert eps asset that prints text");
         let image =
             image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
 
