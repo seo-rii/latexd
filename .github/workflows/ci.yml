@@ -60,6 +60,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Keep in sync with the Web Test job and pages.yml.
           toolchain: 1.94.0
           components: clippy
           targets: x86_64-unknown-linux-gnu
@@ -192,6 +193,9 @@ jobs:
 
       - name: Install Rust toolchain for viewer integration test
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # Keep in sync with the Rust Test job and pages.yml.
+          toolchain: 1.94.0
 
       - name: Restore viewer integration Rust cache
         uses: Swatinem/rust-cache@v2
