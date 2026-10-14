@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use pdf_form::build_pdf_form_objects;
 use tex_fonts::{ResolvedTexFont, TexFontFace, encode_text, face_for_request, resolve_font};
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
-use tex_render_assets::prepare_svg_materialization;
 #[cfg(test)]
 use tex_render_assets::resolve_svg_embedded_asset_ref;
+use tex_render_assets::{prepare_svg_materialization, raster_data_uri};
 use tex_render_model::{
     DrawOp, EmbeddedRasterImage, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat,
     GraphicAssetRequest, ImageCrop, MaterializedGraphicAsset, PageDisplayList, Point,
@@ -2661,7 +2661,11 @@ pub fn render_display_list_svg_with_materialized_assets(
                                 return None;
                             }
                         };
-                        let data_uri = encode_data_uri(media_type, &data_bytes);
+                        let data_uri = if effective_format == GraphicAssetFormat::Svg {
+                            encode_data_uri(media_type, &data_bytes)
+                        } else {
+                            raster_data_uri(media_type, &data_bytes)
+                        };
                         let converted_format_attr = converted_format
                             .map(|format| {
                                 format!(" data-image-converted-format=\"{}\"", format.as_str())
@@ -16791,7 +16795,11 @@ mod tests {
         assert!(!svg_requested_asset_refs.contains(&"figures/nested/a%3Fb%23c.png".to_string()));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
-        assert!(svg.matches("data%3Aimage%2Fpng%2C%2589PNG").count() >= 3);
+        assert!(
+            svg.matches("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo")
+                .count()
+                >= 3
+        );
         assert!(!svg.contains("nested/a%20b%26c.png"));
         assert!(!svg.contains("nested/a%3Fb%23c.png"));
         assert!(!svg.contains("nested/a%zz%2.png"));
@@ -16869,7 +16877,11 @@ mod tests {
         assert!(!svg_requested_asset_refs.contains(&r"figures/nested/a\b.png".to_string()));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
-        assert!(svg.matches("data%3Aimage%2Fpng%2C%2589PNG").count() >= 2);
+        assert!(
+            svg.matches("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo")
+                .count()
+                >= 2
+        );
         assert!(!svg.contains("nested/a%2Fb.png"));
         assert!(!svg.contains("nested/a%5Cb.png"));
         assert!(!svg.contains("nested%2Fa%252Fb.png"));
@@ -16939,7 +16951,7 @@ mod tests {
         assert!(!svg_requested_asset_refs.contains(&"figures/nested/%E2%82%AC.png".to_string()));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(!svg.contains("nested/%E2%82%AC.png"));
         assert!(!svg.contains("nested%2F%25E2%2582%25AC.png"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector-utf8-percent-href.svg]"));
@@ -17218,7 +17230,7 @@ mod tests {
         assert!(pdf_text.contains("/Height 2"));
         assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
-        assert!(svg.contains("data%3Aimage%2Fjpeg%2C%25FF%25D8"));
+        assert!(svg.contains("data%3Aimage%2Fjpeg%3Bbase64%2C%2F9j%2F"));
         assert!(!svg.contains("nested/photo.jpg"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
@@ -17339,7 +17351,7 @@ mod tests {
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
         assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(!svg.contains("../shared/pixel.png"));
         assert!(!svg.contains("?cache=1"));
         assert!(!pdf_text.contains("[unsupported image: figures/plots/vector.svg]"));
@@ -17578,7 +17590,7 @@ mod tests {
 
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(!svg.contains("nested/pixel.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
@@ -17627,7 +17639,7 @@ mod tests {
         });
 
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(!svg.contains("nested/pixel.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
@@ -17677,7 +17689,7 @@ mod tests {
 
         assert!(requested_asset_refs.contains(&"figures/nested/a&b.png".to_string()));
         assert!(!requested_asset_refs.contains(&"figures/nested/a&amp;b.png".to_string()));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(!svg.contains("nested/a&amp;b.png"));
         assert!(!svg.contains("nested%2Fa%26amp%3Bb.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
@@ -18017,7 +18029,7 @@ mod tests {
         });
 
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
-        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgo"));
         assert!(svg.contains("data%3A%2C"));
         assert!(!svg.contains("nested/pixel.png"));
         assert!(!svg.contains("nested%2Fpixel.png"));
@@ -26352,7 +26364,7 @@ mod tests {
         assert!(svg.contains("data-image-asset-format=\"png\""));
         assert!(svg.contains("data-image-embedded=\"true\""));
         assert!(svg.contains("<image x=\"72\" y=\"78\" width=\"144\" height=\"72\""));
-        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
         assert!(!svg.contains("[image: figures/tiny.png]"));
         assert!(!svg.contains("data-image-placeholder-kind="));
     }
@@ -26658,7 +26670,7 @@ mod tests {
         assert!(svg.contains("data-image-asset-format=\"pdf\""));
         assert!(svg.contains("data-image-converted-format=\"png\""));
         assert!(svg.contains("data-image-embedded=\"true\""));
-        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
         assert!(!svg.contains("[unsupported image: figures/vector.pdf]"));
     }
 
@@ -26981,7 +26993,7 @@ mod tests {
         assert!(svg.contains("clip-path=\"url(#image-clip-0)\""));
         assert!(svg.contains("data-image-crop-rendered=\"true\""));
         assert!(svg.contains("<image x=\"-28\" y=\"72\" width=\"200\" height=\"100\""));
-        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
         assert!(!svg.contains("[image: figures/tiny.png]"));
     }
 
@@ -27132,7 +27144,7 @@ mod tests {
         assert!(!svg.contains("<clipPath"));
         assert!(!svg.contains("data-image-crop-rendered=\"true\""));
         assert!(svg.contains("<image x=\"22\" y=\"47\" width=\"200\" height=\"100\""));
-        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
         assert!(!svg.contains("[image: figures/tiny.png]"));
     }
 
@@ -27222,7 +27234,7 @@ mod tests {
         assert!(!pdf_text.contains("[image: figures/photo.jpg]"));
         assert!(svg.contains("data-image-asset-format=\"jpeg\""));
         assert!(svg.contains("data-image-embedded=\"true\""));
-        assert!(svg.contains("href=\"data:image/jpeg,%FF%D8"));
+        assert!(svg.contains("href=\"data:image/jpeg;base64,/9j/"));
         assert!(!svg.contains("[image: figures/photo.jpg]"));
     }
 
