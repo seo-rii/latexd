@@ -7,7 +7,14 @@ use serde::{Deserialize, Serialize};
 /// Reads TeX for best-effort preview compilation without mutating the source bytes.
 pub fn read_tex_source_lossy(path: &Utf8Path) -> std::io::Result<String> {
     let bytes = fs::read(path.as_std_path())?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let mut source = String::from_utf8_lossy(&bytes).into_owned();
+    // TeX engines ignore a UTF-8 byte order mark. Blank it with spaces of the same
+    // byte length, which TeX skips at the start of a line, so offsets still match
+    // the file on disk.
+    if source.starts_with('\u{feff}') {
+        source.replace_range(..'\u{feff}'.len_utf8(), "   ");
+    }
+    Ok(source)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -289,6 +296,19 @@ mod tests {
         let source = read_tex_source_lossy(&path).expect("read legacy source");
 
         assert_eq!(source, "before\u{fffd}after");
+    }
+
+    #[test]
+    fn tex_source_reader_blanks_a_utf8_byte_order_mark_in_place() {
+        let tempdir = tempdir().expect("tempdir");
+        let path =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("bom.tex")).expect("utf8 temp path");
+        fs::write(&path, b"\xef\xbb\xbf\\documentclass{article}").expect("write bom source");
+
+        let source = read_tex_source_lossy(&path).expect("read bom source");
+
+        assert_eq!(source, "   \\documentclass{article}");
+        assert_eq!(source.len(), fs::read(&path).expect("read bytes").len());
     }
 
     #[test]

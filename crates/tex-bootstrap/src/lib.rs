@@ -1928,6 +1928,31 @@ mod tests {
     }
 
     #[test]
+    fn utf8_byte_order_mark_does_not_reach_the_output() {
+        let run = |prefix: &str| {
+            let tempdir = tempdir().expect("tempdir");
+            let root =
+                Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+            fs::write(
+                root.join("00README.yaml"),
+                "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+            )
+            .expect("manifest");
+            fs::write(
+                root.join("main.tex"),
+                format!(
+                    "{prefix}\\documentclass{{article}}\\begin{{document}}alpha\\end{{document}}"
+                ),
+            )
+            .expect("main");
+            let world = ProjectWorld::load(root).expect("world");
+            run_project(&world).expect("project run").output
+        };
+
+        assert_eq!(run("\u{feff}"), run(""));
+    }
+
+    #[test]
     fn mini_kernel_mbox_accepts_paragraph_tokens() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
