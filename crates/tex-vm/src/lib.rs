@@ -18445,8 +18445,9 @@ impl<'i> Vm<'i> {
                     self.read_stream_eof.insert(stream, true);
                     return;
                 };
+                // TeX reports end of file only once a \read finds no line left.
                 let lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
-                self.read_stream_eof.insert(stream, lines.is_empty());
+                self.read_stream_eof.insert(stream, false);
                 self.read_stream_lines.insert(stream, lines);
             }
             Primitive::CloseIn => {
@@ -18485,17 +18486,12 @@ impl<'i> Vm<'i> {
                 let Some(target) = self.read_control_sequence_name(queue) else {
                     return;
                 };
-                let next_line = if let Some(lines) = self.read_stream_lines.get_mut(&stream) {
-                    if lines.is_empty() {
-                        None
-                    } else {
-                        let line = lines.remove(0);
-                        Some((line, lines.is_empty()))
-                    }
-                } else {
-                    None
-                };
-                if let Some((line, at_eof)) = next_line {
+                let next_line = self
+                    .read_stream_lines
+                    .get_mut(&stream)
+                    .filter(|lines| !lines.is_empty())
+                    .map(|lines| lines.remove(0));
+                if let Some(line) = next_line {
                     let body = {
                         let mut line = line;
                         if let Some(register_index) =
@@ -18523,7 +18519,7 @@ impl<'i> Vm<'i> {
                         }),
                         force_global,
                     );
-                    self.read_stream_eof.insert(stream, at_eof);
+                    self.read_stream_eof.insert(stream, false);
                 } else {
                     self.define(target, Meaning::Primitive(Primitive::Relax), force_global);
                     self.read_stream_eof.insert(stream, true);
@@ -38523,10 +38519,24 @@ mod tests {
         let mut vm = Vm::new(&mut interner);
         vm.mount_file("present.cfg", "ALPHA\nBETA\n");
         let outcome = vm.run_plain(
-            r"\newread\auxstream\openin\auxstream={present.cfg}\read\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\read\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
+            r"\newread\auxstream\openin\auxstream={present.cfg}\read\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\read\auxstream to\second[\second]\ifeof\auxstream T\else F\fi\read\auxstream to\third\ifeof\auxstream T\else F\fi",
         );
 
-        assert_eq!(outcome.output, "[ALPHA]F[BETA]T");
+        assert_eq!(outcome.output, "[ALPHA]F[BETA]FT");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_loops_see_the_last_line_before_ifeof_turns_true() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+        vm.mount_file("empty.cfg", "");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\def\next{\read\auxstream to\line\ifeof\auxstream\else[\line]\expandafter\next\fi}\openin\auxstream={present.cfg}\next|\openin\auxstream={empty.cfg}\ifeof\auxstream T\else F\fi\next\ifeof\auxstream T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "[ALPHA][BETA]|FT");
         assert!(outcome.diagnostics.is_empty());
     }
 
@@ -38536,10 +38546,10 @@ mod tests {
         let mut vm = Vm::new(&mut interner);
         vm.mount_file("present.cfg", "ALPHA\nBETA\n");
         let outcome = vm.run_plain(
-            r"\newread\auxstream\openin\auxstream={present.cfg}\readline\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\readline\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
+            r"\newread\auxstream\openin\auxstream={present.cfg}\readline\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\readline\auxstream to\second[\second]\ifeof\auxstream T\else F\fi\readline\auxstream to\third\ifeof\auxstream T\else F\fi",
         );
 
-        assert_eq!(outcome.output, "[ALPHA]F[BETA]T");
+        assert_eq!(outcome.output, "[ALPHA]F[BETA]FT");
         assert!(outcome.diagnostics.is_empty());
     }
 
@@ -38552,7 +38562,7 @@ mod tests {
             r"\newread\auxstream\openin\auxstream={present.cfg}\endlinechar=`\!\read\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\endlinechar=`\?\readline\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
         );
 
-        assert_eq!(outcome.output, "[ALPHA!]F[BETA?]T");
+        assert_eq!(outcome.output, "[ALPHA!]F[BETA?]F");
         assert!(outcome.diagnostics.is_empty());
     }
 
@@ -38608,10 +38618,11 @@ mod tests {
         };
         let mut restored_interner = ControlSequenceInterner::new();
         let mut vm = Vm::restore(&mut restored_interner, &snapshot);
-        let outcome =
-            vm.run_plain(r"\read\auxstream to\second[\second][\ifeof\auxstream T\else F\fi]");
+        let outcome = vm.run_plain(
+            r"\read\auxstream to\second[\second][\ifeof\auxstream T\else F\fi]\read\auxstream to\third[\ifeof\auxstream T\else F\fi]",
+        );
 
-        assert_eq!(outcome.output, "[BETA][T]");
+        assert_eq!(outcome.output, "[BETA][F][T]");
         assert!(outcome.diagnostics.is_empty());
     }
 
