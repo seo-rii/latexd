@@ -44,18 +44,18 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\and{and}
 \newcommand{\IEEEmembership}[1]{#1}
 \newcommand{\keywords}[1]{#1}
-\def\chapter#1{#1}
-\def\section#1{#1}
-\def\subsection#1{#1}
-\def\subsubsection#1{#1}
-\def\paragraph#1{#1}
-\def\subparagraph#1{#1}
+\newcommand{\chapter}[2][]{#2}
+\newcommand{\section}[2][]{#2}
+\newcommand{\subsection}[2][]{#2}
+\newcommand{\subsubsection}[2][]{#2}
+\newcommand{\paragraph}[2][]{#2}
+\newcommand{\subparagraph}[2][]{#2}
 \def\appendix{}
 \def\phantomsection{}
 \def\addcontentsline#1#2#3{}
 \def\addtocontents#1#2{}
 \newcommand{\textcolor}[3][]{#3}
-\def\color#1{}
+\newcommand{\color}[2][]{}
 \long\def\mbox#1{#1}
 \long\def\fbox#1{#1}
 \def\normalfont{}
@@ -98,8 +98,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\centering{}
 \def\raggedright{}
 \def\raggedleft{}
-\def\pagebreak{}
-\def\nopagebreak{}
+\newcommand{\pagebreak}[1][]{}
+\newcommand{\nopagebreak}[1][]{}
 \def\noindent{}
 \def\indent{}
 \def\hfill{}
@@ -114,8 +114,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\medskip{}
 \def\smallskip{}
 \def\bigskip{}
-\def\linebreak{}
-\def\nolinebreak{}
+\newcommand{\linebreak}[1][]{}
+\newcommand{\nolinebreak}[1][]{}
 \def\sloppy{}
 \def\fussy{}
 \def\ref#1{[?]}
@@ -2437,6 +2437,31 @@ Following text.
             build.output.len()
         );
         assert!(build.diagnostics.is_empty(), "{:?}", build.diagnostics);
+    }
+
+    #[test]
+    fn mini_kernel_consumes_optional_arguments_of_headings_color_and_breaks() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("main.tex"),
+            concat!(
+                r"\begin{document}A\section[Short]{Long}B\subsection[S]{L}C\chapter[x]{Ch}D",
+                r"\color[rgb]{1,0,0}E\color{red}F\linebreak[4]G\nolinebreak[1]H",
+                r"\pagebreak[3]I\nopagebreak[2]J\end{document}",
+            ),
+        )
+        .expect("main");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output, "ALongBLCChDEFGHIJ");
     }
 
     #[test]
