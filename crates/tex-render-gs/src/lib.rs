@@ -1,7 +1,10 @@
 use std::{
     ffi::{CString, c_char, c_int, c_void},
+    io::Read,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    process::{Command, Output, Stdio},
+    sync::{Arc, Mutex, mpsc},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -379,7 +382,7 @@ impl Renderer for MockRenderer {
 
 impl Renderer for CliRenderer {
     fn render_full_page(&mut self, page: &PageRenderInput, scale: f32) -> Result<RasterImage> {
-        render_full_page_with_cli(&self.program, page, scale)
+        render_full_page_with_cli(&self.program, page, scale, EXTERNAL_RENDER_TIMEOUT)
     }
 
     fn render_tiles(
@@ -528,12 +531,34 @@ pub fn stale_tiles(cached: &[TileKey], required: &[TileRequest]) -> Vec<TileKey>
         .collect()
 }
 
+/// Upper bound for one Ghostscript or pdftoppm run, matching the TeX engine
+/// timeout. A PostScript `{} loop` in an EPS figure never terminates on its own.
+pub const EXTERNAL_RENDER_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub fn convert_pdf_or_eps_asset_to_png_with_cli(
     program: &str,
     asset_ref: &str,
     bytes: &[u8],
     page: Option<u32>,
     pagebox: Option<&str>,
+) -> Result<Vec<u8>> {
+    convert_pdf_or_eps_asset_to_png_with_cli_within(
+        program,
+        asset_ref,
+        bytes,
+        page,
+        pagebox,
+        EXTERNAL_RENDER_TIMEOUT,
+    )
+}
+
+fn convert_pdf_or_eps_asset_to_png_with_cli_within(
+    program: &str,
+    asset_ref: &str,
+    bytes: &[u8],
+    page: Option<u32>,
+    pagebox: Option<&str>,
+    timeout: Duration,
 ) -> Result<Vec<u8>> {
     let suffix = Path::new(asset_ref)
         .extension()
@@ -570,10 +595,7 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
         args.push(pagebox_arg);
     }
 
-    let output = std::process::Command::new(program)
-        .args(args)
-        .arg(input.path())
-        .output()
+    let output = output_within(Command::new(program).args(args).arg(input.path()), timeout)
         .map_err(|error| anyhow!("failed to run ghostscript {program} for {asset_ref}: {error}"))?;
     if !output.status.success() {
         return Err(anyhow!(
@@ -592,6 +614,24 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     bytes: &[u8],
     page: Option<u32>,
     pagebox: Option<&str>,
+) -> Result<Vec<u8>> {
+    convert_pdf_asset_to_png_with_pdftoppm_within(
+        program,
+        asset_ref,
+        bytes,
+        page,
+        pagebox,
+        EXTERNAL_RENDER_TIMEOUT,
+    )
+}
+
+fn convert_pdf_asset_to_png_with_pdftoppm_within(
+    program: &str,
+    asset_ref: &str,
+    bytes: &[u8],
+    page: Option<u32>,
+    pagebox: Option<&str>,
+    timeout: Duration,
 ) -> Result<Vec<u8>> {
     let input = tempfile::Builder::new()
         .prefix("latexd-asset-")
@@ -618,12 +658,14 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     if matches!(normalized_pagebox(pagebox).as_deref(), Some("cropbox")) {
         args.push("-cropbox");
     }
-    let output = std::process::Command::new(program)
-        .args(args)
-        .arg(input.path())
-        .arg(&output_prefix)
-        .output()
-        .map_err(|error| anyhow!("failed to run pdftoppm {program} for {asset_ref}: {error}"))?;
+    let output = output_within(
+        Command::new(program)
+            .args(args)
+            .arg(input.path())
+            .arg(&output_prefix),
+        timeout,
+    )
+    .map_err(|error| anyhow!("failed to run pdftoppm {program} for {asset_ref}: {error}"))?;
     if !output.status.success() {
         return Err(anyhow!(
             "pdftoppm {program} failed to convert {asset_ref}: {}",
@@ -677,14 +719,15 @@ fn render_full_page_with_cli(
     program: &str,
     page: &PageRenderInput,
     scale: f32,
+    timeout: Duration,
 ) -> Result<RasterImage> {
     ensure_pdf_path(page)?;
     let density = format!(
         "-r{}",
         72.0 * f64::from(bucket_for_scale(scale).max(10)) / 100.0
     );
-    let output = std::process::Command::new(program)
-        .args([
+    let output = output_within(
+        Command::new(program).args([
             "-q",
             "-dSAFER",
             "-dBATCH",
@@ -697,9 +740,10 @@ fn render_full_page_with_cli(
             &density,
             "-sOutputFile=%stdout",
             &page.pdf_path,
-        ])
-        .output()
-        .map_err(|error| anyhow!("failed to run ghostscript {}: {error}", program))?;
+        ]),
+        timeout,
+    )
+    .map_err(|error| anyhow!("failed to run ghostscript {}: {error}", program))?;
     if !output.status.success() {
         return Err(anyhow!(
             "ghostscript {} failed: {}",
@@ -708,6 +752,65 @@ fn render_full_page_with_cli(
         ));
     }
     decode_png_raster(&output.stdout)
+}
+
+// `Command::output` with a deadline: the child is killed once `timeout`
+// elapses. Both pipes are drained on their own threads so a converter that
+// writes a large PNG to stdout cannot stall on a full pipe while we wait.
+fn output_within(command: &mut Command, timeout: Duration) -> std::io::Result<Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = drain_pipe(child.stdout.take());
+    let stderr = drain_pipe(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let mut poll_interval = Duration::from_millis(1);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("timed out after {:.1}s", timeout.as_secs_f32()),
+            ));
+        }
+        std::thread::sleep(poll_interval.min(deadline - now));
+        poll_interval = (poll_interval * 2).min(Duration::from_millis(50));
+    };
+    // A grandchild that inherited a pipe could keep it open after the child
+    // exits; don't let that turn into a second unbounded wait.
+    let collect = |pipe: mpsc::Receiver<Vec<u8>>| {
+        pipe.recv_timeout(Duration::from_secs(5))
+            .unwrap_or_default()
+    };
+    Ok(Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
+    })
+}
+
+fn drain_pipe(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::channel();
+    match pipe {
+        Some(mut pipe) => {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = pipe.read_to_end(&mut bytes);
+                let _ = sender.send(bytes);
+            });
+        }
+        None => {
+            let _ = sender.send(Vec::new());
+        }
+    }
+    receiver
 }
 
 fn render_full_page_with_gsapi(
@@ -805,8 +908,9 @@ mod tests {
     use super::{
         CliRenderer, GsApiRenderer, GsApiRuntime, GsApiRuntimePool, MockRenderer, PageRenderInput,
         Rect, Renderer, Viewport, convert_pdf_asset_to_png_with_pdftoppm,
-        convert_pdf_or_eps_asset_to_png_with_cli, probe_gsapi_library, required_tiles_for_viewport,
-        stale_tiles, tile_key,
+        convert_pdf_asset_to_png_with_pdftoppm_within, convert_pdf_or_eps_asset_to_png_with_cli,
+        convert_pdf_or_eps_asset_to_png_with_cli_within, probe_gsapi_library,
+        render_full_page_with_cli, required_tiles_for_viewport, stale_tiles, tile_key,
     };
 
     fn sample_page() -> PageRenderInput {
@@ -1175,6 +1279,77 @@ mod tests {
         assert_eq!(tiles[0].image.height, 16);
         assert_eq!(tiles[1].rect.x, 80);
         assert_eq!(tiles[1].rect.y, 24);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_renderers_kill_a_hung_process_at_the_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{Duration, Instant};
+
+        // Stands in for Ghostscript stuck in an EPS `{} loop`; `exec` keeps the
+        // hung process the direct child, as the real converters are.
+        let directory = tempfile::tempdir().expect("tempdir");
+        let program = directory.path().join("hung-converter");
+        fs::write(&program, "#!/bin/sh\nexec sleep 20\n").expect("write fake converter");
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755))
+            .expect("make fake converter executable");
+        let program = program.to_string_lossy();
+        let page_pdf = NamedTempFile::new().expect("named temp file");
+        write_sample_pdf(page_pdf.path(), 144, 72);
+        let page = PageRenderInput {
+            pdf_path: page_pdf.path().to_string_lossy().into_owned(),
+            ..sample_page()
+        };
+        let timeout = Duration::from_millis(300);
+
+        let attempts: [(&str, Box<dyn Fn() -> anyhow::Result<()>>); 3] = [
+            (
+                "ghostscript asset",
+                Box::new(|| {
+                    convert_pdf_or_eps_asset_to_png_with_cli_within(
+                        &program,
+                        "figures/loop.eps",
+                        b"%!PS\n{} loop\n",
+                        None,
+                        None,
+                        timeout,
+                    )
+                    .map(drop)
+                }),
+            ),
+            (
+                "pdftoppm asset",
+                Box::new(|| {
+                    convert_pdf_asset_to_png_with_pdftoppm_within(
+                        &program,
+                        "figures/loop.pdf",
+                        b"%PDF-1.4\n",
+                        None,
+                        None,
+                        timeout,
+                    )
+                    .map(drop)
+                }),
+            ),
+            (
+                "ghostscript page",
+                Box::new(|| render_full_page_with_cli(&program, &page, 1.0, timeout).map(drop)),
+            ),
+        ];
+        for (label, attempt) in attempts {
+            let started = Instant::now();
+            let error = attempt().expect_err("a hung converter must fail");
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "{label} waited {:?} for a hung converter",
+                started.elapsed()
+            );
+            assert!(
+                error.to_string().contains("timed out"),
+                "{label} error: {error:#}"
+            );
+        }
     }
 
     #[test]
