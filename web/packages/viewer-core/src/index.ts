@@ -879,12 +879,17 @@ export function reduce(state, message) {
             : Math.max(1, message.page)
         };
       }
-    case "ui_zoom_changed":
+    case "ui_zoom_changed": {
+      const zoom = Math.max(0.5, Math.min(3, message.zoom));
+      if (zoom === state.zoom) {
+        return state;
+      }
       return {
         ...state,
-        zoom: Math.max(0.5, Math.min(3, message.zoom)),
+        zoom,
         tileLayers: {}
       };
+    }
     case "ui_scroll_changed":
       return {
         ...state,
@@ -1122,6 +1127,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   let tileRefreshHandle = 0;
   const tileRequestSerials = new Map();
   const tileRequestKeys = new Map();
+  const pendingTileRequestKeys = new Set<string>();
   const syncMapInflight = new Map();
   const sourceFileInflight = new Map();
   const syncInteractionSerials = new Map();
@@ -1220,10 +1226,16 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           startTileY,
           endTileY
         ].join(":");
-        if (tileRequestKeys.get(page.pageId) === requestKey) {
+        // Skip a range that is already requested, unless its layer has since been
+        // dropped (a same-revision state reload clears every tile layer).
+        if (
+          tileRequestKeys.get(page.pageId) === requestKey
+          && (pendingTileRequestKeys.has(requestKey) || existingLayer?.zoomBucket === zoomBucket)
+        ) {
           continue;
         }
         tileRequestKeys.set(page.pageId, requestKey);
+        pendingTileRequestKeys.add(requestKey);
         const requestRev = state.lastAppliedRev;
         const requestPageId = page.pageId;
         const requestSerial = (tileRequestSerials.get(requestPageId) ?? 0) + 1;
@@ -1239,6 +1251,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           tileSize: TILE_SIZE
         })
           .then((manifest) => {
+            pendingTileRequestKeys.delete(requestKey);
             if (tileRequestSerials.get(requestPageId) !== requestSerial) {
               return;
             }
@@ -1262,6 +1275,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
             render();
           })
           .catch(() => {
+            pendingTileRequestKeys.delete(requestKey);
             if (
               tileRequestSerials.get(requestPageId) === requestSerial
               && tileRequestKeys.get(requestPageId) === requestKey

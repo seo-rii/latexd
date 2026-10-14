@@ -475,6 +475,62 @@ test("socket reconnection reloads the latest preview without waiting for another
   });
 });
 
+test("a same-revision state reload refetches the tiles it cleared", async () => {
+  const options: any = {
+    driveAnimationFrames: true,
+    stateResponse: { preview_protocol_version: 1 },
+    tileManifestResponse: (url) => ({
+      rev: 15,
+      page_id: "page-a",
+      tile_size: 256,
+      items: [{ tile_x: 0, tile_y: 0, png_url: `/tiles/${url.searchParams.get("scale")}.png` }]
+    })
+  };
+  await withViewerBrowserHarness(options, async ({ viewer, sockets, flush, fetchCalls }) => {
+    const tileFetches = () => fetchCalls.filter((call) => call.url.includes("/api/tiles/")).length;
+    await flush();
+    assert.equal(tileFetches(), 1);
+    assert.equal(viewer.getState().tileLayers["page-a"]?.items.length, 1);
+
+    // Reconnecting reloads /api/state. With no new build the snapshot keeps
+    // revision 15, but applying it still drops every cached tile layer.
+    sockets[0].readyState = 1;
+    sockets[0].dispatchEvent(new Event("open"));
+    await flush();
+    await flush();
+    assert.equal(fetchCalls.filter((call) => call.url.endsWith("/api/state")).length, 2);
+    assert.equal(viewer.getState().lastAppliedRev, 15);
+    assert.equal(tileFetches(), 2, "the visible tiles are requested again");
+    assert.equal(viewer.getState().tileLayers["page-a"]?.items.length, 1);
+  });
+});
+
+test("zooming past the zoom limit keeps the visible tiles", async () => {
+  const options: any = {
+    driveAnimationFrames: true,
+    tileManifestResponse: (url) => ({
+      rev: 15,
+      page_id: "page-a",
+      tile_size: 256,
+      items: [{ tile_x: 0, tile_y: 0, png_url: `/tiles/${url.searchParams.get("scale")}.png` }]
+    })
+  };
+  await withViewerBrowserHarness(options, async ({ viewer, elements, flush }) => {
+    await flush();
+    while (viewer.getState().zoom < 3) {
+      elements.get("zoom-in").dispatchEvent(new Event("click"));
+      await flush();
+    }
+    assert.equal(viewer.getState().zoom, 3);
+    assert.equal(viewer.getState().tileLayers["page-a"]?.items[0].png_url, "/tiles/3.00.png");
+    // Already at the limit: the zoom stays at 300%, but the click still resets tiles.
+    elements.get("zoom-in").dispatchEvent(new Event("click"));
+    await flush();
+    assert.equal(viewer.getState().zoom, 3);
+    assert.equal(viewer.getState().tileLayers["page-a"]?.items[0].png_url, "/tiles/3.00.png");
+  });
+});
+
 test("viewer leases the applied preview, replaces it on commit, and releases on destroy", async () => {
   await withViewerBrowserHarness({ stateResponse: { preview_protocol_version: 1 } }, async ({ viewer, sockets, flush }) => {
     const frames = [];
