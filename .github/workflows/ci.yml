@@ -32,8 +32,11 @@ jobs:
           scripts.tests.test_check_tfm_validation_ledger
           scripts.tests.test_check_tolerance_oracle
           scripts.tests.test_check_snapshot_release_contract
+          scripts.tests.test_check_v3_cross_version
           scripts.tests.test_check_v3_independence
           scripts.tests.test_check_v3_snapshot_migration
+          scripts.tests.test_ci_python_test_list
+          scripts.tests.test_fetch_arxiv_cc0_corpus
           scripts.tests.test_vm_restore_boundary
 
       - name: Verify TeX82 TFM validation ledger
