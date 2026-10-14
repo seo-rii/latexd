@@ -3623,10 +3623,14 @@ async fn execute_external_command(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
+        let output_tail = |text: &str| {
+            let lines = text.lines().collect::<Vec<_>>();
+            lines[lines.len().saturating_sub(8)..].join("\n")
+        };
         let details = if stderr.trim().is_empty() {
-            stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+            output_tail(&stdout)
         } else {
-            stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+            output_tail(&stderr)
         };
         return Err(CompileFailure {
             diagnostics: vec![Diagnostic {
@@ -5197,6 +5201,40 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_command_failure_reports_last_output_lines_in_order() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(root.join("main.tex"), "Body.").expect("main tex");
+        let failure = CompilerDriver::new(
+            Some("/bin/sh".to_string()),
+            vec![
+                "-c".to_string(),
+                "for line in 1 2 3 4 5 6 7 8 9 10; do echo \"line $line\" >&2; done; exit 1"
+                    .to_string(),
+            ],
+        )
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("failing compiler");
+
+        assert_eq!(
+            failure.diagnostics[0].message,
+            (3..=10)
+                .map(|line| format!("line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 
     #[test]
