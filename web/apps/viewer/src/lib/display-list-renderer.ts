@@ -48,6 +48,48 @@ export function browserGlyphPathData(outline: BrowserGlyphOutline) {
   }).join(" ");
 }
 
+type BrowserFontIdentity = Pick<
+  BrowserFontAsset,
+  "face_id" | "postscript_name" | "glyph_id_kind" | "content_hash"
+>;
+
+function fontIdentityKey(font: BrowserFontIdentity) {
+  return JSON.stringify([font.face_id, font.postscript_name, font.glyph_id_kind, font.content_hash]);
+}
+
+// A page has thousands of text runs over a handful of fonts with hundreds of
+// glyphs each. Index the font list and each font's glyph paths once per
+// artifact (they are immutable) instead of once per run.
+const fontsByIdentity = new WeakMap<BrowserFontAsset[], Map<string, BrowserFontAsset>>();
+const glyphPathsByFont = new WeakMap<BrowserFontAsset, Map<number, string>>();
+
+function glyphPathsForRun(
+  resolved: BrowserFontIdentity,
+  fonts: BrowserFontAsset[]
+): Map<number, string> | null {
+  let byIdentity = fontsByIdentity.get(fonts);
+  if (!byIdentity) {
+    byIdentity = new Map();
+    for (const font of fonts) {
+      const key = fontIdentityKey(font);
+      if (!byIdentity.has(key)) {
+        byIdentity.set(key, font);
+      }
+    }
+    fontsByIdentity.set(fonts, byIdentity);
+  }
+  const font = byIdentity.get(fontIdentityKey(resolved));
+  if (!font) {
+    return null;
+  }
+  let paths = glyphPathsByFont.get(font);
+  if (!paths) {
+    paths = new Map(font.glyphs.map((outline) => [outline.glyph_id, browserGlyphPathData(outline)]));
+    glyphPathsByFont.set(font, paths);
+  }
+  return paths;
+}
+
 export function browserPositionedGlyphOutlines(
   run: BrowserTextRun,
   fonts: BrowserFontAsset[]
@@ -57,25 +99,19 @@ export function browserPositionedGlyphOutlines(
   if (!resolved || !positionedGlyphs) {
     return null;
   }
-  const font = fonts.find((candidate) => (
-    candidate.face_id === resolved.face_id
-    && candidate.postscript_name === resolved.postscript_name
-    && candidate.glyph_id_kind === resolved.glyph_id_kind
-    && candidate.content_hash === resolved.content_hash
-  ));
-  if (!font) {
+  const glyphPaths = glyphPathsForRun(resolved, fonts);
+  if (!glyphPaths) {
     return null;
   }
-  const outlines = new Map(font.glyphs.map((outline) => [outline.glyph_id, outline]));
   const result: BrowserPositionedOutline[] = [];
   for (const glyph of positionedGlyphs) {
-    const outline = outlines.get(glyph.glyph_id);
-    if (!outline) {
+    const path = glyphPaths.get(glyph.glyph_id);
+    if (path === undefined) {
       return null;
     }
     result.push({
       glyph_id: glyph.glyph_id,
-      path: browserGlyphPathData(outline),
+      path,
       transform: `matrix(${run.size_pt} 0 0 ${-run.size_pt} ${run.origin.x + glyph.offset.x} ${run.origin.y + glyph.offset.y})`
     });
   }
