@@ -886,10 +886,17 @@ fn included_pdf_pages(options: Option<&str>, page_count: u32) -> Vec<u32> {
             else {
                 continue;
             };
+            // Clamp before expanding: `pages=1-4000000000` must not allocate
+            // one entry per requested page.
+            let first = start.min(end).max(1);
+            let last = start.max(end).min(page_count);
+            if first > last {
+                continue;
+            }
             if start <= end {
-                pages.extend(start..=end);
+                pages.extend(first..=last);
             } else {
-                pages.extend((end..=start).rev());
+                pages.extend((first..=last).rev());
             }
         } else if let Some(page) = parse_endpoint(part, 1) {
             pages.push(page);
@@ -5254,6 +5261,20 @@ mod tests {
             vec![1, 3, 4, 5]
         );
         assert_eq!(included_pdf_pages(Some("pages=3-1"), 3), vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn included_pdf_page_ranges_clamp_before_expanding() {
+        assert_eq!(
+            included_pdf_pages(Some("pages=1-4000000000"), 3),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            included_pdf_pages(Some("pages={4000000000-2,1}"), 3),
+            vec![3, 2, 1]
+        );
+        assert_eq!(included_pdf_pages(Some("pages=0-2"), 3), vec![1, 2]);
+        assert_eq!(included_pdf_pages(Some("pages=5-4000000000"), 3), vec![1]);
     }
 
     #[test]
