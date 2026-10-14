@@ -1548,17 +1548,25 @@ fn materialize_project_with_bibliography_policy(
     let mut block_numbers = BTreeMap::<usize, String>::new();
     let mut block_counters = BTreeMap::<(String, Option<String>), u32>::new();
     for block in scan.blocks.iter().filter(|block| block.numbered) {
+        // Compare document order, not file offsets: the enclosing section can
+        // live in another file than the block.
         let within_scope = block.within_level.and_then(|within_level| {
-            aux.toc
+            scan.sections
                 .iter()
                 .rev()
-                .find(|entry| {
-                    entry.file == block.file
-                        && entry.offset_utf8 <= block.offset_utf8
-                        && entry.level == within_level
-                        && !entry.number.is_empty()
+                .filter(|section| {
+                    section.numbered && section.order < block.order && section.level == within_level
                 })
-                .map(|entry| entry.number.clone())
+                .find_map(|section| {
+                    aux.toc
+                        .iter()
+                        .find(|entry| {
+                            entry.file == section.file
+                                && entry.offset_utf8 == section.offset_utf8
+                                && !entry.number.is_empty()
+                        })
+                        .map(|entry| entry.number.clone())
+                })
         });
         let counter = block_counters
             .entry((block.counter_key.clone(), within_scope.clone()))
@@ -1873,15 +1881,15 @@ pub fn derive_semantic_aux(scan: &ProjectScan, pages: &[PageSourceSlice]) -> Sem
                 .find(|block| block.order == order)
                 .unwrap();
             if block.numbered {
+                // Sites arrive in document order, so the last numbered section at
+                // the scope level is the enclosing one even when it sits in
+                // another file than the block (a section in main.tex, the
+                // theorem in an \input file).
                 let within_scope = block.within_level.and_then(|within_level| {
                     numbered_sections
                         .iter()
                         .rev()
-                        .find(|(section_file, section_offset, section_level, _)| {
-                            *section_file == file
-                                && *section_offset <= offset_utf8
-                                && *section_level == within_level
-                        })
+                        .find(|(_, _, section_level, _)| *section_level == within_level)
                         .map(|(_, _, _, number)| number.clone())
                 });
                 let counter = block_counters
@@ -14131,6 +14139,47 @@ mod tests {
         assert!(main.contains("See Theorem 1.1, Corollary 1.2, Theorem 2.1, and Corollary 2.2."));
         assert!(!main.contains("\\newtheorem"));
         assert!(!main.contains("\\autoref"));
+    }
+
+    #[test]
+    fn theorems_in_input_files_number_within_the_parent_files_section() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let main = "\\newtheorem{theorem}{Theorem}[section]\\section{Intro}\\input{body}\\section{More}\\begin{theorem}\\label{thm:b}B\\end{theorem}See \\ref{thm:a} and \\ref{thm:b}.";
+        let body = "\\begin{theorem}\\label{thm:a}A\\end{theorem}";
+        fs::write(root.join("main.tex"), main).expect("write main");
+        fs::write(root.join("body.tex"), body).expect("write body");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(
+            &scan,
+            &[PageSourceSlice {
+                page_index: 0,
+                source_spans: vec![
+                    SourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 0,
+                        end_utf8: main.len() as u32,
+                    },
+                    SourceSpan {
+                        file: Utf8PathBuf::from("body.tex"),
+                        start_utf8: 0,
+                        end_utf8: body.len() as u32,
+                    },
+                ],
+            }],
+        );
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+
+        // pdflatex prints "Theorem 1.1" for the theorem in body.tex.
+        assert_eq!(aux.label_number("thm:a"), Some("1.1"));
+        assert_eq!(aux.label_number("thm:b"), Some("2.1"));
+        assert!(
+            materialized.files[&Utf8PathBuf::from("body.tex")]
+                .contains("Theorem 1.1. \\label{thm:a}A")
+        );
+        assert!(materialized.files[&Utf8PathBuf::from("main.tex")].contains("See 1.1 and 2.1."));
     }
 
     #[test]
