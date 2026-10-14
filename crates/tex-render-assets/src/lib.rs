@@ -1,5 +1,7 @@
 mod pdf;
 
+use std::borrow::Cow;
+
 pub use pdf::{PreparePdfError, pdf_page_count, prepare_pdf_form};
 
 use tex_render_model::{
@@ -118,6 +120,28 @@ pub fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option
         }
     }
     (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+// Replaces each `<!-- ... -->` comment with spaces of the same byte length, so
+// the tag scanners below never see commented-out markup and offsets into the
+// document stay valid.
+fn blank_xml_comments(text: &str) -> Cow<'_, str> {
+    if !text.contains("<!--") {
+        return Cow::Borrowed(text);
+    }
+    let mut blanked = String::with_capacity(text.len());
+    let mut remaining = text;
+    while let Some(comment_start) = remaining.find("<!--") {
+        blanked.push_str(&remaining[..comment_start]);
+        let comment_len = remaining[comment_start..]
+            .find("-->")
+            .map(|end| end + "-->".len())
+            .unwrap_or(remaining.len() - comment_start);
+        blanked.extend(std::iter::repeat_n(' ', comment_len));
+        remaining = &remaining[comment_start + comment_len..];
+    }
+    blanked.push_str(remaining);
+    Cow::Owned(blanked)
 }
 
 fn find_simple_xml_tag_end(tag_tail: &str) -> Option<usize> {
@@ -363,6 +387,8 @@ pub fn parse_svg_with_embedded_assets(
     text: &str,
     resolve_embedded_asset: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
 ) -> Option<VectorScene> {
+    let text = blank_xml_comments(text);
+    let text = text.as_ref();
     let is_start_tag_named = |tag_tail: &str, element_name: &str| {
         let Some(after_lt) = tag_tail.strip_prefix('<') else {
             return false;
@@ -9447,6 +9473,24 @@ mod tests {
         assert_eq!(scene.embedded_images[0].image.width, 2);
         assert_eq!(scene.embedded_images[0].image.height, 2);
         assert_eq!(scene.embedded_images[0].image.rgb.len(), 12);
+    }
+
+    #[test]
+    fn ignores_elements_inside_xml_comments() {
+        let scene = parse_svg(
+            r##"<!-- <svg width="1" height="1"><rect width="1" height="1"/></svg> -->
+            <svg width="100" height="50" viewBox="0 0 100 50">
+                <!-- <rect x="0" y="0" width="10" height="10" fill="#ff0000"/> -->
+                <rect x="50" y="0" width="10" height="10" fill="#00ff00"/>
+                <!-- <text x="5" y="5">hidden</text> -->
+            </svg>"##,
+        )
+        .expect("parse svg");
+
+        assert_eq!(scene.rects.len(), 1);
+        assert!((scene.rects[0].x_ratio - 0.5).abs() < f32::EPSILON);
+        assert_eq!(scene.rects[0].fill.expect("rect fill").rgb, (0.0, 1.0, 0.0));
+        assert!(scene.texts.is_empty());
     }
 
     #[test]
