@@ -294,14 +294,8 @@ impl AuxView for SemanticAux {
                 .unwrap_or_default()
                 + 1;
             if self.citation_mode == CitationMode::Numeric || entry.label.is_none() {
-                let normalized = entry
-                    .label
-                    .as_deref()
-                    .map(normalize_bibliography_inline_markup);
-                let numeric_label = normalized
-                    .as_deref()
-                    .filter(|label| parse_citation_label(label).1.is_none())
-                    .map(ToOwned::to_owned)
+                let numeric_label = self
+                    .numeric_citation_label(key)
                     .unwrap_or_else(|| fallback_position.to_string());
                 if style == CitationStyleHint::Textual
                     && let Some(author) = entry
@@ -682,6 +676,22 @@ impl SemanticAux {
             .iter()
             .position(|entry| entry.key == key)
             .map(|index| index + 1)
+    }
+
+    /// The label `\cite` prints for `key`: the `\bibitem[label]` text, such as
+    /// alpha's "Knu84", or the entry's position when it has no label or a natbib
+    /// author-year one.
+    pub fn numeric_citation_label(&self, key: &str) -> Option<String> {
+        let position = self.bibliography_number(key)?;
+        let entry = &self.bibliography[position - 1];
+        Some(
+            entry
+                .label
+                .as_deref()
+                .map(normalize_bibliography_inline_markup)
+                .filter(|label| parse_citation_label(label).1.is_none())
+                .unwrap_or_else(|| position.to_string()),
+        )
     }
 
     pub fn citation_author(&self, key: &str) -> Option<String> {
@@ -5026,8 +5036,7 @@ fn rewrite_source(
                         .map(|key| key.trim())
                         .filter(|key| !key.is_empty())
                         .map(|key| {
-                            aux.bibliography_number(key)
-                                .map(|number| number.to_string())
+                            aux.numeric_citation_label(key)
                                 .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
@@ -9610,6 +9619,36 @@ mod tests {
         assert!(!main.contains("\\pageref*"));
         assert!(!main.contains("\\cite[see][chap.~2]"));
         assert_eq!(bibliography, "[1] Alpha entry.");
+    }
+
+    #[test]
+    fn cite_prints_alphabetic_bibitem_labels() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}A \cite{a} B \cite{b,c} C \cite{a,plain}.\bibliographystyle{alpha}\bibliography{refs}\end{document}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("main.bbl"),
+            r"\begin{thebibliography}{Gam03}\bibitem[Alp01]{a} Ann Alpha. One.\bibitem[Bet02]{b} Bob Beta. Two.\bibitem[Gam03]{c} Carl Gamma. Three.\bibitem{plain} Pat Plain. Four.\end{thebibliography}",
+        )
+        .expect("write bbl");
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+        let aux = derive_semantic_aux(&scan, &[]);
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        // pdflatex with \bibliographystyle{alpha} prints the \bibitem labels.
+        assert!(
+            main.contains("A [Alp01] B [Bet02, Gam03] C [Alp01, 4]."),
+            "{main}"
+        );
     }
 
     #[test]
