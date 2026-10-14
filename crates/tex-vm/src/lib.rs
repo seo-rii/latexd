@@ -26057,7 +26057,7 @@ impl<'i> Vm<'i> {
                     }
                 }
             };
-            if policy == IntegerScanPolicy::TeX82Parameter {
+            {
                 if matches!(
                     self.peek_next_token(queue),
                     Some(Token {
@@ -26116,6 +26116,19 @@ impl<'i> Vm<'i> {
             }
             if digits.is_empty() {
                 return None;
+            }
+            // TeX's scan_int consumes one optional space after an integer constant.
+            if matches!(
+                self.peek_next_token(queue),
+                Some(Token {
+                    kind: TokenKind::Character {
+                        catcode: CatCode::Space,
+                        ..
+                    },
+                    ..
+                })
+            ) {
+                self.pop_next_token(queue);
             }
             if radix != 10 {
                 let value = i32::from_str_radix(&digits, radix).ok()?;
@@ -38688,6 +38701,33 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn integer_constants_consume_one_optional_space() {
+        for (source, expected) in [
+            (r"\count0=5 x", "x"),
+            (r"\count0=5 \the\count0", "5"),
+            (r"[\number 42 x]", "[42x]"),
+            (r"[\romannumeral 12 x]", "[xiix]"),
+            (r"\count0=`a x\the\count0", "x97"),
+            (r#"\count0="1F x\the\count0"#, "x31"),
+            (r"\count0='17 x\the\count0", "x15"),
+            (r"\escapechar=-1 \string\foo", "foo"),
+            (r"\catcode`\[=1 \catcode`\]=2 [x]", "x"),
+            (r"\count0=5  x", "x"),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, expected, "{source}");
+            assert!(
+                outcome.diagnostics.is_empty(),
+                "{source}: {:?}",
+                outcome.diagnostics
+            );
+        }
     }
 
     #[test]
