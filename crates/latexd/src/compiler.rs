@@ -3338,6 +3338,7 @@ impl CompilerDriver {
             }
         }
 
+        mirror_source_directories(&request.root, &rev_dir);
         copy_previous_external_aux_files(
             &request.build_root,
             previous_revision_limit,
@@ -3671,6 +3672,38 @@ fn is_external_compiler_warning(line: &str) -> bool {
         || lower
             .split_once(" warning:")
             .is_some_and(|(producer, _)| !producer.is_empty() && !producer.contains(' '))
+}
+
+/// With `-output-directory`, TeX writes the aux file of
+/// `\include{chapters/intro}` to `<output>/chapters/intro.aux` and stops with
+/// "I can't write on file" when that directory is missing, so recreate the
+/// project's (non-hidden) directory tree inside the revision directory.
+fn mirror_source_directories(root: &Utf8Path, rev_dir: &Utf8Path) {
+    let mut pending = vec![Utf8PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        let Ok(entries) = fs::read_dir(root.join(&relative)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            // `DirEntry::file_type` does not follow symlinks, which keeps the
+            // walk inside the project and free of cycles.
+            let is_directory = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            let directory = relative.join(name.as_str());
+            // Skip hidden directories (`.git`, `.latexd`) and any directory
+            // holding the build output, which would otherwise mirror itself.
+            if !is_directory || name.starts_with('.') || rev_dir.starts_with(root.join(&directory))
+            {
+                continue;
+            }
+            if let Err(error) = fs::create_dir_all(rev_dir.join(&directory)) {
+                tracing::warn!("failed to mirror source directory {directory}: {error}");
+            }
+            pending.push(directory);
+        }
+    }
 }
 
 fn copy_previous_external_aux_files(
@@ -5090,8 +5123,9 @@ mod tests {
         earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
         has_fatal_internal_diagnostics, included_pdf_pages, is_external_compiler_warning,
         load_latest_previous_internal_build, map_internal_diagnostics,
-        map_missing_graphic_render_diagnostic, materialize_display_list_asset, parse_depfile,
-        parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        map_missing_graphic_render_diagnostic, materialize_display_list_asset,
+        mirror_source_directories, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         remap_render_event_provenance, render_ir_display_list_svg_file_name,
         renderer_unchanged_tail, replay_checkpoint_from_stored, resolve_graphic_asset_materializer,
         run_external_command, save_checkpoint_bundle_observed, save_source_texts,
@@ -5197,6 +5231,85 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(super::ExternalCommandError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_compiler_can_write_aux_files_of_included_subdirectory_sources() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(root.join("chapters")).expect("chapters dir");
+        fs::write(root.join("main.tex"), r"\include{chapters/intro}").expect("main tex");
+        fs::write(root.join("chapters/intro.tex"), "Intro.").expect("intro tex");
+        // Like pdflatex with `-output-directory`, write the `\include`d
+        // file's aux next to its source path inside the output directory.
+        fs::write(
+            root.join("fake-tex.sh"),
+            concat!(
+                "printf '\\\\relax\\n' > \"$1/chapters/intro.aux\" || exit 1\n",
+                "printf '%%PDF-1.4\\n' > \"$1/main.pdf\"\n",
+            ),
+        )
+        .expect("fake engine");
+
+        CompilerDriver::new(
+            Some("/bin/sh".to_string()),
+            vec!["{root}/fake-tex.sh".to_string(), "{out_dir}".to_string()],
+        )
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("included subdirectory aux is writable");
+
+        assert!(root.join(".latexd/build/rev-1/chapters/intro.aux").exists());
+    }
+
+    #[test]
+    fn mirrored_source_directories_skip_hidden_and_build_output_directories() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        for directory in ["chapters/part", ".git/hooks", "build/rev-1"] {
+            fs::create_dir_all(root.join(directory)).expect("project directory");
+        }
+        let rev_dir = root.join("build/rev-1");
+
+        mirror_source_directories(&root, &rev_dir);
+
+        assert!(rev_dir.join("chapters/part").is_dir());
+        assert!(!rev_dir.join(".git").exists());
+        assert!(!rev_dir.join("build").exists());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed pdflatex (and no tectonic) on PATH"]
+    async fn external_pdflatex_build_includes_subdirectory_sources() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(root.join("chapters")).expect("chapters dir");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass{article}\begin{document}\include{chapters/intro}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(root.join("chapters/intro.tex"), "Intro.").expect("intro tex");
+
+        CompilerDriver::new(None, Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: root.join(".latexd/build"),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("external pdflatex build with \\include");
     }
 
     #[test]
