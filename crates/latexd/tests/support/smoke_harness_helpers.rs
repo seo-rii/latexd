@@ -204,7 +204,11 @@ fn copy_test_fixture_tree(source_root: &Utf8Path, target_root: &Utf8Path) {
             let source_path = Utf8PathBuf::from_path_buf(entry.path()).expect("utf8 source path");
             let target_path = target_dir.join(entry.file_name().to_string_lossy().as_ref());
             if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
-                copy_dirs.push((source_path, target_path));
+                // Dev-server state (`serve --root fixtures/...`) and VCS metadata are
+                // not fixture input; copying them would seed tests with stale builds.
+                if !matches!(entry.file_name().to_str(), Some(".latexd" | ".git")) {
+                    copy_dirs.push((source_path, target_path));
+                }
                 continue;
             }
             fs::copy(source_path.as_std_path(), target_path.as_std_path())
