@@ -134,10 +134,18 @@ fn float_kind_and_width(block: &tex_render_model::BlockKind) -> Option<(FloatKin
     }
 }
 
+/// Layout containers and floats nested deeper than this are not opened: their
+/// contents go to the enclosing block. The nesting comes from the document, and
+/// layout, cloning and serialization all recurse once per level (the page
+/// builder alone needs about 170KiB of stack per level in debug builds).
+const MAX_BLOCK_NESTING: usize = 8;
+
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
     layout_container_stack: Vec<LayoutContainerBlock>,
+    /// Names of containers left unopened at the nesting limit, innermost last.
+    flattened_containers: Vec<String>,
     labels: Vec<LabelDefinitionIr>,
     footnotes: Vec<FootnoteIr>,
     active_footnote: Option<ActiveFootnote>,
@@ -152,6 +160,8 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
     float_stack: Vec<ActiveFloat>,
+    /// Floats left unopened at the nesting limit, innermost last.
+    flattened_floats: Vec<(FloatKind, bool)>,
     document_class: Option<DocumentClassIr>,
     layout: Option<DocumentLayoutIntent>,
     title: Option<(String, SourceProvenance)>,
@@ -171,6 +181,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             aux,
             blocks: Vec::new(),
             layout_container_stack: Vec::new(),
+            flattened_containers: Vec::new(),
             labels: Vec::new(),
             footnotes: Vec::new(),
             active_footnote: None,
@@ -185,6 +196,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             list: None,
             list_item: None,
             float_stack: Vec::new(),
+            flattened_floats: Vec::new(),
             document_class: None,
             layout: None,
             title: None,
@@ -433,13 +445,17 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         | tex_render_model::BlockKind::FullWidthTable => {
                             let (kind, full_width) = float_kind_and_width(&event.block)
                                 .expect("matched float block kind");
-                            self.float_stack.push(ActiveFloat {
-                                kind,
-                                full_width,
-                                children: Vec::new(),
-                                captions: Vec::new(),
-                                source: envelope.meta.source.clone(),
-                            });
+                            if self.block_nesting_is_full() {
+                                self.flattened_floats.push((kind, full_width));
+                            } else {
+                                self.float_stack.push(ActiveFloat {
+                                    kind,
+                                    full_width,
+                                    children: Vec::new(),
+                                    captions: Vec::new(),
+                                    source: envelope.meta.source.clone(),
+                                });
+                            }
                         }
                         tex_render_model::BlockKind::Environment { name } => {
                             if let Some((name, content, source)) = self.environment_content.take() {
@@ -449,7 +465,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     source,
                                 }));
                             }
-                            if matches!(name.as_str(), "algorithm" | "algorithm*") {
+                            if matches!(name.as_str(), "algorithm" | "algorithm*")
+                                && self.block_nesting_is_full()
+                            {
+                                self.flattened_containers.push(name.clone());
+                            } else if matches!(name.as_str(), "algorithm" | "algorithm*") {
                                 self.layout_container_stack.push(LayoutContainerBlock {
                                     name: name.clone(),
                                     width_spec: "\\linewidth".to_string(),
@@ -494,7 +514,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     tex_render_model::BlockKind::Environment { name } => {
                         if matches!(name.as_str(), "algorithm" | "algorithm*") {
                             self.flush_paragraph();
-                            if let Some(position) = self
+                            if self.flattened_containers.last() == Some(name) {
+                                self.flattened_containers.pop();
+                            } else if let Some(position) = self
                                 .layout_container_stack
                                 .iter()
                                 .rposition(|container| container.name == *name)
@@ -514,6 +536,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     .layout_container_stack
                                     .pop()
                                     .expect("matching algorithm container");
+                                self.clear_flattened_blocks();
                                 self.push_block(IrBlock::LayoutContainer(container));
                             }
                         } else if let Some((open_name, mut content, source)) =
@@ -539,6 +562,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         let Some((kind, full_width)) = float_kind_and_width(&event.block) else {
                             unreachable!("matched float block kind");
                         };
+                        if self.flattened_floats.last() == Some(&(kind, full_width)) {
+                            self.flattened_floats.pop();
+                            continue;
+                        }
                         let Some(position) = self.float_stack.iter().rposition(|active| {
                             active.kind == kind && active.full_width == full_width
                         }) else {
@@ -553,11 +580,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .push(nested.into_block());
                         }
                         let active = self.float_stack.pop().expect("matching float");
+                        self.clear_flattened_blocks();
                         self.push_block(active.into_block());
                     }
                 },
                 RenderEvent::BeginLayoutContainer(event) => {
                     self.flush_paragraph();
+                    if self.block_nesting_is_full() {
+                        self.flattened_containers.push(event.name.clone());
+                        continue;
+                    }
                     self.layout_container_stack.push(LayoutContainerBlock {
                         name: event.name.clone(),
                         width_spec: event.width_spec.clone(),
@@ -570,7 +602,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 }
                 RenderEvent::EndLayoutContainer(event) => {
                     self.flush_paragraph();
-                    if let Some(position) = self
+                    if self.flattened_containers.last() == Some(&event.name) {
+                        self.flattened_containers.pop();
+                    } else if let Some(position) = self
                         .layout_container_stack
                         .iter()
                         .rposition(|container| container.name == event.name)
@@ -590,6 +624,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             .layout_container_stack
                             .pop()
                             .expect("matching layout container");
+                        self.clear_flattened_blocks();
                         self.push_block(IrBlock::LayoutContainer(container));
                     }
                 }
@@ -1366,6 +1401,17 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         document
     }
 
+    fn block_nesting_is_full(&self) -> bool {
+        self.layout_container_stack.len() + self.float_stack.len() >= MAX_BLOCK_NESTING
+    }
+
+    /// Unopened blocks are always nested inside every open one, so closing an
+    /// open block also closes them.
+    fn clear_flattened_blocks(&mut self) {
+        self.flattened_containers.clear();
+        self.flattened_floats.clear();
+    }
+
     fn push_block(&mut self, block: IrBlock) {
         if let Some(container) = self.layout_container_stack.last_mut() {
             container.children.push(block);
@@ -1517,18 +1563,19 @@ mod tests {
     use std::collections::BTreeMap;
 
     use tex_render_model::{
-        BeginBlockEvent, BeginFootnoteEvent, BibliographyBlock, BibliographyItemEvent, BlockKind,
-        CaptionEvent, CaptionInlinePlaceholderEvent, CitationLabel, CitationLabelForm,
-        CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
-        EndFootnoteEvent, EventBuildContext, EventOrigin, EventProducer, FloatCaptionView,
-        FloatKind, FloatPlacement, FlushTitleBlockEvent, FootnoteCommandKind,
-        GraphicAssetDimensions, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
-        InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
-        LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent, PageBreakKind,
-        ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
-        SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellEvent,
-        TableColumnAlignment, TableColumnSpec, TableEvent, TableRowEvent, TableRuleSpan, TextEvent,
+        BeginBlockEvent, BeginFootnoteEvent, BeginLayoutContainerEvent, BibliographyBlock,
+        BibliographyItemEvent, BlockKind, CaptionEvent, CaptionInlinePlaceholderEvent,
+        CitationLabel, CitationLabelForm, CitationStyleHint, DocumentClassEvent,
+        DocumentLayoutIntent, EndBlockEvent, EndFootnoteEvent, EndLayoutContainerEvent,
+        EventBuildContext, EventOrigin, EventProducer, FloatCaptionView, FloatKind, FloatPlacement,
+        FlushTitleBlockEvent, FootnoteCommandKind, GraphicAssetDimensions, GraphicRefEvent,
+        HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent,
+        IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField,
+        PageBreakEvent, PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+        SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent,
+        SpaceKind, TableCellEvent, TableColumnAlignment, TableColumnSpec, TableEvent,
+        TableRowEvent, TableRuleSpan, TextEvent,
     };
 
     use super::build_document_ir;
@@ -1602,6 +1649,111 @@ mod tests {
             origin,
         )
         .expect("synthetic layout fixture must use a valid event origin")
+    }
+
+    #[test]
+    fn deep_block_nesting_is_flattened_so_layout_cannot_overflow_the_stack() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let nest = |begin: RenderEvent, end: RenderEvent| {
+            let depth = 200;
+            let mut events = std::iter::repeat_n(begin, depth)
+                .chain([RenderEvent::Text(TextEvent {
+                    text: "innermost".to_string(),
+                })])
+                .chain(std::iter::repeat_n(end, depth))
+                .chain([
+                    RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                        reason: ParagraphBreakReason::BlankLine,
+                    }),
+                    RenderEvent::Text(TextEvent {
+                        text: "after".to_string(),
+                    }),
+                ])
+                .collect::<Vec<_>>();
+            RenderEventStream::new(
+                Some("deep-nesting".to_string()),
+                events
+                    .drain(..)
+                    .enumerate()
+                    .map(|(index, event)| {
+                        synthetic_envelope(index as u64 + 1, event, source.clone())
+                    })
+                    .collect(),
+            )
+        };
+        let streams = [
+            nest(
+                RenderEvent::BeginLayoutContainer(BeginLayoutContainerEvent {
+                    name: "minipage".to_string(),
+                    width_spec: "\\linewidth".to_string(),
+                    alignment: None,
+                    height_spec: None,
+                    inner_alignment: None,
+                }),
+                RenderEvent::EndLayoutContainer(EndLayoutContainerEvent {
+                    name: "minipage".to_string(),
+                }),
+            ),
+            nest(
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Figure,
+                }),
+                RenderEvent::EndBlock(EndBlockEvent {
+                    block: BlockKind::Figure,
+                }),
+            ),
+        ];
+
+        // The default stack of a spawned (test, tokio worker) thread.
+        let results = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                streams
+                    .iter()
+                    .map(|stream| {
+                        let ir = build_document_ir(
+                            stream,
+                            &Labels {
+                                labels: BTreeMap::new(),
+                                targets: BTreeMap::new(),
+                            },
+                        );
+                        let mut ir_depth = 0;
+                        let mut level = ir.blocks.as_slice();
+                        while let Some(children) = level.iter().find_map(|block| match block {
+                            IrBlock::LayoutContainer(block) => Some(block.children.as_slice()),
+                            IrBlock::Float(block) => Some(block.children.as_slice()),
+                            _ => None,
+                        }) {
+                            ir_depth += 1;
+                            level = children;
+                        }
+                        let page_text = crate::build_page_display_lists(
+                            &ir,
+                            crate::PageDisplayListOptions::default(),
+                        )
+                        .into_iter()
+                        .flat_map(|page| page.ops)
+                        .filter_map(|op| match op {
+                            tex_render_model::DrawOp::TextRun(run) => Some(run.text),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                        (ir_depth, ir.blocks.len(), page_text)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .expect("spawn layout thread")
+            .join()
+            .expect("IR and layout finished without overflowing the stack");
+
+        for (ir_depth, top_level_blocks, page_text) in results {
+            assert_eq!(ir_depth, super::MAX_BLOCK_NESTING);
+            assert_eq!(top_level_blocks, 2, "the nest and the paragraph after it");
+            assert!(page_text.contains("innermost"), "{page_text}");
+            assert!(page_text.contains("after"), "{page_text}");
+        }
     }
 
     #[test]
