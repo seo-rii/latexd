@@ -493,7 +493,9 @@ fn run_pass(
                 if endpoint.append_hyphen() {
                     demerits += HYPHEN_PENALTY.powi(2);
                 }
-                if state.line_count > 0 && fitness.distance(state.fitness) > 1 {
+                // The start state is a decent-fit node, as in TeX, so a very loose
+                // first line also pays the adjacent-fitness demerits.
+                if fitness.distance(state.fitness) > 1 {
                     demerits += ADJACENT_FITNESS_DEMERITS;
                 }
                 if state.previous_hyphen && endpoint.append_hyphen() {
@@ -696,6 +698,37 @@ mod tests {
         assert!(lines[0].append_hyphen);
         assert!(text.is_char_boundary(lines[0].end_utf8));
         assert_eq!(&text[lines[1].start_utf8..lines[1].end_utf8], "sive");
+    }
+
+    fn line_texts(text: &str, width: f32, tolerance: f64) -> Vec<String> {
+        let font = mono_font();
+        let mut request = request(text, &font, width, width);
+        request.settings.tolerance = tolerance;
+        select_paragraph_breaks(request)
+            .expect("paragraph has feasible breaks")
+            .into_iter()
+            .map(|line| {
+                let mut line_text = text[line.start_utf8..line.end_utf8].to_string();
+                if line.append_hyphen {
+                    line_text.push('-');
+                }
+                line_text
+            })
+            .collect()
+    }
+
+    // Expected lines in these tests come from plain TeX: cmtt10 scaled
+    // to 6pt glyphs (this font's fallback width) with `\spaceskip=6pt plus 3pt
+    // minus 2pt` and LaTeX's default demerits.
+
+    #[test]
+    fn applies_adjacent_fitness_demerits_to_the_first_line() {
+        // TeX starts from a decent-fit node, so a very loose first line pays
+        // \adjdemerits even though no line precedes it.
+        assert_eq!(
+            line_texts("bbb eeee ggg e g c bbb fff cccc", 84.0, 9_999.0),
+            ["bbb eeee ggg e", "g c bbb fff", "cccc"]
+        );
     }
 
     #[test]
