@@ -2820,7 +2820,7 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
-                "newlength" if in_document => {
+                "newlength" | "stepcounter" | "refstepcounter" if in_document => {
                     let argument_index = skip_ascii_whitespace(source, index);
                     if let Some((_, _, _, after_argument)) =
                         read_braced_source_argument(source, argument_index)
@@ -2851,7 +2851,7 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
-                "setlength" | "addtolength" if in_document => {
+                "setlength" | "addtolength" | "setcounter" | "addtocounter" if in_document => {
                     let mut argument_index = skip_ascii_whitespace(source, index);
                     for _ in 0..2 {
                         let Some((_, _, _, after_argument)) =
@@ -20992,6 +20992,11 @@ impl<'i> Vm<'i> {
                 let bare_counter_name = self.tokens_to_text(counter_name_tokens);
                 let counter_name = format!("c@{bare_counter_name}");
                 let Some(register_index) = self.resolve_count_register_name(&counter_name) else {
+                    // LaTeX still reads the value of an unknown counter; leaving it in the
+                    // input typeset it as text.
+                    if matches!(primitive, Primitive::SetCounter | Primitive::AddToCounter) {
+                        let _ = self.read_macro_argument(queue);
+                    }
                     return;
                 };
                 let delta = match primitive {
@@ -38688,6 +38693,34 @@ mod tests {
 
         assert_eq!(outcome.output, "xiv[i]x");
         assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn counter_commands_do_not_typeset_their_arguments() {
+        for source in [r"\setcounter{section}{4}x", r"\addtocounter{section}{4}x"] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert_eq!(outcome.output, "x", "{source}");
+        }
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\begin{document}\addtocounter{section}{4}x\stepcounter{section}y\setcounter{section}{2}z\refstepcounter{section}w\end{document}",
+        );
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|envelope| match &envelope.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(visible_text, "xyzw");
     }
 
     #[test]
