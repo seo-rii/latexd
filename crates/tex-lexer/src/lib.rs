@@ -610,8 +610,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn normalizes_crlf_like_lf(random in "[ -~]{0,64}") {
-            let source_lf = random.replace('\r', "R").replace('\n', "N");
+        fn normalizes_crlf_like_lf(source_lf in "[ -~\n]{0,64}") {
             let source_crlf = source_lf.replace('\n', "\r\n");
 
             let mut interner_lf = ControlSequenceInterner::new();
