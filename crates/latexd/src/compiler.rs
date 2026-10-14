@@ -2917,6 +2917,10 @@ impl CompilerDriver {
                     tracked_inputs.push(request.toplevel.clone());
                     tracked_inputs
                 });
+            // sources.json holds the text of TeX inputs. Graphics stay tracked for
+            // rebuilds, but stored as lossy text they bloat every revision snapshot
+            // and the viewer's source list with undecodable image bytes.
+            let source_inputs = tracked_inputs.clone();
             tracked_inputs.extend(
                 render_ir_capture
                     .events
@@ -2939,7 +2943,7 @@ impl CompilerDriver {
             save_source_texts(
                 &source_texts_path,
                 &request.root,
-                &tracked_inputs,
+                &source_inputs,
                 &executed_sources,
                 materialized_project
                     .as_ref()
@@ -19768,6 +19772,59 @@ mod tests {
                     .replace("/pages/", "/pages/")
                     .replace(".pdf", ".svg"),
             ),
+        }
+    }
+
+    #[tokio::test]
+    async fn internal_source_snapshot_keeps_text_inputs_and_skips_binary_graphics() {
+        let temp = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_owned()).expect("utf8 tempdir");
+        image::RgbImage::from_pixel(8, 8, image::Rgb([200, 30, 30]))
+            .save(root.join("figure.png").as_std_path())
+            .expect("figure");
+        // A Latin-1 chapter: not UTF-8, but still a source the viewer can show.
+        fs::write(root.join("chapter.tex"), b"Caf\xe9 au lait.\n").expect("chapter");
+        let build_root = root.join(".latexd/build");
+        let driver = super::CompilerDriver::new(Some("internal".into()), Vec::new());
+        // Revision 2 has a label, so it takes the semantic aux (materialized) path.
+        for (rev, label) in [(1, ""), (2, "\\label{fig}")] {
+            fs::write(
+                root.join("main.tex"),
+                format!(
+                    "\\documentclass{{article}}\\usepackage{{graphicx}}\\begin{{document}}\
+                     Alpha{label} \\input{{chapter}} \\includegraphics{{figure.png}}\\end{{document}}"
+                ),
+            )
+            .expect("main");
+            driver
+                .compile(super::CompileRequest {
+                    root: root.clone(),
+                    manifest: tex_world::ProjectManifest::discover(&root).expect("manifest"),
+                    toplevel: "main.tex".into(),
+                    rev,
+                    build_root: build_root.clone(),
+                    changed_files: vec!["main.tex".into()],
+                })
+                .await
+                .expect("internal build");
+
+            let stored: serde_json::Value = serde_json::from_slice(
+                &fs::read(build_root.join(format!("rev-{rev}/sources.json")))
+                    .expect("sources.json"),
+            )
+            .expect("parse sources.json");
+            let files = stored["files"].as_object().expect("files");
+            assert!(
+                files.contains_key("main.tex"),
+                "rev {rev}: {:?}",
+                files.keys()
+            );
+            assert_eq!(files["chapter.tex"], "Caf\u{fffd} au lait.\n", "rev {rev}");
+            assert!(
+                !files.contains_key("figure.png"),
+                "rev {rev}: a binary graphic must not be stored as source text: {:?}",
+                files.keys()
+            );
         }
     }
 }
