@@ -5257,6 +5257,11 @@ pub fn parse_svg_with_embedded_assets(
         }
         Some((ops, closed))
     };
+    // Content of <defs> and of the other never-rendered containers is only drawn
+    // through references (<use>, clip-path, mask, fill, marker), wherever the
+    // container appears.
+    const NON_RENDERED_CONTAINERS: [&str; 6] =
+        ["defs", "clipPath", "mask", "pattern", "symbol", "marker"];
     let mut defs_ranges = Vec::new();
     let mut defs_stack = Vec::new();
     let mut defs_search_index = 0usize;
@@ -5266,16 +5271,19 @@ pub fn parse_svg_with_embedded_assets(
         let Some(defs_tag_end) = find_simple_xml_tag_end(defs_tag_tail) else {
             break;
         };
-        let is_defs_close = defs_tag_tail.starts_with("</defs")
-            && defs_tag_tail[6..]
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_whitespace() || ch == '>');
-        let is_defs_open = defs_tag_tail.starts_with("<defs")
-            && defs_tag_tail[5..]
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'));
+        let is_defs_close = defs_tag_tail.strip_prefix("</").is_some_and(|tail| {
+            NON_RENDERED_CONTAINERS.iter().any(|name| {
+                tail.strip_prefix(name).is_some_and(|after| {
+                    after
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_whitespace() || ch == '>')
+                })
+            })
+        });
+        let is_defs_open = NON_RENDERED_CONTAINERS
+            .iter()
+            .any(|name| is_start_tag_named(defs_tag_tail, name));
         if is_defs_close {
             if let Some(start) = defs_stack.pop() {
                 defs_ranges.push((start, defs_tag_start + defs_tag_end + 1));
@@ -9514,5 +9522,42 @@ mod tests {
         );
 
         assert_eq!(refs, vec!["figures/nested/pixel.png"]);
+    }
+
+    #[test]
+    fn does_not_draw_non_rendered_containers_outside_defs() {
+        let scene = parse_svg(
+            r##"<svg width="100" height="50" viewBox="0 0 100 50">
+                <clipPath id="c"><rect x="0" y="0" width="10" height="10" fill="#ff0000"/></clipPath>
+                <symbol id="s"><rect x="10" y="0" width="10" height="10" fill="#ff0000"/></symbol>
+                <marker id="m"><circle cx="1" cy="1" r="1" fill="#ff0000"/></marker>
+                <mask id="k"><rect x="20" y="0" width="10" height="10" fill="#ffffff"/></mask>
+                <pattern id="p" width="4" height="4"><rect x="30" y="0" width="4" height="4" fill="#ff0000"/></pattern>
+                <rect x="50" y="0" width="10" height="10" fill="#00ff00"/>
+                <use href="#s" x="0" y="20"/>
+            </svg>"##,
+        )
+        .expect("parse svg");
+
+        assert_eq!(
+            scene
+                .rects
+                .iter()
+                .map(|rect| rect.fill.map(|fill| fill.rgb))
+                .collect::<Vec<_>>(),
+            vec![Some((0.0, 1.0, 0.0))]
+        );
+        assert!(scene.ellipses.is_empty());
+        assert_eq!(
+            scene
+                .paths
+                .iter()
+                .map(|path| (path.fill.map(|fill| fill.rgb), path.ops.first().cloned()))
+                .collect::<Vec<_>>(),
+            vec![(
+                Some((1.0, 0.0, 0.0)),
+                Some(tex_render_model::VectorPathOp::MoveTo((0.1, 0.4)))
+            )]
+        );
     }
 }
