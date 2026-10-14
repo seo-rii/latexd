@@ -173,6 +173,33 @@ fn decode_simple_xml_attribute_value(raw_value: &str) -> String {
     decoded
 }
 
+/// Builds the `data:` URI that embeds raster image bytes in SVG output.
+///
+/// Base64 grows the bytes by 4/3. Percent-encoding, used before, left only about
+/// a quarter of PNG or JPEG bytes as single characters, which made the URI about
+/// 2.5 times the image size, and close to 4 times inside a nested SVG figure,
+/// whose `%` signs are escaped again when the page SVG embeds it.
+pub fn raster_data_uri(media_type: &str, bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut uri = format!("data:{media_type};base64,");
+    uri.reserve(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let group = chunk.iter().enumerate().fold(0u32, |group, (index, byte)| {
+            group | u32::from(*byte) << (16 - 8 * index)
+        });
+        for index in 0..4 {
+            if index <= chunk.len() {
+                uri.push(char::from(
+                    ALPHABET[(group >> (18 - 6 * index)) as usize & 63],
+                ));
+            } else {
+                uri.push('=');
+            }
+        }
+    }
+    uri
+}
+
 /// Rewrites external raster references so the SVG can be embedded without loading remote data.
 ///
 /// Resolved PNG and JPEG assets become data URIs. Unresolved or unsupported external references
@@ -285,16 +312,7 @@ pub fn rewrite_svg_for_embedding(
                     } else {
                         None
                     }?;
-                    let mut data_uri = format!("data:{media_type},");
-                    for byte in asset_bytes {
-                        match byte {
-                            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                                data_uri.push(byte as char)
-                            }
-                            _ => data_uri.push_str(&format!("%{byte:02X}")),
-                        }
-                    }
-                    Some(data_uri)
+                    Some(raster_data_uri(media_type, &asset_bytes))
                 })
                 .or_else(|| {
                     let trimmed_href = decoded_href.trim();
@@ -9388,7 +9406,7 @@ mod tests {
     };
 
     use super::{
-        parse_svg, parse_svg_with_embedded_assets, prepare_svg_materialization,
+        parse_svg, parse_svg_with_embedded_assets, prepare_svg_materialization, raster_data_uri,
         rewrite_svg_for_embedding, svg_embedded_asset_refs,
     };
 
@@ -9466,7 +9484,7 @@ mod tests {
         let rewritten = rewrite_svg_for_embedding(svg, "figures/vector.svg", |asset_ref| {
             (asset_ref == "figures/pixel.png").then(|| png.clone())
         });
-        assert!(rewritten.contains("href=\"data:image/png,"));
+        assert!(rewritten.contains("href=\"data:image/png;base64,"));
 
         let sanitized = rewrite_svg_for_embedding(svg, "figures/vector.svg", |_| None);
         assert!(sanitized.contains("href=\"data:,\""));
@@ -9493,7 +9511,7 @@ mod tests {
             prepared
                 .embeddable_svg
                 .as_deref()
-                .is_some_and(|svg| svg.contains("href=\"data:image/png,"))
+                .is_some_and(|svg| svg.contains("href=\"data:image/png;base64,"))
         );
 
         let changed_png = tiny_png_bytes_with_first_red(64);
@@ -9504,6 +9522,52 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn raster_data_uri_uses_standard_padded_base64() {
+        for (input, encoded) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(
+                raster_data_uri("image/png", input.as_bytes()),
+                format!("data:image/png;base64,{encoded}")
+            );
+        }
+        assert_eq!(
+            raster_data_uri("image/jpeg", &[0xff, 0xd8, 0xff, 0xfe]),
+            "data:image/jpeg;base64,/9j//g=="
+        );
+    }
+
+    #[test]
+    fn rewrites_svg_raster_references_as_base64_data_uris() {
+        let svg = r#"<svg width="20" height="20" viewBox="0 0 20 20"><image href="pixel.png" width="20" height="20"/></svg>"#;
+        let png = tiny_png_bytes();
+        let rewritten = rewrite_svg_for_embedding(svg, "figures/vector.svg", |asset_ref| {
+            (asset_ref == "figures/pixel.png").then(|| png.clone())
+        });
+
+        // The PNG signature 89 50 4E 47 0D 0A 1A 0A encodes as "iVBORw0KGgo".
+        assert!(
+            rewritten.contains("href=\"data:image/png;base64,iVBORw0KGgo"),
+            "{rewritten}"
+        );
+        let href_start = rewritten.find("data:").expect("data uri");
+        let href_len = rewritten[href_start..].find('"').expect("closing quote");
+        assert_eq!(
+            href_len,
+            "data:image/png;base64,".len() + png.len().div_ceil(3) * 4
+        );
+        let scene = parse_svg(&rewritten).expect("parse rewritten svg");
+        assert_eq!(scene.embedded_images.len(), 1);
+        assert_eq!(scene.embedded_images[0].image.width, 2);
     }
 
     #[test]

@@ -5363,7 +5363,7 @@ fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
     assert!(display_list_svg.contains("data-image-asset-ref=\"figures/plot.png\""));
     assert!(display_list_svg.contains("data-image-asset-format=\"png\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
-    assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
+    assert!(display_list_svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
     assert!(!display_list_svg.contains("[image: figures/plot.png]"));
 }
 
@@ -5480,7 +5480,7 @@ fn project_root_render_ir_capture_reuses_and_invalidates_prepared_svg_assets() {
         first_asset
             .embeddable_svg
             .as_deref()
-            .is_some_and(|svg| svg.contains("data:image/png,"))
+            .is_some_and(|svg| svg.contains("data:image/png;base64,"))
     );
     let first_request = first_request.clone();
     let first_prepared_hash = first_asset.content_hash.clone();
@@ -5944,7 +5944,7 @@ fn project_root_render_ir_capture_embeds_jpeg_assets_in_debug_artifacts() {
     assert!(display_list_svg.contains("data-image-asset-ref=\"figures/photo.jpg\""));
     assert!(display_list_svg.contains("data-image-asset-format=\"jpeg\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
-    assert!(display_list_svg.contains("href=\"data:image/jpeg,%FF%D8"));
+    assert!(display_list_svg.contains("href=\"data:image/jpeg;base64,/9j/"));
     assert!(!display_list_svg.contains("[image: figures/photo.jpg]"));
 }
 
@@ -6874,7 +6874,7 @@ fn project_root_render_ir_capture_directly_embeds_pdf_and_keeps_svg_fallback_whe
     assert!(display_list_svg.contains("data-image-asset-format=\"pdf\""));
     assert!(display_list_svg.contains("data-image-converted-format=\"png\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
-    assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
+    assert!(display_list_svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
     assert!(!display_list_svg.contains("[unsupported image: figures/plot.pdf]"));
 
     let png_path = root.join("direct-pdf-form.png");
@@ -6954,7 +6954,7 @@ showpage
     assert!(display_list_svg.contains("data-image-asset-format=\"eps\""));
     assert!(display_list_svg.contains("data-image-converted-format=\"png\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
-    assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
+    assert!(display_list_svg.contains("href=\"data:image/png;base64,iVBORw0KGgo"));
     assert!(!display_list_svg.contains("[unsupported image: figures/vector.eps]"));
 }
 
